@@ -2,16 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { login } from "@/lib/auth";
-import { consumePostLoginRedirect, saveAccessToken } from "@/lib/session";
+import { FormEvent, useEffect, useState } from "react";
+import { getCurrentUser, login } from "@/lib/auth";
+import { consumePostLoginRedirect } from "@/lib/session";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    getCurrentUser()
+      .then(() => router.replace("/chat"))
+      .catch(() => undefined);
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,7 +32,6 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const result = await login({ email: email.trim(), password });
-      saveAccessToken(result.accessToken);
       const redirectPath = consumePostLoginRedirect() ?? "/chat";
       setMessage(`登录成功，欢迎 ${result.user.email}`);
       router.replace(redirectPath);
@@ -59,14 +65,23 @@ export default function LoginPage() {
 
             <label className="block">
               <span className="text-sm font-medium text-stone-700">密码</span>
-              <input
-                className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50/60 px-4 py-3 text-base outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="至少 8 位"
-                autoComplete="current-password"
-              />
+              <div className="mt-2 flex items-center gap-2 rounded-2xl border border-stone-200 bg-stone-50/60 px-4 py-1.5 focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-100">
+                <input
+                  className="min-w-0 flex-1 bg-transparent py-3 text-base outline-none"
+                  type={passwordVisible ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="至少 8 位"
+                  autoComplete="current-password"
+                />
+                <button
+                  className="shrink-0 text-sm font-medium text-stone-500 transition hover:text-stone-800"
+                  type="button"
+                  onClick={() => setPasswordVisible((current) => !current)}
+                >
+                  {passwordVisible ? "隐藏" : "显示"}
+                </button>
+              </div>
             </label>
 
             {message ? <p className="rounded-2xl bg-stone-100 px-4 py-3 text-sm text-stone-700">{message}</p> : null}

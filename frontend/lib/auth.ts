@@ -7,11 +7,21 @@ export type AuthUser = {
 };
 
 export type LoginResult = {
-  accessToken: string;
   tokenType: "Bearer";
   expiresIn: number;
   user: AuthUser;
 };
+
+export function getCurrentUser() {
+  return apiFetch<AuthUser>("/api/auth/me");
+}
+
+export function logout() {
+  return apiFetch<null>("/api/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
 
 export function register(payload: { email: string; password: string }) {
   return apiFetch<AuthUser>("/api/auth/register", {

@@ -19,9 +19,11 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final AuthCookieHelper authCookieHelper;
 
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, AuthCookieHelper authCookieHelper) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.authCookieHelper = authCookieHelper;
     }
 
     @Override
@@ -31,9 +33,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
         try {
-            String authorization = request.getHeader("Authorization");
-            if (authorization != null && authorization.startsWith("Bearer ")) {
-                String token = authorization.substring(7);
+            String token = authCookieHelper.resolveAccessToken(request);
+            if (token != null) {
                 if (jwtTokenProvider.isValid(token)) {
                     Claims claims = jwtTokenProvider.parse(token);
                     Long userId = ((Number) claims.get("user_id")).longValue();

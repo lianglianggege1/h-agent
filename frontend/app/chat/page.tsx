@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiStream } from "@/lib/http";
-import { clearAccessToken, getAccessToken, savePostLoginRedirect } from "@/lib/session";
+import { getCurrentUser, logout } from "@/lib/auth";
+import { savePostLoginRedirect } from "@/lib/session";
 
 type ChatRole = "assistant" | "user";
 
@@ -19,10 +20,7 @@ const starterPrompts = ["帮我排今天的工作计划", "给我写一个日报
 export default function ChatPage() {
   const router = useRouter();
   const messageEndRef = useRef<HTMLDivElement | null>(null);
-  const [hasToken, setHasToken] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return Boolean(getAccessToken());
-  });
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
@@ -35,11 +33,14 @@ export default function ChatPage() {
   ]);
 
   useEffect(() => {
-    if (!hasToken) {
-      savePostLoginRedirect("/chat");
-      router.replace("/auth/login");
-    }
-  }, [hasToken, router]);
+    getCurrentUser()
+      .then(() => setAuthenticated(true))
+      .catch(() => {
+        setAuthenticated(false);
+        savePostLoginRedirect("/chat");
+        router.replace("/auth/login");
+      });
+  }, [router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -108,8 +109,7 @@ export default function ChatPage() {
         ),
       );
       if (message === "Unauthorized") {
-        clearAccessToken();
-        setHasToken(false);
+        setAuthenticated(false);
         savePostLoginRedirect("/chat");
         router.replace("/auth/login");
       }
@@ -118,14 +118,17 @@ export default function ChatPage() {
     }
   }
 
-  function handleLogout() {
-    clearAccessToken();
-    setHasToken(false);
-    savePostLoginRedirect("/chat");
-    router.replace("/auth/login");
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      setAuthenticated(false);
+      savePostLoginRedirect("/chat");
+      router.replace("/auth/login");
+    }
   }
 
-  if (!hasToken) {
+  if (authenticated !== true) {
     return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
   }
 

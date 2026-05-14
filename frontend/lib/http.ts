@@ -1,5 +1,3 @@
-import { getAccessToken } from "./session";
-
 export type ApiResponse<T> = {
   code: number;
   message: string;
@@ -18,14 +16,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
 
-  const token = getAccessToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   const response = await fetch(path, {
     ...init,
     headers,
+    credentials: "include",
   });
   const body = await parseApiResponse<T>(response);
 
@@ -48,14 +42,10 @@ export async function apiStream(
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
 
-  const token = getAccessToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   const response = await fetch(path, {
     ...init,
     headers,
+    credentials: "include",
   });
 
   if (!response.ok) {

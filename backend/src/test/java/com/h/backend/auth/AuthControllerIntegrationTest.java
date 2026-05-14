@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.auth.dto.LoginRequest;
 import com.h.backend.auth.dto.RegisterRequest;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -53,6 +54,35 @@ class AuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.data.user.email").value(email));
+    }
+
+    @Test
+    void shouldSetAuthCookieAndResolveCurrentUser() throws Exception {
+        String email = uniqueEmail();
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123"))))
+                .andExpect(status().isOk());
+
+        Cookie authCookie = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123"))))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getCookie("h_agent_access_token");
+
+        mockMvc.perform(get("/api/auth/me").cookie(authCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.email").value(email));
+    }
+
+    @Test
+    void shouldLogoutByClearingAuthCookie() throws Exception {
+        mockMvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
     }
 
     @Test
