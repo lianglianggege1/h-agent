@@ -3,31 +3,42 @@ package com.h.backend.chat.config;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.util.StringUtils;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Properties;
 
 @Configuration
 public class ChatModelConfig {
 
     @Bean
-    public StreamingChatModel streamingChatModel(
-            @Value("${ai.openai.api-key:}") String apiKey,
-            @Value("${ai.openai.base-url:https://api.openai.com/v1}") String baseUrl,
-            @Value("${ai.openai.model:gpt-4.1-mini}") String modelName
-    ) {
-        if (!StringUtils.hasText(apiKey)) {
+    public StreamingChatModel streamingChatModel() {
+
+        Path envPath = Path.of(".env");
+        if (!Files.exists(envPath)) {
             return new DisabledStreamingChatModel();
         }
 
-        return OpenAiStreamingChatModel.builder()
-                .apiKey(apiKey)
-                .baseUrl(baseUrl)
-                .modelName(modelName)
-                .timeout(Duration.ofSeconds(60))
-                .build();
+        Properties properties = new Properties();
+
+        try (var reader = Files.newBufferedReader(envPath)) {
+            properties.load(reader);
+
+            return OpenAiStreamingChatModel.builder()
+                    .apiKey(properties.getProperty("API_KEY"))
+                    .baseUrl(properties.getProperty("BASE_URL"))
+                    .modelName(properties.getProperty("MODEL_NAME"))
+                    .timeout(Duration.ofSeconds(60))
+                    .build();
+
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to load .env file", ex);
+        }
+
     }
+
 }

@@ -5,7 +5,7 @@ import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.memory.chat.ChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.model.chat.StreamingChatModel;

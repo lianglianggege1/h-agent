@@ -49,3 +49,6 @@ build/
 
 # Git worktrees
 .worktrees/
+
+# env
+.env
