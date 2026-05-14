@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -17,6 +18,9 @@ import java.util.List;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final String SECURITY_CONTEXT_REQUEST_ATTRIBUTE =
+            HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY;
 
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthCookieHelper authCookieHelper;
@@ -32,6 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
+        restoreSecurityContextFromRequest(request);
         try {
             String token = authCookieHelper.resolveAccessToken(request);
             if (token != null) {
@@ -50,11 +55,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             List.of(new SimpleGrantedAuthority("ROLE_" + role))
                     );
                     SecurityContextHolder.getContext().setAuthentication(authentication);
+                    request.setAttribute(SECURITY_CONTEXT_REQUEST_ATTRIBUTE, SecurityContextHolder.getContext());
                 }
             }
             filterChain.doFilter(request, response);
         } finally {
             LocalThread.clear();
+        }
+    }
+
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    private void restoreSecurityContextFromRequest(HttpServletRequest request) {
+        Object context = request.getAttribute(SECURITY_CONTEXT_REQUEST_ATTRIBUTE);
+        if (context instanceof org.springframework.security.core.context.SecurityContext securityContext) {
+            SecurityContextHolder.setContext(securityContext);
+            Object principal = securityContext.getAuthentication() == null
+                    ? null
+                    : securityContext.getAuthentication().getPrincipal();
+            if (principal instanceof AuthUserPrincipal authUserPrincipal) {
+                LocalThread.setUser(authUserPrincipal.userId(), authUserPrincipal.email());
+            }
         }
     }
 }

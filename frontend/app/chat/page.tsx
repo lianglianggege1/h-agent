@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiStream } from "@/lib/http";
@@ -216,21 +215,9 @@ export default function ChatPage() {
               </button>
             </form>
 
-            <nav className="mt-3 grid grid-cols-3 rounded-[1.4rem] bg-white p-1 text-sm">
-              <Link className="rounded-[1rem] bg-stone-900 px-3 py-2 text-center font-medium text-white" href="/chat">
-                对话
-              </Link>
-              <Link className="rounded-[1rem] px-3 py-2 text-center text-stone-500" href="/">
-                首页
-              </Link>
-              <button
-                className="rounded-[1rem] px-3 py-2 text-center text-stone-500"
-                type="button"
-                onClick={handleLogout}
-              >
-                我的
-              </button>
-            </nav>
+            <div className="mt-3 rounded-[1.4rem] bg-white px-4 py-3 text-center text-sm font-medium text-stone-500">
+              当前仅开放 AI 对话模块
+            </div>
           </div>
         </div>
       </section>
