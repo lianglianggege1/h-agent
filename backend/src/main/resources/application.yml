@@ -1,1 +1,20 @@
-spring.application.name=backend
+spring:
+  application:
+    name: backend
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
+    username: h_agent
+    password: h_agent
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  secret: change-this-to-256-bit-secret-change-this
+  expiration-seconds: 7200

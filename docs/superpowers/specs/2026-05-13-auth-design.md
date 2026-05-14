@@ -40,9 +40,9 @@
    - 登录：校验邮箱/密码、签发 JWT
 
 3. **用户模型层**
-   - `User`：用户主体信息
-   - `UserRole`：用户角色映射
-   - `UserRepository` / `UserRoleRepository`
+   - `UserEntity`：用户主体信息
+   - `UserRoleEntity`：用户角色映射
+   - `UserMapper` / `UserRoleMapper`：MyBatis-Plus 持久层
 
 4. **Security 层**
    - `JwtTokenProvider`：生成与解析 token（包含 `user_id`）
@@ -52,17 +52,17 @@
 ### 2.2 前端模块（H5）
 
 1. **页面层**
-   - `RegisterPage`：邮箱、密码、确认密码
-   - `LoginPage`：邮箱、密码
+   - `frontend/app/auth/register/page.tsx`：邮箱、密码、确认密码
+   - `frontend/app/auth/login/page.tsx`：邮箱、密码
+   - `frontend/app/page.tsx`：移动端入口
 
 2. **API 层**
-   - `register(payload)`
-   - `login(payload)`
-   - 统一错误码与错误提示映射
+   - `frontend/lib/auth.ts`：`register(payload)`、`login(payload)`
+   - `frontend/lib/http.ts`：统一错误处理与请求头注入
 
 3. **会话层**
-   - 登录成功后保存 `accessToken`
-   - 请求拦截器自动附加 `Authorization: Bearer <token>`
+   - `frontend/lib/session.ts`：登录成功后保存 `accessToken`
+   - `apiFetch` 自动附加 `Authorization: Bearer <token>`
 
 ### 2.3 模块边界原则
 
@@ -232,15 +232,24 @@ JWT Claims：
 
 使用 **Flyway** 管理数据库迁移：
 
-- 迁移脚本统一放在 `resources/db/migration`
+- 迁移脚本统一放在 `backend/src/main/resources/db/migration`
+- 当前脚本为 `V1__create_users_and_roles.sql`
 - 开发/测试/生产按版本顺序自动执行
-- JPA `ddl-auto` 使用 `validate`，避免生产环境隐式改表
+- 本项目当前使用 MyBatis-Plus，不使用 JPA 自动建表
 
 ---
 
-## 5. 关键流程、错误处理与测试策略
+## 5. 实现配置、关键流程、错误处理与测试策略
 
-### 5.1 注册流程
+### 5.1 实现配置
+
+- 后端实际基线：Spring Boot 3.4.0、Spring Security、MyBatis-Plus Boot3 Starter、PostgreSQL、Flyway、JWT。
+- 前端实际基线：Next.js App Router、React、TypeScript、Tailwind CSS。
+- 前端 `/api/:path*` 代理默认指向 `http://localhost:8080`，可通过 `BACKEND_API_BASE_URL` 覆盖。
+- 后端 JWT 配置项：`jwt.secret`、`jwt.expiration-seconds`。
+
+
+### 5.2 注册流程
 
 1. 前端提交 `email + password`
 2. 后端参数校验
@@ -249,7 +258,7 @@ JWT Claims：
 5. 写入 `users` + `user_roles(USER)`
 6. 返回注册成功信息
 
-### 5.2 登录流程
+### 5.3 登录流程
 
 1. 前端提交 `email + password`
 2. 后端查询用户并校验密码
@@ -257,20 +266,20 @@ JWT Claims：
 4. 签发 JWT（包含 `user_id`）
 5. 返回 token 与基础用户信息
 
-### 5.3 受保护接口访问流程
+### 5.4 受保护接口访问流程
 
 1. 前端附带 Bearer Token 请求
 2. JWT 过滤器解析 token
 3. 解析成功写入 SecurityContext
 4. 接口按鉴权规则放行/拒绝
 
-### 5.4 错误处理规范
+### 5.5 错误处理规范
 
 - 认证失败统一输出标准 JSON
 - 区分参数错误、业务冲突、鉴权失败三类错误码
 - 错误信息可读但不泄露内部实现（如不返回具体哈希策略）
 
-### 5.5 测试策略
+### 5.6 测试策略
 
 后端：
 
@@ -288,6 +297,8 @@ JWT Claims：
 - 页面交互：必填校验、密码确认一致性
 - API 交互：注册/登录成功与失败提示
 - 会话：token 存储与请求头注入
+- `apiFetch` 非 JSON / 空响应健壮性测试
+- `npm run lint` 与 `npm run build` 作为前端集成验证
 
 ---
 
