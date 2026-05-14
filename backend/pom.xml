@@ -15,6 +15,7 @@
     <description>h-agent Backend Service</description>
     <properties>
         <java.version>23</java.version>
+        <langchain4j.version>1.11.7</langchain4j.version>
     </properties>
     <dependencies>
         <dependency>
@@ -63,6 +64,16 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>0.12.7</version>
             <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-core</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>${langchain4j.version}</version>
         </dependency>
 
         <dependency>

@@ -35,3 +35,63 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
 
   return body.data as T;
 }
+
+export async function apiStream(
+  path: string,
+  init: RequestInit,
+  handlers: {
+    onChunk: (value: string) => void;
+    onDone?: (value: string) => void;
+    onError?: (message: string) => void;
+  },
+) {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+
+  const token = getAccessToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(path, {
+    ...init,
+    headers,
+  });
+
+  if (!response.ok) {
+    const body = await parseApiResponse<null>(response);
+    throw new Error(body.message || "请求失败");
+  }
+
+  if (!response.body) {
+    throw new Error("浏览器不支持流式响应");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      const event = JSON.parse(line) as { type: string; content: string };
+      if (event.type === "chunk") {
+        handlers.onChunk(event.content);
+      } else if (event.type === "done") {
+        handlers.onDone?.(event.content);
+      } else if (event.type === "error") {
+        handlers.onError?.(event.content);
+        throw new Error(event.content || "请求失败");
+      }
+    }
+  }
+}

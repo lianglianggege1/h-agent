@@ -1,3 +1,7 @@
+server:
+  http2:
+    enabled: true
+
 spring:
   application:
     name: backend
@@ -18,3 +22,9 @@ mybatis-plus:
 jwt:
   secret: change-this-to-256-bit-secret-change-this
   expiration-seconds: 7200
+
+ai:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    model: ${OPENAI_CHAT_MODEL:gpt-4.1-mini}
