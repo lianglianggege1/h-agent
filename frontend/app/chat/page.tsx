@@ -1,0 +1,236 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { apiStream } from "@/lib/http";
+import { clearAccessToken, getAccessToken, savePostLoginRedirect } from "@/lib/session";
+
+type ChatRole = "assistant" | "user";
+
+type ChatMessage = {
+  id: string;
+  role: ChatRole;
+  content: string;
+};
+
+const starterPrompts = ["帮我排今天的工作计划", "给我写一个日报模板", "整理一个 AI 功能需求草稿"];
+
+export default function ChatPage() {
+  const router = useRouter();
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const [hasToken, setHasToken] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return Boolean(getAccessToken());
+  });
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content: "你好，我是 H-Agent。登录后你可以在这里直接发起 AI 对话，我会以流式方式实时回复。",
+    },
+  ]);
+
+  useEffect(() => {
+    if (!hasToken) {
+      savePostLoginRedirect("/chat");
+      router.replace("/auth/login");
+    }
+  }, [hasToken, router]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const canSubmit = useMemo(() => input.trim().length > 0 && !streaming, [input, streaming]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = input.trim();
+    if (!content || streaming) return;
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content,
+    };
+    const assistantId = `assistant-${Date.now()}`;
+
+    setInput("");
+    setError("");
+    setStreaming(true);
+    setMessages((current) => [
+      ...current,
+      userMessage,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
+
+    try {
+      await apiStream(
+        "/api/chat/messages/stream",
+        {
+          method: "POST",
+          body: JSON.stringify({ message: content }),
+        },
+        {
+          onChunk(chunk) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? { ...message, content: `${message.content}${chunk}` }
+                  : message,
+              ),
+            );
+          },
+          onDone(finalContent) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, content: finalContent } : message,
+              ),
+            );
+          },
+          onError(message) {
+            setError(message);
+          },
+        },
+      );
+    } catch (streamError) {
+      const message = streamError instanceof Error ? streamError.message : "发送失败";
+      setError(message);
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === assistantId && !item.content
+            ? { ...item, content: "暂时无法响应，请稍后重试。" }
+            : item,
+        ),
+      );
+      if (message === "Unauthorized") {
+        clearAccessToken();
+        setHasToken(false);
+        savePostLoginRedirect("/chat");
+        router.replace("/auth/login");
+      }
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  function handleLogout() {
+    clearAccessToken();
+    setHasToken(false);
+    savePostLoginRedirect("/chat");
+    router.replace("/auth/login");
+  }
+
+  if (!hasToken) {
+    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+  }
+
+  return (
+    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
+      <section className="mx-auto flex min-h-screen w-full max-w-md flex-col">
+        <header className="sticky top-0 z-10 border-b border-stone-200/80 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
+              <h1 className="mt-2 text-xl font-semibold">AI 对话</h1>
+            </div>
+            <button
+              className="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-600 transition hover:bg-stone-100"
+              type="button"
+              onClick={handleLogout}
+            >
+              退出
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
+          <div className="rounded-[1.75rem] bg-stone-900 px-5 py-5 text-stone-50 shadow-[0_20px_40px_rgba(58,45,28,0.18)]">
+            <p className="text-sm text-stone-300">今日状态</p>
+            <p className="mt-2 text-lg font-semibold">已连接流式 AI 对话服务</p>
+            <p className="mt-2 text-sm leading-6 text-stone-300">
+              支持登录后访问、历史上下文记忆、实时逐字返回。
+            </p>
+          </div>
+
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {starterPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                className="shrink-0 rounded-full border border-stone-200 bg-white/90 px-4 py-2 text-sm text-stone-600 shadow-sm"
+                type="button"
+                onClick={() => setInput(prompt)}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {messages.map((message) => (
+              <article
+                key={message.id}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={[
+                    "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
+                    message.role === "user"
+                      ? "rounded-br-md bg-stone-900 text-stone-50"
+                      : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
+                  ].join(" ")}
+                >
+                  {message.content || (streaming && message.role === "assistant" ? "正在思考..." : "")}
+                </div>
+              </article>
+            ))}
+            <div ref={messageEndRef} />
+          </div>
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-md bg-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="rounded-[2rem] border border-stone-200 bg-[#f8f5ec]/95 p-3 shadow-[0_-8px_30px_rgba(58,45,28,0.12)] backdrop-blur">
+            {error ? <p className="px-2 pb-2 text-sm text-red-600">{error}</p> : null}
+
+            <form className="flex items-end gap-3" onSubmit={handleSubmit}>
+              <textarea
+                className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.4rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="输入你想聊的内容..."
+                rows={1}
+              />
+              <button
+                className="h-12 shrink-0 rounded-full bg-stone-900 px-5 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
+                type="submit"
+                disabled={!canSubmit}
+              >
+                {streaming ? "生成中" : "发送"}
+              </button>
+            </form>
+
+            <nav className="mt-3 grid grid-cols-3 rounded-[1.4rem] bg-white p-1 text-sm">
+              <Link className="rounded-[1rem] bg-stone-900 px-3 py-2 text-center font-medium text-white" href="/chat">
+                对话
+              </Link>
+              <Link className="rounded-[1rem] px-3 py-2 text-center text-stone-500" href="/">
+                首页
+              </Link>
+              <button
+                className="rounded-[1rem] px-3 py-2 text-center text-stone-500"
+                type="button"
+                onClick={handleLogout}
+              >
+                我的
+              </button>
+            </nav>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
