@@ -48,7 +48,7 @@ export default function LoginPage() {
         <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-6 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
           <p className="text-sm font-medium uppercase tracking-[0.28em] text-amber-700">H-Agent</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">邮箱登录</h1>
-          <p className="mt-2 text-sm leading-6 text-stone-500">登录后即可进入独立 AI 对话页。</p>
+          <p className="mt-2 text-sm leading-6 text-stone-500">登录后即可进入专属AI空间。</p>
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             <label className="block">

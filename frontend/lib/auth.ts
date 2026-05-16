@@ -12,6 +12,7 @@ export type LoginResult = {
   user: AuthUser;
 };
 
+// 获取当前用户信息
 export function getCurrentUser() {
   return apiFetch<AuthUser>("/api/auth/me");
 }

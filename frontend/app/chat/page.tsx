@@ -14,7 +14,92 @@ type ChatMessage = {
   content: string;
 };
 
-const starterPrompts = ["帮我排今天的工作计划", "给我写一个日报模板", "整理一个 AI 功能需求草稿"];
+type MessageSegment =
+  | {
+      type: "text";
+      content: string;
+    }
+  | {
+      type: "think";
+      content: string;
+      complete: boolean;
+    };
+
+const starterPrompts = ["主人，你今天工作怎么样呢？", "主人，和我聊聊天吧!", "主人，有什么难题尽管问我哦!"];
+
+function parseMessageSegments(content: string): MessageSegment[] {
+  if (!content) return [];
+
+  const segments: MessageSegment[] = [];
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const thinkStart = content.indexOf("<think>", cursor);
+    if (thinkStart < 0) {
+      segments.push({ type: "text", content: content.slice(cursor) });
+      break;
+    }
+
+    if (thinkStart > cursor) {
+      segments.push({ type: "text", content: content.slice(cursor, thinkStart) });
+    }
+
+    const thinkContentStart = thinkStart + "<think>".length;
+    const thinkEnd = content.indexOf("</think>", thinkContentStart);
+    if (thinkEnd < 0) {
+      segments.push({
+        type: "think",
+        content: content.slice(thinkContentStart),
+        complete: false,
+      });
+      break;
+    }
+
+    segments.push({
+      type: "think",
+      content: content.slice(thinkContentStart, thinkEnd),
+      complete: true,
+    });
+    cursor = thinkEnd + "</think>".length;
+  }
+
+  return segments.filter((segment) => segment.content);
+}
+
+function AssistantMessageContent({ content }: { content: string }) {
+  const segments = parseMessageSegments(content);
+  if (segments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      {segments.map((segment, index) => {
+        if (segment.type === "text") {
+          return (
+            <p key={`text-${index}`} className="whitespace-pre-wrap">
+              {segment.content}
+            </p>
+          );
+        }
+
+        return (
+          <details
+            key={`think-${index}`}
+            className="rounded-2xl border border-stone-200 bg-stone-50/90 px-3 py-2 text-stone-600"
+          >
+            <summary className="cursor-pointer list-none text-xs font-medium tracking-[0.18em] text-stone-500">
+              {segment.complete ? "思考过程" : "思考中..."}
+            </summary>
+            <div className="mt-2 whitespace-pre-wrap text-xs leading-6 text-stone-500">
+              {segment.content}
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function ChatPage() {
   const router = useRouter();
@@ -27,7 +112,7 @@ export default function ChatPage() {
     {
       id: "welcome",
       role: "assistant",
-      content: "你好，我是 H-Agent。登录后你可以在这里直接发起 AI 对话，我会以流式方式实时回复。",
+      content: "你好，我是 嘿 。登录后你可以在这里和我聊天了！",
     },
   ]);
 
@@ -186,7 +271,17 @@ export default function ChatPage() {
                       : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
                   ].join(" ")}
                 >
-                  {message.content || (streaming && message.role === "assistant" ? "正在思考..." : "")}
+                  {message.role === "assistant" ? (
+                    message.content ? (
+                      <AssistantMessageContent content={message.content} />
+                    ) : streaming ? (
+                      "正在思考..."
+                    ) : (
+                      ""
+                    )
+                  ) : (
+                    message.content
+                  )}
                 </div>
               </article>
             ))}

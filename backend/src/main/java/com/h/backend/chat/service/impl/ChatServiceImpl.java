@@ -39,11 +39,12 @@ public class ChatServiceImpl implements ChatService {
         this.streamingChatModel = streamingChatModel;
     }
 
+    // 把异步返回的消息同步进此线程，并流式返回给用户
     @Override
     public String streamChat(Long userId, String userMessage, Consumer<String> onChunk) {
         ChatMemory memory = memoryByUser.computeIfAbsent(
                 userId,
-                ignored -> MessageWindowChatMemory.withMaxMessages(20)
+                ignored -> MessageWindowChatMemory.withMaxMessages(2)
         );
 
         if (memory.messages().isEmpty()) {
@@ -60,6 +61,8 @@ public class ChatServiceImpl implements ChatService {
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         try {
+            // 这个地方可以优化为单独类实现
+            // 还要考虑有多个用户同时询问的情况出现
             streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String partialResponse) {
