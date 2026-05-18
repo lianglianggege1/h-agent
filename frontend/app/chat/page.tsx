@@ -108,7 +108,6 @@ export default function ChatPage() {
   const sessionIdRef = useRef(crypto.randomUUID());
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -233,7 +232,6 @@ export default function ChatPage() {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function handleLogout() {
     try {
       await logout();
