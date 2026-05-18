@@ -4,5 +4,5 @@ import java.util.function.Consumer;
 
 public interface ChatService {
 
-    String streamChat(String sessionId, String userMessage, Consumer<String> onChunk);
+    String streamChat(Long userId, Long promptId, String sessionId, String userMessage, Consumer<String> onChunk);
 }

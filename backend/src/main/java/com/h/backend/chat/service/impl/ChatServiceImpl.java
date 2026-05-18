@@ -2,6 +2,7 @@ package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.service.ChatService;
+import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.model.ModelDisabledException;
 import org.springframework.stereotype.Service;
@@ -14,19 +15,23 @@ import java.util.function.Consumer;
 public class ChatServiceImpl implements ChatService {
 
     private final HAssistant hAssistant;
+    private final SystemPromptService systemPromptService;
 
-    public ChatServiceImpl(HAssistant hAssistant) {
+    public ChatServiceImpl(HAssistant hAssistant, SystemPromptService systemPromptService) {
         this.hAssistant = hAssistant;
+        this.systemPromptService = systemPromptService;
     }
 
     @Override
-    public String streamChat(String sessionId, String userMessage, Consumer<String> onChunk) {
+    public String streamChat(Long userId, Long promptId, String sessionId, String userMessage, Consumer<String> onChunk) {
         StringBuilder replyBuilder = new StringBuilder();
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
+        String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
 
         // h-agent的runtime loop
-        hAssistant.chat(sessionId, userMessage)
+        hAssistant.chat(memoryId, userMessage)
                 .onPartialResponse(chunk -> {
                     replyBuilder.append(chunk);
                     onChunk.accept(chunk);

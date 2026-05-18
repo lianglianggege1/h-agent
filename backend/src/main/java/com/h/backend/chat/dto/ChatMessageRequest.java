@@ -9,6 +9,8 @@ public record ChatMessageRequest(
         String message,
 
         @NotBlank(message = "sessionId 不能为空")
-        String sessionId
+        String sessionId,
+
+        Long promptId
 ) {
 }

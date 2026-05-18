@@ -39,6 +39,8 @@ public class ChatController {
             OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
             try {
                 String reply = chatService.streamChat(
+                        principal.userId(),
+                        request.promptId(), // 需要有一个默认的 存在数据库中
                         request.sessionId(),
                         request.message().trim(),
                         chunk -> writeEvent(writer, new ChatStreamEvent("chunk", chunk))
