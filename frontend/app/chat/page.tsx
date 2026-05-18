@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
+import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
 
 type ChatRole = "assistant" | "user";
 
@@ -106,9 +108,13 @@ export default function ChatPage() {
   const sessionIdRef = useRef(crypto.randomUUID());
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
+  const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
+  const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -119,7 +125,13 @@ export default function ChatPage() {
 
   useEffect(() => {
     getCurrentUser()
-      .then(() => setAuthenticated(true))
+      .then(async () => {
+        setAuthenticated(true);
+        const list = await listSystemPrompts();
+        setPrompts(list);
+        const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
+        setSelectedPromptId(defaultPrompt?.id ?? null);
+      })
       .catch(() => {
         setAuthenticated(false);
         savePostLoginRedirect("/chat");
@@ -132,6 +144,20 @@ export default function ChatPage() {
   }, [messages]);
 
   const canSubmit = useMemo(() => input.trim().length > 0 && !streaming, [input, streaming]);
+
+  function handleSelectPrompt(promptId: number) {
+    if (promptId === selectedPromptId || streaming) return;
+    setSelectedPromptId(promptId);
+    sessionIdRef.current = crypto.randomUUID();
+    setError("");
+    setMessages([
+      {
+        id: `welcome-${promptId}`,
+        role: "assistant",
+        content: "已切换系统提示词，现在可以开始新的对话。",
+      },
+    ]);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,7 +185,11 @@ export default function ChatPage() {
         "/api/chat/messages/stream",
         {
           method: "POST",
-          body: JSON.stringify({ message: content, sessionId: sessionIdRef.current }),
+          body: JSON.stringify({
+            message: content,
+            sessionId: sessionIdRef.current,
+            promptId: selectedPromptId,
+          }),
         },
         {
           onChunk(chunk) {
@@ -203,6 +233,7 @@ export default function ChatPage() {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function handleLogout() {
     try {
       await logout();
@@ -221,18 +252,20 @@ export default function ChatPage() {
     <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
       <section className="mx-auto flex min-h-screen w-full max-w-md flex-col">
         <header className="sticky top-0 z-10 border-b border-stone-200/80 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-full border border-stone-300 bg-white/80 transition hover:bg-stone-100"
+              type="button"
+              aria-label="打开菜单"
+              onClick={() => setDrawerOpen(true)}
+            >
+              <span className="h-0.5 w-5 rounded-full bg-stone-800" />
+              <span className="h-0.5 w-5 rounded-full bg-stone-800" />
+            </button>
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
               <h1 className="mt-2 text-xl font-semibold">AI 对话</h1>
             </div>
-            <button
-              className="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-600 transition hover:bg-stone-100"
-              type="button"
-              onClick={handleLogout}
-            >
-              退出
-            </button>
           </div>
         </header>
 
@@ -243,6 +276,36 @@ export default function ChatPage() {
             <p className="mt-2 text-sm leading-6 text-stone-300">
               支持登录后访问、历史上下文记忆、实时逐字返回。
             </p>
+          </div>
+
+          <div className="mt-4 rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-700">SystemPrompt</p>
+                <p className="mt-1 text-sm text-stone-500">选择当前对话使用的系统提示词</p>
+              </div>
+              <Link className="text-sm font-medium text-amber-700" href="/me/system-prompts">
+                管理
+              </Link>
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {prompts.map((prompt) => (
+                <button
+                  key={prompt.id}
+                  className={`shrink-0 rounded-full border px-4 py-2 text-sm shadow-sm ${
+                    prompt.id === selectedPromptId
+                      ? "border-stone-900 bg-stone-900 text-white"
+                      : "border-stone-200 bg-white text-stone-600"
+                  }`}
+                  type="button"
+                  disabled={streaming}
+                  onClick={() => handleSelectPrompt(prompt.id)}
+                >
+                  {prompt.name}
+                  {prompt.isDefault ? " · 默认" : ""}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
