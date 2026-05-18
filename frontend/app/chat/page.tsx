@@ -307,15 +307,7 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
-          <div className="rounded-[1.75rem] bg-stone-900 px-5 py-5 text-stone-50 shadow-[0_20px_40px_rgba(58,45,28,0.18)]">
-            <p className="text-sm text-stone-300">今日状态</p>
-            <p className="mt-2 text-lg font-semibold">已连接流式 AI 对话服务</p>
-            <p className="mt-2 text-sm leading-6 text-stone-300">
-              支持登录后访问、历史上下文记忆、实时逐字返回。
-            </p>
-          </div>
-
-          <div className="mt-4 rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
+          <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-700">SystemPrompt</p>
