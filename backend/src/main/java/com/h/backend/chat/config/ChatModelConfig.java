@@ -1,8 +1,11 @@
 package com.h.backend.chat.config;
 
+import com.h.backend.chat.ai.HAssistant;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.service.AiServices;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -38,7 +41,18 @@ public class ChatModelConfig {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to load .env file", ex);
         }
-
     }
 
+    @Bean
+    public HAssistant hAssistant(StreamingChatModel streamingChatModel) {
+        return AiServices.builder(HAssistant.class)
+                .streamingChatModel(streamingChatModel)
+                .systemMessageProvider(memoryId -> """
+                        你是 H-Agent 的 AI 助手。
+                        请使用简洁、自然、友好的中文回答。
+                        如果用户的问题信息不足，先给出最小可执行建议，再提示可以补充的信息。
+                        """)
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .build();
+    }
 }

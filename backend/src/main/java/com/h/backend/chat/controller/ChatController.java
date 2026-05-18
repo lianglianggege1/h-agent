@@ -39,7 +39,7 @@ public class ChatController {
             OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
             try {
                 String reply = chatService.streamChat(
-                        principal.userId(),
+                        request.sessionId(),
                         request.message().trim(),
                         chunk -> writeEvent(writer, new ChatStreamEvent("chunk", chunk))
                 );
