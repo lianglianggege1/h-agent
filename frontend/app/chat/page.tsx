@@ -250,6 +250,43 @@ export default function ChatPage() {
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
+      {drawerOpen ? (
+        <button
+          className="fixed inset-0 z-30 bg-stone-950/30"
+          type="button"
+          aria-label="关闭菜单遮罩"
+          onClick={() => setDrawerOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        className={`fixed bottom-0 left-0 top-0 z-40 flex w-[280px] max-w-[82vw] flex-col justify-between bg-[#f8f5ec] px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] shadow-[24px_0_60px_rgba(58,45,28,0.18)] transition-transform duration-200 ${
+          drawerOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent</p>
+          <h2 className="mt-2 text-2xl font-semibold">菜单</h2>
+        </div>
+
+        <div className="space-y-3">
+          <Link
+            className="block rounded-2xl bg-stone-900 px-4 py-4 text-sm font-semibold text-white"
+            href="/me"
+            onClick={() => setDrawerOpen(false)}
+          >
+            我的
+          </Link>
+          <button
+            className="w-full rounded-2xl border border-stone-200 bg-white/70 px-4 py-4 text-left text-sm font-semibold text-stone-700"
+            type="button"
+            onClick={handleLogout}
+          >
+            退出登录
+          </button>
+        </div>
+      </aside>
+
       <section className="mx-auto flex min-h-screen w-full max-w-md flex-col">
         <header className="sticky top-0 z-10 border-b border-stone-200/80 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
           <div className="flex items-center gap-3">
