@@ -6,6 +6,7 @@ import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.store.memory.chat.InMemoryChatMemoryStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -47,12 +48,18 @@ public class ChatModelConfig {
     public HAssistant hAssistant(StreamingChatModel streamingChatModel) {
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
+                // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> """
                         你是 H-Agent 的 AI 助手。
                         请使用简洁、自然、友好的中文回答。
                         如果用户的问题信息不足，先给出最小可执行建议，再提示可以补充的信息。
                         """)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
+                        .id(memoryId)
+                        .maxMessages(10)
+                        .alwaysKeepSystemMessageFirst(true)
+                        .chatMemoryStore(new InMemoryChatMemoryStore())
+                        .build())
                 .build();
     }
 }

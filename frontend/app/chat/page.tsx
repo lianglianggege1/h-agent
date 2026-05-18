@@ -103,6 +103,7 @@ function AssistantMessageContent({ content }: { content: string }) {
 
 export default function ChatPage() {
   const router = useRouter();
+  const sessionIdRef = useRef(crypto.randomUUID());
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [input, setInput] = useState("");
@@ -158,7 +159,7 @@ export default function ChatPage() {
         "/api/chat/messages/stream",
         {
           method: "POST",
-          body: JSON.stringify({ message: content }),
+          body: JSON.stringify({ message: content, sessionId: sessionIdRef.current }),
         },
         {
           onChunk(chunk) {

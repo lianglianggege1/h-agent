@@ -25,6 +25,7 @@ public class ChatServiceImpl implements ChatService {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
+        // h-agent的runtime loop
         hAssistant.chat(sessionId, userMessage)
                 .onPartialResponse(chunk -> {
                     replyBuilder.append(chunk);
