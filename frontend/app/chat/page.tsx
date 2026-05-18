@@ -400,10 +400,6 @@ export default function ChatPage() {
                 {streaming ? "生成中" : "发送"}
               </button>
             </form>
-
-            <div className="mt-3 rounded-[1.4rem] bg-white px-4 py-3 text-center text-sm font-medium text-stone-500">
-              当前仅开放 AI 对话模块
-            </div>
           </div>
         </div>
       </section>
