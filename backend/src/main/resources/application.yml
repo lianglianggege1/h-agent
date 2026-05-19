@@ -10,6 +10,20 @@ spring:
     url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
     username: h_agent
     password: h_agent
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 5
+        shutdown-timeout: 100ms
   flyway:
     enabled: true
     locations: classpath:db/migration
