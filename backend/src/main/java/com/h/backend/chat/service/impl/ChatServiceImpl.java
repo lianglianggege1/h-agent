@@ -2,6 +2,7 @@ package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.service.ChatService;
+import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.model.ModelDisabledException;
@@ -15,15 +16,20 @@ import java.util.function.Consumer;
 public class ChatServiceImpl implements ChatService {
 
     private final HAssistant hAssistant;
+
     private final SystemPromptService systemPromptService;
 
-    public ChatServiceImpl(HAssistant hAssistant, SystemPromptService systemPromptService) {
+    private final ChatSessionService chatSessionService;
+
+    public ChatServiceImpl(HAssistant hAssistant, SystemPromptService systemPromptService, ChatSessionService chatSessionService) {
         this.hAssistant = hAssistant;
         this.systemPromptService = systemPromptService;
+        this.chatSessionService = chatSessionService;
     }
 
     @Override
     public String streamChat(Long userId, Long promptId, String sessionId, String userMessage, Consumer<String> onChunk) {
+        chatSessionService.assertActiveSession(userId, sessionId, promptId);
         StringBuilder replyBuilder = new StringBuilder();
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
@@ -62,6 +68,7 @@ public class ChatServiceImpl implements ChatService {
         if (reply.isBlank()) {
             throw new BusinessException(50004, "AI 未返回有效内容");
         }
+        chatSessionService.appendConversation(userId, sessionId, userMessage, reply);
         return reply;
     }
 }

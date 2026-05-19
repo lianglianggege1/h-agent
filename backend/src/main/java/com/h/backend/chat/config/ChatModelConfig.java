@@ -1,13 +1,13 @@
 package com.h.backend.chat.config;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.memory.RedisChatMemoryStore;
 import com.h.backend.chat.service.SystemPromptService;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.service.AiServices;
-import dev.langchain4j.store.memory.chat.InMemoryChatMemoryStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +23,9 @@ public class ChatModelConfig {
 
     @Autowired
     private SystemPromptService systemPromptService;
+
+    @Autowired
+    private RedisChatMemoryStore redisChatMemoryStore;
 
     @Bean
     public StreamingChatModel streamingChatModel() {
@@ -65,7 +68,7 @@ public class ChatModelConfig {
                         .id(memoryId)
                         .maxMessages(10)
                         .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(new InMemoryChatMemoryStore())
+                        .chatMemoryStore(redisChatMemoryStore)
                         .build())
                 .build();
     }

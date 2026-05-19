@@ -7,6 +7,16 @@ import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
+import {
+  bootstrapChatSession,
+  ChatSessionOpen,
+  ChatSessionSummary,
+  activateHistorySession,
+  createChatSession,
+  getChatSessionMessages,
+  listChatHistory,
+  resolveChatSession,
+} from "@/lib/chat-sessions";
 
 type ChatRole = "assistant" | "user";
 
@@ -105,63 +115,185 @@ function AssistantMessageContent({ content }: { content: string }) {
 
 export default function ChatPage() {
   const router = useRouter();
-  const sessionIdRef = useRef(crypto.randomUUID());
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [resolvingChoice, setResolvingChoice] = useState(false);
   const [error, setError] = useState("");
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "你好，我是 嘿 。登录后你可以在这里和我聊天了！",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
+  const [showSessionChooser, setShowSessionChooser] = useState(false);
+  const [sessionCandidates, setSessionCandidates] = useState<ChatSessionSummary[]>([]);
+  const [historySessions, setHistorySessions] = useState<ChatSessionSummary[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [historyLoadedForSession, setHistoryLoadedForSession] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
 
   useEffect(() => {
     getCurrentUser()
       .then(async () => {
+        const [list, bootstrap] = await Promise.all([listSystemPrompts(), bootstrapChatSession()]);
         setAuthenticated(true);
-        const list = await listSystemPrompts();
         setPrompts(list);
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
-        setSelectedPromptId(defaultPrompt?.id ?? null);
+        if (bootstrap.resolution === "choose") {
+          setSelectedPromptId(defaultPrompt?.id ?? null);
+          setSessionCandidates(bootstrap.candidates);
+          setShowSessionChooser(true);
+          setMessages([]);
+          return;
+        }
+        hydrateSession(bootstrap.session, defaultPrompt?.id ?? null);
       })
       .catch(() => {
         setAuthenticated(false);
         savePostLoginRedirect("/chat");
         router.replace("/auth/login");
-      });
+      })
+      .finally(() => setBootstrapping(false));
   }, [router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const canSubmit = useMemo(() => input.trim().length > 0 && !streaming, [input, streaming]);
+  const canSubmit = useMemo(
+    () => input.trim().length > 0 && !streaming && !bootstrapping && !showSessionChooser && !!sessionId,
+    [bootstrapping, input, sessionId, showSessionChooser, streaming],
+  );
 
-  function handleSelectPrompt(promptId: number) {
-    if (promptId === selectedPromptId || streaming) return;
-    setSelectedPromptId(promptId);
-    sessionIdRef.current = crypto.randomUUID();
+  function hydrateSession(open: ChatSessionOpen | null, fallbackPromptId: number | null) {
+    if (!open) return;
+    const detail = open.session;
+    const messagePage = open.messagePage;
+    setSessionId(detail.sessionId);
+    setCurrentSessionTitle(detail.title || "新会话");
+    setSelectedPromptId(detail.promptId ?? fallbackPromptId);
+    setMessages(
+      messagePage.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+      })),
+    );
+    setHasOlderMessages(messagePage.hasMore);
+    setNextBeforeSeq(messagePage.nextBeforeSeq);
+    setShowSessionChooser(false);
+    setSessionCandidates([]);
+    setHistoryLoadedForSession(null);
     setError("");
-    setMessages([
-      {
-        id: `welcome-${promptId}`,
-        role: "assistant",
-        content: "已切换系统提示词，现在可以开始新的对话。",
-      },
-    ]);
+  }
+
+  async function loadHistory(reset: boolean) {
+    if (!sessionId) return;
+    setLoadingHistory(true);
+    try {
+      const nextPage = reset ? 0 : historyPage;
+      const items = await listChatHistory(nextPage, 10);
+      setHistorySessions((current) => (reset ? items : [...current, ...items]));
+      setHistoryPage(nextPage + 1);
+      setHasMoreHistory(items.length === 10);
+      setHistoryLoadedForSession(sessionId);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  async function handleOpenDrawer() {
+    setDrawerOpen(true);
+    if (historyLoadedForSession === sessionId) return;
+    await loadHistory(true);
+  }
+
+  async function handleSelectPrompt(promptId: number) {
+    if (streaming || selectedPromptId === promptId) return;
+    try {
+      const detail = await createChatSession({
+        currentSessionId: sessionId,
+        promptId,
+      });
+      hydrateSession(detail, promptId);
+      setSelectedPromptId(promptId);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "创建会话失败");
+    }
+  }
+
+  async function handleChooseSession(selectedSessionId: string) {
+    if (resolvingChoice) return;
+    setResolvingChoice(true);
+    try {
+      const detail = await resolveChatSession(selectedSessionId);
+      hydrateSession(detail, selectedPromptId);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "恢复会话失败");
+    } finally {
+      setResolvingChoice(false);
+    }
+  }
+
+  async function handleCreateNewSession() {
+    if (streaming) return;
+    try {
+      const detail = await createChatSession({
+        currentSessionId: sessionId,
+        promptId: selectedPromptId,
+      });
+      hydrateSession(detail, selectedPromptId);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "新建会话失败");
+    }
+  }
+
+  async function handleOpenHistorySession(targetSessionId: string) {
+    if (streaming) return;
+    try {
+      const detail = await activateHistorySession(targetSessionId, sessionId);
+      hydrateSession(detail, detail.session.promptId ?? selectedPromptId);
+      setDrawerOpen(false);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "加载会话失败");
+    }
+  }
+
+  async function handleLoadOlderMessages() {
+    if (!sessionId || loadingOlderMessages || !hasOlderMessages) return;
+    const cursor = nextBeforeSeq;
+    if (!cursor) return;
+    setLoadingOlderMessages(true);
+    try {
+      const detail = await getChatSessionMessages(sessionId, 20, cursor);
+      const olderMessages = detail.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+      }));
+      setMessages((current) => [...olderMessages, ...current]);
+      setHasOlderMessages(detail.hasMore);
+      setNextBeforeSeq(detail.nextBeforeSeq);
+      historyContainerRef.current?.scrollTo({ top: 40 });
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "加载更多消息失败");
+    } finally {
+      setLoadingOlderMessages(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = input.trim();
-    if (!content || streaming) return;
+    if (!content || streaming || !sessionId) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -186,7 +318,7 @@ export default function ChatPage() {
           method: "POST",
           body: JSON.stringify({
             message: content,
-            sessionId: sessionIdRef.current,
+            sessionId,
             promptId: selectedPromptId,
           }),
         },
@@ -206,6 +338,7 @@ export default function ChatPage() {
                 message.id === assistantId ? { ...message, content: finalContent } : message,
               ),
             );
+            setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
           },
           onError(message) {
             setError(message);
@@ -248,6 +381,32 @@ export default function ChatPage() {
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
+      {showSessionChooser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 px-4">
+          <div className="w-full max-w-sm rounded-[2rem] bg-[#f8f5ec] p-6 shadow-[0_24px_80px_rgba(58,45,28,0.22)]">
+            <p className="text-xs uppercase tracking-[0.22em] text-amber-700">选择会话</p>
+            <h2 className="mt-2 text-xl font-semibold">发现多个未归档会话</h2>
+            <p className="mt-2 text-sm leading-6 text-stone-500">请选择一个继续，其他会话会自动归档到历史记录。</p>
+            <div className="mt-5 space-y-3">
+              {sessionCandidates.map((candidate) => (
+                <button
+                  key={candidate.sessionId}
+                  className="w-full rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-left transition hover:border-amber-400"
+                  type="button"
+                  disabled={resolvingChoice}
+                  onClick={() => handleChooseSession(candidate.sessionId)}
+                >
+                  <p className="text-sm font-semibold text-stone-800">{candidate.title}</p>
+                  <p className="mt-1 line-clamp-2 text-sm text-stone-500">
+                    {candidate.lastUserMessage || "暂无用户消息"}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {drawerOpen ? (
         <button
           className="fixed inset-0 z-30 bg-stone-950/30"
@@ -265,6 +424,46 @@ export default function ChatPage() {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent</p>
           <h2 className="mt-2 text-2xl font-semibold">菜单</h2>
+          <button
+            className="mt-5 w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white"
+            type="button"
+            disabled={streaming}
+            onClick={handleCreateNewSession}
+          >
+            新会话
+          </button>
+          <div className="mt-5">
+            <p className="text-xs uppercase tracking-[0.2em] text-stone-400">历史会话</p>
+            <div className="mt-3 max-h-[48vh] space-y-3 overflow-y-auto pr-1">
+              {historySessions.map((session) => (
+                <button
+                  key={session.sessionId}
+                  className={`w-full rounded-2xl border px-4 py-3 text-left ${
+                    session.sessionId === sessionId
+                      ? "border-stone-900 bg-stone-900 text-white"
+                      : "border-stone-200 bg-white/75 text-stone-700"
+                  }`}
+                  type="button"
+                  onClick={() => handleOpenHistorySession(session.sessionId)}
+                >
+                  <p className="text-sm font-semibold">{session.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs opacity-75">
+                    {session.lastUserMessage || "暂无用户消息"}
+                  </p>
+                </button>
+              ))}
+              {loadingHistory ? <p className="text-sm text-stone-500">加载中...</p> : null}
+              {!loadingHistory && hasMoreHistory ? (
+                <button
+                  className="w-full rounded-2xl border border-dashed border-stone-300 px-4 py-3 text-sm text-stone-600"
+                  type="button"
+                  onClick={() => loadHistory(false)}
+                >
+                  加载更多
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -292,19 +491,19 @@ export default function ChatPage() {
               className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-full border border-stone-300 bg-white/80 transition hover:bg-stone-100"
               type="button"
               aria-label="打开菜单"
-              onClick={() => setDrawerOpen(true)}
+              onClick={() => void handleOpenDrawer()}
             >
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
             </button>
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
-              <h1 className="mt-2 text-xl font-semibold">AI 对话</h1>
+              <h1 className="mt-2 text-xl font-semibold">{currentSessionTitle}</h1>
             </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
+        <div ref={historyContainerRef} className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
           <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -335,6 +534,19 @@ export default function ChatPage() {
             </div>
           </div>
 
+          {hasOlderMessages ? (
+            <div className="mt-4 text-center">
+              <button
+                className="rounded-full border border-stone-200 bg-white/85 px-4 py-2 text-sm text-stone-600"
+                type="button"
+                disabled={loadingOlderMessages}
+                onClick={handleLoadOlderMessages}
+              >
+                {loadingOlderMessages ? "加载中..." : "加载更早消息"}
+              </button>
+            </div>
+          ) : null}
+
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             {starterPrompts.map((prompt) => (
               <button
@@ -349,6 +561,13 @@ export default function ChatPage() {
           </div>
 
           <div className="mt-5 space-y-4">
+            {!bootstrapping && messages.length === 0 ? (
+              <article className="flex justify-start">
+                <div className="max-w-[85%] rounded-[1.5rem] rounded-bl-md border border-stone-200 bg-white/95 px-4 py-3 text-sm leading-6 text-stone-700 shadow-sm">
+                  你好，我是 嘿 。现在可以开始新的对话了！
+                </div>
+              </article>
+            ) : null}
             {messages.map((message) => (
               <article
                 key={message.id}
