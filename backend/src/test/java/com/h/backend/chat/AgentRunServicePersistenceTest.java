@@ -1,6 +1,5 @@
 package com.h.backend.chat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.entity.AgentRunEntity;
 import com.h.backend.chat.mapper.AgentRunMapper;
 import com.h.backend.chat.service.impl.AgentRunServiceImpl;
@@ -80,6 +79,6 @@ class AgentRunServicePersistenceTest {
                     throw new UnsupportedOperationException("Unexpected mapper method: " + method.getName());
                 }
         );
-        return new AgentRunServiceImpl(agentRunMapper, new ObjectMapper());
+        return new AgentRunServiceImpl(agentRunMapper);
     }
 }

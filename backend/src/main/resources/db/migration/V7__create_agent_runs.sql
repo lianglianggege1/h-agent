@@ -16,9 +16,9 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_agent_runs_user_message_id
-        FOREIGN KEY (user_message_id) REFERENCES chat_session_messages(id),
+        FOREIGN KEY (user_message_id) REFERENCES chat_session_messages(id) ON DELETE CASCADE,
     CONSTRAINT fk_agent_runs_assistant_message_id
-        FOREIGN KEY (assistant_message_id) REFERENCES chat_session_messages(id)
+        FOREIGN KEY (assistant_message_id) REFERENCES chat_session_messages(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session_started_at

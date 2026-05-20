@@ -1,6 +1,5 @@
 package com.h.backend.chat.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.entity.AgentRunEntity;
 import com.h.backend.chat.mapper.AgentRunMapper;
 import com.h.backend.chat.service.AgentRunService;
@@ -12,12 +11,9 @@ import java.time.LocalDateTime;
 public class AgentRunServiceImpl implements AgentRunService {
 
     private final AgentRunMapper agentRunMapper;
-    @SuppressWarnings("unused")
-    private final ObjectMapper objectMapper;
 
-    public AgentRunServiceImpl(AgentRunMapper agentRunMapper, ObjectMapper objectMapper) {
+    public AgentRunServiceImpl(AgentRunMapper agentRunMapper) {
         this.agentRunMapper = agentRunMapper;
-        this.objectMapper = objectMapper;
     }
 
     @Override
