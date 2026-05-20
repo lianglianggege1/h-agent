@@ -15,6 +15,7 @@ import com.h.backend.chat.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.mapper.ChatSessionMapper;
 import com.h.backend.chat.mapper.ChatSessionMessageMapper;
 import com.h.backend.chat.model.ChatSessionMessage;
+import com.h.backend.chat.service.ChatMemorySnapshotService;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
@@ -37,17 +38,20 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private final ChatSessionMapper chatSessionMapper;
     private final ChatSessionMessageMapper chatSessionMessageMapper;
+    private final ChatMemorySnapshotService chatMemorySnapshotService;
     private final SystemPromptService systemPromptService;
     private final ObjectMapper objectMapper;
 
     public ChatSessionServiceImpl(
             ChatSessionMapper chatSessionMapper,
             ChatSessionMessageMapper chatSessionMessageMapper,
+            ChatMemorySnapshotService chatMemorySnapshotService,
             SystemPromptService systemPromptService,
             ObjectMapper objectMapper
     ) {
         this.chatSessionMapper = chatSessionMapper;
         this.chatSessionMessageMapper = chatSessionMessageMapper;
+        this.chatMemorySnapshotService = chatMemorySnapshotService;
         this.systemPromptService = systemPromptService;
         this.objectMapper = objectMapper;
     }
@@ -61,7 +65,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             return new ChatSessionBootstrapDto("created", createSession(userId, null, null), List.of());
         }
         if (activeSessions.size() == 1) {
-            return new ChatSessionBootstrapDto("single", toOpen(activeSessions.get(0), DEFAULT_MESSAGE_PAGE_SIZE, null), List.of());
+            ChatSessionEntity active = activeSessions.get(0);
+            chatMemorySnapshotService.markResident(active.getSessionId());
+            return new ChatSessionBootstrapDto("single", toOpen(active, DEFAULT_MESSAGE_PAGE_SIZE, null), List.of());
         }
         List<ChatSessionSummaryDto> candidates = activeSessions.stream()
                 .sorted(Comparator.comparing(ChatSessionEntity::getUpdatedAt).reversed())
@@ -93,6 +99,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         chatSessionMapper.insert(entity);
+        chatMemorySnapshotService.markResident(entity.getSessionId());
         return toOpen(entity, DEFAULT_MESSAGE_PAGE_SIZE, null);
     }
 
@@ -113,6 +120,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40004, "所选会话不存在");
         }
         selected = refreshSession(selected.getSessionId());
+        chatMemorySnapshotService.markResident(selected.getSessionId());
         return toOpen(selected, DEFAULT_MESSAGE_PAGE_SIZE, null);
     }
 
@@ -127,6 +135,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         ChatSessionEntity target = requireOwnedSession(userId, targetSessionId);
 
         if (StringUtils.isNotBlank(currentSessionId) && currentSessionId.equals(targetSessionId)) {
+            chatMemorySnapshotService.markResident(target.getSessionId());
             return toOpen(target, DEFAULT_MESSAGE_PAGE_SIZE, null);
         }
 
@@ -145,7 +154,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             chatSessionMapper.updateById(target);
         }
 
-        return toOpen(refreshSession(target.getSessionId()), DEFAULT_MESSAGE_PAGE_SIZE, null);
+        ChatSessionEntity refreshed = refreshSession(target.getSessionId());
+        chatMemorySnapshotService.markResident(refreshed.getSessionId());
+        return toOpen(refreshed, DEFAULT_MESSAGE_PAGE_SIZE, null);
     }
 
     @Override
@@ -172,7 +183,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     @Override
-    @Scheduled(fixedDelay = 300000)
+    @Scheduled(fixedDelay = 300000) // 定时查看如果有超过24小时无用户消息则归档 此处是否可以优化为redis过期通知
     @Transactional
     public void archiveExpiredSessions() {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
@@ -239,10 +250,14 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private void archiveOrDeleteIfEmpty(ChatSessionEntity session) {
         if ((session.getMessageCount() == null ? 0 : session.getMessageCount()) <= 0
                 || StringUtils.isBlank(session.getLastUserMessage())) {
+            chatMemorySnapshotService.evict(session.getSessionId());
+            chatMemorySnapshotService.deleteSnapshot(session.getSessionId());
             chatSessionMessageMapper.delete(new QueryWrapper<ChatSessionMessageEntity>().eq("session_record_id", session.getId()));
             chatSessionMapper.deleteById(session.getId());
             return;
         }
+        chatMemorySnapshotService.flushNow(session.getSessionId());
+        chatMemorySnapshotService.evict(session.getSessionId());
         session.setStatus(STATUS_ARCHIVED);
         session.setUpdatedAt(LocalDateTime.now());
         chatSessionMapper.updateById(session);
