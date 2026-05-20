@@ -44,9 +44,6 @@ public class AgentRunServiceImpl implements AgentRunService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         agentRunMapper.insert(entity);
-        if (entity.getId() == null) {
-            entity.setId(-1L);
-        }
         return new AgentRunHandle(entity.getId());
     }
 }
