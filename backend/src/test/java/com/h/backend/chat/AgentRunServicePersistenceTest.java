@@ -9,6 +9,7 @@ import com.h.backend.chat.service.impl.AgentRunServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,8 +33,10 @@ class AgentRunServicePersistenceTest {
         saved.setToolNamesJson("[]");
 
         when(agentRunMapper.selectById(88L)).thenReturn(saved);
-        when(objectMapper.readValue(eq("[]"), any(TypeReference.class))).thenReturn(new java.util.LinkedHashSet<String>());
-        when(objectMapper.writeValueAsString(any(java.util.LinkedHashSet.class))).thenReturn("[\"add\",\"search\"]");
+        when(objectMapper.readValue(eq("[]"), any(TypeReference.class))).thenReturn(new LinkedHashSet<>());
+        when(objectMapper.readValue(eq("[\"add\"]"), any(TypeReference.class))).thenReturn(new LinkedHashSet<>(java.util.Set.of("add")));
+        when(objectMapper.writeValueAsString(any(LinkedHashSet.class)))
+                .thenReturn("[\"add\"]", "[\"add\",\"search\"]");
 
         agentRunService.recordToolUsage(88L, "add");
         agentRunService.recordToolUsage(88L, "search");
