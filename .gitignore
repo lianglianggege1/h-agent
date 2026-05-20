@@ -55,3 +55,9 @@ build/
 
 # VS Code
 .vscode/
+
+# codex
+.codex/
+
+# superpowers
+.superpowers/

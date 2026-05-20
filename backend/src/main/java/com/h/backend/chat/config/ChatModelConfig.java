@@ -3,12 +3,14 @@ package com.h.backend.chat.config;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.memory.RedisChatMemoryStore;
 import com.h.backend.chat.service.SystemPromptService;
+import com.h.backend.chat.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.service.AiServices;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.annotation.Resource;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -21,11 +23,17 @@ import java.util.Properties;
 @Configuration
 public class ChatModelConfig {
 
-    @Autowired
+    private static final String LANGCHAIN4J_HTTP_REQUEST_LOGGER =
+            "dev.langchain4j.http.client.log.HttpRequestLogger";
+
+    @Resource
     private SystemPromptService systemPromptService;
 
-    @Autowired
+    @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
+
+    @Resource
+    private ToolWithP toolWithP;
 
     @Bean
     public StreamingChatModel streamingChatModel() {
@@ -45,6 +53,9 @@ public class ChatModelConfig {
                     .baseUrl(properties.getProperty("BASE_URL"))
                     .modelName(properties.getProperty("MODEL_NAME"))
                     .timeout(Duration.ofSeconds(60))
+                    .logRequests(true)
+                    .logResponses(true)
+                    .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
                     .build();
 
         } catch (IOException ex) {
@@ -64,6 +75,7 @@ public class ChatModelConfig {
 
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
+                .tools(toolWithP)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
