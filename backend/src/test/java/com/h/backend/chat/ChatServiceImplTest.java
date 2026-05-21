@@ -7,9 +7,11 @@ import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
 import com.h.backend.common.exception.BusinessException;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -60,6 +62,41 @@ class ChatServiceImplTest {
         verify(chatSessionService).appendAssistantMessage(1L, "session-1", "hello");
         verify(agentRunService).completeRun(55L, 202L);
         verify(agentRunTelemetryService).markSuccess(telemetryRun);
+    }
+
+    @Test
+    void shouldRecordToolUsageDuringStreamChat() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream()
+                .emitTool("search_web")
+                .emitText("hello");
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-1", "hello")).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-1", "hello")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-1");
+        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "unknown", "trace-1"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.chat("1:22:session-1", "hello")).thenReturn(tokenStream);
+
+        String reply = chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {});
+
+        assertEquals("hello", reply);
+        verify(agentRunService).recordToolUsage(55L, "search_web");
+        verify(agentRunService).completeRun(55L, 202L);
     }
 
     @Test
@@ -134,7 +171,9 @@ class ChatServiceImplTest {
     private static final class FakeTokenStream implements TokenStream {
         private String text;
         private Throwable error;
+        private ToolExecution toolExecution;
         private Consumer<String> partialResponseHandler;
+        private Consumer<ToolExecution> toolExecutionHandler;
         private Consumer<ChatResponse> completeResponseHandler;
         private Consumer<Throwable> errorHandler;
 
@@ -145,6 +184,18 @@ class ChatServiceImplTest {
 
         FakeTokenStream emitError(Throwable error) {
             this.error = error;
+            return this;
+        }
+
+        FakeTokenStream emitTool(String toolName) {
+            this.toolExecution = ToolExecution.builder()
+                    .request(ToolExecutionRequest.builder()
+                            .id("tool-1")
+                            .name(toolName)
+                            .arguments("{}")
+                            .build())
+                    .result("ok")
+                    .build();
             return this;
         }
 
@@ -161,6 +212,7 @@ class ChatServiceImplTest {
 
         @Override
         public TokenStream onToolExecuted(Consumer<dev.langchain4j.service.tool.ToolExecution> toolExecuteHandler) {
+            this.toolExecutionHandler = toolExecuteHandler;
             return this;
         }
 
@@ -191,6 +243,9 @@ class ChatServiceImplTest {
             }
             if (text != null && partialResponseHandler != null) {
                 partialResponseHandler.accept(text);
+            }
+            if (toolExecution != null && toolExecutionHandler != null) {
+                toolExecutionHandler.accept(toolExecution);
             }
             if (completeResponseHandler != null) {
                 completeResponseHandler.accept(mock(ChatResponse.class));

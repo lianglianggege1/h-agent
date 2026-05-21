@@ -8,6 +8,7 @@ import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.model.ModelDisabledException;
+import dev.langchain4j.service.tool.ToolExecution;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.CountDownLatch;
@@ -67,6 +68,7 @@ public class ChatServiceImpl implements ChatService {
                     replyBuilder.append(chunk);
                     onChunk.accept(chunk);
                 })
+                .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
                 .onCompleteResponse(ignored -> latch.countDown())
                 .onError(error -> {
                     errorRef.set(error);
@@ -105,5 +107,16 @@ public class ChatServiceImpl implements ChatService {
         agentRunService.completeRun(runHandle.id(), assistantMessageId);
         agentRunTelemetryService.markSuccess(telemetryRun);
         return reply;
+    }
+
+    private void recordToolUsage(Long runId, ToolExecution toolExecution) {
+        if (toolExecution == null || toolExecution.request() == null) {
+            return;
+        }
+        String toolName = toolExecution.request().name();
+        if (toolName == null || toolName.isBlank()) {
+            return;
+        }
+        agentRunService.recordToolUsage(runId, toolName);
     }
 }
