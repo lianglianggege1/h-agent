@@ -36,3 +36,9 @@ mybatis-plus:
 jwt:
   secret: change-this-to-256-bit-secret-change-this
   expiration-seconds: 7200
+
+langfuse:
+  enabled: false
+  otlp-endpoint: https://cloud.langfuse.com/api/public/otel
+  public-key: ""
+  secret-key: ""
