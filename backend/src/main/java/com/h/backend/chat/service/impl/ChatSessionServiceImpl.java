@@ -213,7 +213,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public void appendConversation(Long userId, String sessionId, String userMessage, String assistantMessage) {
+    public Long appendUserMessage(Long userId, String sessionId, String userMessage) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
@@ -221,10 +221,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
         int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
         LocalDateTime now = LocalDateTime.now();
-        persistMessage(session, buildMessage("user", userMessage, now, nextSequence));
-        persistMessage(session, buildMessage("assistant", assistantMessage, now, nextSequence + 1));
+        ChatSessionMessage message = buildMessage("user", userMessage, now, nextSequence);
+        Long messageId = persistMessage(session, message);
 
-        session.setMessageCount(nextSequence + 1);
+        session.setMessageCount(nextSequence);
         session.setLastUserMessage(userMessage);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
@@ -232,6 +232,27 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             session.setTitle(buildTitle(userMessage));
         }
         chatSessionMapper.updateById(session);
+        return messageId;
+    }
+
+    @Override
+    @Transactional
+    public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+
+        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionMessage message = buildMessage("assistant", assistantMessage, now, nextSequence);
+        Long messageId = persistMessage(session, message);
+
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        chatSessionMapper.updateById(session);
+        return messageId;
     }
 
     private void archiveExpiredSessionsForUser(Long userId) {
@@ -333,7 +354,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         return message;
     }
 
-    private void persistMessage(ChatSessionEntity session, ChatSessionMessage message) {
+    private Long persistMessage(ChatSessionEntity session, ChatSessionMessage message) {
         ChatSessionMessageEntity row = new ChatSessionMessageEntity();
         row.setSessionRecordId(session.getId());
         row.setSessionId(session.getSessionId());
@@ -345,6 +366,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         row.setPayloadJson(writeMessagePayload(message));
         row.setCreatedAt(message.getCreatedAt());
         chatSessionMessageMapper.insert(row);
+        return row.getId();
     }
 
     private String writeMessagePayload(ChatSessionMessage message) {
