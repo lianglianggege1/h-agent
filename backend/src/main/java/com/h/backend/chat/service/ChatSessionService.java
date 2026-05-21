@@ -28,5 +28,7 @@ public interface ChatSessionService {
 
     void assertActiveSession(Long userId, String sessionId, Long promptId);
 
-    void appendConversation(Long userId, String sessionId, String userMessage, String assistantMessage);
+    Long appendUserMessage(Long userId, String sessionId, String userMessage);
+
+    Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage);
 }
