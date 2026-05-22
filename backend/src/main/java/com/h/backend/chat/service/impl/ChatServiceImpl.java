@@ -63,7 +63,7 @@ public class ChatServiceImpl implements ChatService {
         );
 
         // h-agent的runtime loop
-        hAssistant.chat(memoryId, userMessage)
+        hAssistant.streamChat(memoryId, userMessage)
                 .onPartialResponse(chunk -> {
                     replyBuilder.append(chunk);
                     onChunk.accept(chunk);
