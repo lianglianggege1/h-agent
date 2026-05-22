@@ -7,6 +7,7 @@ import com.h.backend.chat.service.ChatService;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
+import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.springframework.stereotype.Service;
@@ -92,6 +93,13 @@ public class ChatServiceImpl implements ChatService {
                 agentRunTelemetryService.markFailure(telemetryRun, error);
                 throw new BusinessException(50001, "AI 服务未配置 OPENAI_API_KEY");
             }
+            if (error instanceof InputGuardrailException) {
+                String cleanMessage = cleanGuardrailMessage(error.getMessage());
+                chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
+                agentRunService.failRun(runHandle.id(), cleanMessage);
+                agentRunTelemetryService.markFailure(telemetryRun, error);
+                throw new BusinessException(40301, cleanMessage);
+            }
             agentRunService.failRun(runHandle.id(), error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
             agentRunTelemetryService.markFailure(telemetryRun, error);
             throw new BusinessException(50003, "AI 服务调用失败");
@@ -118,5 +126,17 @@ public class ChatServiceImpl implements ChatService {
             return;
         }
         agentRunService.recordToolUsage(runId, toolName);
+    }
+
+    private String cleanGuardrailMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "平台检测到您的消息不符合使用规范，已自动拦截。";
+        }
+        String marker = " failed with this message: ";
+        int markerIndex = message.indexOf(marker);
+        if (markerIndex >= 0) {
+            return message.substring(markerIndex + marker.length()).trim();
+        }
+        return message.trim();
     }
 }

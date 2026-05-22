@@ -2,6 +2,7 @@ package com.h.backend.chat.controller;
 
 import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.service.ChatService;
+import com.h.backend.common.exception.BusinessException;
 import com.h.backend.security.AuthUserPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
@@ -47,6 +48,10 @@ public class ChatController {
                 );
                 writeEvent(writer, new ChatStreamEvent("done", reply));
             } catch (RuntimeException ex) {
+                if (ex instanceof BusinessException businessException && businessException.getCode() == 40301) {
+                    writeEvent(writer, new ChatStreamEvent("blocked", businessException.getMessage()));
+                    return;
+                }
                 writeEvent(writer, new ChatStreamEvent("error", ex.getMessage()));
             }
         };

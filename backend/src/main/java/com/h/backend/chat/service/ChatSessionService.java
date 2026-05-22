@@ -30,5 +30,7 @@ public interface ChatSessionService {
 
     Long appendUserMessage(Long userId, String sessionId, String userMessage);
 
+    Long appendBlockedMessage(Long userId, String sessionId, String blockedMessage);
+
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage);
 }

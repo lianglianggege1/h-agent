@@ -18,7 +18,7 @@ import {
   resolveChatSession,
 } from "@/lib/chat-sessions";
 
-type ChatRole = "assistant" | "user";
+type ChatRole = "assistant" | "blocked" | "user";
 
 type ChatMessage = {
   id: string;
@@ -109,6 +109,23 @@ function AssistantMessageContent({ content }: { content: string }) {
           </details>
         );
       })}
+    </div>
+  );
+}
+
+function BlockedMessageContent({ content }: { content: string }) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-amber-900">平台安全拦截</p>
+        <p className="text-sm leading-6 text-amber-900/80">
+          抱歉，当前消息未通过平台安全审核，已停止继续生成。
+        </p>
+      </div>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-amber-700">拦截原因</p>
+        <p className="mt-1 whitespace-pre-wrap">{content}</p>
+      </div>
     </div>
   );
 }
@@ -332,10 +349,19 @@ export default function ChatPage() {
               ),
             );
           },
+          onBlocked(message) {
+            setMessages((current) =>
+              current.map((item) =>
+                item.id === assistantId ? { ...item, role: "blocked", content: message } : item,
+              ),
+            );
+          },
           onDone(finalContent) {
             setMessages((current) =>
               current.map((message) =>
-                message.id === assistantId ? { ...message, content: finalContent } : message,
+                message.id === assistantId && message.role === "assistant"
+                  ? { ...message, content: finalContent }
+                  : message,
               ),
             );
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
@@ -578,7 +604,9 @@ export default function ChatPage() {
                     "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
                     message.role === "user"
                       ? "rounded-br-md bg-stone-900 text-stone-50"
-                      : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
+                      : message.role === "blocked"
+                        ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
+                        : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
                   ].join(" ")}
                 >
                   {message.role === "assistant" ? (
@@ -589,6 +617,8 @@ export default function ChatPage() {
                     ) : (
                       ""
                     )
+                  ) : message.role === "blocked" ? (
+                    <BlockedMessageContent content={message.content} />
                   ) : (
                     message.content
                   )}

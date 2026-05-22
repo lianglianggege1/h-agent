@@ -237,6 +237,26 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
+    public Long appendBlockedMessage(Long userId, String sessionId, String blockedMessage) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+
+        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionMessage message = buildMessage("blocked", blockedMessage, now, nextSequence);
+        Long messageId = persistMessage(session, message);
+
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        chatSessionMapper.updateById(session);
+        return messageId;
+    }
+
+    @Override
+    @Transactional
     public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
@@ -269,8 +289,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private void archiveOrDeleteIfEmpty(ChatSessionEntity session) {
-        if ((session.getMessageCount() == null ? 0 : session.getMessageCount()) <= 0
-                || StringUtils.isBlank(session.getLastUserMessage())) {
+        if ((session.getMessageCount() == null ? 0 : session.getMessageCount()) <= 0) {
             chatMemorySnapshotService.evict(session.getSessionId());
             chatMemorySnapshotService.deleteSnapshot(session.getSessionId());
             chatSessionMessageMapper.delete(new QueryWrapper<ChatSessionMessageEntity>().eq("session_record_id", session.getId()));
@@ -360,7 +379,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         row.setSessionId(session.getSessionId());
         row.setUserId(session.getUserId());
         row.setSequenceNo(message.getSequenceNo());
-        row.setMessageType("assistant".equals(message.getRole()) ? "AI" : "USER");
+        row.setMessageType("assistant".equals(message.getRole()) ? "AI" : "blocked".equals(message.getRole()) ? "SYSTEM" : "USER");
         row.setRoleCode(message.getRole());
         row.setContentText(message.getContent());
         row.setPayloadJson(writeMessagePayload(message));
@@ -397,6 +416,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private String normalizeRole(String roleCode) {
         return switch (roleCode) {
             case "assistant", "tool", "custom", "system" -> "assistant";
+            case "blocked" -> "blocked";
             default -> "user";
         };
     }

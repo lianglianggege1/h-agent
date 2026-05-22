@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -96,5 +97,49 @@ class ChatSessionServiceImplTest {
         assertEquals(2, session.getMessageCount());
         assertEquals("hello", session.getLastUserMessage());
         verify(chatSessionMapper, times(2)).updateById(session);
+    }
+
+    @Test
+    void shouldArchiveSessionWithMessagesEvenWhenLastUserMessageIsBlank() throws Exception {
+        ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = mock(ObjectMapper.class);
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper
+        );
+
+        ChatSessionEntity currentSession = new ChatSessionEntity();
+        currentSession.setId(11L);
+        currentSession.setUserId(1L);
+        currentSession.setSessionId("session-old");
+        currentSession.setPromptId(22L);
+        currentSession.setTitle("旧会话");
+        currentSession.setStatus("ACTIVE");
+        currentSession.setMessageCount(1);
+        currentSession.setLastUserMessage(null);
+        currentSession.setCreatedAt(LocalDateTime.now());
+        currentSession.setUpdatedAt(LocalDateTime.now());
+
+        when(chatSessionMapper.selectList(any())).thenReturn(java.util.List.of());
+        when(chatSessionMapper.selectBySessionId("session-old")).thenReturn(currentSession);
+        when(systemPromptService.resolvePromptId(1L, null)).thenReturn(99L);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"ok\":true}");
+        doAnswer(invocation -> {
+            ChatSessionEntity inserted = invocation.getArgument(0);
+            inserted.setId(22L);
+            return 1;
+        }).when(chatSessionMapper).insert(any(ChatSessionEntity.class));
+
+        service.createSession(1L, null, "session-old");
+
+        verify(chatSessionMapper, never()).deleteById(11L);
+        verify(chatSessionMapper).updateById(currentSession);
+        assertEquals("ARCHIVED", currentSession.getStatus());
     }
 }

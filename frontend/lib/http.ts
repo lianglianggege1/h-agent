@@ -36,6 +36,7 @@ export async function apiStream(
   handlers: {
     onChunk: (value: string) => void;
     onDone?: (value: string) => void;
+    onBlocked?: (message: string) => void;
     onError?: (message: string) => void;
   },
 ) {
@@ -78,6 +79,8 @@ export async function apiStream(
         handlers.onChunk(event.content);
       } else if (event.type === "done") {
         handlers.onDone?.(event.content);
+      } else if (event.type === "blocked") {
+        handlers.onBlocked?.(event.content);
       } else if (event.type === "error") {
         handlers.onError?.(event.content);
         throw new Error(event.content || "请求失败");

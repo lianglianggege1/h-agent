@@ -8,8 +8,9 @@ import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "unknown", "trace-1"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.chat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         String reply = chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {});
 
@@ -90,7 +91,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "unknown", "trace-1"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.chat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         String reply = chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {});
 
@@ -122,7 +123,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "unknown", "trace-2"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.chat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {}));
@@ -134,7 +135,46 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldFailRunWithOriginalErrorMessage() {
+    void shouldConvertBlankGuardrailMessageToDefaultBlockedMessage() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        InputGuardrailException guardrailException = new InputGuardrailException("   ");
+        FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-blank", "hello")).thenReturn(111L);
+        when(chatSessionService.appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。"))
+                .thenReturn(303L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-blank");
+        when(agentRunTelemetryService.startRun("session-blank", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-blank", 1L, 22L, 111L, "unknown", "trace-blank"))
+                .thenReturn(new AgentRunService.AgentRunHandle(77L));
+        when(hAssistant.streamChat("1:22:session-blank", "hello")).thenReturn(tokenStream);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> chatService.streamChat(1L, 2L, "session-blank", "hello", chunk -> {}));
+
+        assertEquals(40301, ex.getCode());
+        assertEquals("平台检测到您的消息不符合使用规范，已自动拦截。", ex.getMessage());
+        verify(chatSessionService).appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。");
+        verify(agentRunService).failRun(77L, "平台检测到您的消息不符合使用规范，已自动拦截。");
+        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldConvertInputGuardrailFailureToBlockedBusinessException() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -157,7 +197,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-2", 1L, 22L, 111L, "unknown", "trace-3"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.chat("1:22:session-2", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> chatService.streamChat(1L, 2L, "session-2", "hello", chunk -> {}));
