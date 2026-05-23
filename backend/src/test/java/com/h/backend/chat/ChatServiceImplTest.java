@@ -174,7 +174,129 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldConvertInputGuardrailFailureToBlockedBusinessException() {
+    void shouldConvertInputGuardrailFailureFromErrorCallbackToBlockedBusinessException() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        InputGuardrailException guardrailException = new InputGuardrailException(
+                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+        );
+        FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-guardrail", "杀人")).thenReturn(111L);
+        when(chatSessionService.appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力"))
+                .thenReturn(303L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-guardrail");
+        when(agentRunTelemetryService.startRun("session-guardrail", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-guardrail", 1L, 22L, 111L, "unknown", "trace-guardrail"))
+                .thenReturn(new AgentRunService.AgentRunHandle(66L));
+        when(hAssistant.streamChat("1:22:session-guardrail", "杀人")).thenReturn(tokenStream);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> chatService.streamChat(1L, 2L, "session-guardrail", "杀人", chunk -> {}));
+
+        assertEquals(40301, ex.getCode());
+        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        verify(chatSessionService).appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力");
+        verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
+        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldConvertInputGuardrailFailureThrownWhenCreatingStreamToBlockedBusinessException() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        InputGuardrailException guardrailException = new InputGuardrailException(
+                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+        );
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-create-guardrail", "杀人")).thenReturn(111L);
+        when(chatSessionService.appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力"))
+                .thenReturn(303L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-create-guardrail");
+        when(agentRunTelemetryService.startRun("session-create-guardrail", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-create-guardrail", 1L, 22L, 111L, "unknown", "trace-create-guardrail"))
+                .thenReturn(new AgentRunService.AgentRunHandle(66L));
+        when(hAssistant.streamChat("1:22:session-create-guardrail", "杀人")).thenThrow(guardrailException);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> chatService.streamChat(1L, 2L, "session-create-guardrail", "杀人", chunk -> {}));
+
+        assertEquals(40301, ex.getCode());
+        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        verify(chatSessionService).appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力");
+        verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
+        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldConvertInputGuardrailFailureThrownDuringStartToBlockedBusinessException() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        InputGuardrailException guardrailException = new InputGuardrailException(
+                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+        );
+        FakeTokenStream tokenStream = new FakeTokenStream().emitStartError(guardrailException);
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-start-guardrail", "杀人")).thenReturn(111L);
+        when(chatSessionService.appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力"))
+                .thenReturn(303L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-start-guardrail");
+        when(agentRunTelemetryService.startRun("session-start-guardrail", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-start-guardrail", 1L, 22L, 111L, "unknown", "trace-start-guardrail"))
+                .thenReturn(new AgentRunService.AgentRunHandle(66L));
+        when(hAssistant.streamChat("1:22:session-start-guardrail", "杀人")).thenReturn(tokenStream);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> chatService.streamChat(1L, 2L, "session-start-guardrail", "杀人", chunk -> {}));
+
+        assertEquals(40301, ex.getCode());
+        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        verify(chatSessionService).appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力");
+        verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
+        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldFailRunWithOriginalErrorMessage() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -211,6 +333,7 @@ class ChatServiceImplTest {
     private static final class FakeTokenStream implements TokenStream {
         private String text;
         private Throwable error;
+        private Throwable startError;
         private ToolExecution toolExecution;
         private Consumer<String> partialResponseHandler;
         private Consumer<ToolExecution> toolExecutionHandler;
@@ -224,6 +347,11 @@ class ChatServiceImplTest {
 
         FakeTokenStream emitError(Throwable error) {
             this.error = error;
+            return this;
+        }
+
+        FakeTokenStream emitStartError(Throwable startError) {
+            this.startError = startError;
             return this;
         }
 
@@ -275,6 +403,9 @@ class ChatServiceImplTest {
 
         @Override
         public void start() {
+            if (startError != null) {
+                throw (RuntimeException) startError;
+            }
             if (error != null) {
                 if (errorHandler != null) {
                     errorHandler.accept(error);

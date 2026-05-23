@@ -8,6 +8,7 @@ import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.guardrail.InputGuardrailException;
+import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.springframework.stereotype.Service;
@@ -64,18 +65,23 @@ public class ChatServiceImpl implements ChatService {
         );
 
         // h-agent的runtime loop
-        hAssistant.streamChat(memoryId, userMessage)
-                .onPartialResponse(chunk -> {
-                    replyBuilder.append(chunk);
-                    onChunk.accept(chunk);
-                })
-                .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
-                .onCompleteResponse(ignored -> latch.countDown())
-                .onError(error -> {
-                    errorRef.set(error);
-                    latch.countDown();
-                })
-                .start();
+        try {
+            hAssistant.streamChat(memoryId, userMessage)
+                    .onPartialResponse(chunk -> {
+                        replyBuilder.append(chunk);
+                        onChunk.accept(chunk);
+                    })
+                    .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
+                    .onCompleteResponse(ignored -> latch.countDown())
+                    .onError(error -> {
+                        errorRef.set(error);
+                        latch.countDown();
+                    })
+                    .start();
+        } catch (Exception ex) {
+            errorRef.set(ex);
+            latch.countDown();
+        }
 
         try {
             latch.await();
@@ -94,6 +100,13 @@ public class ChatServiceImpl implements ChatService {
                 throw new BusinessException(50001, "AI 服务未配置 OPENAI_API_KEY");
             }
             if (error instanceof InputGuardrailException) {
+                String cleanMessage = cleanGuardrailMessage(error.getMessage());
+                chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
+                agentRunService.failRun(runHandle.id(), cleanMessage);
+                agentRunTelemetryService.markFailure(telemetryRun, error);
+                throw new BusinessException(40301, cleanMessage);
+            }
+            if (error instanceof OutputGuardrailException) {
                 String cleanMessage = cleanGuardrailMessage(error.getMessage());
                 chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
                 agentRunService.failRun(runHandle.id(), cleanMessage);
