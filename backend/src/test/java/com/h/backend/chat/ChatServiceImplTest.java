@@ -1,25 +1,29 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
-import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.guardrail.InputGuardrailException;
+import dev.langchain4j.invocation.InvocationContext;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,13 +33,13 @@ import static org.mockito.Mockito.when;
 class ChatServiceImplTest {
 
     @Test
-    void shouldPersistUserAssistantAndRunInOrder() {
+    void shouldEmitChunkEventsAndDoneEventForSuccessfulStream() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
-        FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("he").emitText("llo");
         ChatServiceImpl chatService = new ChatServiceImpl(
                 hAssistant,
                 systemPromptService,
@@ -54,9 +58,15 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
-        String reply = chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {});
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-1", "hello")
+                .collectList()
+                .block();
 
-        assertEquals("hello", reply);
+        assertEquals(List.of(
+                new ChatStreamEvent("chunk", "he"),
+                new ChatStreamEvent("chunk", "llo"),
+                new ChatStreamEvent("done", "")
+        ), events);
         verify(chatSessionService).appendUserMessage(1L, "session-1", "hello");
         verify(agentRunTelemetryService).startRun("session-1", 1L, 22L);
         verify(agentRunService).createRun("session-1", 1L, 22L, 101L, "unknown", "trace-1");
@@ -93,15 +103,20 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
-        String reply = chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {});
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-1", "hello")
+                .collectList()
+                .block();
 
-        assertEquals("hello", reply);
+        assertEquals(List.of(
+                new ChatStreamEvent("chunk", "hello"),
+                new ChatStreamEvent("done", "")
+        ), events);
         verify(agentRunService).recordToolUsage(55L, "search_web");
         verify(agentRunService).completeRun(55L, 202L);
     }
 
     @Test
-    void shouldFailRunWhenModelMissing() {
+    void shouldEmitErrorEventWhenModelMissing() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -125,17 +140,18 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-1", "hello", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-1", "hello")
+                .collectList()
+                .block();
 
-        assertEquals(50001, ex.getCode());
+        assertEquals(List.of(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY")), events);
         verify(agentRunService).failRun(55L, "AI 服务未配置 OPENAI_API_KEY");
         verify(agentRunTelemetryService).markFailure(telemetryRun, tokenStream.error);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
     @Test
-    void shouldConvertBlankGuardrailMessageToDefaultBlockedMessage() {
+    void shouldEmitBlockedEventWhenGuardrailMessageIsBlank() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -162,11 +178,11 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(77L));
         when(hAssistant.streamChat("1:22:session-blank", "hello")).thenReturn(tokenStream);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-blank", "hello", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-blank", "hello")
+                .collectList()
+                .block();
 
-        assertEquals(40301, ex.getCode());
-        assertEquals("平台检测到您的消息不符合使用规范，已自动拦截。", ex.getMessage());
+        assertEquals(List.of(new ChatStreamEvent("blocked", "平台检测到您的消息不符合使用规范，已自动拦截。")), events);
         verify(chatSessionService).appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。");
         verify(agentRunService).failRun(77L, "平台检测到您的消息不符合使用规范，已自动拦截。");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -174,7 +190,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldConvertInputGuardrailFailureFromErrorCallbackToBlockedBusinessException() {
+    void shouldEmitBlockedEventWhenGuardrailFails() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -203,11 +219,11 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-guardrail", "杀人")).thenReturn(tokenStream);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-guardrail", "杀人", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-guardrail", "杀人")
+                .collectList()
+                .block();
 
-        assertEquals(40301, ex.getCode());
-        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
         verify(chatSessionService).appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -215,7 +231,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldConvertInputGuardrailFailureThrownWhenCreatingStreamToBlockedBusinessException() {
+    void shouldEmitBlockedEventWhenCreatingStreamFailsGuardrail() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -243,11 +259,11 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-create-guardrail", "杀人")).thenThrow(guardrailException);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-create-guardrail", "杀人", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-create-guardrail", "杀人")
+                .collectList()
+                .block();
 
-        assertEquals(40301, ex.getCode());
-        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
         verify(chatSessionService).appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -255,7 +271,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldConvertInputGuardrailFailureThrownDuringStartToBlockedBusinessException() {
+    void shouldEmitBlockedEventWhenStartingStreamFailsGuardrail() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -284,11 +300,11 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-start-guardrail", "杀人")).thenReturn(tokenStream);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-start-guardrail", "杀人", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-start-guardrail", "杀人")
+                .collectList()
+                .block();
 
-        assertEquals(40301, ex.getCode());
-        assertEquals("系统提醒您：请勿使用暴力", ex.getMessage());
+        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
         verify(chatSessionService).appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -296,7 +312,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldFailRunWithOriginalErrorMessage() {
+    void shouldEmitErrorEventWhenRuntimeErrorOccurs() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -321,19 +337,20 @@ class ChatServiceImplTest {
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> chatService.streamChat(1L, 2L, "session-2", "hello", chunk -> {}));
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-2", "hello")
+                .collectList()
+                .block();
 
-        assertEquals(50003, ex.getCode());
+        assertEquals(List.of(new ChatStreamEvent("error", "AI 服务调用失败")), events);
         verify(agentRunService).failRun(66L, "boom");
         verify(agentRunTelemetryService).markFailure(telemetryRun, runtimeException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
     private static final class FakeTokenStream implements TokenStream {
-        private String text;
+        private final List<String> texts = new ArrayList<>();
         private Throwable error;
-        private Throwable startError;
+        private RuntimeException startError;
         private ToolExecution toolExecution;
         private Consumer<String> partialResponseHandler;
         private Consumer<ToolExecution> toolExecutionHandler;
@@ -341,7 +358,7 @@ class ChatServiceImplTest {
         private Consumer<Throwable> errorHandler;
 
         FakeTokenStream emitText(String text) {
-            this.text = text;
+            this.texts.add(text);
             return this;
         }
 
@@ -350,7 +367,7 @@ class ChatServiceImplTest {
             return this;
         }
 
-        FakeTokenStream emitStartError(Throwable startError) {
+        FakeTokenStream emitStartError(RuntimeException startError) {
             this.startError = startError;
             return this;
         }
@@ -363,6 +380,15 @@ class ChatServiceImplTest {
                             .arguments("{}")
                             .build())
                     .result("ok")
+                    .invocationContext(InvocationContext.builder()
+                            .invocationId(UUID.randomUUID())
+                            .interfaceName("com.h.backend.chat.ai.HAssistant")
+                            .methodName("streamChat")
+                            .methodArguments(List.of("hello"))
+                            .chatMemoryId("memory-1")
+                            .invocationParameters(new InvocationParameters())
+                            .timestamp(Instant.now())
+                            .build())
                     .build();
             return this;
         }
@@ -379,7 +405,7 @@ class ChatServiceImplTest {
         }
 
         @Override
-        public TokenStream onToolExecuted(Consumer<dev.langchain4j.service.tool.ToolExecution> toolExecuteHandler) {
+        public TokenStream onToolExecuted(Consumer<ToolExecution> toolExecuteHandler) {
             this.toolExecutionHandler = toolExecuteHandler;
             return this;
         }
@@ -404,7 +430,7 @@ class ChatServiceImplTest {
         @Override
         public void start() {
             if (startError != null) {
-                throw (RuntimeException) startError;
+                throw startError;
             }
             if (error != null) {
                 if (errorHandler != null) {
@@ -412,8 +438,10 @@ class ChatServiceImplTest {
                 }
                 return;
             }
-            if (text != null && partialResponseHandler != null) {
-                partialResponseHandler.accept(text);
+            for (String text : texts) {
+                if (partialResponseHandler != null) {
+                    partialResponseHandler.accept(text);
+                }
             }
             if (toolExecution != null && toolExecutionHandler != null) {
                 toolExecutionHandler.accept(toolExecution);

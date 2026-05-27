@@ -1,21 +1,19 @@
 package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatService;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
-import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.springframework.stereotype.Service;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 
 @Service
 public class ChatServiceImpl implements ChatService {
@@ -45,11 +43,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public String streamChat(Long userId, Long promptId, String sessionId, String userMessage, Consumer<String> onChunk) {
+    public Flux<ChatStreamEvent> streamChat(Long userId, Long promptId, String sessionId, String userMessage) {
         chatSessionService.assertActiveSession(userId, sessionId, promptId);
-        StringBuilder replyBuilder = new StringBuilder();
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
         String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
         Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
@@ -64,70 +59,79 @@ public class ChatServiceImpl implements ChatService {
                 telemetryRun.traceId()
         );
 
-        // h-agent的runtime loop
-        try {
-            hAssistant.streamChat(memoryId, userMessage)
-                    .onPartialResponse(chunk -> {
-                        replyBuilder.append(chunk);
-                        onChunk.accept(chunk);
-                    })
-                    .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
-                    .onCompleteResponse(ignored -> latch.countDown())
-                    .onError(error -> {
-                        errorRef.set(error);
-                        latch.countDown();
-                    })
-                    .start();
-        } catch (Exception ex) {
-            errorRef.set(ex);
-            latch.countDown();
-        }
+        return Flux.create(sink -> {
+            StringBuilder replyBuilder = new StringBuilder();
 
-        try {
-            latch.await();
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            agentRunService.failRun(runHandle.id(), "AI 响应被中断");
-            agentRunTelemetryService.markFailure(telemetryRun, ex);
-            throw new BusinessException(50002, "AI 响应被中断");
-        }
+            try {
+                hAssistant.streamChat(memoryId, userMessage)
+                        .onPartialResponse(chunk -> {
+                            replyBuilder.append(chunk);
+                            sink.next(new ChatStreamEvent("chunk", chunk));
+                        })
+                        .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
+                        .onCompleteResponse(ignored -> {
+                            String reply = replyBuilder.toString();
+                            if (reply.isBlank()) {
+                                IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
+                                agentRunService.failRun(runHandle.id(), error.getMessage());
+                                agentRunTelemetryService.markFailure(telemetryRun, error);
+                                sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
+                                sink.complete();
+                                return;
+                            }
+                            Long assistantMessageId = chatSessionService.appendAssistantMessage(
+                                    userId,
+                                    sessionId,
+                                    reply
+                            );
+                            agentRunService.completeRun(runHandle.id(), assistantMessageId);
+                            agentRunTelemetryService.markSuccess(telemetryRun);
+                            sink.next(new ChatStreamEvent("done", ""));
+                            sink.complete();
+                        })
+                        .onError(error -> emitFailureEvent(
+                                sink,
+                                userId,
+                                sessionId,
+                                runHandle.id(),
+                                telemetryRun,
+                                error
+                        ))
+                        .start();
+            } catch (Exception ex) {
+                emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
+            }
+        });
+    }
 
-        Throwable error = errorRef.get();
-        if (error != null) {
-            if (error instanceof ModelDisabledException) {
-                agentRunService.failRun(runHandle.id(), "AI 服务未配置 OPENAI_API_KEY");
-                agentRunTelemetryService.markFailure(telemetryRun, error);
-                throw new BusinessException(50001, "AI 服务未配置 OPENAI_API_KEY");
-            }
-            if (error instanceof InputGuardrailException) {
-                String cleanMessage = cleanGuardrailMessage(error.getMessage());
-                chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
-                agentRunService.failRun(runHandle.id(), cleanMessage);
-                agentRunTelemetryService.markFailure(telemetryRun, error);
-                throw new BusinessException(40301, cleanMessage);
-            }
-            if (error instanceof OutputGuardrailException) {
-                String cleanMessage = cleanGuardrailMessage(error.getMessage());
-                chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
-                agentRunService.failRun(runHandle.id(), cleanMessage);
-                agentRunTelemetryService.markFailure(telemetryRun, error);
-                throw new BusinessException(40301, cleanMessage);
-            }
-            agentRunService.failRun(runHandle.id(), error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
+    private void emitFailureEvent(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            String sessionId,
+            Long runId,
+            AgentRunTelemetryService.TelemetryRun telemetryRun,
+            Throwable error
+    ) {
+        if (error instanceof ModelDisabledException) {
+            agentRunService.failRun(runId, "AI 服务未配置 OPENAI_API_KEY");
             agentRunTelemetryService.markFailure(telemetryRun, error);
-            throw new BusinessException(50003, "AI 服务调用失败");
+            sink.next(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY"));
+            sink.complete();
+            return;
         }
-
-        String reply = replyBuilder.toString();
-        if (reply.isBlank()) {
-            agentRunService.failRun(runHandle.id(), "AI 未返回有效内容");
-            agentRunTelemetryService.markFailure(telemetryRun, new IllegalStateException("AI 未返回有效内容"));
-            throw new BusinessException(50004, "AI 未返回有效内容");
+        if (error instanceof InputGuardrailException || error instanceof OutputGuardrailException) {
+            String cleanMessage = cleanGuardrailMessage(error.getMessage());
+            chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
+            agentRunService.failRun(runId, cleanMessage);
+            agentRunTelemetryService.markFailure(telemetryRun, error);
+            sink.next(new ChatStreamEvent("blocked", cleanMessage));
+            sink.complete();
+            return;
         }
-        Long assistantMessageId = chatSessionService.appendAssistantMessage(userId, sessionId, reply);
-        agentRunService.completeRun(runHandle.id(), assistantMessageId);
-        agentRunTelemetryService.markSuccess(telemetryRun);
-        return reply;
+        agentRunService.failRun(runId, error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
+        agentRunTelemetryService.markFailure(telemetryRun, error);
+        sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
+        sink.complete();
     }
 
     private void recordToolUsage(Long runId, ToolExecution toolExecution) {
