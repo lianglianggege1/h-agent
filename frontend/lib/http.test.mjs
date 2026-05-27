@@ -221,3 +221,44 @@ test("apiStream handles final sse block without trailing blank line", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("apiStream ignores heartbeat comment blocks", async () => {
+  const originalFetch = globalThis.fetch;
+  const chunks = [];
+  let doneCalled = false;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              ": keepalive\n\n" +
+                "event: chunk\n" +
+                'data: {"type":"chunk","content":"hello"}\n\n' +
+                ": keepalive\n\n" +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk(value) {
+        chunks.push(value);
+      },
+      onDone() {
+        doneCalled = true;
+      },
+    });
+    assert.deepEqual(chunks, ["hello"]);
+    assert.equal(doneCalled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

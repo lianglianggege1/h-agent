@@ -14,9 +14,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
+
 @RestController
 @RequestMapping("/api/chat")
 public class ChatController {
+
+    private static final Duration STREAM_HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
 
     private final ChatService chatService;
 
@@ -29,15 +33,26 @@ public class ChatController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody ChatMessageRequest request
     ) {
-        return chatService.streamChat(
-                        principal.userId(),
-                        request.promptId(),
-                        request.sessionId(),
-                        request.message().trim()
-                )
+        Flux<ServerSentEvent<ChatStreamEvent>> chatEvents = chatService.streamChat(
+                principal.userId(),
+                request.promptId(),
+                request.sessionId(),
+                request.message().trim()
+        )
                 .map(event -> ServerSentEvent.<ChatStreamEvent>builder()
                         .event(event.type())
                         .data(event)
                         .build());
+
+        Flux<ServerSentEvent<ChatStreamEvent>> heartbeats = Flux.interval(STREAM_HEARTBEAT_INTERVAL)
+                .map(tick -> ServerSentEvent.<ChatStreamEvent>builder()
+                        .comment("keepalive")
+                        .build());
+
+        return Flux.merge(chatEvents, heartbeats)
+                .takeUntil(event -> event.event() != null
+                        && ("done".equals(event.event())
+                        || "error".equals(event.event())
+                        || "blocked".equals(event.event())));
     }
 }

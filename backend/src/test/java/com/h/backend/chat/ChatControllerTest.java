@@ -116,4 +116,26 @@ class ChatControllerTest {
 
         org.mockito.Mockito.verify(chatService).streamChat(1L, 2L, "session-1", "hello");
     }
+
+    @Test
+    void shouldEmitHeartbeatCommentsWhileWaitingForChatEvents() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService);
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+
+        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+                .thenReturn(Flux.just(new ChatStreamEvent("done", ""))
+                        .delaySubscription(Duration.ofMillis(1200)));
+
+        List<ServerSentEvent<ChatStreamEvent>> events = controller.streamMessage(principal, request)
+                .take(2)
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertNotNull(events);
+        assertEquals(2, events.size());
+        assertEquals("keepalive", events.get(0).comment());
+        assertEquals("done", events.get(1).event());
+    }
 }
