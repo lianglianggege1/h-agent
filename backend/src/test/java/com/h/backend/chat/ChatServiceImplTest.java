@@ -25,6 +25,7 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -147,6 +148,45 @@ class ChatServiceImplTest {
         assertEquals(List.of(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY")), events);
         verify(agentRunService).failRun(55L, "AI 服务未配置 OPENAI_API_KEY");
         verify(agentRunTelemetryService).markFailure(telemetryRun, tokenStream.error);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    @Test
+    void shouldEmitErrorEventWhenStreamCompletesWithoutText() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream();
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-empty", "hello")).thenReturn(121L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-empty");
+        when(agentRunTelemetryService.startRun("session-empty", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-empty", 1L, 22L, 121L, "unknown", "trace-empty"))
+                .thenReturn(new AgentRunService.AgentRunHandle(88L));
+        when(hAssistant.streamChat("1:22:session-empty", "hello")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-empty", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(new ChatStreamEvent("error", "AI 未返回有效内容")), events);
+        verify(agentRunService).failRun(88L, "AI 未返回有效内容");
+        verify(agentRunTelemetryService).markFailure(
+                org.mockito.Mockito.eq(telemetryRun),
+                argThat(error -> error instanceof IllegalStateException
+                        && "AI 未返回有效内容".equals(error.getMessage()))
+        );
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
