@@ -5,7 +5,6 @@ import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.ChatService;
 import com.h.backend.security.AuthUserPrincipal;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,8 +24,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeTextEventStreamContentType() throws Exception {
         ChatService chatService = mock(ChatService.class);
-        ObjectMapper objectMapper = new ObjectMapper();
-        ChatController controller = new ChatController(chatService, objectMapper);
+        ChatController controller = new ChatController(chatService);
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -46,8 +44,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeBlockedEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
-        ObjectMapper objectMapper = new ObjectMapper();
-        ChatController controller = new ChatController(chatService, objectMapper);
+        ChatController controller = new ChatController(chatService);
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -65,8 +62,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeErrorEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
-        ObjectMapper objectMapper = new ObjectMapper();
-        ChatController controller = new ChatController(chatService, objectMapper);
+        ChatController controller = new ChatController(chatService);
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -79,5 +75,45 @@ class ChatControllerTest {
         assertNotNull(events);
         assertEquals("error", events.getFirst().event());
         assertEquals("boom", events.getFirst().data().content());
+    }
+
+    @Test
+    void shouldMapChunkAndDoneEventsToServerSentEvents() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService);
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+
+        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+                .thenReturn(Flux.just(
+                        new ChatStreamEvent("chunk", "he"),
+                        new ChatStreamEvent("done", "")
+                ));
+
+        List<ServerSentEvent<ChatStreamEvent>> events = controller.streamMessage(principal, request)
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertNotNull(events);
+        assertEquals("chunk", events.get(0).event());
+        assertEquals("he", events.get(0).data().content());
+        assertEquals("done", events.get(1).event());
+        assertEquals("", events.get(1).data().content());
+    }
+
+    @Test
+    void shouldTrimRequestMessageBeforeDelegatingToService() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService);
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+
+        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+                .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
+
+        controller.streamMessage(principal, new ChatMessageRequest("  hello  ", "session-1", 2L))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        org.mockito.Mockito.verify(chatService).streamChat(1L, 2L, "session-1", "hello");
     }
 }

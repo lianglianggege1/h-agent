@@ -1,76 +1,43 @@
 package com.h.backend.chat.controller;
 
+import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.service.ChatService;
-import com.h.backend.common.exception.BusinessException;
 import com.h.backend.security.AuthUserPrincipal;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-
-import java.io.OutputStreamWriter;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/chat")
 public class ChatController {
 
     private final ChatService chatService;
-    private final ObjectMapper objectMapper;
 
-    public ChatController(ChatService chatService, ObjectMapper objectMapper) {
+    public ChatController(ChatService chatService) {
         this.chatService = chatService;
-        this.objectMapper = objectMapper;
     }
 
-    @PostMapping(value = "/messages/stream", produces = "application/x-ndjson")
-    public ResponseEntity<StreamingResponseBody> streamMessage(
+    @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<ChatStreamEvent>> streamMessage(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody ChatMessageRequest request
     ) {
-        StreamingResponseBody stream = outputStream -> {
-            OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
-            try {
-                String reply = chatService.streamChat(
+        return chatService.streamChat(
                         principal.userId(),
-                        request.promptId(), // 需要有一个默认的 存在数据库中
+                        request.promptId(),
                         request.sessionId(),
-                        request.message().trim(),
-                        chunk -> writeEvent(writer, new ChatStreamEvent("chunk", chunk))
-                );
-                writeEvent(writer, new ChatStreamEvent("done", reply));
-            } catch (RuntimeException ex) {
-                if (ex instanceof BusinessException businessException && businessException.getCode() == 40301) {
-                    writeEvent(writer, new ChatStreamEvent("blocked", businessException.getMessage()));
-                    return;
-                }
-                writeEvent(writer, new ChatStreamEvent("error", ex.getMessage()));
-            }
-        };
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/x-ndjson"))
-                .body(stream);
-    }
-
-    private void writeEvent(OutputStreamWriter writer, ChatStreamEvent event) {
-        try {
-            writer.write(objectMapper.writeValueAsString(event));
-            writer.write("\n");
-            writer.flush();
-        } catch (java.io.IOException ex) {
-            throw new UncheckedIOException(ex);
-        }
-    }
-
-    private record ChatStreamEvent(String type, String content) {
+                        request.message().trim()
+                )
+                .map(event -> ServerSentEvent.<ChatStreamEvent>builder()
+                        .event(event.type())
+                        .data(event)
+                        .build());
     }
 }
