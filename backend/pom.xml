@@ -15,7 +15,7 @@
     <description>h-agent Backend Service</description>
     <properties>
         <java.version>23</java.version>
-        <langchain4j.version>1.11.7</langchain4j.version>
+        <langchain4j.version>1.15.0</langchain4j.version>
     </properties>
     <dependencies>
         <dependency>
@@ -78,7 +78,7 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic</artifactId>
-            <version>${langchain4j.version}-beta19</version>
+            <version>${langchain4j.version}-beta25</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>

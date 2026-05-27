@@ -3,12 +3,15 @@ package com.h.backend.chat.config;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.memory.RedisChatMemoryStore;
 import com.h.backend.chat.service.SystemPromptService;
+import com.h.backend.chat.tools.HToolArgumentsErrorHandler;
+import com.h.backend.chat.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
 import jakarta.annotation.Resource;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -34,6 +37,12 @@ public class ChatModelConfig {
 
     @Resource
     private ToolWithP toolWithP;
+
+    @Resource
+    private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
+
+    @Resource
+    private HToolExecutionErrorHandler hToolExecutionErrorHandler;
 
     @Bean
     public StreamingChatModel streamingChatModel() {
@@ -76,6 +85,11 @@ public class ChatModelConfig {
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
                 .tools(toolWithP)
+                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
+                .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
+                .toolExecutionErrorHandler(hToolExecutionErrorHandler)
+                .executeToolsConcurrently() // 并发调用工具
+                // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
