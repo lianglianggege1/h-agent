@@ -12,9 +12,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,7 +35,8 @@ class ChatControllerTest {
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
 
-        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block();
+        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block(Duration.ofSeconds(1));
+        assertNotNull(events);
         assertEquals("done", events.getFirst().event());
         assertEquals(MediaType.TEXT_EVENT_STREAM_VALUE, controller.getClass()
                 .getDeclaredMethod("streamMessage", AuthUserPrincipal.class, ChatMessageRequest.class)
@@ -53,7 +56,8 @@ class ChatControllerTest {
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
 
-        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block();
+        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block(Duration.ofSeconds(1));
+        assertNotNull(events);
         assertEquals("blocked", events.getFirst().event());
         assertEquals("平台检测到您的消息不符合使用规范，已自动拦截。", events.getFirst().data().content());
     }
@@ -71,7 +75,8 @@ class ChatControllerTest {
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
 
-        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block();
+        List<ServerSentEvent<ChatStreamEvent>> events = response.collectList().block(Duration.ofSeconds(1));
+        assertNotNull(events);
         assertEquals("error", events.getFirst().event());
         assertEquals("boom", events.getFirst().data().content());
     }
