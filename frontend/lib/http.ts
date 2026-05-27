@@ -62,15 +62,17 @@ export async function apiStream(
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
+  const flushBlocks = (final = false) => {
+    buffer = buffer.replace(/\r\n/g, "\n");
     const blocks = buffer.split("\n\n");
     buffer = blocks.pop() ?? "";
 
-    for (const rawBlock of blocks) {
+    const candidateBlocks = final && buffer.trim() ? [...blocks, buffer] : blocks;
+    if (final) {
+      buffer = "";
+    }
+
+    for (const rawBlock of candidateBlocks) {
       const block = rawBlock.trim();
       if (!block) continue;
 
@@ -97,5 +99,16 @@ export async function apiStream(
         throw new Error(payload.content || "请求失败");
       }
     }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      flushBlocks(true);
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    flushBlocks();
   }
 }

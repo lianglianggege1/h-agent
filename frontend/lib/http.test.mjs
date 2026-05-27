@@ -141,3 +141,83 @@ test("apiStream dispatches chunk and done events from sse blocks", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("apiStream dispatches events from CRLF-delimited sse blocks", async () => {
+  const originalFetch = globalThis.fetch;
+  const chunks = [];
+  let doneCalled = false;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: chunk\r\n" +
+                'data: {"type":"chunk","content":"he"}\r\n\r\n' +
+                "event: chunk\r\n" +
+                'data: {"type":"chunk","content":"llo"}\r\n\r\n' +
+                "event: done\r\n" +
+                'data: {"type":"done","content":""}\r\n\r\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk(value) {
+        chunks.push(value);
+      },
+      onDone() {
+        doneCalled = true;
+      },
+    });
+    assert.deepEqual(chunks, ["he", "llo"]);
+    assert.equal(doneCalled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("apiStream handles final sse block without trailing blank line", async () => {
+  const originalFetch = globalThis.fetch;
+  const chunks = [];
+  let doneCalled = false;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: chunk\n" +
+                'data: {"type":"chunk","content":"hello"}\n\n' +
+                "event: done\n" +
+                'data: {"type":"done","content":""}',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk(value) {
+        chunks.push(value);
+      },
+      onDone() {
+        doneCalled = true;
+      },
+    });
+    assert.deepEqual(chunks, ["hello"]);
+    assert.equal(doneCalled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
