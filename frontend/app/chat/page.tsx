@@ -356,14 +356,7 @@ export default function ChatPage() {
               ),
             );
           },
-          onDone(finalContent) {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId && message.role === "assistant"
-                  ? { ...message, content: finalContent }
-                  : message,
-              ),
-            );
+          onDone() {
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
           },
           onError(message) {
