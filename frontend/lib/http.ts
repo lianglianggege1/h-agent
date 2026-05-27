@@ -67,23 +67,34 @@ export async function apiStream(
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
+    for (const rawBlock of blocks) {
+      const block = rawBlock.trim();
+      if (!block) continue;
 
-      const event = JSON.parse(line) as { type: string; content: string };
-      if (event.type === "chunk") {
-        handlers.onChunk(event.content);
-      } else if (event.type === "done") {
-        handlers.onDone?.(event.content);
-      } else if (event.type === "blocked") {
-        handlers.onBlocked?.(event.content);
-      } else if (event.type === "error") {
-        handlers.onError?.(event.content);
-        throw new Error(event.content || "请求失败");
+      const lines = block.split("\n");
+      const eventLine = lines.find((line) => line.startsWith("event:"));
+      const dataLine = lines.find((line) => line.startsWith("data:"));
+      if (!dataLine) continue;
+
+      const eventName = eventLine?.slice("event:".length).trim();
+      const payload = JSON.parse(dataLine.slice("data:".length).trim()) as {
+        type: string;
+        content: string;
+      };
+      const eventType = eventName || payload.type;
+
+      if (eventType === "chunk") {
+        handlers.onChunk(payload.content);
+      } else if (eventType === "done") {
+        handlers.onDone?.(payload.content);
+      } else if (eventType === "blocked") {
+        handlers.onBlocked?.(payload.content);
+      } else if (eventType === "error") {
+        handlers.onError?.(payload.content);
+        throw new Error(payload.content || "请求失败");
       }
     }
   }

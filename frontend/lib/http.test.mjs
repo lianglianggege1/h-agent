@@ -26,13 +26,14 @@ test("apiStream throws and notifies handler for error events", async () => {
         start(controller) {
           controller.enqueue(
             new TextEncoder().encode(
-              `${JSON.stringify({ type: "error", content: errorMessage })}\n`,
+              "event: error\n" +
+                `data: ${JSON.stringify({ type: "error", content: errorMessage })}\n\n`,
             ),
           );
           controller.close();
         },
       }),
-      { status: 200 },
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
     );
 
   try {
@@ -68,13 +69,14 @@ test("apiStream dispatches blocked events without throwing", async () => {
         start(controller) {
           controller.enqueue(
             new TextEncoder().encode(
-              `${JSON.stringify({ type: "blocked", content: blockedMessage })}\n`,
+              "event: blocked\n" +
+                `data: ${JSON.stringify({ type: "blocked", content: blockedMessage })}\n\n`,
             ),
           );
           controller.close();
         },
       }),
-      { status: 200 },
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
     );
 
   try {
@@ -94,6 +96,47 @@ test("apiStream dispatches blocked events without throwing", async () => {
     );
     assert.equal(receivedBlockedMessage, blockedMessage);
     assert.deepEqual(chunks, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("apiStream dispatches chunk and done events from sse blocks", async () => {
+  const originalFetch = globalThis.fetch;
+  const chunks = [];
+  let doneCalled = false;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: chunk\n" +
+                'data: {"type":"chunk","content":"he"}\n\n' +
+                "event: chunk\n" +
+                'data: {"type":"chunk","content":"llo"}\n\n' +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk(value) {
+        chunks.push(value);
+      },
+      onDone() {
+        doneCalled = true;
+      },
+    });
+    assert.deepEqual(chunks, ["he", "llo"]);
+    assert.equal(doneCalled, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
