@@ -44,63 +44,65 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public Flux<ChatStreamEvent> streamChat(Long userId, Long promptId, String sessionId, String userMessage) {
-        chatSessionService.assertActiveSession(userId, sessionId, promptId);
-        Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
-        String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
-        Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
-        AgentRunService.AgentRunHandle runHandle = agentRunService.createRun(
-                sessionId,
-                userId,
-                resolvedPromptId,
-                userMessageId,
-                "unknown",
-                telemetryRun.traceId()
-        );
+        return Flux.defer(() -> {
+            chatSessionService.assertActiveSession(userId, sessionId, promptId);
+            Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
+            String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
+            Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
+            AgentRunTelemetryService.TelemetryRun telemetryRun =
+                    agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
+            AgentRunService.AgentRunHandle runHandle = agentRunService.createRun(
+                    sessionId,
+                    userId,
+                    resolvedPromptId,
+                    userMessageId,
+                    "unknown",
+                    telemetryRun.traceId()
+            );
 
-        return Flux.create(sink -> {
-            StringBuilder replyBuilder = new StringBuilder();
+            return Flux.create(sink -> {
+                StringBuilder replyBuilder = new StringBuilder();
 
-            try {
-                hAssistant.streamChat(memoryId, userMessage)
-                        .onPartialResponse(chunk -> {
-                            replyBuilder.append(chunk);
-                            sink.next(new ChatStreamEvent("chunk", chunk));
-                        })
-                        .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
-                        .onCompleteResponse(ignored -> {
-                            String reply = replyBuilder.toString();
-                            if (reply.isBlank()) {
-                                IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
-                                agentRunService.failRun(runHandle.id(), error.getMessage());
-                                agentRunTelemetryService.markFailure(telemetryRun, error);
-                                sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
+                try {
+                    hAssistant.streamChat(memoryId, userMessage)
+                            .onPartialResponse(chunk -> {
+                                replyBuilder.append(chunk);
+                                sink.next(new ChatStreamEvent("chunk", chunk));
+                            })
+                            .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
+                            .onCompleteResponse(ignored -> {
+                                String reply = replyBuilder.toString();
+                                if (reply.isBlank()) {
+                                    IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
+                                    agentRunService.failRun(runHandle.id(), error.getMessage());
+                                    agentRunTelemetryService.markFailure(telemetryRun, error);
+                                    sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
+                                    sink.complete();
+                                    return;
+                                }
+                                Long assistantMessageId = chatSessionService.appendAssistantMessage(
+                                        userId,
+                                        sessionId,
+                                        reply
+                                );
+                                agentRunService.completeRun(runHandle.id(), assistantMessageId);
+                                agentRunTelemetryService.markSuccess(telemetryRun);
+                                sink.next(new ChatStreamEvent("done", ""));
                                 sink.complete();
-                                return;
-                            }
-                            Long assistantMessageId = chatSessionService.appendAssistantMessage(
+                            })
+                            .onError(error -> emitFailureEvent(
+                                    sink,
                                     userId,
                                     sessionId,
-                                    reply
-                            );
-                            agentRunService.completeRun(runHandle.id(), assistantMessageId);
-                            agentRunTelemetryService.markSuccess(telemetryRun);
-                            sink.next(new ChatStreamEvent("done", ""));
-                            sink.complete();
-                        })
-                        .onError(error -> emitFailureEvent(
-                                sink,
-                                userId,
-                                sessionId,
-                                runHandle.id(),
-                                telemetryRun,
-                                error
-                        ))
-                        .start();
-            } catch (Exception ex) {
-                emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
-            }
+                                    runHandle.id(),
+                                    telemetryRun,
+                                    error
+                            ))
+                            .start();
+                } catch (Exception ex) {
+                    emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
+                }
+            });
         });
     }
 

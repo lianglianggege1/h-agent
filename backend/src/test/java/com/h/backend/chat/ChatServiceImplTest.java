@@ -152,6 +152,28 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void shouldNotExecuteSideEffectsBeforeSubscription() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        chatService.streamChat(1L, 2L, "session-lazy", "hello");
+
+        verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
+        verify(agentRunTelemetryService, never()).startRun(any(), any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void shouldEmitErrorEventWhenStreamCompletesWithoutText() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
