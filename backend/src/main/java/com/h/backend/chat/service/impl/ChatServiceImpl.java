@@ -11,10 +11,12 @@ import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.tool.ToolExecution;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
+@Slf4j
 @Service
 public class ChatServiceImpl implements ChatService {
 
@@ -114,6 +116,7 @@ public class ChatServiceImpl implements ChatService {
             AgentRunTelemetryService.TelemetryRun telemetryRun,
             Throwable error
     ) {
+        log.error("Error streaming chat", error);
         if (error instanceof ModelDisabledException) {
             agentRunService.failRun(runId, "AI 服务未配置 OPENAI_API_KEY");
             agentRunTelemetryService.markFailure(telemetryRun, error);

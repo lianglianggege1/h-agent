@@ -7,6 +7,7 @@ import com.h.backend.chat.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
@@ -56,11 +57,13 @@ public class ChatModelConfig {
 
         try (var reader = Files.newBufferedReader(envPath)) {
             properties.load(reader);
-
-            return OpenAiStreamingChatModel.builder()
+            return AnthropicStreamingChatModel.builder()
                     .apiKey(properties.getProperty("API_KEY"))
-                    .baseUrl(properties.getProperty("BASE_URL"))
+                    .baseUrl("https://api.minimaxi.com/anthropic/v1")
                     .modelName(properties.getProperty("MODEL_NAME"))
+                    .thinkingType("enabled")
+                    .thinkingBudgetTokens(1024)
+                    .returnThinking(true)
                     .timeout(Duration.ofSeconds(60))
                     .logRequests(true)
                     .logResponses(true)
