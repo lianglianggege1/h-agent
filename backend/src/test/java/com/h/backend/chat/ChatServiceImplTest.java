@@ -13,6 +13,7 @@ import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
@@ -26,12 +27,103 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatServiceImplTest {
+
+    @Test
+    void shouldEmitReasoningEventsAndPersistReasoningBeforeAssistantReply() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream()
+                .emitThinking("先明确目标。")
+                .emitThinking("再列实现步骤。")
+                .emitText("最终")
+                .emitText("答案");
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-1", "hello")).thenReturn(101L);
+        when(chatSessionService.appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。")).thenReturn(201L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-1", "最终答案")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-reasoning");
+        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "unknown", "trace-reasoning"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-1", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("reasoning", "先明确目标。"),
+                new ChatStreamEvent("reasoning", "再列实现步骤。"),
+                new ChatStreamEvent("chunk", "最终"),
+                new ChatStreamEvent("chunk", "答案"),
+                new ChatStreamEvent("done", "")
+        ), events);
+        var inOrder = inOrder(chatSessionService);
+        inOrder.verify(chatSessionService).appendUserMessage(1L, "session-1", "hello");
+        inOrder.verify(chatSessionService).appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。");
+        inOrder.verify(chatSessionService).appendAssistantMessage(1L, "session-1", "最终答案");
+        verify(agentRunService).completeRun(55L, 202L);
+        verify(agentRunTelemetryService).markSuccess(telemetryRun);
+    }
+
+    @Test
+    void shouldNotPersistReasoningWhenRuntimeErrorOccursAfterThinking() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        RuntimeException runtimeException = new RuntimeException("boom");
+        FakeTokenStream tokenStream = new FakeTokenStream()
+                .emitThinking("先分析")
+                .emitErrorAfterThinking(runtimeException);
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-2", "hello")).thenReturn(111L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-error");
+        when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-2", 1L, 22L, 111L, "unknown", "trace-error"))
+                .thenReturn(new AgentRunService.AgentRunHandle(66L));
+        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-2", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("reasoning", "先分析"),
+                new ChatStreamEvent("error", "AI 服务调用失败")
+        ), events);
+        verify(chatSessionService, never()).appendReasoningMessage(any(), any(), any());
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
 
     @Test
     void shouldEmitChunkEventsAndDoneEventForSuccessfulStream() {
@@ -410,14 +502,22 @@ class ChatServiceImplTest {
     }
 
     private static final class FakeTokenStream implements TokenStream {
+        private final List<String> thinkings = new ArrayList<>();
         private final List<String> texts = new ArrayList<>();
         private Throwable error;
+        private Throwable errorAfterThinking;
         private RuntimeException startError;
         private ToolExecution toolExecution;
+        private Consumer<PartialThinking> partialThinkingHandler;
         private Consumer<String> partialResponseHandler;
         private Consumer<ToolExecution> toolExecutionHandler;
         private Consumer<ChatResponse> completeResponseHandler;
         private Consumer<Throwable> errorHandler;
+
+        FakeTokenStream emitThinking(String thinking) {
+            this.thinkings.add(thinking);
+            return this;
+        }
 
         FakeTokenStream emitText(String text) {
             this.texts.add(text);
@@ -426,6 +526,11 @@ class ChatServiceImplTest {
 
         FakeTokenStream emitError(Throwable error) {
             this.error = error;
+            return this;
+        }
+
+        FakeTokenStream emitErrorAfterThinking(Throwable errorAfterThinking) {
+            this.errorAfterThinking = errorAfterThinking;
             return this;
         }
 
@@ -458,6 +563,12 @@ class ChatServiceImplTest {
         @Override
         public TokenStream onPartialResponse(Consumer<String> partialResponseHandler) {
             this.partialResponseHandler = partialResponseHandler;
+            return this;
+        }
+
+        @Override
+        public TokenStream onPartialThinking(Consumer<PartialThinking> partialThinkingHandler) {
+            this.partialThinkingHandler = partialThinkingHandler;
             return this;
         }
 
@@ -497,6 +608,17 @@ class ChatServiceImplTest {
             if (error != null) {
                 if (errorHandler != null) {
                     errorHandler.accept(error);
+                }
+                return;
+            }
+            for (String thinking : thinkings) {
+                if (partialThinkingHandler != null) {
+                    partialThinkingHandler.accept(new PartialThinking(thinking));
+                }
+            }
+            if (errorAfterThinking != null) {
+                if (errorHandler != null) {
+                    errorHandler.accept(errorAfterThinking);
                 }
                 return;
             }

@@ -60,6 +60,26 @@ class ChatControllerTest {
     }
 
     @Test
+    void shouldExposeReasoningEventFromChatService() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService);
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+
+        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+                .thenReturn(Flux.just(new ChatStreamEvent("reasoning", "先看约束")));
+
+        List<ServerSentEvent<ChatStreamEvent>> events = controller.streamMessage(principal, request)
+                .take(1)
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertNotNull(events);
+        assertEquals("reasoning", events.getFirst().event());
+        assertEquals("先看约束", events.getFirst().data().content());
+    }
+
+    @Test
     void shouldExposeErrorEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService);

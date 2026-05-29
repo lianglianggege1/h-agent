@@ -63,10 +63,19 @@ public class ChatServiceImpl implements ChatService {
             );
 
             return Flux.create(sink -> {
+                StringBuilder reasoningBuilder = new StringBuilder();
                 StringBuilder replyBuilder = new StringBuilder();
 
                 try {
                     hAssistant.streamChat(memoryId, userMessage)
+                            .onPartialThinking(thinking -> {
+                                String thinkingText = thinking == null ? "" : thinking.text();
+                                if (thinkingText == null || thinkingText.isBlank()) {
+                                    return;
+                                }
+                                reasoningBuilder.append(thinkingText);
+                                sink.next(new ChatStreamEvent("reasoning", thinkingText));
+                            })
                             .onPartialResponse(chunk -> {
                                 replyBuilder.append(chunk);
                                 sink.next(new ChatStreamEvent("chunk", chunk));
@@ -81,6 +90,10 @@ public class ChatServiceImpl implements ChatService {
                                     sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
                                     sink.complete();
                                     return;
+                                }
+                                String reasoning = reasoningBuilder.toString();
+                                if (!reasoning.isBlank()) {
+                                    chatSessionService.appendReasoningMessage(userId, sessionId, reasoning);
                                 }
                                 Long assistantMessageId = chatSessionService.appendAssistantMessage(
                                         userId,
