@@ -3,6 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  applyAssistantChunk,
+  applyBlockedState,
+  applyReasoningChunk,
+  buildPendingAssistantTurn,
+  toRenderableTurns,
+  toUiChatMessage,
+  type UiChatMessage,
+} from "@/lib/chat-message-state";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
@@ -17,14 +26,6 @@ import {
   listChatHistory,
   resolveChatSession,
 } from "@/lib/chat-sessions";
-
-type ChatRole = "assistant" | "blocked" | "user";
-
-type ChatMessage = {
-  id: string;
-  role: ChatRole;
-  content: string;
-};
 
 type MessageSegment =
   | {
@@ -130,6 +131,20 @@ function BlockedMessageContent({ content }: { content: string }) {
   );
 }
 
+function ReasoningDetails({ content, pending = false }: { content: string; pending?: boolean }) {
+  return (
+    <details
+      className="rounded-2xl border border-stone-200 bg-stone-50/90 px-3 py-2 text-stone-600"
+      open={pending}
+    >
+      <summary className="cursor-pointer list-none text-xs font-medium tracking-[0.18em] text-stone-500">
+        {pending ? "思考中..." : "思考过程"}
+      </summary>
+      <div className="mt-2 whitespace-pre-wrap text-xs leading-6 text-stone-500">{content}</div>
+    </details>
+  );
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -145,7 +160,7 @@ export default function ChatPage() {
   const [error, setError] = useState("");
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<UiChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
   const [showSessionChooser, setShowSessionChooser] = useState(false);
@@ -197,13 +212,7 @@ export default function ChatPage() {
     setSessionId(detail.sessionId);
     setCurrentSessionTitle(detail.title || "新会话");
     setSelectedPromptId(detail.promptId ?? fallbackPromptId);
-    setMessages(
-      messagePage.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-      })),
-    );
+    setMessages(messagePage.messages.map(toUiChatMessage));
     setHasOlderMessages(messagePage.hasMore);
     setNextBeforeSeq(messagePage.nextBeforeSeq);
     setShowSessionChooser(false);
@@ -291,11 +300,7 @@ export default function ChatPage() {
     setLoadingOlderMessages(true);
     try {
       const detail = await getChatSessionMessages(sessionId, 20, cursor);
-      const olderMessages = detail.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-      }));
+      const olderMessages = detail.messages.map(toUiChatMessage);
       setMessages((current) => [...olderMessages, ...current]);
       setHasOlderMessages(detail.hasMore);
       setNextBeforeSeq(detail.nextBeforeSeq);
@@ -312,21 +317,13 @@ export default function ChatPage() {
     const content = input.trim();
     if (!content || streaming || !sessionId) return;
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content,
-    };
-    const assistantId = `assistant-${Date.now()}`;
+    const seed = Date.now();
+    const { userMessage, reasoningMessage, assistantMessage } = buildPendingAssistantTurn(content, seed);
 
     setInput("");
     setError("");
     setStreaming(true);
-    setMessages((current) => [
-      ...current,
-      userMessage,
-      { id: assistantId, role: "assistant", content: "" },
-    ]);
+    setMessages((current) => [...current, userMessage, reasoningMessage, assistantMessage]);
 
     try {
       await apiStream(
@@ -340,21 +337,14 @@ export default function ChatPage() {
           }),
         },
         {
+          onReasoning(chunk) {
+            setMessages((current) => applyReasoningChunk(current, reasoningMessage.id, chunk));
+          },
           onChunk(chunk) {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: `${message.content}${chunk}` }
-                  : message,
-              ),
-            );
+            setMessages((current) => applyAssistantChunk(current, assistantMessage.id, chunk));
           },
           onBlocked(message) {
-            setMessages((current) =>
-              current.map((item) =>
-                item.id === assistantId ? { ...item, role: "blocked", content: message } : item,
-              ),
-            );
+            setMessages((current) => applyBlockedState(current, assistantMessage.id, message));
           },
           onDone() {
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
@@ -369,7 +359,7 @@ export default function ChatPage() {
       setError(message);
       setMessages((current) =>
         current.map((item) =>
-          item.id === assistantId && !item.content
+          item.id === assistantMessage.id && !item.content
             ? { ...item, content: "暂时无法响应，请稍后重试。" }
             : item,
         ),
@@ -587,33 +577,39 @@ export default function ChatPage() {
                 </div>
               </article>
             ) : null}
-            {messages.map((message) => (
+            {toRenderableTurns(messages).map((turn) => (
               <article
-                key={message.id}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                key={turn.id}
+                className={`flex ${turn.kind === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
                   className={[
                     "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
-                    message.role === "user"
+                    turn.kind === "user"
                       ? "rounded-br-md bg-stone-900 text-stone-50"
-                      : message.role === "blocked"
+                      : turn.kind === "blocked"
                         ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
                         : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
                   ].join(" ")}
                 >
-                  {message.role === "assistant" ? (
-                    message.content ? (
-                      <AssistantMessageContent content={message.content} />
-                    ) : streaming ? (
-                      "正在思考..."
-                    ) : (
-                      ""
-                    )
-                  ) : message.role === "blocked" ? (
-                    <BlockedMessageContent content={message.content} />
+                  {turn.kind === "user" ? (
+                    turn.content
+                  ) : turn.kind === "blocked" ? (
+                    <div className="space-y-3">
+                      {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
+                      <BlockedMessageContent content={turn.blocked} />
+                    </div>
+                  ) : turn.answer ? (
+                    <div className="space-y-3">
+                      {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
+                      <AssistantMessageContent content={turn.answer} />
+                    </div>
+                  ) : turn.reasoning ? (
+                    <ReasoningDetails content={turn.reasoning} pending />
                   ) : (
-                    message.content
+                    streaming
+                      ? "正在思考..."
+                      : ""
                   )}
                 </div>
               </article>

@@ -47,6 +47,23 @@ test("applyBlockedState keeps reasoning content and converts assistant placehold
   assert.equal(blocked[1].content, "命中安全规则");
 });
 
+test("toRenderableTurns groups reasoning before blocked message", () => {
+  const turns = toRenderableTurns([
+    { id: "1", role: "assistant", messageType: "REASONING", content: "先列风险", createdAt: "" },
+    { id: "2", role: "blocked", messageType: "SYSTEM", content: "命中安全规则", createdAt: "" },
+  ]);
+
+  assert.deepEqual(turns, [
+    {
+      kind: "blocked",
+      reasoning: "先列风险",
+      answer: "",
+      blocked: "命中安全规则",
+      id: "2",
+    },
+  ]);
+});
+
 test("toRenderableTurns groups reasoning before assistant reply", () => {
   const turns = toRenderableTurns([
     { id: "1", role: "assistant", messageType: "REASONING", content: "先列约束", createdAt: "" },

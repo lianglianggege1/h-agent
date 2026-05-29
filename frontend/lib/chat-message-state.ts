@@ -114,6 +114,17 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         index += 1;
         continue;
       }
+      if (next && next.role === "blocked" && next.messageType === "SYSTEM") {
+        turns.push({
+          kind: "blocked",
+          id: next.id,
+          reasoning: current.content || null,
+          answer: "",
+          blocked: next.content,
+        });
+        index += 1;
+        continue;
+      }
       turns.push({
         kind: "assistant",
         id: current.id,
