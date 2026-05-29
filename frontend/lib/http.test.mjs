@@ -101,6 +101,52 @@ test("apiStream dispatches blocked events without throwing", async () => {
   }
 });
 
+test("apiStream dispatches reasoning events without affecting chunk flow", async () => {
+  const originalFetch = globalThis.fetch;
+  const events = [];
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: reasoning\n" +
+                'data: {"type":"reasoning","content":"先拆约束"}\n\n' +
+                "event: chunk\n" +
+                'data: {"type":"chunk","content":"最终答案"}\n\n' +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onReasoning(value) {
+        events.push(["reasoning", value]);
+      },
+      onChunk(value) {
+        events.push(["chunk", value]);
+      },
+      onDone() {
+        events.push(["done", ""]);
+      },
+    });
+    assert.deepEqual(events, [
+      ["reasoning", "先拆约束"],
+      ["chunk", "最终答案"],
+      ["done", ""],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches chunk and done events from sse blocks", async () => {
   const originalFetch = globalThis.fetch;
   const chunks = [];

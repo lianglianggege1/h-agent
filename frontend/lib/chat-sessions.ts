@@ -1,8 +1,11 @@
 import { apiFetch } from "./http";
 
+export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING";
+
 export type ChatSessionMessage = {
   id: string;
-  role: "assistant" | "user";
+  role: "assistant" | "blocked" | "user";
+  messageType: ChatSessionMessageType;
   content: string;
   createdAt: string;
 };

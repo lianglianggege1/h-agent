@@ -34,6 +34,7 @@ export async function apiStream(
   path: string,
   init: RequestInit,
   handlers: {
+    onReasoning?: (value: string) => void;
     onChunk: (value: string) => void;
     onDone?: (value: string) => void;
     onBlocked?: (message: string) => void;
@@ -88,7 +89,9 @@ export async function apiStream(
       };
       const eventType = eventName || payload.type;
 
-      if (eventType === "chunk") {
+      if (eventType === "reasoning") {
+        handlers.onReasoning?.(payload.content);
+      } else if (eventType === "chunk") {
         handlers.onChunk(payload.content);
       } else if (eventType === "done") {
         handlers.onDone?.(payload.content);
