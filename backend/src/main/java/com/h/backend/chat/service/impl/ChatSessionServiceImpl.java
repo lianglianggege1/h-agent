@@ -221,7 +221,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
         int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
         LocalDateTime now = LocalDateTime.now();
-        ChatSessionMessage message = buildMessage("user", userMessage, now, nextSequence);
+        ChatSessionMessage message = buildMessage("user", "USER", userMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
         session.setMessageCount(nextSequence);
@@ -245,7 +245,27 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
         int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
         LocalDateTime now = LocalDateTime.now();
-        ChatSessionMessage message = buildMessage("blocked", blockedMessage, now, nextSequence);
+        ChatSessionMessage message = buildMessage("blocked", "SYSTEM", blockedMessage, now, nextSequence);
+        Long messageId = persistMessage(session, message);
+
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        chatSessionMapper.updateById(session);
+        return messageId;
+    }
+
+    @Override
+    @Transactional
+    public Long appendReasoningMessage(Long userId, String sessionId, String reasoningMessage) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+
+        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionMessage message = buildMessage("assistant", "REASONING", reasoningMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
         session.setMessageCount(nextSequence);
@@ -265,7 +285,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
         int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
         LocalDateTime now = LocalDateTime.now();
-        ChatSessionMessage message = buildMessage("assistant", assistantMessage, now, nextSequence);
+        ChatSessionMessage message = buildMessage("assistant", "AI", assistantMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
         session.setMessageCount(nextSequence);
@@ -363,11 +383,18 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         return new ChatSessionMessagesPageDto(session.getSessionId(), messages, hasMore, nextBefore);
     }
 
-    private ChatSessionMessage buildMessage(String role, String content, LocalDateTime createdAt, int sequenceNo) {
+    private ChatSessionMessage buildMessage(
+            String role,
+            String messageType,
+            String content,
+            LocalDateTime createdAt,
+            int sequenceNo
+    ) {
         ChatSessionMessage message = new ChatSessionMessage();
         message.setId(UUID.randomUUID().toString());
         message.setSequenceNo(sequenceNo);
         message.setRole(role);
+        message.setMessageType(messageType);
         message.setContent(content);
         message.setCreatedAt(createdAt);
         return message;
@@ -379,7 +406,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         row.setSessionId(session.getSessionId());
         row.setUserId(session.getUserId());
         row.setSequenceNo(message.getSequenceNo());
-        row.setMessageType("assistant".equals(message.getRole()) ? "AI" : "blocked".equals(message.getRole()) ? "SYSTEM" : "USER");
+        row.setMessageType(message.getMessageType());
         row.setRoleCode(message.getRole());
         row.setContentText(message.getContent());
         row.setPayloadJson(writeMessagePayload(message));
@@ -405,12 +432,25 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private ChatSessionMessageDto toMessageDto(ChatSessionMessageEntity row) {
+        String normalizedMessageType = normalizeMessageType(row.getMessageType(), row.getRoleCode());
         return new ChatSessionMessageDto(
                 row.getId() == null ? UUID.randomUUID().toString() : String.valueOf(row.getId()),
                 normalizeRole(row.getRoleCode()),
+                normalizedMessageType,
                 row.getContentText() == null ? "" : row.getContentText(),
                 row.getCreatedAt()
         );
+    }
+
+    private String normalizeMessageType(String messageType, String roleCode) {
+        if (messageType != null && !messageType.isBlank()) {
+            return messageType;
+        }
+        return switch (roleCode) {
+            case "assistant", "tool", "custom", "system" -> "AI";
+            case "blocked" -> "SYSTEM";
+            default -> "USER";
+        };
     }
 
     private String normalizeRole(String roleCode) {

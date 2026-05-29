@@ -7,6 +7,7 @@ public class ChatSessionMessage {
     private String id;
     private Integer sequenceNo;
     private String role;
+    private String messageType;
     private String content;
     private LocalDateTime createdAt;
 
@@ -32,6 +33,14 @@ public class ChatSessionMessage {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
     }
 
     public String getContent() {
