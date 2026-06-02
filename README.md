@@ -44,3 +44,6 @@ The frontend runs on http://localhost:3000 and proxies `/api/*` requests to the 
 - Backend API: http://localhost:8080
 - Frontend: http://localhost:3000
 - API proxy: Frontend proxies `/api/*` to backend
+
+# 效率工具
+npx @colbymchenry/codegraph

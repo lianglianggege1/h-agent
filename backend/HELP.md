@@ -11,7 +11,7 @@ For further reference, please consider the following sections:
 
 ### Guides
 
-The following guides illustrate how to use some features concretely:
+The following guides illustrate how t[pom.xml](pom.xml)o use some features concretely:
 
 * [Building a RESTful Web Service](https://spring.io/guides/gs/rest-service/)
 * [Serving Web Content with Spring MVC](https://spring.io/guides/gs/serving-web-content/)
