@@ -1,4 +1,4 @@
-import { apiFetch, apiFormFetch } from "./http.ts";
+import { apiFetch, apiFormFetch } from "./http";
 
 export type KnowledgeDocument = {
   id: number;

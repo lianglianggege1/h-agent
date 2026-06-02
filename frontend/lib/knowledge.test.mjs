@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import { test } from "node:test";
-import {
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "./http" && context.parentURL?.endsWith("/knowledge.ts")) {
+      return nextResolve("./http.ts", context);
+    }
+
+    return nextResolve(specifier, context);
+  },
+});
+
+const {
   createManualKnowledge,
   deleteKnowledgeDocument,
   listKnowledgeDocuments,
   listKnowledgeSegments,
   uploadKnowledgeDocument,
-} from "./knowledge.ts";
+} = await import("./knowledge.ts");
 
 test("listKnowledgeDocuments calls prompt-scoped endpoint", async () => {
   const originalFetch = globalThis.fetch;
@@ -29,9 +41,11 @@ test("listKnowledgeDocuments calls prompt-scoped endpoint", async () => {
 test("uploadKnowledgeDocument posts multipart file and promptId", async () => {
   const originalFetch = globalThis.fetch;
   const file = new File(["hello"], "note.txt", { type: "text/plain" });
+  let capturedPath;
   let capturedInit;
 
-  globalThis.fetch = async (_path, init) => {
+  globalThis.fetch = async (path, init) => {
+    capturedPath = path;
     capturedInit = init;
     return new Response(JSON.stringify({ code: 0, message: "ok", data: 99 }), { status: 200 });
   };
@@ -40,6 +54,7 @@ test("uploadKnowledgeDocument posts multipart file and promptId", async () => {
     const result = await uploadKnowledgeDocument(8, file);
     const body = capturedInit.body;
     assert.equal(result, 99);
+    assert.equal(capturedPath, "/api/knowledge/documents/upload");
     assert.equal(capturedInit.method, "POST");
     assert.equal(body.get("promptId"), "8");
     assert.equal(body.get("file"), file);
