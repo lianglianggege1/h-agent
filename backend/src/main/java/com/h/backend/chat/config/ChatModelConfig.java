@@ -7,7 +7,10 @@ import com.h.backend.chat.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.DisabledChatModel;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
@@ -70,6 +73,26 @@ public class ChatModelConfig {
                     .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
                     .build();
 
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to load .env file", ex);
+        }
+    }
+
+    @Bean
+    public ChatModel chatModel() {
+        Path envPath = Path.of(".env");
+        if (!Files.exists(envPath)) {
+            return new DisabledChatModel();
+        }
+        Properties properties = new Properties();
+        try (var reader = Files.newBufferedReader(envPath)) {
+            properties.load(reader);
+            return AnthropicChatModel.builder()
+                    .apiKey(properties.getProperty("API_KEY"))
+                    .baseUrl("https://api.minimaxi.com/anthropic/v1")
+                    .modelName(properties.getProperty("MODEL_NAME"))
+                    .timeout(Duration.ofSeconds(60))
+                    .build();
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to load .env file", ex);
         }
