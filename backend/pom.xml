@@ -145,7 +145,6 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-embeddings-bge-small-zh-v15-q</artifactId>
             <version>${langchain4j.version}-beta25</version>
-            <scope>test</scope>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-pgvector -->
         <dependency>
@@ -153,6 +152,12 @@
             <artifactId>langchain4j-pgvector</artifactId>
             <version>${langchain4j.version}-beta25</version>
             <scope>compile</scope>
+        </dependency>
+        <!-- 文档解析：一个 parser 通吃 md/txt/doc/docx/xls/xlsx -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+            <version>${langchain4j.version}-beta25</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
