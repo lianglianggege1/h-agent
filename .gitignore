@@ -2,6 +2,7 @@
 backend/target/
 frontend/.next/
 frontend/out/
+frontend/*.tsbuildinfo
 
 # IDE
 .idea/
