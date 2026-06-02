@@ -187,7 +187,7 @@ export default function KnowledgePage() {
 
               {!documentsLoading && !error && documents.length === 0 ? (
                 <p className="mt-4 rounded-2xl bg-stone-50 px-4 py-5 text-sm leading-6 text-stone-500">
-                  这个知识库还是空的。上传、手动录入、删除和切片查看会在后续步骤补上。
+                  这个知识库还是空的。你可以稍后添加文件或录入文本。
                 </p>
               ) : null}
 
