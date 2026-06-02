@@ -5,7 +5,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@MapperScan({"com.h.backend.user.mapper", "com.h.backend.chat.mapper"})
+@MapperScan({
+        "com.h.backend.user.mapper",
+        "com.h.backend.chat.mapper",
+        "com.h.backend.knowledge.mapper"
+})
 @SpringBootApplication
 @EnableScheduling
 public class BackendApplication {
