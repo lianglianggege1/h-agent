@@ -27,6 +27,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
 
 mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
@@ -42,3 +46,20 @@ langfuse:
   otlp-endpoint: https://cloud.langfuse.com/api/public/otel
   public-key: ""
   secret-key: ""
+
+knowledge:
+  retriever:
+    max-results: 4
+    min-score: 0.6
+  split:
+    chunk-size: 300
+    chunk-overlap: 30
+  upload:
+    allowed-types:
+      - md
+      - markdown
+      - txt
+      - doc
+      - docx
+      - xls
+      - xlsx
