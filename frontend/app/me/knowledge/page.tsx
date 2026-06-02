@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { KnowledgeDocument, listKnowledgeDocuments } from "@/lib/knowledge";
 import { savePostLoginRedirect } from "@/lib/session";
@@ -41,6 +41,23 @@ function getStatusClassName(status: string) {
   return "border-stone-200 bg-white text-stone-600";
 }
 
+function getPromptIdFromSearch(search: string, promptList: SystemPrompt[]) {
+  const promptIdFromUrl = Number(new URLSearchParams(search).get("promptId"));
+  if (!Number.isFinite(promptIdFromUrl)) return null;
+  return promptList.find((prompt) => prompt.id === promptIdFromUrl)?.id ?? null;
+}
+
+function getPreferredPromptId(promptList: SystemPrompt[], search: string) {
+  const promptIdFromUrl = getPromptIdFromSearch(search, promptList);
+  if (promptIdFromUrl) return promptIdFromUrl;
+  const defaultPrompt = promptList.find((prompt) => prompt.isDefault) ?? promptList[0] ?? null;
+  return defaultPrompt?.id ?? null;
+}
+
+function buildKnowledgeUrl(promptId: number | null) {
+  return promptId ? `/me/knowledge?promptId=${promptId}` : "/me/knowledge";
+}
+
 export default function KnowledgePage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
@@ -50,6 +67,9 @@ export default function KnowledgePage() {
   const [promptsLoading, setPromptsLoading] = useState(true);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [error, setError] = useState("");
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const selectedPromptIdRef = useRef<number | null>(null);
 
   const selectedPrompt = useMemo(
     () => prompts.find((prompt) => prompt.id === selectedPromptId) ?? null,
@@ -57,64 +77,106 @@ export default function KnowledgePage() {
   );
 
   const refreshDocuments = useCallback(async (promptId: number) => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    if (!mountedRef.current) return;
     setDocumentsLoading(true);
     setError("");
+
     try {
       const nextDocuments = await listKnowledgeDocuments(promptId);
+      if (!mountedRef.current || requestIdRef.current !== requestId) return;
       setDocuments(nextDocuments);
+      setError("");
     } catch (loadError) {
+      if (!mountedRef.current || requestIdRef.current !== requestId) return;
       setDocuments([]);
       setError(loadError instanceof Error ? loadError.message : "加载知识文档失败");
     } finally {
-      setDocumentsLoading(false);
+      if (mountedRef.current && requestIdRef.current === requestId) {
+        setDocumentsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     const redirectPath = `/me/knowledge${window.location.search}`;
-    let active = true;
 
     getCurrentUser()
       .then(async () => {
         const list = await listSystemPrompts();
-        if (!active) return;
+        if (!mountedRef.current) return;
 
-        const promptIdFromUrl = Number(new URLSearchParams(window.location.search).get("promptId"));
-        const promptFromUrl = list.find((prompt) => prompt.id === promptIdFromUrl) ?? null;
-        const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? null;
-        const nextPrompt = promptFromUrl ?? defaultPrompt ?? list[0] ?? null;
-        const nextPromptId = nextPrompt?.id ?? null;
+        const nextPromptId = getPreferredPromptId(list, window.location.search);
 
         setAuthenticated(true);
         setPrompts(list);
         setSelectedPromptId(nextPromptId);
+        selectedPromptIdRef.current = nextPromptId;
         setDocuments([]);
         setError("");
+        window.history.replaceState(null, "", buildKnowledgeUrl(nextPromptId));
 
         if (nextPromptId) {
           await refreshDocuments(nextPromptId);
         }
       })
       .catch(() => {
-        if (!active) return;
+        if (!mountedRef.current) return;
         savePostLoginRedirect(redirectPath);
         router.replace("/auth/login");
       })
       .finally(() => {
-        if (active) {
+        if (mountedRef.current) {
           setPromptsLoading(false);
         }
       });
 
     return () => {
-      active = false;
+      mountedRef.current = false;
     };
   }, [refreshDocuments, router]);
+
+  useEffect(() => {
+    selectedPromptIdRef.current = selectedPromptId;
+  }, [selectedPromptId]);
+
+  useEffect(() => {
+    if (!authenticated || prompts.length === 0) return;
+
+    function handlePopState() {
+      const nextPromptId = getPreferredPromptId(prompts, window.location.search);
+      if (window.location.pathname === "/me/knowledge") {
+        window.history.replaceState(null, "", buildKnowledgeUrl(nextPromptId));
+      }
+      if (nextPromptId === selectedPromptIdRef.current) return;
+
+      setSelectedPromptId(nextPromptId);
+      selectedPromptIdRef.current = nextPromptId;
+      setDocuments([]);
+      setError("");
+
+      if (nextPromptId) {
+        void refreshDocuments(nextPromptId);
+      } else {
+        requestIdRef.current += 1;
+        setDocumentsLoading(false);
+      }
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [authenticated, prompts, refreshDocuments]);
 
   function handleSelectPrompt(promptId: number) {
     if (promptId === selectedPromptId) return;
     setSelectedPromptId(promptId);
+    selectedPromptIdRef.current = promptId;
     setDocuments([]);
+    setError("");
+    window.history.replaceState(null, "", buildKnowledgeUrl(promptId));
     void refreshDocuments(promptId);
   }
 
