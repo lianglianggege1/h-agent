@@ -32,6 +32,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
 
 export async function apiFormFetch<T>(path: string, body: FormData, init: Omit<RequestInit, "body"> = {}) {
   const headers = new Headers(init.headers);
+  headers.delete("Content-Type");
 
   const response = await fetch(path, {
     ...init,

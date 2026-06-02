@@ -42,6 +42,28 @@ test("apiFormFetch sends FormData without forcing JSON content type", async () =
   }
 });
 
+test("apiFormFetch strips caller-provided content type for FormData", async () => {
+  const originalFetch = globalThis.fetch;
+  const form = new FormData();
+  form.append("promptId", "7");
+  let capturedHeaders;
+
+  globalThis.fetch = async (_path, init) => {
+    capturedHeaders = init.headers;
+    return new Response(JSON.stringify({ code: 0, message: "ok", data: 42 }), { status: 200 });
+  };
+
+  try {
+    await apiFormFetch("/api/knowledge/documents/upload", form, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    assert.equal(capturedHeaders.has("Content-Type"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream throws and notifies handler for error events", async () => {
   const originalFetch = globalThis.fetch;
   const errorMessage = "请求失败，请稍后重试";
