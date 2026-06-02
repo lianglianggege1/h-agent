@@ -30,6 +30,25 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   return body.data as T;
 }
 
+export async function apiFormFetch<T>(path: string, body: FormData, init: Omit<RequestInit, "body"> = {}) {
+  const headers = new Headers(init.headers);
+
+  const response = await fetch(path, {
+    ...init,
+    method: init.method ?? "POST",
+    body,
+    headers,
+    credentials: "include",
+  });
+  const parsedBody = await parseApiResponse<T>(response);
+
+  if (!response.ok || parsedBody.code !== 0) {
+    throw new Error(parsedBody.message || "请求失败");
+  }
+
+  return parsedBody.data as T;
+}
+
 export async function apiStream(
   path: string,
   init: RequestInit,
