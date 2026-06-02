@@ -14,6 +14,7 @@ import dev.langchain4j.model.chat.DisabledChatModel;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
 import jakarta.annotation.Resource;
@@ -99,9 +100,11 @@ public class ChatModelConfig {
     }
 
     @Bean
-    public HAssistant hAssistant(StreamingChatModel streamingChatModel) {
+    public HAssistant hAssistant(StreamingChatModel streamingChatModel,
+                                 RetrievalAugmentor knowledgeRetrievalAugmentor) {
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
+                .retrievalAugmentor(knowledgeRetrievalAugmentor)
                 // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> {
                     String[] parts = memoryId.toString().split(":", 3);
