@@ -143,9 +143,16 @@
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-embeddings-all-minilm-l6-v2-q -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-embeddings-all-minilm-l6-v2-q</artifactId>
+            <artifactId>langchain4j-embeddings-bge-small-zh-v15-q</artifactId>
             <version>${langchain4j.version}-beta25</version>
             <scope>test</scope>
+        </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-pgvector -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-pgvector</artifactId>
+            <version>${langchain4j.version}-beta25</version>
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
