@@ -519,9 +519,16 @@ export default function ChatPage() {
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-700">SystemPrompt</p>
                 <p className="mt-1 text-sm text-stone-500">选择当前对话使用的系统提示词</p>
               </div>
-              <Link className="text-sm font-medium text-amber-700" href="/me/system-prompts">
-                管理
-              </Link>
+              <div className="flex shrink-0 items-center gap-3">
+                {selectedPromptId ? (
+                  <Link className="text-sm font-medium text-amber-700" href={`/me/knowledge?promptId=${selectedPromptId}`}>
+                    知识库
+                  </Link>
+                ) : null}
+                <Link className="text-sm font-medium text-amber-700" href="/me/system-prompts">
+                  管理
+                </Link>
+              </div>
             </div>
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {prompts.map((prompt) => (

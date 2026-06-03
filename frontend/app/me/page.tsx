@@ -45,6 +45,9 @@ export default function MePage() {
           <Link className="block rounded-2xl bg-stone-900 px-4 py-4 text-sm font-semibold text-white" href="/me/system-prompts">
             SystemPrompt 管理
           </Link>
+          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/knowledge">
+            知识库管理
+          </Link>
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/chat">
             返回聊天
           </Link>
