@@ -176,7 +176,7 @@ export default function KnowledgePage() {
     selectedPromptIdRef.current = promptId;
     setDocuments([]);
     setError("");
-    window.history.replaceState(null, "", buildKnowledgeUrl(promptId));
+    window.history.pushState(null, "", buildKnowledgeUrl(promptId));
     void refreshDocuments(promptId);
   }
 
