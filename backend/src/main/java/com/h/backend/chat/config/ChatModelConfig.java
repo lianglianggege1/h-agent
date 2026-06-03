@@ -93,6 +93,9 @@ public class ChatModelConfig {
                     .baseUrl("https://api.minimaxi.com/anthropic/v1")
                     .modelName(properties.getProperty("MODEL_NAME"))
                     .timeout(Duration.ofSeconds(60))
+                    .logRequests(true)
+                    .logResponses(true)
+                    .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
                     .build();
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to load .env file", ex);
