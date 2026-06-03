@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
-import { KnowledgeDocument, listKnowledgeDocuments } from "@/lib/knowledge";
+import {
+  KnowledgeDocument,
+  createManualKnowledge,
+  deleteKnowledgeDocument,
+  listKnowledgeDocuments,
+  uploadKnowledgeDocument,
+} from "@/lib/knowledge";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
 
@@ -67,6 +73,14 @@ export default function KnowledgePage() {
   const [promptsLoading, setPromptsLoading] = useState(true);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualContent, setManualContent] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
   const selectedPromptIdRef = useRef<number | null>(null);
@@ -176,8 +190,73 @@ export default function KnowledgePage() {
     selectedPromptIdRef.current = promptId;
     setDocuments([]);
     setError("");
+    setMessage("");
     window.history.pushState(null, "", buildKnowledgeUrl(promptId));
     void refreshDocuments(promptId);
+  }
+
+  async function handleUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedPromptId || !selectedFile || uploading) return;
+
+    setUploading(true);
+    setError("");
+    setMessage("");
+    try {
+      await uploadKnowledgeDocument(selectedPromptId, selectedFile);
+      event.currentTarget.reset();
+      setSelectedFile(null);
+      setMessage("文件已入库");
+      await refreshDocuments(selectedPromptId);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "上传失败");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleManualSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedPromptId || savingManual || !manualTitle.trim() || !manualContent.trim()) return;
+
+    setSavingManual(true);
+    setError("");
+    setMessage("");
+    try {
+      await createManualKnowledge({
+        promptId: selectedPromptId,
+        title: manualTitle.trim(),
+        content: manualContent.trim(),
+      });
+      setManualTitle("");
+      setManualContent("");
+      setManualOpen(false);
+      setMessage("文本知识已入库");
+      await refreshDocuments(selectedPromptId);
+    } catch (manualError) {
+      setError(manualError instanceof Error ? manualError.message : "保存失败");
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
+  async function handleDelete(document: KnowledgeDocument) {
+    if (!selectedPromptId || deletingDocId) return;
+    const confirmed = window.confirm(`确定删除「${document.fileName}」吗？这会同时移除对应知识库向量。`);
+    if (!confirmed) return;
+
+    setDeletingDocId(document.id);
+    setError("");
+    setMessage("");
+    try {
+      await deleteKnowledgeDocument(document.id);
+      setMessage("文档已删除");
+      await refreshDocuments(selectedPromptId);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "删除失败");
+    } finally {
+      setDeletingDocId(null);
+    }
   }
 
   if (!authenticated) {
@@ -237,6 +316,72 @@ export default function KnowledgePage() {
             </div>
 
             <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)]">
+              <div className="grid grid-cols-1 gap-3">
+                <form className="rounded-2xl bg-stone-50/80 p-4" onSubmit={handleUpload}>
+                  <label className="block text-sm font-semibold text-stone-700" htmlFor="knowledge-file">
+                    上传文件
+                  </label>
+                  <p className="mt-1 text-xs leading-5 text-stone-500">
+                    支持 md、txt、doc、docx、xls、xlsx，单文件上限以后端配置为准。
+                  </p>
+                  <input
+                    id="knowledge-file"
+                    className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm"
+                    type="file"
+                    accept=".md,.markdown,.txt,.doc,.docx,.xls,.xlsx"
+                    onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    className="mt-3 w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:bg-stone-400"
+                    type="submit"
+                    disabled={!selectedPromptId || !selectedFile || uploading}
+                  >
+                    {uploading ? "上传中" : "上传并入库"}
+                  </button>
+                </form>
+
+                <div className="rounded-2xl bg-stone-50/80 p-4">
+                  <button
+                    className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left text-sm font-semibold text-stone-700"
+                    type="button"
+                    onClick={() => {
+                      setMessage("");
+                      setManualOpen((current) => !current);
+                    }}
+                  >
+                    {manualOpen ? "收起手动录入" : "手动录入文本"}
+                  </button>
+
+                  {manualOpen ? (
+                    <form className="mt-3 space-y-3" onSubmit={handleManualSubmit}>
+                      <input
+                        className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                        value={manualTitle}
+                        onChange={(event) => setManualTitle(event.target.value)}
+                        maxLength={120}
+                        placeholder="标题，例如：产品 FAQ"
+                      />
+                      <textarea
+                        className="min-h-40 w-full resize-none rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                        value={manualContent}
+                        onChange={(event) => setManualContent(event.target.value)}
+                        maxLength={20000}
+                        placeholder="粘贴要加入知识库的文本..."
+                      />
+                      <button
+                        className="w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:bg-stone-400"
+                        type="submit"
+                        disabled={savingManual || !manualTitle.trim() || !manualContent.trim()}
+                      >
+                        {savingManual ? "保存中" : "保存文本知识"}
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)]">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Documents</p>
@@ -245,6 +390,7 @@ export default function KnowledgePage() {
                 {documentsLoading ? <p className="shrink-0 text-sm text-stone-500">加载中...</p> : null}
               </div>
 
+              {message ? <p className="mt-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
               {error ? <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
               {!documentsLoading && !error && documents.length === 0 ? (
@@ -297,6 +443,17 @@ export default function KnowledgePage() {
                         <dd className="mt-1 text-sm text-stone-700">{formatDate(document.createdAt)}</dd>
                       </div>
                     </dl>
+
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="rounded-2xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 disabled:text-red-300"
+                        type="button"
+                        disabled={deletingDocId === document.id}
+                        onClick={() => void handleDelete(document)}
+                      >
+                        {deletingDocId === document.id ? "删除中" : "删除"}
+                      </button>
+                    </div>
 
                     {document.errorMsg ? (
                       <p className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
