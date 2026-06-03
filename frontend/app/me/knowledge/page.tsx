@@ -198,6 +198,7 @@ export default function KnowledgePage() {
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPromptId || !selectedFile || uploading) return;
+    const form = event.currentTarget;
     const promptIdAtSubmit = selectedPromptId;
 
     setUploading(true);
@@ -206,9 +207,9 @@ export default function KnowledgePage() {
     try {
       await uploadKnowledgeDocument(promptIdAtSubmit, selectedFile);
       if (!mountedRef.current) return;
-      event.currentTarget.reset();
-      setSelectedFile(null);
       if (selectedPromptIdRef.current === promptIdAtSubmit) {
+        form.reset();
+        setSelectedFile(null);
         setMessage("文件已入库");
         await refreshDocuments(promptIdAtSubmit);
       }
