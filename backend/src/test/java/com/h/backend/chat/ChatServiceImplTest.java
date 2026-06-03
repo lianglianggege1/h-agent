@@ -18,12 +18,17 @@ import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
+import reactor.core.Disposable;
+import reactor.core.publisher.FluxSink;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -36,6 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -111,6 +118,109 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("done", "")
         ), events);
         assertEquals(1, executor.submittedCount());
+        assertTrue(permit.released());
+    }
+
+    @Test
+    void shouldContinueFinalizingRunAfterSubscriberCancels() throws InterruptedException {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ControlledAsyncTokenStream tokenStream = new ControlledAsyncTokenStream("hello");
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> permit
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-cancel", "hello")).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-cancel", "hello")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-cancel");
+        when(agentRunTelemetryService.startRun("session-cancel", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-cancel", 1L, 22L, 101L, "unknown", "trace-cancel"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-cancel", "hello")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> receivedEvents = Collections.synchronizedList(new ArrayList<>());
+        Disposable[] subscriptionRef = new Disposable[1];
+        subscriptionRef[0] = chatService.streamChat(1L, 2L, "session-cancel", "hello")
+                .subscribe(event -> {
+                    receivedEvents.add(event);
+                    if ("chunk".equals(event.type())) {
+                        subscriptionRef[0].dispose();
+                    }
+                });
+
+        assertTrue(tokenStream.awaitFirstChunk(1, TimeUnit.SECONDS));
+        tokenStream.finishSuccessfully();
+
+        verify(agentRunService, org.mockito.Mockito.timeout(1000)).completeRun(55L, 202L);
+        verify(agentRunTelemetryService, org.mockito.Mockito.timeout(1000)).markSuccess(telemetryRun);
+        verify(chatSessionService, org.mockito.Mockito.timeout(1000))
+                .appendAssistantMessage(1L, "session-cancel", "hello");
+        assertTrue(tokenStream.awaitCompletion(1, TimeUnit.SECONDS));
+        assertTrue(permit.awaitReleased(1, TimeUnit.SECONDS));
+        assertEquals(List.of(new ChatStreamEvent("chunk", "hello")), receivedEvents);
+    }
+
+    @Test
+    void shouldSkipDoneEmissionWhenSinkAlreadyCancelledButStillFinalizeRun() throws Exception {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> permit
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-cancelled-sink", "hello")).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-cancelled-sink", "hello")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-cancelled-sink");
+        when(agentRunTelemetryService.startRun("session-cancelled-sink", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-cancelled-sink", 1L, 22L, 101L, "unknown", "trace-cancelled-sink"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-cancelled-sink", "hello")).thenReturn(tokenStream);
+
+        @SuppressWarnings("unchecked")
+        FluxSink<ChatStreamEvent> sink = mock(FluxSink.class);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        doAnswer(invocation -> cancelled.get()).when(sink).isCancelled();
+        doAnswer(invocation -> {
+            ChatStreamEvent event = invocation.getArgument(0);
+            if ("chunk".equals(event.type())) {
+                cancelled.set(true);
+                return sink;
+            }
+            throw new RuntimeException("done should not be emitted after cancellation");
+        }).when(sink).next(any(ChatStreamEvent.class));
+        doNothing().when(sink).complete();
+
+        invokeRunChatStream(chatService, sink, permit, 1L, 2L, "session-cancelled-sink", "hello");
+
+        verify(chatSessionService).appendAssistantMessage(1L, "session-cancelled-sink", "hello");
+        verify(agentRunService).completeRun(55L, 202L);
+        verify(agentRunService, never()).failRun(any(), any());
+        verify(agentRunTelemetryService).markSuccess(telemetryRun);
         assertTrue(permit.released());
     }
 
@@ -674,6 +784,35 @@ class ChatServiceImplTest {
         );
     }
 
+    private void invokeRunChatStream(
+            ChatServiceImpl chatService,
+            FluxSink<ChatStreamEvent> sink,
+            ChatStreamConcurrencyGuard.Permit permit,
+            Long userId,
+            Long promptId,
+            String sessionId,
+            String userMessage
+    ) throws Exception {
+        Method method = ChatServiceImpl.class.getDeclaredMethod(
+                "runChatStream",
+                FluxSink.class,
+                ChatStreamConcurrencyGuard.Permit.class,
+                Long.class,
+                Long.class,
+                String.class,
+                String.class
+        );
+        method.setAccessible(true);
+        try {
+            method.invoke(chatService, sink, permit, userId, promptId, sessionId, userMessage);
+        } catch (InvocationTargetException ex) {
+            if (ex.getCause() instanceof Exception cause) {
+                throw cause;
+            }
+            throw ex;
+        }
+    }
+
     private static class DirectExecutorService extends AbstractExecutorService {
         private final AtomicBoolean shutdown = new AtomicBoolean();
 
@@ -772,6 +911,7 @@ class ChatServiceImplTest {
 
     private static final class RecordingPermit implements ChatStreamConcurrencyGuard.Permit {
         private final AtomicBoolean released = new AtomicBoolean();
+        private final CountDownLatch releasedLatch = new CountDownLatch(1);
 
         @Override
         public boolean acquired() {
@@ -786,10 +926,15 @@ class ChatServiceImplTest {
         @Override
         public void release() {
             released.set(true);
+            releasedLatch.countDown();
         }
 
         boolean released() {
             return released.get();
+        }
+
+        boolean awaitReleased(long timeout, TimeUnit unit) throws InterruptedException {
+            return releasedLatch.await(timeout, unit);
         }
     }
 
@@ -936,6 +1081,92 @@ class ChatServiceImplTest {
             if (completeResponseHandler != null) {
                 completeResponseHandler.accept(mock(ChatResponse.class));
             }
+        }
+    }
+
+    private static final class ControlledAsyncTokenStream implements TokenStream {
+        private final String text;
+        private final CountDownLatch firstChunkLatch = new CountDownLatch(1);
+        private final CountDownLatch finishLatch = new CountDownLatch(1);
+        private final CountDownLatch completionLatch = new CountDownLatch(1);
+        private Consumer<String> partialResponseHandler;
+        private Consumer<ChatResponse> completeResponseHandler;
+        private Consumer<Throwable> errorHandler;
+
+        private ControlledAsyncTokenStream(String text) {
+            this.text = text;
+        }
+
+        @Override
+        public TokenStream onPartialResponse(Consumer<String> partialResponseHandler) {
+            this.partialResponseHandler = partialResponseHandler;
+            return this;
+        }
+
+        @Override
+        public TokenStream onPartialThinking(Consumer<PartialThinking> partialThinkingHandler) {
+            return this;
+        }
+
+        @Override
+        public TokenStream onRetrieved(Consumer<List<dev.langchain4j.rag.content.Content>> contentHandler) {
+            return this;
+        }
+
+        @Override
+        public TokenStream onToolExecuted(Consumer<ToolExecution> toolExecuteHandler) {
+            return this;
+        }
+
+        @Override
+        public TokenStream onCompleteResponse(Consumer<ChatResponse> completeResponseHandler) {
+            this.completeResponseHandler = completeResponseHandler;
+            return this;
+        }
+
+        @Override
+        public TokenStream onError(Consumer<Throwable> errorHandler) {
+            this.errorHandler = errorHandler;
+            return this;
+        }
+
+        @Override
+        public TokenStream ignoreErrors() {
+            return this;
+        }
+
+        @Override
+        public void start() {
+            Thread.ofVirtual().start(() -> {
+                try {
+                    if (partialResponseHandler != null) {
+                        partialResponseHandler.accept(text);
+                    }
+                    firstChunkLatch.countDown();
+                    finishLatch.await(1, TimeUnit.SECONDS);
+                    if (completeResponseHandler != null) {
+                        completeResponseHandler.accept(mock(ChatResponse.class));
+                    }
+                } catch (Throwable error) {
+                    if (errorHandler != null) {
+                        errorHandler.accept(error);
+                    }
+                } finally {
+                    completionLatch.countDown();
+                }
+            });
+        }
+
+        boolean awaitFirstChunk(long timeout, TimeUnit unit) throws InterruptedException {
+            return firstChunkLatch.await(timeout, unit);
+        }
+
+        void finishSuccessfully() {
+            finishLatch.countDown();
+        }
+
+        boolean awaitCompletion(long timeout, TimeUnit unit) throws InterruptedException {
+            return completionLatch.await(timeout, unit);
         }
     }
 }

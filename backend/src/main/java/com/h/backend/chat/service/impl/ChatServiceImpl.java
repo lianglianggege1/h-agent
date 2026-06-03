@@ -115,11 +115,11 @@ public class ChatServiceImpl implements ChatService {
                             return;
                         }
                         reasoningBuilder.append(thinkingText);
-                        sink.next(new ChatStreamEvent("reasoning", thinkingText));
+                        emitIfActive(sink, new ChatStreamEvent("reasoning", thinkingText));
                     })
                     .onPartialResponse(chunk -> {
                         replyBuilder.append(chunk);
-                        sink.next(new ChatStreamEvent("chunk", chunk));
+                        emitIfActive(sink, new ChatStreamEvent("chunk", chunk));
                     })
                     .onToolExecuted(toolExecution -> recordToolUsage(streamRunHandle.id(), toolExecution))
                     .onCompleteResponse(ignored -> {
@@ -129,8 +129,7 @@ public class ChatServiceImpl implements ChatService {
                                 IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
                                 agentRunService.failRun(streamRunHandle.id(), error.getMessage());
                                 agentRunTelemetryService.markFailure(streamTelemetryRun, error);
-                                sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
-                                sink.complete();
+                                emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 未返回有效内容"));
                                 return;
                             }
                             String reasoning = reasoningBuilder.toString();
@@ -144,8 +143,7 @@ public class ChatServiceImpl implements ChatService {
                             );
                             agentRunService.completeRun(streamRunHandle.id(), assistantMessageId);
                             agentRunTelemetryService.markSuccess(streamTelemetryRun);
-                            sink.next(new ChatStreamEvent("done", ""));
-                            sink.complete();
+                            emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
                         } finally {
                             releasePermitOnce(permit, permitReleased);
                         }
@@ -174,8 +172,7 @@ public class ChatServiceImpl implements ChatService {
                     if (telemetryRun != null) {
                         agentRunTelemetryService.markFailure(telemetryRun, ex);
                     }
-                    sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
-                    sink.complete();
+                    emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
                 }
             } finally {
                 releasePermitOnce(permit, permitReleased);
@@ -186,6 +183,29 @@ public class ChatServiceImpl implements ChatService {
     private void releasePermitOnce(ChatStreamConcurrencyGuard.Permit permit, AtomicBoolean released) {
         if (released.compareAndSet(false, true)) {
             permit.release();
+        }
+    }
+
+    private void emitIfActive(FluxSink<ChatStreamEvent> sink, ChatStreamEvent event) {
+        if (sink.isCancelled()) {
+            return;
+        }
+        try {
+            sink.next(event);
+        } catch (RuntimeException ex) {
+            log.debug("Skipping chat stream event after subscriber cancellation", ex);
+        }
+    }
+
+    private void emitAndCompleteIfActive(FluxSink<ChatStreamEvent> sink, ChatStreamEvent event) {
+        if (sink.isCancelled()) {
+            return;
+        }
+        try {
+            sink.next(event);
+            sink.complete();
+        } catch (RuntimeException ex) {
+            log.debug("Skipping chat stream completion after subscriber cancellation", ex);
         }
     }
 
@@ -201,8 +221,7 @@ public class ChatServiceImpl implements ChatService {
         if (error instanceof ModelDisabledException) {
             agentRunService.failRun(runId, "AI 服务未配置 OPENAI_API_KEY");
             agentRunTelemetryService.markFailure(telemetryRun, error);
-            sink.next(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY"));
-            sink.complete();
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY"));
             return;
         }
         if (error instanceof InputGuardrailException || error instanceof OutputGuardrailException) {
@@ -210,14 +229,12 @@ public class ChatServiceImpl implements ChatService {
             chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
             agentRunService.failRun(runId, cleanMessage);
             agentRunTelemetryService.markFailure(telemetryRun, error);
-            sink.next(new ChatStreamEvent("blocked", cleanMessage));
-            sink.complete();
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("blocked", cleanMessage));
             return;
         }
         agentRunService.failRun(runId, error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
         agentRunTelemetryService.markFailure(telemetryRun, error);
-        sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
-        sink.complete();
+        emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
     }
 
     private void recordToolUsage(Long runId, ToolExecution toolExecution) {
