@@ -6,9 +6,11 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { getCurrentUser } from "@/lib/auth";
 import {
   KnowledgeDocument,
+  KnowledgeSegment,
   createManualKnowledge,
   deleteKnowledgeDocument,
   listKnowledgeDocuments,
+  listKnowledgeSegments,
   uploadKnowledgeDocument,
 } from "@/lib/knowledge";
 import { savePostLoginRedirect } from "@/lib/session";
@@ -64,6 +66,8 @@ function buildKnowledgeUrl(promptId: number | null) {
   return promptId ? `/me/knowledge?promptId=${promptId}` : "/me/knowledge";
 }
 
+const segmentPageSize = 20;
+
 export default function KnowledgePage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
@@ -81,9 +85,18 @@ export default function KnowledgePage() {
   const [manualContent, setManualContent] = useState("");
   const [savingManual, setSavingManual] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const [segmentsOpenDocId, setSegmentsOpenDocId] = useState<number | null>(null);
+  const [segments, setSegments] = useState<KnowledgeSegment[]>([]);
+  const [segmentsLoading, setSegmentsLoading] = useState(false);
+  const [segmentsOffset, setSegmentsOffset] = useState(0);
+  const [segmentsHasMore, setSegmentsHasMore] = useState(false);
+  const [segmentsError, setSegmentsError] = useState("");
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
+  const segmentsRequestIdRef = useRef(0);
   const selectedPromptIdRef = useRef<number | null>(null);
+  const segmentsOpenDocIdRef = useRef<number | null>(null);
+  const segmentsLoadingRef = useRef(false);
 
   const selectedPrompt = useMemo(
     () => prompts.find((prompt) => prompt.id === selectedPromptId) ?? null,
@@ -113,6 +126,75 @@ export default function KnowledgePage() {
       }
     }
   }, []);
+
+  const closeSegments = useCallback(() => {
+    segmentsRequestIdRef.current += 1;
+    segmentsOpenDocIdRef.current = null;
+    segmentsLoadingRef.current = false;
+    setSegmentsOpenDocId(null);
+    setSegments([]);
+    setSegmentsLoading(false);
+    setSegmentsOffset(0);
+    setSegmentsHasMore(false);
+    setSegmentsError("");
+  }, []);
+
+  const loadSegments = useCallback(
+    async (document: KnowledgeDocument, reset: boolean) => {
+      if (segmentsLoadingRef.current && !reset) return;
+
+      const nextOffset = reset ? 0 : segmentsOffset;
+      const requestId = segmentsRequestIdRef.current + 1;
+      segmentsRequestIdRef.current = requestId;
+      segmentsOpenDocIdRef.current = document.id;
+      segmentsLoadingRef.current = true;
+
+      if (!mountedRef.current) return;
+      setSegmentsOpenDocId(document.id);
+      setSegmentsLoading(true);
+      setSegmentsError("");
+      if (reset) {
+        setSegments([]);
+        setSegmentsOffset(0);
+        setSegmentsHasMore(false);
+      }
+
+      try {
+        const nextSegments = await listKnowledgeSegments(document.id, segmentPageSize, nextOffset);
+        if (
+          !mountedRef.current ||
+          segmentsRequestIdRef.current !== requestId ||
+          segmentsOpenDocIdRef.current !== document.id
+        ) {
+          return;
+        }
+
+        setSegments((currentSegments) => (reset ? nextSegments : [...currentSegments, ...nextSegments]));
+        setSegmentsOffset(nextOffset + nextSegments.length);
+        setSegmentsHasMore(nextSegments.length === segmentPageSize);
+        setSegmentsError("");
+      } catch (segmentsLoadError) {
+        if (
+          !mountedRef.current ||
+          segmentsRequestIdRef.current !== requestId ||
+          segmentsOpenDocIdRef.current !== document.id
+        ) {
+          return;
+        }
+        setSegmentsError(segmentsLoadError instanceof Error ? segmentsLoadError.message : "加载切片失败");
+      } finally {
+        if (
+          mountedRef.current &&
+          segmentsRequestIdRef.current === requestId &&
+          segmentsOpenDocIdRef.current === document.id
+        ) {
+          segmentsLoadingRef.current = false;
+          setSegmentsLoading(false);
+        }
+      }
+    },
+    [segmentsOffset],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -169,6 +251,7 @@ export default function KnowledgePage() {
 
       setSelectedPromptId(nextPromptId);
       selectedPromptIdRef.current = nextPromptId;
+      closeSegments();
       setDocuments([]);
       setError("");
 
@@ -182,12 +265,13 @@ export default function KnowledgePage() {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [authenticated, prompts, refreshDocuments]);
+  }, [authenticated, prompts, refreshDocuments, closeSegments]);
 
   function handleSelectPrompt(promptId: number) {
     if (promptId === selectedPromptId) return;
     setSelectedPromptId(promptId);
     selectedPromptIdRef.current = promptId;
+    closeSegments();
     setDocuments([]);
     setError("");
     setMessage("");
@@ -261,6 +345,9 @@ export default function KnowledgePage() {
     const confirmed = window.confirm(`确定删除「${document.fileName}」吗？这会同时移除对应知识库向量。`);
     if (!confirmed) return;
 
+    if (segmentsOpenDocIdRef.current === document.id) {
+      closeSegments();
+    }
     setDeletingDocId(document.id);
     setError("");
     setMessage("");
@@ -466,7 +553,22 @@ export default function KnowledgePage() {
                       </div>
                     </dl>
 
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {document.status === "COMPLETED" ? (
+                        <button
+                          className="rounded-2xl border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 disabled:text-stone-300"
+                          type="button"
+                          onClick={() => {
+                            if (segmentsOpenDocId === document.id) {
+                              closeSegments();
+                              return;
+                            }
+                            void loadSegments(document, true);
+                          }}
+                        >
+                          {segmentsOpenDocId === document.id ? "收起切片" : "查看切片"}
+                        </button>
+                      ) : null}
                       <button
                         className="rounded-2xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 disabled:text-red-300"
                         type="button"
@@ -481,6 +583,59 @@ export default function KnowledgePage() {
                       <p className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
                         {document.errorMsg}
                       </p>
+                    ) : null}
+
+                    {segmentsOpenDocId === document.id ? (
+                      <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <h4 className="text-sm font-semibold text-stone-800">切片内容</h4>
+                          {segmentsLoading ? <p className="shrink-0 text-xs text-stone-500">加载中...</p> : null}
+                        </div>
+
+                        {segmentsError ? (
+                          <p className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
+                            {segmentsError}
+                          </p>
+                        ) : null}
+
+                        {!segmentsLoading && !segmentsError && segments.length === 0 ? (
+                          <p className="mt-3 rounded-2xl bg-stone-50 px-3 py-4 text-xs leading-5 text-stone-500">
+                            暂无切片内容。
+                          </p>
+                        ) : null}
+
+                        {segments.length > 0 ? (
+                          <div className="mt-3 space-y-3">
+                            {segments.map((segment, index) => (
+                              <article
+                                key={`${document.id}-${index}`}
+                                className="rounded-2xl border border-stone-100 bg-stone-50/70 p-3"
+                              >
+                                <p className="text-xs font-semibold text-stone-500">#{index + 1}</p>
+                                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-800">
+                                  {segment.text}
+                                </p>
+                                {segment.metadata ? (
+                                  <pre className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-white px-3 py-2 font-mono text-[11px] leading-5 text-stone-500">
+                                    {segment.metadata}
+                                  </pre>
+                                ) : null}
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {segmentsHasMore ? (
+                          <button
+                            className="mt-3 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2 text-xs font-semibold text-stone-700 disabled:text-stone-300"
+                            type="button"
+                            disabled={segmentsLoading}
+                            onClick={() => void loadSegments(document, false)}
+                          >
+                            {segmentsLoading ? "加载中" : "加载更多"}
+                          </button>
+                        ) : null}
+                      </section>
                     ) : null}
                   </article>
                 ))}
