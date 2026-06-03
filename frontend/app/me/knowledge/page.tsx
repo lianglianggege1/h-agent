@@ -88,7 +88,7 @@ export default function KnowledgePage() {
   const [segmentsOpenDocId, setSegmentsOpenDocId] = useState<number | null>(null);
   const [segments, setSegments] = useState<KnowledgeSegment[]>([]);
   const [segmentsLoading, setSegmentsLoading] = useState(false);
-  const [segmentsOffset, setSegmentsOffset] = useState(0);
+  const [, setSegmentsOffset] = useState(0);
   const [segmentsHasMore, setSegmentsHasMore] = useState(false);
   const [segmentsError, setSegmentsError] = useState("");
   const mountedRef = useRef(false);
@@ -97,6 +97,7 @@ export default function KnowledgePage() {
   const selectedPromptIdRef = useRef<number | null>(null);
   const segmentsOpenDocIdRef = useRef<number | null>(null);
   const segmentsLoadingRef = useRef(false);
+  const segmentsOffsetRef = useRef(0);
 
   const selectedPrompt = useMemo(
     () => prompts.find((prompt) => prompt.id === selectedPromptId) ?? null,
@@ -131,6 +132,7 @@ export default function KnowledgePage() {
     segmentsRequestIdRef.current += 1;
     segmentsOpenDocIdRef.current = null;
     segmentsLoadingRef.current = false;
+    segmentsOffsetRef.current = 0;
     setSegmentsOpenDocId(null);
     setSegments([]);
     setSegmentsLoading(false);
@@ -141,13 +143,16 @@ export default function KnowledgePage() {
 
   const loadSegments = useCallback(
     async (document: KnowledgeDocument, reset: boolean) => {
-      if (segmentsLoadingRef.current && !reset) return;
+      if (segmentsLoadingRef.current && (!reset || segmentsOpenDocIdRef.current === document.id)) return;
 
-      const nextOffset = reset ? 0 : segmentsOffset;
+      const nextOffset = reset ? 0 : segmentsOffsetRef.current;
       const requestId = segmentsRequestIdRef.current + 1;
       segmentsRequestIdRef.current = requestId;
       segmentsOpenDocIdRef.current = document.id;
       segmentsLoadingRef.current = true;
+      if (reset) {
+        segmentsOffsetRef.current = 0;
+      }
 
       if (!mountedRef.current) return;
       setSegmentsOpenDocId(document.id);
@@ -170,7 +175,9 @@ export default function KnowledgePage() {
         }
 
         setSegments((currentSegments) => (reset ? nextSegments : [...currentSegments, ...nextSegments]));
-        setSegmentsOffset(nextOffset + nextSegments.length);
+        const nextOffsetValue = nextOffset + nextSegments.length;
+        segmentsOffsetRef.current = nextOffsetValue;
+        setSegmentsOffset(nextOffsetValue);
         setSegmentsHasMore(nextSegments.length === segmentPageSize);
         setSegmentsError("");
       } catch (segmentsLoadError) {
@@ -193,7 +200,7 @@ export default function KnowledgePage() {
         }
       }
     },
-    [segmentsOffset],
+    [],
   );
 
   useEffect(() => {
