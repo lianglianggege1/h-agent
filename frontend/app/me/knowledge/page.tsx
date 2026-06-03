@@ -238,10 +238,10 @@ export default function KnowledgePage() {
         content: manualContent.trim(),
       });
       if (!mountedRef.current) return;
-      setManualTitle("");
-      setManualContent("");
-      setManualOpen(false);
       if (selectedPromptIdRef.current === promptIdAtSubmit) {
+        setManualTitle("");
+        setManualContent("");
+        setManualOpen(false);
         setMessage("文本知识已入库");
         await refreshDocuments(promptIdAtSubmit);
       }
