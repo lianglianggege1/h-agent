@@ -198,50 +198,65 @@ export default function KnowledgePage() {
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPromptId || !selectedFile || uploading) return;
+    const promptIdAtSubmit = selectedPromptId;
 
     setUploading(true);
     setError("");
     setMessage("");
     try {
-      await uploadKnowledgeDocument(selectedPromptId, selectedFile);
+      await uploadKnowledgeDocument(promptIdAtSubmit, selectedFile);
+      if (!mountedRef.current) return;
       event.currentTarget.reset();
       setSelectedFile(null);
-      setMessage("文件已入库");
-      await refreshDocuments(selectedPromptId);
+      if (selectedPromptIdRef.current === promptIdAtSubmit) {
+        setMessage("文件已入库");
+        await refreshDocuments(promptIdAtSubmit);
+      }
     } catch (uploadError) {
+      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
       setError(uploadError instanceof Error ? uploadError.message : "上传失败");
     } finally {
-      setUploading(false);
+      if (mountedRef.current) {
+        setUploading(false);
+      }
     }
   }
 
   async function handleManualSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPromptId || savingManual || !manualTitle.trim() || !manualContent.trim()) return;
+    const promptIdAtSubmit = selectedPromptId;
 
     setSavingManual(true);
     setError("");
     setMessage("");
     try {
       await createManualKnowledge({
-        promptId: selectedPromptId,
+        promptId: promptIdAtSubmit,
         title: manualTitle.trim(),
         content: manualContent.trim(),
       });
+      if (!mountedRef.current) return;
       setManualTitle("");
       setManualContent("");
       setManualOpen(false);
-      setMessage("文本知识已入库");
-      await refreshDocuments(selectedPromptId);
+      if (selectedPromptIdRef.current === promptIdAtSubmit) {
+        setMessage("文本知识已入库");
+        await refreshDocuments(promptIdAtSubmit);
+      }
     } catch (manualError) {
+      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
       setError(manualError instanceof Error ? manualError.message : "保存失败");
     } finally {
-      setSavingManual(false);
+      if (mountedRef.current) {
+        setSavingManual(false);
+      }
     }
   }
 
   async function handleDelete(document: KnowledgeDocument) {
     if (!selectedPromptId || deletingDocId) return;
+    const promptIdAtSubmit = selectedPromptId;
     const confirmed = window.confirm(`确定删除「${document.fileName}」吗？这会同时移除对应知识库向量。`);
     if (!confirmed) return;
 
@@ -250,12 +265,18 @@ export default function KnowledgePage() {
     setMessage("");
     try {
       await deleteKnowledgeDocument(document.id);
-      setMessage("文档已删除");
-      await refreshDocuments(selectedPromptId);
+      if (!mountedRef.current) return;
+      if (selectedPromptIdRef.current === promptIdAtSubmit) {
+        setMessage("文档已删除");
+        await refreshDocuments(promptIdAtSubmit);
+      }
     } catch (deleteError) {
+      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
       setError(deleteError instanceof Error ? deleteError.message : "删除失败");
     } finally {
-      setDeletingDocId(null);
+      if (mountedRef.current) {
+        setDeletingDocId(null);
+      }
     }
   }
 
