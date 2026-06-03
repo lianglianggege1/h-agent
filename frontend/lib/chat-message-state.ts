@@ -52,19 +52,23 @@ export function buildPendingAssistantTurn(content: string, seed: number) {
   };
 }
 
-export function applyReasoningChunk(messages: UiChatMessage[], reasoningId: string, chunk: string) {
+export function applyReasoningChunk(messages: UiChatMessage[], reasoningId: string, chunk: string): UiChatMessage[] {
   return messages.map((message) =>
     message.id === reasoningId ? { ...message, content: `${message.content}${chunk}` } : message,
   );
 }
 
-export function applyAssistantChunk(messages: UiChatMessage[], assistantId: string, chunk: string) {
+export function applyAssistantChunk(messages: UiChatMessage[], assistantId: string, chunk: string): UiChatMessage[] {
   return messages.map((message) =>
     message.id === assistantId ? { ...message, content: `${message.content}${chunk}` } : message,
   );
 }
 
-export function applyBlockedState(messages: UiChatMessage[], assistantId: string, blockedMessage: string) {
+export function applyBlockedState(
+  messages: UiChatMessage[],
+  assistantId: string,
+  blockedMessage: string,
+): UiChatMessage[] {
   return messages.map((message) =>
     message.id === assistantId
       ? { ...message, role: "blocked", messageType: "SYSTEM", content: blockedMessage }
