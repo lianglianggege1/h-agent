@@ -5,6 +5,7 @@ import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatService;
+import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import dev.langchain4j.guardrail.InputGuardrailException;
@@ -15,6 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service
@@ -30,30 +34,67 @@ public class ChatServiceImpl implements ChatService {
 
     private final AgentRunTelemetryService agentRunTelemetryService;
 
+    private final ExecutorService chatStreamExecutor;
+
+    private final ChatStreamConcurrencyGuard concurrencyGuard;
+
     public ChatServiceImpl(
             HAssistant hAssistant,
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard
     ) {
         this.hAssistant = hAssistant;
         this.systemPromptService = systemPromptService;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
         this.agentRunTelemetryService = agentRunTelemetryService;
+        this.chatStreamExecutor = chatStreamExecutor;
+        this.concurrencyGuard = concurrencyGuard;
     }
 
     @Override
     public Flux<ChatStreamEvent> streamChat(Long userId, Long promptId, String sessionId, String userMessage) {
         return Flux.defer(() -> {
+            ChatStreamConcurrencyGuard.Permit permit = concurrencyGuard.tryAcquire(sessionId, userId);
+            if (!permit.acquired()) {
+                return Flux.just(new ChatStreamEvent("error", permit.message()));
+            }
+            return Flux.create(sink -> {
+                try {
+                    chatStreamExecutor.submit(() ->
+                            runChatStream(sink, permit, userId, promptId, sessionId, userMessage));
+                } catch (RuntimeException ex) {
+                    log.error("Failed to submit chat stream task", ex);
+                    permit.release();
+                    sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
+                    sink.complete();
+                }
+            });
+        });
+    }
+
+    private void runChatStream(
+            FluxSink<ChatStreamEvent> sink,
+            ChatStreamConcurrencyGuard.Permit permit,
+            Long userId,
+            Long promptId,
+            String sessionId,
+            String userMessage
+    ) {
+        AtomicBoolean permitReleased = new AtomicBoolean();
+        AgentRunTelemetryService.TelemetryRun telemetryRun = null;
+        AgentRunService.AgentRunHandle runHandle = null;
+        try {
             chatSessionService.assertActiveSession(userId, sessionId, promptId);
             Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
             String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
             Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
-            AgentRunTelemetryService.TelemetryRun telemetryRun =
-                    agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
-            AgentRunService.AgentRunHandle runHandle = agentRunService.createRun(
+            telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
+            runHandle = agentRunService.createRun(
                     sessionId,
                     userId,
                     resolvedPromptId,
@@ -62,63 +103,90 @@ public class ChatServiceImpl implements ChatService {
                     telemetryRun.traceId()
             );
 
-            return Flux.create(sink -> {
-                StringBuilder reasoningBuilder = new StringBuilder();
-                StringBuilder replyBuilder = new StringBuilder();
+            StringBuilder reasoningBuilder = new StringBuilder();
+            StringBuilder replyBuilder = new StringBuilder();
 
-                try {
-                    hAssistant.streamChat(memoryId, userMessage)
-                            .onPartialThinking(thinking -> {
-                                String thinkingText = thinking == null ? "" : thinking.text();
-                                if (thinkingText == null || thinkingText.isBlank()) {
-                                    return;
-                                }
-                                reasoningBuilder.append(thinkingText);
-                                sink.next(new ChatStreamEvent("reasoning", thinkingText));
-                            })
-                            .onPartialResponse(chunk -> {
-                                replyBuilder.append(chunk);
-                                sink.next(new ChatStreamEvent("chunk", chunk));
-                            })
-                            .onToolExecuted(toolExecution -> recordToolUsage(runHandle.id(), toolExecution))
-                            .onCompleteResponse(ignored -> {
-                                String reply = replyBuilder.toString();
-                                if (reply.isBlank()) {
-                                    IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
-                                    agentRunService.failRun(runHandle.id(), error.getMessage());
-                                    agentRunTelemetryService.markFailure(telemetryRun, error);
-                                    sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
-                                    sink.complete();
-                                    return;
-                                }
-                                String reasoning = reasoningBuilder.toString();
-                                if (!reasoning.isBlank()) {
-                                    chatSessionService.appendReasoningMessage(userId, sessionId, reasoning);
-                                }
-                                Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                                        userId,
-                                        sessionId,
-                                        reply
-                                );
-                                agentRunService.completeRun(runHandle.id(), assistantMessageId);
-                                agentRunTelemetryService.markSuccess(telemetryRun);
-                                sink.next(new ChatStreamEvent("done", ""));
+            AgentRunTelemetryService.TelemetryRun streamTelemetryRun = telemetryRun;
+            AgentRunService.AgentRunHandle streamRunHandle = runHandle;
+            hAssistant.streamChat(memoryId, userMessage)
+                    .onPartialThinking(thinking -> {
+                        String thinkingText = thinking == null ? "" : thinking.text();
+                        if (thinkingText == null || thinkingText.isBlank()) {
+                            return;
+                        }
+                        reasoningBuilder.append(thinkingText);
+                        sink.next(new ChatStreamEvent("reasoning", thinkingText));
+                    })
+                    .onPartialResponse(chunk -> {
+                        replyBuilder.append(chunk);
+                        sink.next(new ChatStreamEvent("chunk", chunk));
+                    })
+                    .onToolExecuted(toolExecution -> recordToolUsage(streamRunHandle.id(), toolExecution))
+                    .onCompleteResponse(ignored -> {
+                        try {
+                            String reply = replyBuilder.toString();
+                            if (reply.isBlank()) {
+                                IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
+                                agentRunService.failRun(streamRunHandle.id(), error.getMessage());
+                                agentRunTelemetryService.markFailure(streamTelemetryRun, error);
+                                sink.next(new ChatStreamEvent("error", "AI 未返回有效内容"));
                                 sink.complete();
-                            })
-                            .onError(error -> emitFailureEvent(
+                                return;
+                            }
+                            String reasoning = reasoningBuilder.toString();
+                            if (!reasoning.isBlank()) {
+                                chatSessionService.appendReasoningMessage(userId, sessionId, reasoning);
+                            }
+                            Long assistantMessageId = chatSessionService.appendAssistantMessage(
+                                    userId,
+                                    sessionId,
+                                    reply
+                            );
+                            agentRunService.completeRun(streamRunHandle.id(), assistantMessageId);
+                            agentRunTelemetryService.markSuccess(streamTelemetryRun);
+                            sink.next(new ChatStreamEvent("done", ""));
+                            sink.complete();
+                        } finally {
+                            releasePermitOnce(permit, permitReleased);
+                        }
+                    })
+                    .onError(error -> {
+                        try {
+                            emitFailureEvent(
                                     sink,
                                     userId,
                                     sessionId,
-                                    runHandle.id(),
-                                    telemetryRun,
+                                    streamRunHandle.id(),
+                                    streamTelemetryRun,
                                     error
-                            ))
-                            .start();
-                } catch (Exception ex) {
+                            );
+                        } finally {
+                            releasePermitOnce(permit, permitReleased);
+                        }
+                    })
+                    .start();
+        } catch (Exception ex) {
+            try {
+                if (runHandle != null && telemetryRun != null) {
                     emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
+                } else {
+                    log.error("Error preparing chat stream", ex);
+                    if (telemetryRun != null) {
+                        agentRunTelemetryService.markFailure(telemetryRun, ex);
+                    }
+                    sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
+                    sink.complete();
                 }
-            });
-        });
+            } finally {
+                releasePermitOnce(permit, permitReleased);
+            }
+        }
+    }
+
+    private void releasePermitOnce(ChatStreamConcurrencyGuard.Permit permit, AtomicBoolean released) {
+        if (released.compareAndSet(false, true)) {
+            permit.release();
+        }
     }
 
     private void emitFailureEvent(

@@ -4,6 +4,7 @@ import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
+import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
@@ -20,11 +21,19 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.inOrder;
@@ -34,6 +43,132 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatServiceImplTest {
+
+    @Test
+    void shouldEmitErrorAndSkipAssistantWhenConcurrencyGuardRejects() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> new RejectedPermit("当前系统繁忙，请稍后再试")
+        );
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-busy", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(new ChatStreamEvent("error", "当前系统繁忙，请稍后再试")), events);
+        verify(hAssistant, never()).streamChat(any(), any());
+        verify(chatSessionService, never()).assertActiveSession(any(), any(), any());
+        verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldSubmitAgentWorkflowToExecutorAndReleasePermitWhenComplete() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
+        RecordingDirectExecutorService executor = new RecordingDirectExecutorService();
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                executor,
+                (sessionId, userId) -> permit
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-submit", "hello")).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-submit", "hello")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-submit");
+        when(agentRunTelemetryService.startRun("session-submit", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "unknown", "trace-submit"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-submit", "hello")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-submit", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("chunk", "hello"),
+                new ChatStreamEvent("done", "")
+        ), events);
+        assertEquals(1, executor.submittedCount());
+        assertTrue(permit.released());
+    }
+
+    @Test
+    void shouldNotRunAgentSetupOnSubscriptionThreadBeforeExecutorRuns() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        RecordingExecutorService executor = new RecordingExecutorService();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                executor,
+                (sessionId, userId) -> new RecordingPermit()
+        );
+
+        chatService.streamChat(1L, 2L, "session-async", "hello").subscribe();
+
+        assertEquals(1, executor.submittedCount());
+        verify(chatSessionService, never()).assertActiveSession(any(), any(), any());
+        verify(systemPromptService, never()).resolvePromptId(any(), any());
+        verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
+        verify(agentRunTelemetryService, never()).startRun(any(), any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+        verify(hAssistant, never()).streamChat(any(), any());
+    }
+
+    @Test
+    void shouldReleasePermitWhenExecutorRejectsAgentWorkflow() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new RejectingExecutorService(),
+                (sessionId, userId) -> permit
+        );
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-rejected", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(new ChatStreamEvent("error", "AI 服务调用失败")), events);
+        assertTrue(permit.released());
+        verify(hAssistant, never()).streamChat(any(), any());
+    }
 
     @Test
     void shouldEmitReasoningEventsAndPersistReasoningBeforeAssistantReply() {
@@ -47,7 +182,7 @@ class ChatServiceImplTest {
                 .emitThinking("再列实现步骤。")
                 .emitText("最终")
                 .emitText("答案");
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -96,7 +231,7 @@ class ChatServiceImplTest {
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitThinking("先分析")
                 .emitErrorAfterThinking(runtimeException);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -133,7 +268,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("he").emitText("llo");
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -178,7 +313,7 @@ class ChatServiceImplTest {
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitTool("search_web")
                 .emitText("hello");
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -216,7 +351,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(new ModelDisabledException("disabled"));
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -250,7 +385,7 @@ class ChatServiceImplTest {
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -273,7 +408,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         FakeTokenStream tokenStream = new FakeTokenStream();
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -313,7 +448,7 @@ class ChatServiceImplTest {
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         InputGuardrailException guardrailException = new InputGuardrailException("   ");
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -354,7 +489,7 @@ class ChatServiceImplTest {
                 "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -394,7 +529,7 @@ class ChatServiceImplTest {
         InputGuardrailException guardrailException = new InputGuardrailException(
                 "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -435,7 +570,7 @@ class ChatServiceImplTest {
                 "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
         FakeTokenStream tokenStream = new FakeTokenStream().emitStartError(guardrailException);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -474,7 +609,7 @@ class ChatServiceImplTest {
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         RuntimeException runtimeException = new RuntimeException("boom");
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(runtimeException);
-        ChatServiceImpl chatService = new ChatServiceImpl(
+        ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
@@ -499,6 +634,174 @@ class ChatServiceImplTest {
         verify(agentRunService).failRun(66L, "boom");
         verify(agentRunTelemetryService).markFailure(telemetryRun, runtimeException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+    }
+
+    private ChatServiceImpl createChatService(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService
+    ) {
+        return createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> new RecordingPermit()
+        );
+    }
+
+    private ChatServiceImpl createChatService(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard
+    ) {
+        return new ChatServiceImpl(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard
+        );
+    }
+
+    private static class DirectExecutorService extends AbstractExecutorService {
+        private final AtomicBoolean shutdown = new AtomicBoolean();
+
+        @Override
+        public void shutdown() {
+            shutdown.set(true);
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown.set(true);
+            return Collections.emptyList();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown.get();
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown.get();
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return true;
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            command.run();
+        }
+    }
+
+    private static final class RecordingDirectExecutorService extends DirectExecutorService {
+        private final AtomicInteger submitted = new AtomicInteger();
+
+        @Override
+        public void execute(Runnable command) {
+            submitted.incrementAndGet();
+            super.execute(command);
+        }
+
+        int submittedCount() {
+            return submitted.get();
+        }
+    }
+
+    private static final class RecordingExecutorService extends AbstractExecutorService {
+        private final AtomicInteger submitted = new AtomicInteger();
+        private final AtomicBoolean shutdown = new AtomicBoolean();
+
+        @Override
+        public void shutdown() {
+            shutdown.set(true);
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown.set(true);
+            return Collections.emptyList();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown.get();
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown.get();
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return true;
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            submitted.incrementAndGet();
+        }
+
+        int submittedCount() {
+            return submitted.get();
+        }
+    }
+
+    private static final class RejectingExecutorService extends DirectExecutorService {
+        @Override
+        public void execute(Runnable command) {
+            throw new RejectedExecutionException("closed");
+        }
+    }
+
+    private static final class RecordingPermit implements ChatStreamConcurrencyGuard.Permit {
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        @Override
+        public boolean acquired() {
+            return true;
+        }
+
+        @Override
+        public String message() {
+            return "";
+        }
+
+        @Override
+        public void release() {
+            released.set(true);
+        }
+
+        boolean released() {
+            return released.get();
+        }
+    }
+
+    private record RejectedPermit(String message) implements ChatStreamConcurrencyGuard.Permit {
+        @Override
+        public boolean acquired() {
+            return false;
+        }
+
+        @Override
+        public void release() {
+        }
     }
 
     private static final class FakeTokenStream implements TokenStream {
