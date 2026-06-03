@@ -1,5 +1,6 @@
 package com.h.backend.chat;
 
+import com.h.backend.chat.config.ChatStreamProperties;
 import com.h.backend.chat.controller.ChatController;
 import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.dto.ChatStreamEvent;
@@ -21,10 +22,14 @@ import static org.mockito.Mockito.when;
 
 class ChatControllerTest {
 
+    private ChatStreamProperties defaultProperties() {
+        return new ChatStreamProperties();
+    }
+
     @Test
     void shouldExposeTextEventStreamContentType() throws Exception {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -44,7 +49,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeBlockedEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -62,7 +67,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeReasoningEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -82,7 +87,7 @@ class ChatControllerTest {
     @Test
     void shouldExposeErrorEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -100,7 +105,7 @@ class ChatControllerTest {
     @Test
     void shouldMapChunkAndDoneEventsToServerSentEvents() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
@@ -124,7 +129,7 @@ class ChatControllerTest {
     @Test
     void shouldTrimRequestMessageBeforeDelegatingToService() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
 
         when(chatService.streamChat(1L, 2L, "session-1", "hello"))
@@ -138,24 +143,25 @@ class ChatControllerTest {
     }
 
     @Test
-    void shouldEmitHeartbeatCommentsWhileWaitingForChatEvents() {
+    void shouldEmitHeartbeatBeforeDelayedDoneEvent() {
         ChatService chatService = mock(ChatService.class);
-        ChatController controller = new ChatController(chatService);
+        ChatStreamProperties properties = new ChatStreamProperties();
+        properties.setHeartbeatInterval(Duration.ofMillis(200));
+        ChatController controller = new ChatController(chatService, properties);
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
 
         when(chatService.streamChat(1L, 2L, "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", ""))
-                        .delaySubscription(Duration.ofMillis(1200)));
+                        .delaySubscription(Duration.ofMillis(450)));
 
         List<ServerSentEvent<ChatStreamEvent>> events = controller.streamMessage(principal, request)
-                .take(2)
+                .takeUntil(event -> "done".equals(event.event()))
                 .collectList()
-                .block(Duration.ofSeconds(3));
+                .block(Duration.ofSeconds(2));
 
         assertNotNull(events);
-        assertEquals(2, events.size());
         assertEquals("keepalive", events.get(0).comment());
-        assertEquals("done", events.get(1).event());
+        assertEquals("done", events.get(events.size() - 1).event());
     }
 }

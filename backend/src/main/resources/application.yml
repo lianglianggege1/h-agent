@@ -47,6 +47,12 @@ langfuse:
   public-key: ""
   secret-key: ""
 
+chat:
+  stream:
+    heartbeat-interval: 15s
+    max-concurrent-per-user: 2
+    max-concurrent-global: 100
+
 knowledge:
   retriever:
     max-results: 4

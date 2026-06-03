@@ -1,5 +1,6 @@
 package com.h.backend.chat.controller;
 
+import com.h.backend.chat.config.ChatStreamProperties;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.service.ChatService;
@@ -20,12 +21,12 @@ import java.time.Duration;
 @RequestMapping("/api/chat")
 public class ChatController {
 
-    private static final Duration STREAM_HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
-
     private final ChatService chatService;
+    private final Duration heartbeatInterval;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, ChatStreamProperties properties) {
         this.chatService = chatService;
+        this.heartbeatInterval = properties.getHeartbeatInterval();
     }
 
     @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -44,7 +45,7 @@ public class ChatController {
                         .data(event)
                         .build());
 
-        Flux<ServerSentEvent<ChatStreamEvent>> heartbeats = Flux.interval(STREAM_HEARTBEAT_INTERVAL)
+        Flux<ServerSentEvent<ChatStreamEvent>> heartbeats = Flux.interval(heartbeatInterval)
                 .map(tick -> ServerSentEvent.<ChatStreamEvent>builder()
                         .comment("keepalive")
                         .build());
