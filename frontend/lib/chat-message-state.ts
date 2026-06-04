@@ -1,10 +1,12 @@
-import type { ChatSessionMessage, ChatSessionMessageType } from "./chat-sessions";
+import type { ChatMessagePayload, ChatMessageResource, ChatSessionMessage, ChatSessionMessageType } from "./chat-sessions";
 
 export type UiChatMessage = {
   id: string;
   role: "assistant" | "blocked" | "user";
   messageType: ChatSessionMessageType;
   content: string;
+  payload?: ChatMessagePayload;
+  resources?: ChatMessageResource[];
   createdAt?: string;
 };
 
@@ -27,6 +29,12 @@ export type RenderableTurn =
       reasoning: string | null;
       answer: "";
       blocked: string;
+    }
+  | {
+      kind: "image";
+      id: string;
+      content: string;
+      resources: ChatMessageResource[];
     };
 
 export function buildPendingAssistantTurn(content: string, seed: number) {
@@ -76,12 +84,33 @@ export function applyBlockedState(
   );
 }
 
+export function applyImageMessage(
+  messages: UiChatMessage[],
+  assistantId: string,
+  imageMessage: ChatSessionMessage,
+): UiChatMessage[] {
+  const uiMessage = toUiChatMessage(imageMessage);
+  let replaced = false;
+  const next = messages
+    .map((message) => {
+      if (message.id === assistantId) {
+        replaced = true;
+        return uiMessage;
+      }
+      return message;
+    })
+    .filter((message) => message.messageType !== "REASONING" || message.content.trim().length > 0);
+  return replaced ? next : [...next, uiMessage];
+}
+
 export function toUiChatMessage(message: ChatSessionMessage): UiChatMessage {
   return {
     id: message.id,
     role: message.role,
     messageType: message.messageType,
     content: message.content,
+    payload: message.payload,
+    resources: message.resources ?? [],
     createdAt: message.createdAt,
   };
 }
@@ -102,6 +131,15 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         reasoning: null,
         answer: "",
         blocked: current.content,
+      });
+      continue;
+    }
+    if (current.messageType === "IMAGE") {
+      turns.push({
+        kind: "image",
+        id: current.id,
+        content: current.content,
+        resources: current.resources ?? [],
       });
       continue;
     }

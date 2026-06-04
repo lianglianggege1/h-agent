@@ -196,6 +196,65 @@ test("apiStream dispatches reasoning events without affecting chunk flow", async
   }
 });
 
+test("apiStream dispatches image events with message payload", async () => {
+  const originalFetch = globalThis.fetch;
+  const events = [];
+  const imageMessage = {
+    id: "501",
+    role: "assistant",
+    messageType: "IMAGE",
+    content: "一只白猫",
+    resources: [
+      {
+        id: "resource-1",
+        viewUrl: "/api/chat/resources/resource-1/content",
+        downloadUrl: "/api/chat/resources/resource-1/download",
+        fileName: "generated.png",
+        mimeType: "image/png",
+        width: 1024,
+        height: 1024,
+      },
+    ],
+    createdAt: "2026-06-03T20:00:00",
+  };
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: image\n" +
+                `data: ${JSON.stringify({ type: "image", content: "", message: imageMessage })}\n\n` +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onImage(message) {
+        events.push(["image", message]);
+      },
+      onDone() {
+        events.push(["done", ""]);
+      },
+    });
+    assert.deepEqual(events, [
+      ["image", imageMessage],
+      ["done", ""],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches chunk and done events from sse blocks", async () => {
   const originalFetch = globalThis.fetch;
   const chunks = [];

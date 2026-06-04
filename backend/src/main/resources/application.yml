@@ -63,3 +63,14 @@ knowledge:
       - docx
       - xls
       - xlsx
+
+image-generation:
+  minimax:
+    base-url: https://api.minimaxi.chat
+    api-key: ""
+    model: image-01
+    aspect-ratio: "1:1"
+    prompt-optimizer: true
+  storage:
+    base-dir: /tmp/h-agent
+    public-base-url: ""

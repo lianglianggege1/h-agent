@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   applyAssistantChunk,
   applyBlockedState,
+  applyImageMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
   toRenderableTurns,
@@ -79,6 +80,70 @@ test("toRenderableTurns groups reasoning before assistant reply", () => {
       id: "2",
     },
   ]);
+});
+
+test("toRenderableTurns exposes image messages as image turns", () => {
+  const turns = toRenderableTurns([
+    {
+      id: "501",
+      role: "assistant",
+      messageType: "IMAGE",
+      content: "一只白猫",
+      resources: [
+        {
+          id: "resource-1",
+          kind: "IMAGE",
+          viewUrl: "/api/chat/resources/resource-1/content",
+          downloadUrl: "/api/chat/resources/resource-1/download",
+          fileName: "generated.png",
+          mimeType: "image/png",
+          fileSize: 3,
+          width: 1024,
+          height: 1024,
+        },
+      ],
+      createdAt: "",
+    },
+  ]);
+
+  assert.deepEqual(turns, [
+    {
+      kind: "image",
+      id: "501",
+      content: "一只白猫",
+      resources: [
+        {
+          id: "resource-1",
+          kind: "IMAGE",
+          viewUrl: "/api/chat/resources/resource-1/content",
+          downloadUrl: "/api/chat/resources/resource-1/download",
+          fileName: "generated.png",
+          mimeType: "image/png",
+          fileSize: 3,
+          width: 1024,
+          height: 1024,
+        },
+      ],
+    },
+  ]);
+});
+
+test("applyImageMessage replaces an empty assistant placeholder", () => {
+  const { userMessage, assistantMessage } = buildPendingAssistantTurn("/image 一只白猫", 100);
+  const imageMessage = {
+    id: "501",
+    role: "assistant",
+    messageType: "IMAGE",
+    content: "一只白猫",
+    resources: [],
+    createdAt: "",
+  };
+
+  const next = applyImageMessage([userMessage, assistantMessage], assistantMessage.id, imageMessage);
+
+  assert.equal(next.length, 2);
+  assert.equal(next[1].id, "501");
+  assert.equal(next[1].messageType, "IMAGE");
 });
 
 test("toRenderableTurns leaves legacy think-tag assistant content untouched", () => {

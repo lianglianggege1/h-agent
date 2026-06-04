@@ -5,6 +5,7 @@ import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.service.ChatService;
 import com.h.backend.security.AuthUserPrincipal;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.codec.ServerSentEvent;
@@ -23,9 +24,16 @@ public class ChatController {
     private static final Duration STREAM_HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
 
     private final ChatService chatService;
+    private final Duration streamHeartbeatInterval;
 
+    @Autowired
     public ChatController(ChatService chatService) {
+        this(chatService, STREAM_HEARTBEAT_INTERVAL);
+    }
+
+    public ChatController(ChatService chatService, Duration streamHeartbeatInterval) {
         this.chatService = chatService;
+        this.streamHeartbeatInterval = streamHeartbeatInterval;
     }
 
     @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -44,7 +52,7 @@ public class ChatController {
                         .data(event)
                         .build());
 
-        Flux<ServerSentEvent<ChatStreamEvent>> heartbeats = Flux.interval(STREAM_HEARTBEAT_INTERVAL)
+        Flux<ServerSentEvent<ChatStreamEvent>> heartbeats = Flux.interval(streamHeartbeatInterval)
                 .map(tick -> ServerSentEvent.<ChatStreamEvent>builder()
                         .comment("keepalive")
                         .build());

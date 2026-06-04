@@ -1,3 +1,5 @@
+import type { ChatSessionMessage } from "./chat-sessions";
+
 export type ApiResponse<T> = {
   code: number;
   message: string;
@@ -57,6 +59,7 @@ export async function apiStream(
     onReasoning?: (value: string) => void;
     onChunk: (value: string) => void;
     onDone?: (value: string) => void;
+    onImage?: (message: ChatSessionMessage) => void;
     onBlocked?: (message: string) => void;
     onError?: (message: string) => void;
   },
@@ -106,6 +109,7 @@ export async function apiStream(
       const payload = JSON.parse(dataLine.slice("data:".length).trim()) as {
         type: string;
         content: string;
+        message?: ChatSessionMessage;
       };
       const eventType = eventName || payload.type;
 
@@ -115,6 +119,8 @@ export async function apiStream(
         handlers.onChunk(payload.content);
       } else if (eventType === "done") {
         handlers.onDone?.(payload.content);
+      } else if (eventType === "image" && payload.message) {
+        handlers.onImage?.(payload.message);
       } else if (eventType === "blocked") {
         handlers.onBlocked?.(payload.content);
       } else if (eventType === "error") {

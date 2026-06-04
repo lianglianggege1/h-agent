@@ -1,8 +1,8 @@
 package com.h.backend.chat.config;
 
 import dev.langchain4j.http.client.log.LoggingHttpClient;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +34,7 @@ class ChatModelConfigTest {
         ChatModelConfig config = new ChatModelConfig();
 
         StreamingChatModel streamingChatModel = config.streamingChatModel();
-        OpenAiStreamingChatModel model = assertInstanceOf(OpenAiStreamingChatModel.class, streamingChatModel);
+        AnthropicStreamingChatModel model = assertInstanceOf(AnthropicStreamingChatModel.class, streamingChatModel);
 
         Object client = readField(model, "client");
         Object httpClient = readField(client, "httpClient");
