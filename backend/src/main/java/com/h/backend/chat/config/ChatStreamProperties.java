@@ -12,6 +12,7 @@ public class ChatStreamProperties {
     private Duration heartbeatInterval = Duration.ofSeconds(15);
     private int maxConcurrentPerUser = 2;
     private int maxConcurrentGlobal = 100;
+    private Duration permitTtl = Duration.ofHours(2);
 
     public Duration getHeartbeatInterval() {
         return heartbeatInterval;
@@ -35,5 +36,13 @@ public class ChatStreamProperties {
 
     public void setMaxConcurrentGlobal(int maxConcurrentGlobal) {
         this.maxConcurrentGlobal = maxConcurrentGlobal;
+    }
+
+    public Duration getPermitTtl() {
+        return permitTtl;
+    }
+
+    public void setPermitTtl(Duration permitTtl) {
+        this.permitTtl = permitTtl;
     }
 }
