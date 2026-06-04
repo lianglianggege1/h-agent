@@ -5,6 +5,7 @@ import com.h.backend.chat.memory.RedisChatMemoryStore;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.tools.HToolExecutionErrorHandler;
+import com.h.backend.chat.tools.ImageGenerationTool;
 import com.h.backend.chat.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
@@ -18,6 +19,7 @@ import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
 import jakarta.annotation.Resource;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,6 +31,7 @@ import java.time.Duration;
 import java.util.Properties;
 
 @Configuration
+@EnableConfigurationProperties(ImageGenerationProperties.class)
 public class ChatModelConfig {
 
     private static final String LANGCHAIN4J_HTTP_REQUEST_LOGGER =
@@ -42,6 +45,9 @@ public class ChatModelConfig {
 
     @Resource
     private ToolWithP toolWithP;
+
+    @Resource
+    private ImageGenerationTool imageGenerationTool;
 
     @Resource
     private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
@@ -116,7 +122,7 @@ public class ChatModelConfig {
 
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
-                .tools(toolWithP)
+                .tools(toolWithP, imageGenerationTool)
                 .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)

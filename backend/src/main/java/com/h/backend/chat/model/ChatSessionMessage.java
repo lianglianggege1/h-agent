@@ -9,6 +9,7 @@ public class ChatSessionMessage {
     private String role;
     private String messageType;
     private String content;
+    private ChatMessagePayload payload;
     private LocalDateTime createdAt;
 
     public String getId() {
@@ -49,6 +50,14 @@ public class ChatSessionMessage {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public ChatMessagePayload getPayload() {
+        return payload;
+    }
+
+    public void setPayload(ChatMessagePayload payload) {
+        this.payload = payload;
     }
 
     public LocalDateTime getCreatedAt() {

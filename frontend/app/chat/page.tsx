@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyAssistantChunk,
   applyBlockedState,
+  applyImageMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
   toRenderableTurns,
@@ -142,6 +143,46 @@ function ReasoningDetails({ content, pending = false }: { content: string; pendi
       </summary>
       <div className="mt-2 whitespace-pre-wrap text-xs leading-6 text-stone-500">{content}</div>
     </details>
+  );
+}
+
+function ImageMessageContent({
+  content,
+  resources,
+}: {
+  content: string;
+  resources: Array<{
+    id: string;
+    viewUrl: string;
+    downloadUrl: string;
+    fileName: string;
+    width: number | null;
+    height: number | null;
+  }>;
+}) {
+  return (
+    <div className="space-y-3">
+      {resources.map((resource) => (
+        <div key={resource.id} className="space-y-2">
+          <img
+            className="aspect-square w-full rounded-[1.2rem] border border-stone-200 object-cover"
+            src={resource.viewUrl}
+            alt={content || resource.fileName}
+            width={resource.width ?? 1024}
+            height={resource.height ?? 1024}
+          />
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 whitespace-pre-wrap text-sm leading-6 text-stone-700">{content}</p>
+            <a
+              className="shrink-0 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-white"
+              href={resource.downloadUrl}
+            >
+              下载
+            </a>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -345,6 +386,9 @@ export default function ChatPage() {
           },
           onBlocked(message) {
             setMessages((current) => applyBlockedState(current, assistantMessage.id, message));
+          },
+          onImage(message) {
+            setMessages((current) => applyImageMessage(current, assistantMessage.id, message));
           },
           onDone() {
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
@@ -596,6 +640,8 @@ export default function ChatPage() {
                       ? "rounded-br-md bg-stone-900 text-stone-50"
                       : turn.kind === "blocked"
                         ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
+                        : turn.kind === "image"
+                          ? "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700"
                         : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
                   ].join(" ")}
                 >
@@ -606,6 +652,8 @@ export default function ChatPage() {
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
                       <BlockedMessageContent content={turn.blocked} />
                     </div>
+                  ) : turn.kind === "image" ? (
+                    <ImageMessageContent content={turn.content} resources={turn.resources} />
                   ) : turn.answer ? (
                     <div className="space-y-3">
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}

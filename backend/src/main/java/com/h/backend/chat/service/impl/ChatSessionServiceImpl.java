@@ -4,21 +4,27 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.dto.ChatMessagePayloadDto;
+import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionBootstrapDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatSessionMessagesPageDto;
 import com.h.backend.chat.dto.ChatSessionMetaDto;
 import com.h.backend.chat.dto.ChatSessionOpenDto;
 import com.h.backend.chat.dto.ChatSessionSummaryDto;
+import com.h.backend.chat.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
+import com.h.backend.chat.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.mapper.ChatSessionMapper;
 import com.h.backend.chat.mapper.ChatSessionMessageMapper;
+import com.h.backend.chat.model.ChatMessagePayload;
 import com.h.backend.chat.model.ChatSessionMessage;
 import com.h.backend.chat.service.ChatMemorySnapshotService;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +33,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatSessionServiceImpl implements ChatSessionService {
@@ -38,9 +46,27 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private final ChatSessionMapper chatSessionMapper;
     private final ChatSessionMessageMapper chatSessionMessageMapper;
+    private final ChatMessageResourceMapper chatMessageResourceMapper;
     private final ChatMemorySnapshotService chatMemorySnapshotService;
     private final SystemPromptService systemPromptService;
     private final ObjectMapper objectMapper;
+
+    @Autowired
+    public ChatSessionServiceImpl(
+            ChatSessionMapper chatSessionMapper,
+            ChatSessionMessageMapper chatSessionMessageMapper,
+            ChatMessageResourceMapper chatMessageResourceMapper,
+            ChatMemorySnapshotService chatMemorySnapshotService,
+            SystemPromptService systemPromptService,
+            ObjectMapper objectMapper
+    ) {
+        this.chatSessionMapper = chatSessionMapper;
+        this.chatSessionMessageMapper = chatSessionMessageMapper;
+        this.chatMessageResourceMapper = chatMessageResourceMapper;
+        this.chatMemorySnapshotService = chatMemorySnapshotService;
+        this.systemPromptService = systemPromptService;
+        this.objectMapper = objectMapper;
+    }
 
     public ChatSessionServiceImpl(
             ChatSessionMapper chatSessionMapper,
@@ -49,11 +75,14 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             SystemPromptService systemPromptService,
             ObjectMapper objectMapper
     ) {
-        this.chatSessionMapper = chatSessionMapper;
-        this.chatSessionMessageMapper = chatSessionMessageMapper;
-        this.chatMemorySnapshotService = chatMemorySnapshotService;
-        this.systemPromptService = systemPromptService;
-        this.objectMapper = objectMapper;
+        this(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                null,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper
+        );
     }
 
     @Override
@@ -295,6 +324,67 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         return messageId;
     }
 
+    @Override
+    @Transactional
+    public ChatSessionMessageDto appendImageMessage(
+            Long userId,
+            String sessionId,
+            String imagePrompt,
+            ChatMessagePayload payload,
+            List<ChatMessageResourceDto> resources
+    ) {
+        if (chatMessageResourceMapper == null) {
+            throw new IllegalStateException("ChatMessageResourceMapper is required to append image messages");
+        }
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+
+        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionMessage message = buildMessage("assistant", "IMAGE", imagePrompt, now, nextSequence);
+        message.setPayload(payload);
+        Long messageId = persistMessagePayload(session, message, payload);
+
+        List<ChatMessageResourceDto> safeResources = resources == null ? List.of() : resources;
+        for (ChatMessageResourceDto resource : safeResources) {
+            ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+            row.setId(resource.id());
+            row.setMessageId(messageId);
+            row.setUserId(userId);
+            row.setSessionId(sessionId);
+            row.setResourceKind(resource.kind());
+            row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
+            row.setStorageKey(resource.storageKey() == null ? resource.id() : resource.storageKey());
+            row.setViewUrl(resource.viewUrl());
+            row.setDownloadUrl(resource.downloadUrl());
+            row.setMimeType(resource.mimeType());
+            row.setFileName(resource.fileName());
+            row.setFileSize(resource.fileSize());
+            row.setWidth(resource.width());
+            row.setHeight(resource.height());
+            row.setSha256(resource.sha256());
+            row.setCreatedAt(now);
+            chatMessageResourceMapper.insert(row);
+        }
+
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        chatSessionMapper.updateById(session);
+
+        return new ChatSessionMessageDto(
+                String.valueOf(messageId),
+                "assistant",
+                "IMAGE",
+                imagePrompt,
+                toPayloadDto(payload),
+                safeResources,
+                now
+        );
+    }
+
     private void archiveExpiredSessionsForUser(Long userId) {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
         List<ChatSessionEntity> expired = chatSessionMapper.selectList(
@@ -375,8 +465,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         List<ChatSessionMessageEntity> rows = chatSessionMessageMapper.selectPageBySessionRecordId(session.getId(), limit, beforeSeq);
         List<ChatSessionMessageEntity> ordered = new ArrayList<>(rows);
         ordered.sort(Comparator.comparing(ChatSessionMessageEntity::getSequenceNo));
+        Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(ordered);
         List<ChatSessionMessageDto> messages = ordered.stream()
-                .map(this::toMessageDto)
+                .map(row -> toMessageDto(row, resourcesByMessageId.getOrDefault(row.getId(), List.of())))
                 .toList();
         boolean hasMore = !ordered.isEmpty() && ordered.get(0).getSequenceNo() > 1;
         Integer nextBefore = hasMore ? ordered.get(0).getSequenceNo() : null;
@@ -415,11 +506,34 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         return row.getId();
     }
 
+    private Long persistMessagePayload(ChatSessionEntity session, ChatSessionMessage message, ChatMessagePayload payload) {
+        ChatSessionMessageEntity row = new ChatSessionMessageEntity();
+        row.setSessionRecordId(session.getId());
+        row.setSessionId(session.getSessionId());
+        row.setUserId(session.getUserId());
+        row.setSequenceNo(message.getSequenceNo());
+        row.setMessageType(message.getMessageType());
+        row.setRoleCode(message.getRole());
+        row.setContentText(message.getContent());
+        row.setPayloadJson(writePayload(payload));
+        row.setCreatedAt(message.getCreatedAt());
+        chatSessionMessageMapper.insert(row);
+        return row.getId();
+    }
+
     private String writeMessagePayload(ChatSessionMessage message) {
         try {
             return objectMapper.writeValueAsString(message);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize chat session message payload", ex);
+        }
+    }
+
+    private String writePayload(ChatMessagePayload payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize chat image message payload", ex);
         }
     }
 
@@ -431,14 +545,78 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         return compact.length() <= 20 ? compact : compact.substring(0, 20);
     }
 
-    private ChatSessionMessageDto toMessageDto(ChatSessionMessageEntity row) {
+    private Map<Long, List<ChatMessageResourceDto>> loadResourcesByMessageId(List<ChatSessionMessageEntity> rows) {
+        if (chatMessageResourceMapper == null || rows.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> messageIds = rows.stream()
+                .map(ChatSessionMessageEntity::getId)
+                .filter(id -> id != null)
+                .toList();
+        if (messageIds.isEmpty()) {
+            return Map.of();
+        }
+        return chatMessageResourceMapper.selectByMessageIds(messageIds).stream()
+                .collect(Collectors.groupingBy(
+                        ChatMessageResourceEntity::getMessageId,
+                        Collectors.mapping(this::toResourceDto, Collectors.toList())
+                ));
+    }
+
+    private ChatMessageResourceDto toResourceDto(ChatMessageResourceEntity row) {
+        return new ChatMessageResourceDto(
+                row.getId(),
+                row.getResourceKind(),
+                row.getViewUrl(),
+                row.getDownloadUrl(),
+                row.getFileName(),
+                row.getMimeType(),
+                row.getFileSize(),
+                row.getWidth(),
+                row.getHeight(),
+                row.getStorageType(),
+                row.getStorageKey(),
+                row.getSha256()
+        );
+    }
+
+    private ChatSessionMessageDto toMessageDto(ChatSessionMessageEntity row, List<ChatMessageResourceDto> resources) {
         String normalizedMessageType = normalizeMessageType(row.getMessageType(), row.getRoleCode());
         return new ChatSessionMessageDto(
                 row.getId() == null ? UUID.randomUUID().toString() : String.valueOf(row.getId()),
                 normalizeRole(row.getRoleCode()),
                 normalizedMessageType,
                 row.getContentText() == null ? "" : row.getContentText(),
+                "IMAGE".equals(normalizedMessageType) ? readImagePayload(row.getPayloadJson()) : null,
+                resources,
                 row.getCreatedAt()
+        );
+    }
+
+    private ChatMessagePayloadDto readImagePayload(String payloadJson) {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return null;
+        }
+        try {
+            ChatMessagePayload payload = objectMapper.readValue(payloadJson, ChatMessagePayload.class);
+            return toPayloadDto(payload);
+        } catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    private ChatMessagePayloadDto toPayloadDto(ChatMessagePayload payload) {
+        if (payload == null) {
+            return null;
+        }
+        return new ChatMessagePayloadDto(
+                payload.getPrompt(),
+                payload.getProvider(),
+                payload.getProviderRequestId(),
+                payload.getModel(),
+                payload.getAspectRatio(),
+                payload.getStatus(),
+                payload.getTriggerSource()
         );
     }
 

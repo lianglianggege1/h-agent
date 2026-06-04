@@ -1,12 +1,36 @@
 import { apiFetch } from "./http";
 
-export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING";
+export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE";
+
+export type ChatMessagePayload = {
+  prompt: string | null;
+  provider: string | null;
+  providerRequestId: string | null;
+  model: string | null;
+  aspectRatio: string | null;
+  status: string | null;
+  triggerSource: string | null;
+} | null;
+
+export type ChatMessageResource = {
+  id: string;
+  kind: string;
+  viewUrl: string;
+  downloadUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number | null;
+  width: number | null;
+  height: number | null;
+};
 
 export type ChatSessionMessage = {
   id: string;
   role: "assistant" | "blocked" | "user";
   messageType: ChatSessionMessageType;
   content: string;
+  payload?: ChatMessagePayload;
+  resources?: ChatMessageResource[];
   createdAt: string;
 };
 

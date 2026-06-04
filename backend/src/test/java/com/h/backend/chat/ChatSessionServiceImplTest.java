@@ -1,10 +1,14 @@
 package com.h.backend.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
+import com.h.backend.chat.entity.ChatMessageResourceEntity;
+import com.h.backend.chat.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.mapper.ChatSessionMapper;
 import com.h.backend.chat.mapper.ChatSessionMessageMapper;
+import com.h.backend.chat.model.ChatMessagePayload;
 import com.h.backend.chat.service.ChatMemorySnapshotService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatSessionServiceImpl;
@@ -25,6 +29,155 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatSessionServiceImplTest {
+
+    @Test
+    void shouldMapImageMessageWithResourceMetadata() throws Exception {
+        ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+        session.setPromptId(22L);
+        session.setTitle("图片会话");
+        session.setStatus("ACTIVE");
+        session.setMessageCount(2);
+        session.setCreatedAt(LocalDateTime.now());
+        session.setUpdatedAt(LocalDateTime.now());
+
+        ChatSessionMessageEntity imageRow = new ChatSessionMessageEntity();
+        imageRow.setId(501L);
+        imageRow.setSessionRecordId(11L);
+        imageRow.setSessionId("session-1");
+        imageRow.setUserId(1L);
+        imageRow.setSequenceNo(2);
+        imageRow.setMessageType("IMAGE");
+        imageRow.setRoleCode("assistant");
+        imageRow.setContentText("一只白猫");
+        imageRow.setPayloadJson("""
+                {"prompt":"一只白猫","provider":"MINIMAX","model":"image-01","aspectRatio":"1:1","status":"READY","triggerSource":"COMMAND"}
+                """);
+        imageRow.setCreatedAt(LocalDateTime.now());
+
+        ChatMessageResourceEntity resourceRow = new ChatMessageResourceEntity();
+        resourceRow.setId("resource-701");
+        resourceRow.setMessageId(501L);
+        resourceRow.setUserId(1L);
+        resourceRow.setSessionId("session-1");
+        resourceRow.setResourceKind("IMAGE");
+        resourceRow.setStorageType("LOCAL_FILE");
+        resourceRow.setStorageKey("generated-images/2026/05/27/cat.png");
+        resourceRow.setViewUrl("/api/chat/resources/resource-701/content");
+        resourceRow.setDownloadUrl("/api/chat/resources/resource-701/download");
+        resourceRow.setMimeType("image/png");
+        resourceRow.setFileName("generated-cat.png");
+        resourceRow.setFileSize(1234L);
+        resourceRow.setWidth(1024);
+        resourceRow.setHeight(1024);
+        resourceRow.setSha256("abc");
+        resourceRow.setCreatedAt(LocalDateTime.now());
+
+        when(chatSessionMapper.selectList(any())).thenReturn(List.of());
+        when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        when(chatSessionMessageMapper.selectPageBySessionRecordId(11L, 20, null)).thenReturn(List.of(imageRow));
+        when(chatMessageResourceMapper.selectByMessageIds(List.of(501L))).thenReturn(List.of(resourceRow));
+
+        var page = service.getSessionMessages(1L, "session-1", 20, null);
+
+        var dto = page.messages().getFirst();
+        assertEquals("assistant", dto.role());
+        assertEquals("IMAGE", dto.messageType());
+        assertEquals("一只白猫", dto.content());
+        assertEquals("MINIMAX", dto.payload().provider());
+        assertEquals(1, dto.resources().size());
+        assertEquals("/api/chat/resources/resource-701/content", dto.resources().getFirst().viewUrl());
+        assertEquals("/api/chat/resources/resource-701/download", dto.resources().getFirst().downloadUrl());
+    }
+
+    @Test
+    void shouldPersistImageMessageAndResourceRows() throws Exception {
+        ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+        session.setPromptId(22L);
+        session.setTitle("图片会话");
+        session.setStatus("ACTIVE");
+        session.setMessageCount(1);
+        session.setCreatedAt(LocalDateTime.now());
+        session.setUpdatedAt(LocalDateTime.now());
+
+        when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        doAnswer(invocation -> {
+            ChatSessionMessageEntity row = invocation.getArgument(0);
+            row.setId(501L);
+            return 1;
+        }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
+
+        ChatMessagePayload payload = new ChatMessagePayload();
+        payload.setPrompt("一只白猫");
+        payload.setProvider("MINIMAX");
+        payload.setModel("image-01");
+        payload.setAspectRatio("1:1");
+        payload.setStatus("READY");
+        payload.setTriggerSource("COMMAND");
+
+        ChatMessageResourceDto resource = new ChatMessageResourceDto(
+                "resource-701",
+                "IMAGE",
+                "/api/chat/resources/resource-701/content",
+                "/api/chat/resources/resource-701/download",
+                "generated-cat.png",
+                "image/png",
+                1234L,
+                1024,
+                1024,
+                "LOCAL_FILE",
+                "generated-images/2026/05/27/cat.png",
+                "abc"
+        );
+
+        var message = service.appendImageMessage(1L, "session-1", "一只白猫", payload, List.of(resource));
+
+        assertEquals("IMAGE", message.messageType());
+        assertEquals("一只白猫", message.content());
+        assertEquals("/api/chat/resources/resource-701/download", message.resources().getFirst().downloadUrl());
+        verify(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
+        ArgumentCaptor<ChatMessageResourceEntity> resourceCaptor = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
+        verify(chatMessageResourceMapper).insert(resourceCaptor.capture());
+        ChatMessageResourceEntity resourceRow = resourceCaptor.getValue();
+        assertEquals("LOCAL_FILE", resourceRow.getStorageType());
+        assertEquals("generated-images/2026/05/27/cat.png", resourceRow.getStorageKey());
+        assertEquals("abc", resourceRow.getSha256());
+    }
 
     @Test
     void shouldPersistReasoningMessageWithReasoningTypeAndAssistantRole() throws Exception {

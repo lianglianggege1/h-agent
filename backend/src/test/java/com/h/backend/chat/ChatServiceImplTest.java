@@ -1,11 +1,14 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.dto.ChatMessageResourceDto;
+import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatSessionService;
+import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -77,6 +80,76 @@ class ChatServiceImplTest {
         verify(chatSessionService, never()).assertActiveSession(any(), any(), any());
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldGenerateImageForSlashImageCommandWithoutCallingAssistant() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> permit,
+                imageGenerationService
+        );
+        ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
+                "501",
+                "assistant",
+                "IMAGE",
+                "一只白猫",
+                null,
+                List.of(new ChatMessageResourceDto(
+                        "resource-1",
+                        "IMAGE",
+                        "/api/chat/resources/resource-1/content",
+                        "/api/chat/resources/resource-1/download",
+                        "generated-resource-1.png",
+                        "image/png",
+                        3L,
+                        1024,
+                        1024
+                )),
+                java.time.LocalDateTime.now()
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-1", "/image 一只白猫")).thenReturn(101L);
+        when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "一只白猫",
+                "COMMAND"
+        ))).thenReturn(imageMessage);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-1", "/image 一只白猫")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("image", "", imageMessage),
+                new ChatStreamEvent("done", "")
+        ), events);
+        verify(chatSessionService).appendUserMessage(1L, "session-1", "/image 一只白猫");
+        verify(imageGenerationService).generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "一只白猫",
+                "COMMAND"
+        ));
+        verify(hAssistant, never()).streamChat(any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+        assertTrue(permit.released());
     }
 
     @Test
@@ -773,6 +846,28 @@ class ChatServiceImplTest {
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard
     ) {
+        return createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                null
+        );
+    }
+
+    private ChatServiceImpl createChatService(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService
+    ) {
         return new ChatServiceImpl(
                 hAssistant,
                 systemPromptService,
@@ -780,7 +875,8 @@ class ChatServiceImplTest {
                 agentRunService,
                 agentRunTelemetryService,
                 chatStreamExecutor,
-                concurrencyGuard
+                concurrencyGuard,
+                imageGenerationService
         );
     }
 

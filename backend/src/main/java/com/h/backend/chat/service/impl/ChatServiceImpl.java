@@ -1,24 +1,29 @@
 package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatService;
-import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatSessionService;
+import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
+import com.h.backend.chat.service.ChatStreamEventBridge;
+import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
 import dev.langchain4j.service.tool.ToolExecution;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -38,6 +43,33 @@ public class ChatServiceImpl implements ChatService {
 
     private final ChatStreamConcurrencyGuard concurrencyGuard;
 
+    private final ImageGenerationService imageGenerationService;
+
+    private final ChatStreamEventBridge chatStreamEventBridge;
+
+    @Autowired
+    public ChatServiceImpl(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            ChatStreamEventBridge chatStreamEventBridge
+    ) {
+        this.hAssistant = hAssistant;
+        this.systemPromptService = systemPromptService;
+        this.chatSessionService = chatSessionService;
+        this.agentRunService = agentRunService;
+        this.agentRunTelemetryService = agentRunTelemetryService;
+        this.chatStreamExecutor = chatStreamExecutor;
+        this.concurrencyGuard = concurrencyGuard;
+        this.imageGenerationService = imageGenerationService;
+        this.chatStreamEventBridge = chatStreamEventBridge;
+    }
+
     public ChatServiceImpl(
             HAssistant hAssistant,
             SystemPromptService systemPromptService,
@@ -47,13 +79,40 @@ public class ChatServiceImpl implements ChatService {
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard
     ) {
-        this.hAssistant = hAssistant;
-        this.systemPromptService = systemPromptService;
-        this.chatSessionService = chatSessionService;
-        this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
-        this.chatStreamExecutor = chatStreamExecutor;
-        this.concurrencyGuard = concurrencyGuard;
+        this(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                null,
+                new ChatStreamEventBridge()
+        );
+    }
+
+    public ChatServiceImpl(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService
+    ) {
+        this(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                imageGenerationService,
+                new ChatStreamEventBridge()
+        );
     }
 
     @Override
@@ -70,8 +129,7 @@ public class ChatServiceImpl implements ChatService {
                 } catch (RuntimeException ex) {
                     log.error("Failed to submit chat stream task", ex);
                     permit.release();
-                    sink.next(new ChatStreamEvent("error", "AI 服务调用失败"));
-                    sink.complete();
+                    emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
                 }
             });
         });
@@ -88,9 +146,17 @@ public class ChatServiceImpl implements ChatService {
         AtomicBoolean permitReleased = new AtomicBoolean();
         AgentRunTelemetryService.TelemetryRun telemetryRun = null;
         AgentRunService.AgentRunHandle runHandle = null;
+        String registeredMemoryId = null;
+        Consumer<ChatSessionMessageDto> registeredImagePublisher = null;
         try {
             chatSessionService.assertActiveSession(userId, sessionId, promptId);
             Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
+            if (isImageCommand(userMessage)) {
+                emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);
+                releasePermitOnce(permit, permitReleased);
+                return;
+            }
+
             String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
             Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
             telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
@@ -105,9 +171,14 @@ public class ChatServiceImpl implements ChatService {
 
             StringBuilder reasoningBuilder = new StringBuilder();
             StringBuilder replyBuilder = new StringBuilder();
-
             AgentRunTelemetryService.TelemetryRun streamTelemetryRun = telemetryRun;
             AgentRunService.AgentRunHandle streamRunHandle = runHandle;
+
+            Consumer<ChatSessionMessageDto> imagePublisher =
+                    message -> emitIfActive(sink, new ChatStreamEvent("image", "", message));
+            chatStreamEventBridge.registerPublisher(memoryId, imagePublisher);
+            registeredMemoryId = memoryId;
+            registeredImagePublisher = imagePublisher;
             hAssistant.streamChat(memoryId, userMessage)
                     .onPartialThinking(thinking -> {
                         String thinkingText = thinking == null ? "" : thinking.text();
@@ -145,6 +216,7 @@ public class ChatServiceImpl implements ChatService {
                             agentRunTelemetryService.markSuccess(streamTelemetryRun);
                             emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
                         } finally {
+                            chatStreamEventBridge.unregisterPublisher(memoryId, imagePublisher);
                             releasePermitOnce(permit, permitReleased);
                         }
                     })
@@ -159,12 +231,16 @@ public class ChatServiceImpl implements ChatService {
                                     error
                             );
                         } finally {
+                            chatStreamEventBridge.unregisterPublisher(memoryId, imagePublisher);
                             releasePermitOnce(permit, permitReleased);
                         }
                     })
                     .start();
         } catch (Exception ex) {
             try {
+                if (registeredMemoryId != null && registeredImagePublisher != null) {
+                    chatStreamEventBridge.unregisterPublisher(registeredMemoryId, registeredImagePublisher);
+                }
                 if (runHandle != null && telemetryRun != null) {
                     emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
                 } else {
@@ -177,6 +253,41 @@ public class ChatServiceImpl implements ChatService {
             } finally {
                 releasePermitOnce(permit, permitReleased);
             }
+        }
+    }
+
+    private void emitImageCommandEvents(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            Long resolvedPromptId,
+            String sessionId,
+            String userMessage
+    ) {
+        if (imageGenerationService == null) {
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "图片生成服务未启用"));
+            return;
+        }
+        String imagePrompt = extractImagePrompt(userMessage);
+        if (imagePrompt.isBlank()) {
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "请输入图片提示词"));
+            return;
+        }
+        chatSessionService.appendUserMessage(userId, sessionId, userMessage);
+        try {
+            ChatSessionMessageDto message = imageGenerationService.generateImage(
+                    new ImageGenerationService.ImageGenerationCommand(
+                            userId,
+                            sessionId,
+                            resolvedPromptId,
+                            imagePrompt,
+                            "COMMAND"
+                    )
+            );
+            emitIfActive(sink, new ChatStreamEvent("image", "", message));
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
+        } catch (Exception ex) {
+            log.error("Error generating image", ex);
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "图片生成失败，请稍后重试"));
         }
     }
 
@@ -207,6 +318,22 @@ public class ChatServiceImpl implements ChatService {
         } catch (RuntimeException ex) {
             log.debug("Skipping chat stream completion after subscriber cancellation", ex);
         }
+    }
+
+    private boolean isImageCommand(String userMessage) {
+        return userMessage != null
+                && (userMessage.trim().equals("/image") || userMessage.trim().startsWith("/image "));
+    }
+
+    private String extractImagePrompt(String userMessage) {
+        if (userMessage == null) {
+            return "";
+        }
+        String trimmed = userMessage.trim();
+        if (trimmed.equals("/image")) {
+            return "";
+        }
+        return trimmed.substring("/image".length()).trim();
     }
 
     private void emitFailureEvent(

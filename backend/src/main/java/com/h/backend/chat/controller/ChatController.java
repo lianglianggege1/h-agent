@@ -6,6 +6,7 @@ import com.h.backend.chat.dto.ChatMessageRequest;
 import com.h.backend.chat.service.ChatService;
 import com.h.backend.security.AuthUserPrincipal;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.codec.ServerSentEvent;
@@ -24,9 +25,14 @@ public class ChatController {
     private final ChatService chatService;
     private final Duration heartbeatInterval;
 
+    @Autowired
     public ChatController(ChatService chatService, ChatStreamProperties properties) {
+        this(chatService, properties.getHeartbeatInterval());
+    }
+
+    ChatController(ChatService chatService, Duration heartbeatInterval) {
         this.chatService = chatService;
-        this.heartbeatInterval = properties.getHeartbeatInterval();
+        this.heartbeatInterval = heartbeatInterval;
     }
 
     @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
