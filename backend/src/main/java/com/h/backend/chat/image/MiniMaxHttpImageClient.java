@@ -6,13 +6,18 @@ import com.h.backend.chat.config.ImageGenerationProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,8 +35,10 @@ public class MiniMaxHttpImageClient implements MiniMaxImageClient {
     public MiniMaxHttpImageClient(ImageGenerationProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        ImageGenerationProperties.MiniMax minimax = properties.minimaxOrDefault();
         this.restClient = RestClient.builder()
-                .baseUrl(properties.minimaxOrDefault().baseUrl())
+                .baseUrl(minimax.baseUrl())
+                .requestFactory(requestFactory(minimax))
                 .build();
     }
 
@@ -113,25 +120,36 @@ public class MiniMaxHttpImageClient implements MiniMaxImageClient {
             String providerRequestId = textOrNull(root, "id");
             JsonNode data = root.path("data");
             if ("url".equalsIgnoreCase(responseFormat)) {
-                String imageUrl = firstText(data.path("image_urls"));
-                if (imageUrl == null || imageUrl.isBlank()) {
+                List<String> imageUrls = textValues(data.path("image_urls"));
+                if (imageUrls.isEmpty()) {
                     throw new IllegalStateException("MiniMax image response did not contain image_urls data");
                 }
-                byte[] imageBytes = restClient.get()
-                        .uri(URI.create(imageUrl))
-                        .retrieve()
-                        .body(byte[].class);
-                if (imageBytes == null || imageBytes.length == 0) {
-                    throw new IllegalStateException("MiniMax image url did not return image bytes");
+                List<MiniMaxImageGenerationResult.GeneratedImage> images = new ArrayList<>();
+                for (String imageUrl : imageUrls) {
+                    byte[] imageBytes = restClient.get()
+                            .uri(URI.create(imageUrl))
+                            .retrieve()
+                            .body(byte[].class);
+                    if (imageBytes == null || imageBytes.length == 0) {
+                        throw new IllegalStateException("MiniMax image url did not return image bytes");
+                    }
+                    images.add(new MiniMaxImageGenerationResult.GeneratedImage(
+                            mimeTypeFromUrl(imageUrl),
+                            imageBytes,
+                            null,
+                            null
+                    ));
                 }
+                MiniMaxImageGenerationResult.GeneratedImage firstImage = images.getFirst();
                 return new MiniMaxImageGenerationResult(
                         providerRequestId,
-                        mimeTypeFromUrl(imageUrl),
+                        firstImage.mimeType(),
                         model,
-                        imageBytes,
-                        null,
-                        null,
-                        response
+                        firstImage.imageBytes(),
+                        firstImage.width(),
+                        firstImage.height(),
+                        response,
+                        images
                 );
             }
             String base64 = base64Image(root, data);
@@ -176,22 +194,30 @@ public class MiniMaxHttpImageClient implements MiniMaxImageClient {
         return base64;
     }
 
-    private String firstText(JsonNode node) {
+    private List<String> textValues(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
+            return List.of();
         }
         if (node.isArray()) {
-            return node.isEmpty() ? null : node.path(0).asText();
+            List<String> values = new ArrayList<>();
+            for (JsonNode item : node) {
+                String value = item.asText();
+                if (value != null && !value.isBlank()) {
+                    values.add(value);
+                }
+            }
+            return values;
         }
-        return node.asText();
+        String value = node.asText();
+        return value == null || value.isBlank() ? List.of() : List.of(value);
     }
 
     private String mimeTypeFromUrl(String imageUrl) {
-        String lowerUrl = imageUrl.toLowerCase();
-        if (lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) {
+        String lowerPath = URI.create(imageUrl).getPath().toLowerCase();
+        if (lowerPath.endsWith(".jpg") || lowerPath.endsWith(".jpeg")) {
             return "image/jpeg";
         }
-        if (lowerUrl.endsWith(".webp")) {
+        if (lowerPath.endsWith(".webp")) {
             return "image/webp";
         }
         return "image/png";
@@ -209,5 +235,14 @@ public class MiniMaxHttpImageClient implements MiniMaxImageClient {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    private static JdkClientHttpRequestFactory requestFactory(ImageGenerationProperties.MiniMax minimax) {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(Duration.ofSeconds(minimax.requestTimeoutSeconds()));
+        return requestFactory;
     }
 }

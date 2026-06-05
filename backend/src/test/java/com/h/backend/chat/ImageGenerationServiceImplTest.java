@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
@@ -177,5 +178,67 @@ class ImageGenerationServiceImplTest {
         assertEquals("resource-1", payloadCaptor.getValue().getSourceResourceId());
         assertEquals("501", payloadCaptor.getValue().getParentImageMessageId());
         assertEquals("EDIT_PROMPT", payloadCaptor.getValue().getOperationType());
+    }
+
+    @Test
+    void shouldStoreEveryGeneratedImageAndAppendOneImageMessageWithMultipleResources() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                resourceStorage,
+                chatSessionService
+        );
+
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-789",
+                "image/jpeg",
+                "image-01",
+                new byte[]{1},
+                null,
+                null,
+                "{\"id\":\"provider-789\"}",
+                List.of(
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{1}, null, null),
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{2}, null, null),
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{3}, null, null)
+                )
+        ));
+        when(resourceStorage.save(any(ResourceSaveCommand.class)))
+                .thenReturn(
+                        new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null, "sha1"),
+                        new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null, "sha2"),
+                        new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null, "sha3")
+                );
+        when(resourceStorage.buildViewUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/content");
+        when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
+        when(resourceStorage.buildViewUrl("resource-3")).thenReturn("/api/chat/resources/resource-3/content");
+        when(resourceStorage.buildDownloadUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/download");
+        when(resourceStorage.buildDownloadUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/download");
+        when(resourceStorage.buildDownloadUrl("resource-3")).thenReturn("/api/chat/resources/resource-3/download");
+        when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("三张图"), any(), any()))
+                .thenReturn(new ChatSessionMessageDto("503", "assistant", "IMAGE", "三张图", null, List.of(), LocalDateTime.now()));
+
+        service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "三张图",
+                "TOOL"
+        ));
+
+        verify(resourceStorage, times(3)).save(any(ResourceSaveCommand.class));
+        verify(chatSessionService).appendImageMessage(
+                eq(1L),
+                eq("session-1"),
+                eq("三张图"),
+                any(),
+                argThat(resources ->
+                        resources.size() == 3
+                                && "resource-1".equals(resources.get(0).id())
+                                && "resource-2".equals(resources.get(1).id())
+                                && "resource-3".equals(resources.get(2).id()))
+        );
     }
 }

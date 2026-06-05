@@ -15,6 +15,7 @@ import com.h.backend.chat.storage.StoredResource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -50,7 +51,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
-                new ImageGenerationProperties(null)
+                new ImageGenerationProperties(null, null)
         );
     }
 
@@ -67,20 +68,37 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                         prompt,
                         minimax.aspectRatio(),
                         "url",
-                        1,
+                        minimax.n(),
                         minimax.promptOptimizer()
                 )
         );
-        StoredResource storedResource = resourceStorage.save(new ResourceSaveCommand(
-                "IMAGE",
-                command.sessionId(),
-                prompt,
-                generationResult.imageBytes(),
-                generationResult.mimeType(),
-                extensionFor(generationResult.mimeType()),
-                generationResult.width(),
-                generationResult.height()
-        ));
+        List<ChatMessageResourceDto> resources = new ArrayList<>();
+        for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generationResult.images()) {
+            StoredResource storedResource = resourceStorage.save(new ResourceSaveCommand(
+                    "IMAGE",
+                    command.sessionId(),
+                    prompt,
+                    generatedImage.imageBytes(),
+                    generatedImage.mimeType(),
+                    extensionFor(generatedImage.mimeType()),
+                    generatedImage.width(),
+                    generatedImage.height()
+            ));
+            resources.add(new ChatMessageResourceDto(
+                    storedResource.id(),
+                    "IMAGE",
+                    resourceStorage.buildViewUrl(storedResource.id()),
+                    resourceStorage.buildDownloadUrl(storedResource.id()),
+                    storedResource.fileName(),
+                    storedResource.mimeType(),
+                    storedResource.fileSize(),
+                    storedResource.width(),
+                    storedResource.height(),
+                    storedResource.storageType(),
+                    storedResource.storageKey(),
+                    storedResource.sha256()
+            ));
+        }
 
         ChatMessagePayload payload = new ChatMessagePayload();
         payload.setPrompt(prompt);
@@ -94,26 +112,12 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         payload.setParentImageMessageId(command.parentImageMessageId());
         payload.setOperationType(command.operationType());
 
-        ChatMessageResourceDto resource = new ChatMessageResourceDto(
-                storedResource.id(),
-                "IMAGE",
-                resourceStorage.buildViewUrl(storedResource.id()),
-                resourceStorage.buildDownloadUrl(storedResource.id()),
-                storedResource.fileName(),
-                storedResource.mimeType(),
-                storedResource.fileSize(),
-                storedResource.width(),
-                storedResource.height(),
-                storedResource.storageType(),
-                storedResource.storageKey(),
-                storedResource.sha256()
-        );
         return chatSessionService.appendImageMessage(
                 command.userId(),
                 command.sessionId(),
                 prompt,
                 payload,
-                List.of(resource)
+                resources
         );
     }
 
