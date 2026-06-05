@@ -2,7 +2,7 @@ package com.h.backend.chat.tools;
 
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.service.ChatStreamEventBridge;
-import com.h.backend.chat.service.ImageGenerationService;
+import com.h.backend.chat.service.ImageSubAgentService;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -11,19 +11,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class ImageGenerationTool {
 
-    private final ImageGenerationService imageGenerationService;
+    private final ImageSubAgentService imageSubAgentService;
     private final ChatStreamEventBridge chatStreamEventBridge;
 
-    public ImageGenerationTool(ImageGenerationService imageGenerationService, ChatStreamEventBridge chatStreamEventBridge) {
-        this.imageGenerationService = imageGenerationService;
+    public ImageGenerationTool(ImageSubAgentService imageSubAgentService, ChatStreamEventBridge chatStreamEventBridge) {
+        this.imageSubAgentService = imageSubAgentService;
         this.chatStreamEventBridge = chatStreamEventBridge;
     }
 
     @Tool(value = "根据用户提示生成一张图片，并把图片发送到当前聊天中。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
     public String generateImage(@ToolMemoryId String memoryId, String prompt) {
         ImageGenerationContext context = parseMemoryId(memoryId);
-        ChatSessionMessageDto message = imageGenerationService.generateImage(
-                new ImageGenerationService.ImageGenerationCommand(
+        ChatSessionMessageDto message = imageSubAgentService.generateImage(
+                new ImageSubAgentService.ImageSubAgentCommand(
                         context.userId(),
                         context.sessionId(),
                         context.promptId(),

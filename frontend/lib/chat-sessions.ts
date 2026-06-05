@@ -10,6 +10,9 @@ export type ChatMessagePayload = {
   aspectRatio: string | null;
   status: string | null;
   triggerSource: string | null;
+  sourceResourceId: string | null;
+  parentImageMessageId: string | null;
+  operationType: string | null;
 } | null;
 
 export type ChatMessageResource = {

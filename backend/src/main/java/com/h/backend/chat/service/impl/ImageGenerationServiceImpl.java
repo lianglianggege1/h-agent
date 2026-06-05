@@ -50,7 +50,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
-                new ImageGenerationProperties(null, null)
+                new ImageGenerationProperties(null)
         );
     }
 
@@ -66,7 +66,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                         minimax.model(),
                         prompt,
                         minimax.aspectRatio(),
-                        "base64",
+                        "url",
                         1,
                         minimax.promptOptimizer()
                 )
@@ -90,6 +90,9 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         payload.setAspectRatio(minimax.aspectRatio());
         payload.setStatus(READY_STATUS);
         payload.setTriggerSource(command.triggerSource());
+        payload.setSourceResourceId(command.sourceResourceId());
+        payload.setParentImageMessageId(command.parentImageMessageId());
+        payload.setOperationType(command.operationType());
 
         ChatMessageResourceDto resource = new ChatMessageResourceDto(
                 storedResource.id(),

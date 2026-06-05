@@ -7,6 +7,9 @@ public record ChatMessagePayloadDto(
         String model,
         String aspectRatio,
         String status,
-        String triggerSource
+        String triggerSource,
+        String sourceResourceId,
+        String parentImageMessageId,
+        String operationType
 ) {
 }

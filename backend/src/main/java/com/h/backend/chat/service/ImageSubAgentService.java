@@ -2,28 +2,28 @@ package com.h.backend.chat.service;
 
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 
-public interface ImageGenerationService {
+public interface ImageSubAgentService {
 
-    ChatSessionMessageDto generateImage(ImageGenerationCommand command);
+    ChatSessionMessageDto generateImage(ImageSubAgentCommand command);
 
-    record ImageGenerationCommand(
+    record ImageSubAgentCommand(
             Long userId,
             String sessionId,
             Long promptId,
-            String prompt,
+            String instruction,
             String triggerSource,
             String sourceResourceId,
             String parentImageMessageId,
             String operationType
     ) {
-        public ImageGenerationCommand(
+        public ImageSubAgentCommand(
                 Long userId,
                 String sessionId,
                 Long promptId,
-                String prompt,
+                String instruction,
                 String triggerSource
         ) {
-            this(userId, sessionId, promptId, prompt, triggerSource, null, null, "GENERATE");
+            this(userId, sessionId, promptId, instruction, triggerSource, null, null, "GENERATE");
         }
     }
 }

@@ -9,6 +9,9 @@ public class ChatMessagePayload {
     private String aspectRatio;
     private String status;
     private String triggerSource;
+    private String sourceResourceId;
+    private String parentImageMessageId;
+    private String operationType;
 
     public String getPrompt() {
         return prompt;
@@ -64,5 +67,29 @@ public class ChatMessagePayload {
 
     public void setTriggerSource(String triggerSource) {
         this.triggerSource = triggerSource;
+    }
+
+    public String getSourceResourceId() {
+        return sourceResourceId;
+    }
+
+    public void setSourceResourceId(String sourceResourceId) {
+        this.sourceResourceId = sourceResourceId;
+    }
+
+    public String getParentImageMessageId() {
+        return parentImageMessageId;
+    }
+
+    public void setParentImageMessageId(String parentImageMessageId) {
+        this.parentImageMessageId = parentImageMessageId;
+    }
+
+    public String getOperationType() {
+        return operationType;
+    }
+
+    public void setOperationType(String operationType) {
+        this.operationType = operationType;
     }
 }

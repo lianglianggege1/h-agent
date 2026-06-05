@@ -616,7 +616,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 payload.getModel(),
                 payload.getAspectRatio(),
                 payload.getStatus(),
-                payload.getTriggerSource()
+                payload.getTriggerSource(),
+                payload.getSourceResourceId(),
+                payload.getParentImageMessageId(),
+                payload.getOperationType()
         );
     }
 

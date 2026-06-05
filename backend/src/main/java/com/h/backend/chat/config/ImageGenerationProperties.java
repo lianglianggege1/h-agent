@@ -1,21 +1,44 @@
 package com.h.backend.chat.config;
 
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
+import dev.langchain4j.model.chat.DisabledStreamingChatModel;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Properties;
 
 @ConfigurationProperties(prefix = "image-generation")
 public record ImageGenerationProperties(
-        MiniMax minimax,
         LocalStorage storage
 ) {
 
     public MiniMax minimaxOrDefault() {
-        return minimax == null ? new MiniMax(
-                "https://api.minimaxi.chat",
-                "",
-                "image-01",
-                "1:1",
-                true
-        ) : minimax;
+
+        Path envPath = Path.of(".env");
+        if (!Files.exists(envPath)) {
+            throw new RuntimeException(".env file not found");
+        }
+
+        Properties properties = new Properties();
+
+        try (var reader = Files.newBufferedReader(envPath)) {
+            properties.load(reader);
+            return new MiniMax(
+                    properties.getProperty("IMAGE_BASE_URL"),
+                    properties.getProperty("IMAGE_API_KEY"),
+                    properties.getProperty("IMAGE_MODEL_NAME"),
+                    "1:1",
+                    true
+            );
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to load .env file", ex);
+        }
+
+
     }
 
     public LocalStorage storageOrDefault() {

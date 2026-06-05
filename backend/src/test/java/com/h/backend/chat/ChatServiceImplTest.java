@@ -7,6 +7,7 @@ import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
+import com.h.backend.chat.service.ChatStreamEventBridge;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
@@ -623,6 +624,59 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void shouldCompleteRunWhenImageToolPublishesImageWithoutAssistantText() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ChatStreamEventBridge chatStreamEventBridge = new ChatStreamEventBridge();
+        ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
+                "501",
+                "assistant",
+                "IMAGE",
+                "一只白猫",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
+        FakeTokenStream tokenStream = new FakeTokenStream()
+                .emitImageMessage(() -> chatStreamEventBridge.publishImage("1:22:session-image-tool", imageMessage))
+                .emitTool("generateImage");
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamEventBridge
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-image-tool", "画一只白猫")).thenReturn(121L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-image-tool");
+        when(agentRunTelemetryService.startRun("session-image-tool", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-image-tool", 1L, 22L, 121L, "unknown", "trace-image-tool"))
+                .thenReturn(new AgentRunService.AgentRunHandle(88L));
+        when(hAssistant.streamChat("1:22:session-image-tool", "画一只白猫")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "session-image-tool", "画一只白猫")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("image", "", imageMessage),
+                new ChatStreamEvent("done", "")
+        ), events);
+        verify(agentRunService).recordToolUsage(88L, "generateImage");
+        verify(agentRunService).completeRun(88L, null);
+        verify(agentRunTelemetryService).markSuccess(telemetryRun);
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+        verify(agentRunService, never()).failRun(any(), any());
+    }
+
+    @Test
     void shouldEmitBlockedEventWhenGuardrailMessageIsBlank() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
@@ -843,6 +897,27 @@ class ChatServiceImplTest {
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             AgentRunTelemetryService agentRunTelemetryService,
+            ChatStreamEventBridge chatStreamEventBridge
+    ) {
+        return createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> new RecordingPermit(),
+                null,
+                chatStreamEventBridge
+        );
+    }
+
+    private ChatServiceImpl createChatService(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard
     ) {
@@ -868,6 +943,30 @@ class ChatServiceImplTest {
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService
     ) {
+        return createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                imageGenerationService,
+                new ChatStreamEventBridge()
+        );
+    }
+
+    private ChatServiceImpl createChatService(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            ChatStreamEventBridge chatStreamEventBridge
+    ) {
         return new ChatServiceImpl(
                 hAssistant,
                 systemPromptService,
@@ -876,7 +975,8 @@ class ChatServiceImplTest {
                 agentRunTelemetryService,
                 chatStreamExecutor,
                 concurrencyGuard,
-                imageGenerationService
+                imageGenerationService,
+                chatStreamEventBridge
         );
     }
 
@@ -1052,6 +1152,7 @@ class ChatServiceImplTest {
         private Throwable errorAfterThinking;
         private RuntimeException startError;
         private ToolExecution toolExecution;
+        private Runnable imagePublisher;
         private Consumer<PartialThinking> partialThinkingHandler;
         private Consumer<String> partialResponseHandler;
         private Consumer<ToolExecution> toolExecutionHandler;
@@ -1080,6 +1181,11 @@ class ChatServiceImplTest {
 
         FakeTokenStream emitStartError(RuntimeException startError) {
             this.startError = startError;
+            return this;
+        }
+
+        FakeTokenStream emitImageMessage(Runnable imagePublisher) {
+            this.imagePublisher = imagePublisher;
             return this;
         }
 
@@ -1173,6 +1279,9 @@ class ChatServiceImplTest {
             }
             if (toolExecution != null && toolExecutionHandler != null) {
                 toolExecutionHandler.accept(toolExecution);
+            }
+            if (imagePublisher != null) {
+                imagePublisher.run();
             }
             if (completeResponseHandler != null) {
                 completeResponseHandler.accept(mock(ChatResponse.class));

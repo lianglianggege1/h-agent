@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class ImageGenerationServiceImplTest {
 
@@ -114,5 +115,67 @@ class ImageGenerationServiceImplTest {
                                 && "generated-images/2026/06/03/resource-1.png".equals(resources.getFirst().storageKey())
                                 && "sha".equals(resources.getFirst().sha256()))
         );
+    }
+
+    @Test
+    void shouldPersistImageEditContextInPayload() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                resourceStorage,
+                chatSessionService
+        );
+
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-456",
+                "image/png",
+                "image-01",
+                new byte[]{4, 5, 6},
+                null,
+                null,
+                "{\"id\":\"provider-456\"}"
+        ));
+        StoredResource storedResource = new StoredResource(
+                "resource-2",
+                "LOCAL_FILE",
+                "generated-images/2026/06/05/resource-2.png",
+                "image/png",
+                "generated-resource-2.png",
+                3L,
+                null,
+                null,
+                "sha2"
+        );
+        when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
+        when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
+        when(resourceStorage.buildDownloadUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/download");
+        when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("把衣服改成黑色"), any(), any()))
+                .thenReturn(new ChatSessionMessageDto("502", "assistant", "IMAGE", "把衣服改成黑色", null, List.of(), LocalDateTime.now()));
+
+        service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "把衣服改成黑色",
+                "TOOL",
+                "resource-1",
+                "501",
+                "EDIT_PROMPT"
+        ));
+
+        ArgumentCaptor<com.h.backend.chat.model.ChatMessagePayload> payloadCaptor =
+                ArgumentCaptor.forClass(com.h.backend.chat.model.ChatMessagePayload.class);
+        verify(chatSessionService).appendImageMessage(
+                eq(1L),
+                eq("session-1"),
+                eq("把衣服改成黑色"),
+                payloadCaptor.capture(),
+                any()
+        );
+        assertEquals("resource-1", payloadCaptor.getValue().getSourceResourceId());
+        assertEquals("501", payloadCaptor.getValue().getParentImageMessageId());
+        assertEquals("EDIT_PROMPT", payloadCaptor.getValue().getOperationType());
     }
 }

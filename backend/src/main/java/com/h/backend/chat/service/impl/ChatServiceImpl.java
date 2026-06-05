@@ -171,11 +171,14 @@ public class ChatServiceImpl implements ChatService {
 
             StringBuilder reasoningBuilder = new StringBuilder();
             StringBuilder replyBuilder = new StringBuilder();
+            AtomicBoolean imageEmitted = new AtomicBoolean();
             AgentRunTelemetryService.TelemetryRun streamTelemetryRun = telemetryRun;
             AgentRunService.AgentRunHandle streamRunHandle = runHandle;
 
-            Consumer<ChatSessionMessageDto> imagePublisher =
-                    message -> emitIfActive(sink, new ChatStreamEvent("image", "", message));
+            Consumer<ChatSessionMessageDto> imagePublisher = message -> {
+                imageEmitted.set(true);
+                emitIfActive(sink, new ChatStreamEvent("image", "", message));
+            };
             chatStreamEventBridge.registerPublisher(memoryId, imagePublisher);
             registeredMemoryId = memoryId;
             registeredImagePublisher = imagePublisher;
@@ -197,6 +200,12 @@ public class ChatServiceImpl implements ChatService {
                         try {
                             String reply = replyBuilder.toString();
                             if (reply.isBlank()) {
+                                if (imageEmitted.get()) {
+                                    agentRunService.completeRun(streamRunHandle.id(), null);
+                                    agentRunTelemetryService.markSuccess(streamTelemetryRun);
+                                    emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
+                                    return;
+                                }
                                 IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
                                 agentRunService.failRun(streamRunHandle.id(), error.getMessage());
                                 agentRunTelemetryService.markFailure(streamTelemetryRun, error);

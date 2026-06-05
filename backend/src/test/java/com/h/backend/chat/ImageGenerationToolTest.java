@@ -2,7 +2,7 @@ package com.h.backend.chat;
 
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.service.ChatStreamEventBridge;
-import com.h.backend.chat.service.ImageGenerationService;
+import com.h.backend.chat.service.ImageSubAgentService;
 import com.h.backend.chat.tools.ImageGenerationTool;
 import org.junit.jupiter.api.Test;
 
@@ -18,9 +18,9 @@ class ImageGenerationToolTest {
 
     @Test
     void shouldGenerateImageAndPublishImageEventForCurrentStream() {
-        ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
+        ImageSubAgentService imageSubAgentService = mock(ImageSubAgentService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
-        ImageGenerationTool tool = new ImageGenerationTool(imageGenerationService, bridge);
+        ImageGenerationTool tool = new ImageGenerationTool(imageSubAgentService, bridge);
         ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
                 "501",
                 "assistant",
@@ -31,7 +31,7 @@ class ImageGenerationToolTest {
                 LocalDateTime.now()
         );
 
-        when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
+        when(imageSubAgentService.generateImage(new ImageSubAgentService.ImageSubAgentCommand(
                 1L,
                 "session-1",
                 22L,
@@ -48,7 +48,7 @@ class ImageGenerationToolTest {
 
         assertEquals("图片已生成并发送到聊天中。", result);
         assertEquals(List.of(imageMessage), published);
-        verify(imageGenerationService).generateImage(new ImageGenerationService.ImageGenerationCommand(
+        verify(imageSubAgentService).generateImage(new ImageSubAgentService.ImageSubAgentCommand(
                 1L,
                 "session-1",
                 22L,
