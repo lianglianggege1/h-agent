@@ -37,11 +37,16 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
 
     private ChatMemoryContext parseContext(Object memoryId) {
         String value = String.valueOf(memoryId);
-        String[] parts = value.split(":", 3);
-        if (parts.length != 3 || StringUtils.isBlank(parts[2])) {
+        String[] parts = value.split(":", 4);
+        if (parts.length == 3 && StringUtils.isNotBlank(parts[2])) {
+            return new ChatMemoryContext(Long.valueOf(parts[0]), Long.valueOf(parts[1]), parts[2]);
+        }
+        if (parts.length == 4 && "agent".equals(parts[1]) && StringUtils.isNotBlank(parts[3])) {
+            return new ChatMemoryContext(Long.valueOf(parts[0]), null, parts[3]);
+        }
+        if (parts.length == 4 && StringUtils.isNotBlank(parts[3])) {
             throw new IllegalArgumentException("Invalid memoryId: " + value);
         }
-
-        return new ChatMemoryContext(Long.valueOf(parts[0]), Long.valueOf(parts[1]), parts[2]);
+        throw new IllegalArgumentException("Invalid memoryId: " + value);
     }
 }

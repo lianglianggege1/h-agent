@@ -90,6 +90,36 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void shouldEmitBusinessErrorWhenAgentIsUnknown() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> permit
+        );
+
+        List<ChatStreamEvent> events = chatService
+                .streamChat(1L, 2L, "missing-agent", "session-unknown", "hello")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(new ChatStreamEvent("error", "领域 Agent 不存在或未启用")), events);
+        assertTrue(permit.released());
+        verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
+        verify(agentRunTelemetryService, never()).markFailure(any(), any());
+    }
+
+    @Test
     void shouldGenerateImageForSlashImageCommandWithoutCallingAssistant() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
@@ -187,7 +217,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-submit", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", "trace-submit"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-submit", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-submit", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-submit", "hello")
                 .collectList()
@@ -228,7 +258,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-cancel", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-cancel", 1L, 22L, 101L, "standard-chat", "trace-cancel"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-cancel", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-cancel", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> receivedEvents = Collections.synchronizedList(new ArrayList<>());
         Disposable[] subscriptionRef = new Disposable[1];
@@ -279,7 +309,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-cancelled-sink", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-cancelled-sink", 1L, 22L, 101L, "standard-chat", "trace-cancelled-sink"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-cancelled-sink", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-cancelled-sink", "hello")).thenReturn(tokenStream);
 
         @SuppressWarnings("unchecked")
         FluxSink<ChatStreamEvent> sink = mock(FluxSink.class);
@@ -435,7 +465,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-reasoning"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello")
                 .collectList()
@@ -482,7 +512,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", "trace-error"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-2", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-2", "hello")
                 .collectList()
@@ -520,7 +550,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello")
                 .collectList()
@@ -565,7 +595,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello")
                 .collectList()
@@ -602,7 +632,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-2"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello")
                 .collectList()
@@ -659,7 +689,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-empty", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-empty", 1L, 22L, 121L, "standard-chat", "trace-empty"))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-empty", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-empty", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-empty", "hello")
                 .collectList()
@@ -693,7 +723,7 @@ class ChatServiceImplTest {
                 java.time.LocalDateTime.now()
         );
         FakeTokenStream tokenStream = new FakeTokenStream()
-                .emitImageMessage(() -> chatStreamEventBridge.publishImage("1:22:standard-chat:session-image-tool", imageMessage))
+                .emitImageMessage(() -> chatStreamEventBridge.publishImage("1:22:session-image-tool", imageMessage))
                 .emitTool("generateImage");
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
@@ -711,7 +741,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-image-tool", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-image-tool", 1L, 22L, 121L, "standard-chat", "trace-image-tool"))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-image-tool", "画一只白猫")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-image-tool", "画一只白猫")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-image-tool", "画一只白猫")
                 .collectList()
@@ -754,7 +784,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-blank", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-blank", 1L, 22L, 111L, "standard-chat", "trace-blank"))
                 .thenReturn(new AgentRunService.AgentRunHandle(77L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-blank", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-blank", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-blank", "hello")
                 .collectList()
@@ -795,7 +825,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-guardrail", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-guardrail", 1L, 22L, 111L, "standard-chat", "trace-guardrail"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-guardrail", "杀人")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-guardrail", "杀人")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-guardrail", "杀人")
                 .collectList()
@@ -835,7 +865,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-create-guardrail", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-create-guardrail", 1L, 22L, 111L, "standard-chat", "trace-create-guardrail"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-create-guardrail", "杀人")).thenThrow(guardrailException);
+        when(hAssistant.streamChat("1:22:session-create-guardrail", "杀人")).thenThrow(guardrailException);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-create-guardrail", "杀人")
                 .collectList()
@@ -876,7 +906,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-start-guardrail", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-start-guardrail", 1L, 22L, 111L, "standard-chat", "trace-start-guardrail"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-start-guardrail", "杀人")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-start-guardrail", "杀人")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-start-guardrail", "杀人")
                 .collectList()
@@ -913,7 +943,7 @@ class ChatServiceImplTest {
         when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
         when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", "trace-3"))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:standard-chat:session-2", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-2", "hello")
                 .collectList()

@@ -36,11 +36,14 @@ public class ImageGenerationTool {
     }
 
     private ImageGenerationContext parseMemoryId(String memoryId) {
-        String[] parts = memoryId == null ? new String[0] : memoryId.split(":", 3);
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("Invalid chat memory id");
+        String[] parts = memoryId == null ? new String[0] : memoryId.split(":", 4);
+        if (parts.length == 3) {
+            return new ImageGenerationContext(Long.valueOf(parts[0]), Long.valueOf(parts[1]), parts[2]);
         }
-        return new ImageGenerationContext(Long.valueOf(parts[0]), Long.valueOf(parts[1]), parts[2]);
+        if (parts.length == 4 && "agent".equals(parts[1])) {
+            return new ImageGenerationContext(Long.valueOf(parts[0]), null, parts[3]);
+        }
+        throw new IllegalArgumentException("Invalid chat memory id");
     }
 
     private record ImageGenerationContext(Long userId, Long promptId, String sessionId) {

@@ -18,6 +18,7 @@ import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatStreamEventBridge;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
+import com.h.backend.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -264,7 +265,10 @@ public class ChatServiceImpl implements ChatService {
                 } else if (telemetryRun != null) {
                     agentRunTelemetryService.markFailure(telemetryRun, ex);
                 }
-                emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
+                String publicMessage = ex instanceof BusinessException
+                        ? ex.getMessage()
+                        : "AI 服务调用失败";
+                emitAndCompleteIfActive(sink, new ChatStreamEvent("error", publicMessage));
             } finally {
                 releasePermitOnce(permit, permitReleased);
             }
@@ -287,8 +291,10 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private String buildMemoryId(Long userId, Long resolvedPromptId, String agentId, String sessionId) {
-        String promptSegment = resolvedPromptId == null ? "agent" : String.valueOf(resolvedPromptId);
-        return userId + ":" + promptSegment + ":" + agentId + ":" + sessionId;
+        if (AgentRegistry.STANDARD_CHAT_AGENT_ID.equals(agentId)) {
+            return userId + ":" + resolvedPromptId + ":" + sessionId;
+        }
+        return userId + ":agent:" + agentId + ":" + sessionId;
     }
 
     private void emitImageCommandEvents(

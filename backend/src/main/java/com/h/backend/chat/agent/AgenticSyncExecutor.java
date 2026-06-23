@@ -15,20 +15,17 @@ import reactor.core.publisher.FluxSink;
 @Component
 public class AgenticSyncExecutor implements ChatAgentExecutor {
 
-    private final CarRentalAssistant carRentalAssistant;
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
     private final AgentRunTelemetryService agentRunTelemetryService;
     private final AgentStepEventBridge agentStepEventBridge;
 
     public AgenticSyncExecutor(
-            CarRentalAssistant carRentalAssistant,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             AgentRunTelemetryService agentRunTelemetryService,
             AgentStepEventBridge agentStepEventBridge
     ) {
-        this.carRentalAssistant = carRentalAssistant;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
         this.agentRunTelemetryService = agentRunTelemetryService;
@@ -44,11 +41,15 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
     public void execute(ChatAgentExecutionCommand command) {
         agentStepEventBridge.register(command.memoryId(), payload -> emitAgentStep(command, payload));
         try {
-            ResultWithAgenticScope<String> result = carRentalAssistant.chat(
-                    command.memoryId(),
-                    command.userMessage()
-            );
+            ResultWithAgenticScope<String> result = executeSelectedAgent(command);
             String reply = result == null || result.result() == null ? "" : result.result();
+            if (reply.isBlank()) {
+                IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
+                agentRunService.failRun(command.runHandle().id(), error.getMessage());
+                agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+                emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 未返回有效内容"));
+                return;
+            }
             emitIfActive(command.sink(), new ChatStreamEvent("chunk", reply));
             Long assistantMessageId = chatSessionService.appendAssistantMessage(
                     command.userId(),
@@ -69,6 +70,15 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
             agentStepEventBridge.unregister(command.memoryId());
             command.onTerminal().run();
         }
+    }
+
+    private ResultWithAgenticScope<String> executeSelectedAgent(ChatAgentExecutionCommand command) {
+        Object agentBean = command.agent().agentBean();
+        if (agentBean instanceof CarRentalAssistant assistant) {
+            return assistant.chat(command.memoryId(), command.userMessage());
+        }
+        throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "
+                + (agentBean == null ? "null" : agentBean.getClass().getName()));
     }
 
     private void emitAgentStep(ChatAgentExecutionCommand command, AgentStepPayloadDto payload) {

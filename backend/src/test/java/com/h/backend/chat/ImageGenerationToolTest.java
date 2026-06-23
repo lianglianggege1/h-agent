@@ -56,4 +56,46 @@ class ImageGenerationToolTest {
                 "TOOL"
         ));
     }
+
+    @Test
+    void shouldParseDomainAgentMemoryIdWithNullPromptId() {
+        ImageSubAgentService imageSubAgentService = mock(ImageSubAgentService.class);
+        ChatStreamEventBridge bridge = new ChatStreamEventBridge();
+        ImageGenerationTool tool = new ImageGenerationTool(imageSubAgentService, bridge);
+        ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
+                "502",
+                "assistant",
+                "IMAGE",
+                "事故现场",
+                null,
+                List.of(),
+                LocalDateTime.now()
+        );
+
+        when(imageSubAgentService.generateImage(new ImageSubAgentService.ImageSubAgentCommand(
+                1L,
+                "session-car",
+                null,
+                "事故现场",
+                "TOOL"
+        ))).thenReturn(imageMessage);
+
+        String memoryId = "1:agent:car-rental-assistant:session-car";
+        java.util.ArrayList<ChatSessionMessageDto> published = new java.util.ArrayList<>();
+        String result = bridge.withPublisher(
+                memoryId,
+                published::add,
+                () -> tool.generateImage(memoryId, "事故现场")
+        );
+
+        assertEquals("图片已生成并发送到聊天中。", result);
+        assertEquals(List.of(imageMessage), published);
+        verify(imageSubAgentService).generateImage(new ImageSubAgentService.ImageSubAgentCommand(
+                1L,
+                "session-car",
+                null,
+                "事故现场",
+                "TOOL"
+        ));
+    }
 }
