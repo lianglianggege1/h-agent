@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -29,30 +31,86 @@ class AgentStepListenerTest {
     }
 
     @Test
-    void emitsRunningCompletedAndFailedPayloadsWithDepthAndSequence() {
+    void reusesInvocationIdForRunningAndCompletedEvents() {
         AgentStepEventBridge bridge = new AgentStepEventBridge();
         AgentStepListener listener = new AgentStepListener(bridge);
         List<AgentStepPayloadDto> events = new CopyOnWriteArrayList<>();
         AgenticScope scope = scope("memory-1");
         AgentInstance root = agent("root", "Root", AgenticSystemTopology.SEQUENCE, null);
         AgentInstance child = agent("child", "Child", AgenticSystemTopology.AI_AGENT, root);
+        Map<String, Object> inputs = Map.of("message", "hello");
 
         bridge.register("memory-1", events::add);
 
-        listener.beforeAgentInvocation(new AgentRequest(scope, child, Map.of()));
-        listener.afterAgentInvocation(new AgentResponse(scope, child, Map.of(), "ok", null, null));
-        listener.onAgentInvocationError(new AgentInvocationError(scope, child, Map.of(), new RuntimeException("boom")));
+        listener.beforeAgentInvocation(new AgentRequest(scope, child, inputs));
+        listener.afterAgentInvocation(new AgentResponse(scope, child, inputs, "ok", null, null));
 
-        assertEquals(3, events.size());
+        assertEquals(2, events.size());
         assertPayload(events.get(0), "running", 1, 1);
         assertPayload(events.get(1), "completed", 1, 2);
-        assertPayload(events.get(2), "failed", 1, 3);
+        assertEquals(events.get(0).invocationId(), events.get(1).invocationId());
+    }
+
+    @Test
+    void reusesInvocationIdForRunningAndFailedEvents() {
+        AgentStepEventBridge bridge = new AgentStepEventBridge();
+        AgentStepListener listener = new AgentStepListener(bridge);
+        List<AgentStepPayloadDto> events = new CopyOnWriteArrayList<>();
+        AgenticScope scope = scope("memory-1");
+        AgentInstance child = agent("child", "Child", AgenticSystemTopology.AI_AGENT, null);
+        Map<String, Object> inputs = Map.of("message", "hello");
+
+        bridge.register("memory-1", events::add);
+
+        listener.beforeAgentInvocation(new AgentRequest(scope, child, inputs));
+        listener.onAgentInvocationError(new AgentInvocationError(scope, child, inputs, new RuntimeException("boom")));
+
+        assertEquals(2, events.size());
+        assertPayload(events.get(0), "running", 0, 1);
+        assertPayload(events.get(1), "failed", 0, 2);
+        assertEquals(events.get(0).invocationId(), events.get(1).invocationId());
+    }
+
+    @Test
+    void terminalEventWithoutRunningUsesFallbackInvocationId() {
+        AgentStepEventBridge bridge = new AgentStepEventBridge();
+        AgentStepListener listener = new AgentStepListener(bridge);
+        List<AgentStepPayloadDto> events = new CopyOnWriteArrayList<>();
+        AgenticScope scope = scope("memory-1");
+        AgentInstance child = agent("child", "Child", AgenticSystemTopology.AI_AGENT, null);
+
+        bridge.register("memory-1", events::add);
+
+        listener.afterAgentInvocation(new AgentResponse(scope, child, Map.of(), "ok", null, null));
+
+        assertEquals(1, events.size());
+        assertPayload(events.getFirst(), "completed", 0, 1);
+        assertNotNull(events.getFirst().invocationId());
+    }
+
+    @Test
+    void repeatedInvocationsGetDifferentInvocationIds() {
+        AgentStepEventBridge bridge = new AgentStepEventBridge();
+        AgentStepListener listener = new AgentStepListener(bridge);
+        List<AgentStepPayloadDto> events = new CopyOnWriteArrayList<>();
+        AgenticScope scope = scope("memory-1");
+        AgentInstance child = agent("child", "Child", AgenticSystemTopology.AI_AGENT, null);
+
+        bridge.register("memory-1", events::add);
+
+        listener.beforeAgentInvocation(new AgentRequest(scope, child, Map.of("message", "first")));
+        listener.beforeAgentInvocation(new AgentRequest(scope, child, Map.of("message", "second")));
+
+        assertEquals(2, events.size());
+        assertNotEquals(events.get(0).invocationId(), events.get(1).invocationId());
+        assertEquals(1, events.get(0).sequence());
+        assertEquals(2, events.get(1).sequence());
     }
 
     private static void assertPayload(AgentStepPayloadDto payload, String status, int depth, int sequence) {
         assertNull(payload.runId());
         assertNull(payload.agentId());
-        assertEquals("child:" + sequence, payload.invocationId());
+        assertTrue(payload.invocationId().startsWith("child:"));
         assertEquals("child", payload.nodeId());
         assertEquals("Child", payload.nodeName());
         assertEquals("AI_AGENT", payload.topology());

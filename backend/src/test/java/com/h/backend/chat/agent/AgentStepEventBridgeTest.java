@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentStepEventBridgeTest {
@@ -68,6 +69,36 @@ class AgentStepEventBridgeTest {
         bridge.register("m1", events::add);
         bridge.unregister("m1");
         bridge.emit("m1", new AgentStepPayloadDto(
+                "r1",
+                "car",
+                "i1",
+                "n1",
+                "Node",
+                "AI_AGENT",
+                "running",
+                1,
+                1
+        ));
+
+        assertTrue(events.isEmpty());
+    }
+
+    @Test
+    void registerAndUnregisterRejectNullMemoryId() {
+        AgentStepEventBridge bridge = new AgentStepEventBridge();
+
+        assertThrows(IllegalArgumentException.class, () -> bridge.register(null, event -> {
+        }));
+        assertThrows(IllegalArgumentException.class, () -> bridge.unregister(null));
+    }
+
+    @Test
+    void emitWithNullMemoryIdIsIgnored() {
+        AgentStepEventBridge bridge = new AgentStepEventBridge();
+        List<AgentStepPayloadDto> events = new CopyOnWriteArrayList<>();
+
+        bridge.register("null", events::add);
+        bridge.emit(null, new AgentStepPayloadDto(
                 "r1",
                 "car",
                 "i1",
