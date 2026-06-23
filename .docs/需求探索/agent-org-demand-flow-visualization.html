@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>真实需求在陌生组织中的流转状态机</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --ink: #17202a;
+      --muted: #5c6673;
+      --line: #586474;
+      --blue: #2f6fed;
+      --teal: #0f8b8d;
+      --green: #2e7d32;
+      --amber: #b26a00;
+      --rose: #b23a48;
+      --violet: #5b4b8a;
+      --card: #ffffff;
+      --border: #d7dde6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      padding: 28px 36px 18px;
+      border-bottom: 1px solid var(--border);
+      background: #ffffff;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      font-weight: 760;
+    }
+
+    .subtitle {
+      max-width: 980px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    main {
+      padding: 24px 28px 40px;
+    }
+
+    .canvas-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 28px rgba(23, 32, 42, 0.08);
+    }
+
+    svg {
+      display: block;
+      width: 1800px;
+      height: 1260px;
+    }
+
+    .box {
+      width: 100%;
+      height: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: 0 4px 12px rgba(23, 32, 42, 0.08);
+      overflow: hidden;
+    }
+
+    .box strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .box span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .start { border-color: var(--blue); }
+    .entry { border-color: var(--teal); }
+    .track { border-color: var(--violet); }
+    .proxy { border-color: var(--amber); }
+    .direct { border-color: var(--blue); }
+    .group { border-color: var(--green); }
+    .deny { border-color: var(--rose); }
+    .answer { border-color: #1f7a4d; }
+
+    .section-label {
+      font-size: 18px;
+      font-weight: 760;
+      fill: var(--ink);
+    }
+
+    .small-label {
+      font-size: 12px;
+      fill: var(--muted);
+    }
+
+    .arrow {
+      stroke: var(--line);
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+
+    .arrow-soft {
+      stroke: #8a95a3;
+      stroke-width: 1.8;
+      fill: none;
+      marker-end: url(#arrowSoft);
+      stroke-dasharray: 7 6;
+    }
+
+    .lane {
+      fill: #f8fafc;
+      stroke: #e1e6ee;
+      stroke-width: 1;
+    }
+
+    .note {
+      width: 100%;
+      height: 100%;
+      padding: 14px 16px;
+      border: 1px solid #dbe2ea;
+      border-radius: 8px;
+      background: #fbfcfe;
+      color: var(--ink);
+      overflow: hidden;
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 15px;
+    }
+
+    .note p {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .footer-note {
+      max-width: 1100px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media print {
+      body { background: #ffffff; }
+      main { padding: 0; }
+      header { border-bottom: 0; }
+      .canvas-wrap { border: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Agent 模拟陌生组织中的真实需求流转状态机</h1>
+    <p class="subtitle">从外部用户提出需求开始，模拟入口分诊、多领域分发、跟踪策略、直连可见性、代理隐藏处理、群聊协同和答案反馈。</p>
+  </header>
+
+  <main>
+    <div class="canvas-wrap" aria-label="状态机可视化图">
+      <svg viewBox="0 0 1800 1260" role="img" aria-labelledby="title desc">
+        <title id="title">真实需求在陌生组织中的流转状态机</title>
+        <desc id="desc">状态图展示外部用户需求进入组织后的分诊、分发、处理模式选择和答案反馈。</desc>
+        <defs>
+          <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="5.5" orient="auto">
+            <path d="M0,0 L11,5.5 L0,11 Z" fill="#586474"></path>
+          </marker>
+          <marker id="arrowSoft" markerWidth="12" markerHeight="12" refX="10" refY="5.5" orient="auto">
+            <path d="M0,0 L11,5.5 L0,11 Z" fill="#8a95a3"></path>
+          </marker>
+        </defs>
+
+        <rect x="34" y="34" width="1732" height="148" class="lane" rx="8"></rect>
+        <text x="58" y="66" class="section-label">主流程</text>
+
+        <foreignObject x="60" y="88" width="190" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box start">
+            <strong>外部用户提出需求</strong>
+            <span>用户只知道问题，不知道组织结构。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="310" y="88" width="190" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box entry">
+            <strong>A：总入口/导诊</strong>
+            <span>接收、理解、补问，判断涉及领域。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="560" y="88" width="210" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box entry">
+            <strong>分发到领域节点</strong>
+            <span>可进入一个或多个 B 节点。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="830" y="88" width="250" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box track">
+            <strong>选择跟踪策略</strong>
+            <span>不跟踪 / 一直跟踪 / 子节点直接上报结果。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="1140" y="88" width="220" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box">
+            <strong>选择处理模式</strong>
+            <span>代理隐藏、直连处理节点、建群协同。</span>
+          </div>
+        </foreignObject>
+
+        <path class="arrow" d="M250 126 H310"></path>
+        <path class="arrow" d="M500 126 H560"></path>
+        <path class="arrow" d="M770 126 H830"></path>
+        <path class="arrow" d="M1080 126 H1140"></path>
+
+        <rect x="34" y="224" width="520" height="428" class="lane" rx="8"></rect>
+        <text x="58" y="258" class="section-label">模式一：代理隐藏处理</text>
+        <text x="58" y="281" class="small-label">用户只与当前对话节点沟通，下级节点在内部处理。</text>
+
+        <foreignObject x="76" y="320" width="230" height="80">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box proxy">
+            <strong>当前节点作为窗口</strong>
+            <span>上级、领域接待节点或第一个不同意节点对外。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="76" y="460" width="230" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box proxy">
+            <strong>内部节点处理</strong>
+            <span>下级继续执行、补充信息或形成局部结果。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="76" y="585" width="230" height="72">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box answer">
+            <strong>窗口节点反馈答案</strong>
+            <span>用户不必看到内部流转细节。</span>
+          </div>
+        </foreignObject>
+
+        <path class="arrow" d="M191 400 V460"></path>
+        <path class="arrow" d="M191 542 V585"></path>
+        <path class="arrow" d="M1250 164 C1250 212 191 212 191 320"></path>
+
+        <rect x="612" y="224" width="542" height="486" class="lane" rx="8"></rect>
+        <text x="636" y="258" class="section-label">模式二：申请具体处理节点直连</text>
+        <text x="636" y="281" class="small-label">审批只判断是否允许下级节点直接对外，不审批完整业务流程。</text>
+
+        <foreignObject x="660" y="318" width="220" height="78">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box direct">
+            <strong>寻找处理节点 N</strong>
+            <span>N 可能是真正能解决问题的模块负责人。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="660" y="446" width="220" height="88">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box direct">
+            <strong>上级链路判断</strong>
+            <span>直接上级、再上级逐级判断 N 是否可对外。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="920" y="372" width="210" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box direct">
+            <strong>全部同意</strong>
+            <span>外部用户直接与 N 对话并解决问题。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="920" y="548" width="210" height="98">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box deny">
+            <strong>某上级不同意</strong>
+            <span>第一个不同意节点成为用户对话节点，N 转入内部处理。</span>
+          </div>
+        </foreignObject>
+
+        <path class="arrow" d="M1250 164 C1250 216 770 216 770 318"></path>
+        <path class="arrow" d="M770 396 V446"></path>
+        <path class="arrow" d="M880 490 C906 490 906 413 920 413"></path>
+        <path class="arrow" d="M880 490 C906 490 906 597 920 597"></path>
+
+        <rect x="1210" y="224" width="540" height="690" class="lane" rx="8"></rect>
+        <text x="1234" y="258" class="section-label">模式三：建群协同解决</text>
+        <text x="1234" y="281" class="small-label">接待员只是接待功能，不控制群聊。</text>
+
+        <foreignObject x="1250" y="318" width="230" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box group">
+            <strong>当前节点建群</strong>
+            <span>创建者成为群主，群主和群员可自主邀请内部节点。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="1250" y="456" width="230" height="86">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box group">
+            <strong>邀请内部节点</strong>
+            <span>被拉人自主判断是否进群，也可自主离群。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="1250" y="598" width="230" height="76">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box group">
+            <strong>群内自由发言</strong>
+            <span>成员围绕问题共同澄清、讨论、给出信息。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="1510" y="456" width="210" height="98">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box direct">
+            <strong>拉外部人员进群</strong>
+            <span>由选择继续跟踪或要求上报结果的最高上级节点决定。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="1510" y="618" width="210" height="86">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box answer">
+            <strong>群内形成答案</strong>
+            <span>可由群内或指定节点向用户确认答案。</span>
+          </div>
+        </foreignObject>
+
+        <path class="arrow" d="M1250 164 C1250 232 1365 232 1365 318"></path>
+        <path class="arrow" d="M1365 400 V456"></path>
+        <path class="arrow" d="M1365 542 V598"></path>
+        <path class="arrow" d="M1480 499 H1510"></path>
+        <path class="arrow" d="M1615 554 V618"></path>
+        <path class="arrow" d="M1480 636 H1510"></path>
+
+        <rect x="34" y="760" width="1120" height="260" class="lane" rx="8"></rect>
+        <text x="58" y="794" class="section-label">答案反馈与追问</text>
+
+        <foreignObject x="76" y="845" width="250" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box answer">
+            <strong>形成可用答案</strong>
+            <span>可能来自 A、主 B、N、群聊，或外部 agent 汇总。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="400" y="845" width="250" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box answer">
+            <strong>反馈给外部用户</strong>
+            <span>通过当前对话节点、直连节点或群聊反馈。</span>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="724" y="845" width="250" height="82">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="box">
+            <strong>用户是否接受</strong>
+            <span>接受则结束；不接受则补充需求或继续追问。</span>
+          </div>
+        </foreignObject>
+
+        <path class="arrow" d="M306 621 C430 720 195 780 201 845"></path>
+        <path class="arrow" d="M1030 646 C1020 740 210 770 201 845"></path>
+        <path class="arrow" d="M1615 704 C1580 790 210 782 201 845"></path>
+        <path class="arrow" d="M326 886 H400"></path>
+        <path class="arrow" d="M650 886 H724"></path>
+        <path class="arrow-soft" d="M849 845 C840 704 360 276 405 164"></path>
+        <text x="892" y="805" class="small-label">继续追问时回到入口理解或重新分诊</text>
+
+        <foreignObject x="1210" y="955" width="540" height="238">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="note">
+            <strong>关键规则摘要</strong>
+            <p>1. A 像导诊台，可把需求分给一个或多个领域节点。</p>
+            <p>2. 每级节点都可判断下级是否能直接对外。</p>
+            <p>3. 谁不同意下级直接对外，谁成为用户对话节点。</p>
+            <p>4. 分发任务时可选择不跟踪、一直跟踪，或等待子节点直接上报结果。</p>
+            <p>5. 群聊由群主和群员自主组织；接待员不控制群聊。</p>
+            <p>6. 拉外部人员进群，由选择跟踪或要求上报结果的最高上级节点决定。</p>
+          </div>
+        </foreignObject>
+
+        <foreignObject x="34" y="1052" width="1120" height="128">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="note">
+            <strong>状态机中的“最高上级节点”</strong>
+            <p>当某个群聊想拉外部人员或外部用户进群时，不能由普通接待功能决定。</p>
+            <p>应由当前链路中选择“持续跟踪”或“要求子节点上报结果”的最高上级节点判断是否允许。</p>
+          </div>
+        </foreignObject>
+      </svg>
+    </div>
+    <p class="footer-note">此 HTML 是独立可打开文件，图形由内嵌 SVG 绘制，不依赖外部网络资源。</p>
+  </main>
+</body>
+</html>
