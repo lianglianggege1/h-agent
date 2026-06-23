@@ -3,6 +3,7 @@ package com.h.backend.chat.config;
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.ai.carrentalassistant.domain.Emergencies;
 import com.h.backend.chat.ai.carrentalassistant.services.*;
+import com.h.backend.chat.agent.AgentStepListener;
 import com.h.backend.chat.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
@@ -23,11 +24,15 @@ public class AgentConfig {
     @Resource
     ChatModel chatModel;
 
+    @Resource
+    private AgentStepListener agentStepListener;
+
     @Bean
     public CarRentalAssistant createAssistant() {
         CustomerInfoExtractionService customerInfoExtraction = AgenticServices.agentBuilder(
                         CustomerInfoExtractionService.class
                 ).chatModel(chatModel)
+                .listener(agentStepListener)
                 // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
@@ -40,6 +45,7 @@ public class AgentConfig {
 
         TowingAgentService towingAgentService = AgenticServices.agentBuilder(TowingAgentService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
@@ -51,6 +57,7 @@ public class AgentConfig {
 
         ResponseGeneratorService responseGeneratorService = AgenticServices.agentBuilder(ResponseGeneratorService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
@@ -60,19 +67,22 @@ public class AgentConfig {
                         .build())
                 .outputKey("response")
                 .build();
-        return AgenticServices.sequenceBuilder(CarRentalAssistant.class).beforeCall(agenticScope -> {
+        return AgenticServices.sequenceBuilder(CarRentalAssistant.class)
+                .listener(agentStepListener)
+                .beforeCall(agenticScope -> {
                     if (agenticScope.readState("customerInfo") == null) {
                         agenticScope.writeState("customerInfo", new CustomerInfo());
                     }
                 })
-                .subAgents(customerInfoExtraction, towingAgentService, emergencyService(chatModel, redisChatMemoryStore), responseGeneratorService)
+                .subAgents(customerInfoExtraction, towingAgentService, emergencyService(chatModel, redisChatMemoryStore, agentStepListener), responseGeneratorService)
                 .outputKey("response")
                 .build();
     }
 
-    private static UntypedAgent emergencyService(ChatModel chatModel, RedisChatMemoryStore redisChatMemoryStore) {
+    private static UntypedAgent emergencyService(ChatModel chatModel, RedisChatMemoryStore redisChatMemoryStore, AgentStepListener agentStepListener) {
         EmergencyExtractorService emergencyExtractor = AgenticServices.agentBuilder(EmergencyExtractorService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
@@ -84,6 +94,7 @@ public class AgentConfig {
 
         EmergencyResponseService emergencyResponseService = AgenticServices.agentBuilder(EmergencyResponseService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
@@ -95,17 +106,18 @@ public class AgentConfig {
 
         FireAgentService fireAgent = AgenticServices.agentBuilder(FireAgentService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
                         .alwaysKeepSystemMessageFirst(true)
                         .chatMemoryStore(redisChatMemoryStore)
                         .build())
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
                 .outputKey("fireResponse")
                 .build();
         MedicalAgentService medicalAgent = AgenticServices.agentBuilder(MedicalAgentService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
@@ -116,6 +128,7 @@ public class AgentConfig {
                 .build();
         PoliceAgentService policeAgent = AgenticServices.agentBuilder(PoliceAgentService.class)
                 .chatModel(chatModel)
+                .listener(agentStepListener)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .maxMessages(10)
@@ -126,6 +139,7 @@ public class AgentConfig {
                 .build();
 
         UntypedAgent emergencyExperts = AgenticServices.conditionalBuilder()
+                .listener(agentStepListener)
                 .beforeCall(agenticScope -> {
                     Emergencies emergencies = (Emergencies) agenticScope.readState("emergencies");
                     writeEmergency(agenticScope, emergencies.getFire(), "fire");
@@ -138,6 +152,7 @@ public class AgentConfig {
                 .build();
 
         return AgenticServices.sequenceBuilder()
+                .listener(agentStepListener)
                 .subAgents(emergencyExtractor, emergencyExperts, emergencyResponseService)
                 .outputKey("emergencyResponse")
                 .build();
