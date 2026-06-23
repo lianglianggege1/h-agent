@@ -29,6 +29,8 @@ import java.util.function.Consumer;
 @Service
 public class ChatServiceImpl implements ChatService {
 
+    private static final String DEFAULT_AGENT_ID = "standard-chat";
+
     private final HAssistant hAssistant;
 
     private final SystemPromptService systemPromptService;
@@ -149,7 +151,7 @@ public class ChatServiceImpl implements ChatService {
         String registeredMemoryId = null;
         Consumer<ChatSessionMessageDto> registeredImagePublisher = null;
         try {
-            chatSessionService.assertActiveSession(userId, sessionId, promptId);
+            chatSessionService.assertActiveSession(userId, sessionId, promptId, DEFAULT_AGENT_ID);
             Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
             if (isImageCommand(userMessage)) {
                 emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);

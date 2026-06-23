@@ -7,6 +7,7 @@ public record ChatSessionSummaryDto(
         String title,
         String lastUserMessage,
         Long promptId,
+        String agentId,
         int messageCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,

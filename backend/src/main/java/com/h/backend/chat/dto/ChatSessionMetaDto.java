@@ -6,6 +6,7 @@ public record ChatSessionMetaDto(
         String sessionId,
         String title,
         Long promptId,
+        String agentId,
         int messageCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,

@@ -42,10 +42,13 @@ public class ChatSessionController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestBody(required = false) CreateChatSessionRequest request
     ) {
-        CreateChatSessionRequest payload = request == null ? new CreateChatSessionRequest(null, null) : request;
+        CreateChatSessionRequest payload = request == null
+                ? new CreateChatSessionRequest(null, null, "standard-chat")
+                : request;
         return ApiResponse.ok(chatSessionService.createSession(
                 principal.userId(),
                 payload.promptId(),
+                payload.agentId(),
                 payload.currentSessionId()
         ));
     }

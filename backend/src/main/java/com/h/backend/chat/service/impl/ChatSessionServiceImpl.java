@@ -42,6 +42,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private static final String STATUS_ACTIVE = "ACTIVE";
     private static final String STATUS_ARCHIVED = "ARCHIVED";
+    private static final String DEFAULT_AGENT_ID = "standard-chat";
     private static final int DEFAULT_MESSAGE_PAGE_SIZE = 20;
 
     private final ChatSessionMapper chatSessionMapper;
@@ -91,7 +92,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         archiveExpiredSessionsForUser(userId);
         List<ChatSessionEntity> activeSessions = chatSessionMapper.selectActiveByUserId(userId);
         if (activeSessions.isEmpty()) {
-            return new ChatSessionBootstrapDto("created", createSession(userId, null, null), List.of());
+            return new ChatSessionBootstrapDto("created", createSession(userId, null, null, null), List.of());
         }
         if (activeSessions.size() == 1) {
             ChatSessionEntity active = activeSessions.get(0);
@@ -107,19 +108,21 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public ChatSessionOpenDto createSession(Long userId, Long promptId, String currentSessionId) {
+    public ChatSessionOpenDto createSession(Long userId, Long promptId, String agentId, String currentSessionId) {
         archiveExpiredSessionsForUser(userId);
         if (StringUtils.isNotBlank(currentSessionId)) {
             ChatSessionEntity current = requireOwnedSession(userId, currentSessionId);
             archiveOrDeleteIfEmpty(current);
         }
 
+        String resolvedAgentId = StringUtils.isBlank(agentId) ? DEFAULT_AGENT_ID : agentId;
         Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionEntity entity = new ChatSessionEntity();
         entity.setUserId(userId);
         entity.setSessionId(UUID.randomUUID().toString());
         entity.setPromptId(resolvedPromptId);
+        entity.setAgentId(resolvedAgentId);
         entity.setTitle("新会话");
         entity.setStatus(STATUS_ACTIVE);
         entity.setLastUserMessage(null);
@@ -228,11 +231,16 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public void assertActiveSession(Long userId, String sessionId, Long promptId) {
+    public void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId) {
         archiveExpiredSessionsForUser(userId);
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+        String requestedAgentId = StringUtils.isBlank(agentId) ? DEFAULT_AGENT_ID : agentId;
+        String sessionAgentId = StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId();
+        if (!requestedAgentId.equals(sessionAgentId)) {
+            throw new BusinessException(40008, "会话不属于当前 Agent，请重新创建会话");
         }
         Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
         if (!resolvedPromptId.equals(session.getPromptId())) {
@@ -441,6 +449,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 session.getSessionId(),
                 session.getTitle(),
                 session.getPromptId(),
+                StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
@@ -454,6 +463,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 session.getTitle(),
                 session.getLastUserMessage(),
                 session.getPromptId(),
+                StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),

@@ -12,6 +12,7 @@ import com.h.backend.chat.model.ChatMessagePayload;
 import com.h.backend.chat.service.ChatMemorySnapshotService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatSessionServiceImpl;
+import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -20,6 +21,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -29,6 +32,58 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatSessionServiceImplTest {
+
+    @Test
+    void createSessionStoresAgentId() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        when(promptService.resolvePromptId(1L, null)).thenReturn(10L);
+
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                snapshotService,
+                promptService,
+                objectMapper
+        );
+
+        service.createSession(1L, null, "car-rental-assistant", null);
+
+        ArgumentCaptor<ChatSessionEntity> captor = ArgumentCaptor.forClass(ChatSessionEntity.class);
+        verify(sessionMapper).insert(captor.capture());
+        assertEquals("car-rental-assistant", captor.getValue().getAgentId());
+    }
+
+    @Test
+    void assertActiveSessionRejectsMismatchedAgentId() {
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setUserId(1L);
+        session.setSessionId("s1");
+        session.setPromptId(null);
+        session.setAgentId("car-rental-assistant");
+        session.setStatus("ACTIVE");
+
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        when(sessionMapper.selectBySessionId("s1")).thenReturn(session);
+
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                mock(ChatSessionMessageMapper.class),
+                mock(ChatMemorySnapshotService.class),
+                mock(SystemPromptService.class),
+                new ObjectMapper()
+        );
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.assertActiveSession(1L, "s1", null, "standard-chat")
+        );
+        assertTrue(ex.getMessage().contains("会话不属于当前 Agent"));
+    }
 
     @Test
     void shouldMapImageMessageWithResourceMetadata() throws Exception {
@@ -402,7 +457,7 @@ class ChatSessionServiceImplTest {
             return 1;
         }).when(chatSessionMapper).insert(any(ChatSessionEntity.class));
 
-        service.createSession(1L, null, "session-old");
+        service.createSession(1L, null, null, "session-old");
 
         verify(chatSessionMapper, never()).deleteById(11L);
         verify(chatSessionMapper).updateById(currentSession);

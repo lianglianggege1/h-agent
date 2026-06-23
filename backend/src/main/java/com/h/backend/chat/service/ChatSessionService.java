@@ -15,7 +15,7 @@ public interface ChatSessionService {
 
     ChatSessionBootstrapDto bootstrap(Long userId);
 
-    ChatSessionOpenDto createSession(Long userId, Long promptId, String currentSessionId);
+    ChatSessionOpenDto createSession(Long userId, Long promptId, String agentId, String currentSessionId);
 
     ChatSessionOpenDto chooseActiveSession(Long userId, String selectedSessionId);
 
@@ -29,7 +29,7 @@ public interface ChatSessionService {
 
     void archiveExpiredSessions();
 
-    void assertActiveSession(Long userId, String sessionId, Long promptId);
+    void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId);
 
     Long appendUserMessage(Long userId, String sessionId, String userMessage);
 

@@ -78,7 +78,7 @@ class ChatServiceImplTest {
 
         assertEquals(List.of(new ChatStreamEvent("error", "当前系统繁忙，请稍后再试")), events);
         verify(hAssistant, never()).streamChat(any(), any());
-        verify(chatSessionService, never()).assertActiveSession(any(), any(), any());
+        verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
     }
@@ -319,7 +319,7 @@ class ChatServiceImplTest {
         chatService.streamChat(1L, 2L, "session-async", "hello").subscribe();
 
         assertEquals(1, executor.submittedCount());
-        verify(chatSessionService, never()).assertActiveSession(any(), any(), any());
+        verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(systemPromptService, never()).resolvePromptId(any(), any());
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any());
         verify(agentRunTelemetryService, never()).startRun(any(), any(), any());

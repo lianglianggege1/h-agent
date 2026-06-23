@@ -22,6 +22,9 @@ public class ChatSessionEntity {
     @TableField("prompt_id")
     private Long promptId;
 
+    @TableField("agent_id")
+    private String agentId;
+
     private String title;
 
     @TableField("last_user_message")
@@ -71,6 +74,14 @@ public class ChatSessionEntity {
 
     public void setPromptId(Long promptId) {
         this.promptId = promptId;
+    }
+
+    public String getAgentId() {
+        return agentId;
+    }
+
+    public void setAgentId(String agentId) {
+        this.agentId = agentId;
     }
 
     public String getTitle() {
