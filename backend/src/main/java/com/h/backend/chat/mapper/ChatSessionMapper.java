@@ -12,7 +12,7 @@ import java.util.List;
 public interface ChatSessionMapper extends BaseMapper<ChatSessionEntity> {
 
     @Select("""
-            SELECT id, user_id, session_id, prompt_id, title, last_user_message, message_count,
+            SELECT id, user_id, session_id, prompt_id, agent_id, title, last_user_message, message_count,
                    status, last_active_at, created_at, updated_at
             FROM chat_sessions
             WHERE user_id = #{userId}
@@ -26,7 +26,7 @@ public interface ChatSessionMapper extends BaseMapper<ChatSessionEntity> {
     );
 
     @Select("""
-            SELECT id, user_id, session_id, prompt_id, title, last_user_message, message_count,
+            SELECT id, user_id, session_id, prompt_id, agent_id, title, last_user_message, message_count,
                    status, last_active_at, created_at, updated_at
             FROM chat_sessions
             WHERE user_id = #{userId}
@@ -36,7 +36,7 @@ public interface ChatSessionMapper extends BaseMapper<ChatSessionEntity> {
     List<ChatSessionEntity> selectActiveByUserId(@Param("userId") Long userId);
 
     @Select("""
-            SELECT id, user_id, session_id, prompt_id, title, last_user_message, message_count,
+            SELECT id, user_id, session_id, prompt_id, agent_id, title, last_user_message, message_count,
                    status, last_active_at, created_at, updated_at
             FROM chat_sessions
             WHERE session_id = #{sessionId}
@@ -45,7 +45,7 @@ public interface ChatSessionMapper extends BaseMapper<ChatSessionEntity> {
     ChatSessionEntity selectBySessionId(@Param("sessionId") String sessionId);
 
     @Select("""
-            SELECT id, user_id, session_id, prompt_id, title, last_user_message, message_count,
+            SELECT id, user_id, session_id, prompt_id, agent_id, title, last_user_message, message_count,
                    status, last_active_at, created_at, updated_at
             FROM chat_sessions
             WHERE user_id = #{userId}

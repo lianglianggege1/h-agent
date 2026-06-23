@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatMessagePayloadDto;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionBootstrapDto;
@@ -42,7 +43,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private static final String STATUS_ACTIVE = "ACTIVE";
     private static final String STATUS_ARCHIVED = "ARCHIVED";
-    private static final String DEFAULT_AGENT_ID = "standard-chat";
     private static final int DEFAULT_MESSAGE_PAGE_SIZE = 20;
 
     private final ChatSessionMapper chatSessionMapper;
@@ -115,7 +115,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             archiveOrDeleteIfEmpty(current);
         }
 
-        String resolvedAgentId = StringUtils.isBlank(agentId) ? DEFAULT_AGENT_ID : agentId;
+        String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
         Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionEntity entity = new ChatSessionEntity();
@@ -237,8 +237,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
-        String requestedAgentId = StringUtils.isBlank(agentId) ? DEFAULT_AGENT_ID : agentId;
-        String sessionAgentId = StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId();
+        String requestedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
+        String sessionAgentId = StringUtils.isBlank(session.getAgentId())
+                ? ChatAgentIds.STANDARD_CHAT
+                : session.getAgentId();
         if (!requestedAgentId.equals(sessionAgentId)) {
             throw new BusinessException(40008, "会话不属于当前 Agent，请重新创建会话");
         }
@@ -449,7 +451,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 session.getSessionId(),
                 session.getTitle(),
                 session.getPromptId(),
-                StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId(),
+                StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
@@ -463,7 +465,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 session.getTitle(),
                 session.getLastUserMessage(),
                 session.getPromptId(),
-                StringUtils.isBlank(session.getAgentId()) ? DEFAULT_AGENT_ID : session.getAgentId(),
+                StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),

@@ -1,5 +1,6 @@
 package com.h.backend.chat.controller;
 
+import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatSessionBootstrapDto;
 import com.h.backend.chat.dto.ChatSessionMessagesPageDto;
 import com.h.backend.chat.dto.ChatSessionMetaDto;
@@ -43,7 +44,7 @@ public class ChatSessionController {
             @RequestBody(required = false) CreateChatSessionRequest request
     ) {
         CreateChatSessionRequest payload = request == null
-                ? new CreateChatSessionRequest(null, null, "standard-chat")
+                ? new CreateChatSessionRequest(null, null, ChatAgentIds.STANDARD_CHAT)
                 : request;
         return ApiResponse.ok(chatSessionService.createSession(
                 principal.userId(),

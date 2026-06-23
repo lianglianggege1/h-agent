@@ -1,6 +1,7 @@
 package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
@@ -28,8 +29,6 @@ import java.util.function.Consumer;
 @Slf4j
 @Service
 public class ChatServiceImpl implements ChatService {
-
-    private static final String DEFAULT_AGENT_ID = "standard-chat";
 
     private final HAssistant hAssistant;
 
@@ -151,7 +150,7 @@ public class ChatServiceImpl implements ChatService {
         String registeredMemoryId = null;
         Consumer<ChatSessionMessageDto> registeredImagePublisher = null;
         try {
-            chatSessionService.assertActiveSession(userId, sessionId, promptId, DEFAULT_AGENT_ID);
+            chatSessionService.assertActiveSession(userId, sessionId, promptId, ChatAgentIds.STANDARD_CHAT);
             Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
             if (isImageCommand(userMessage)) {
                 emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);

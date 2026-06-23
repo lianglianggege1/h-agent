@@ -1,6 +1,7 @@
 package com.h.backend.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
@@ -80,7 +81,7 @@ class ChatSessionServiceImplTest {
 
         BusinessException ex = assertThrows(
                 BusinessException.class,
-                () -> service.assertActiveSession(1L, "s1", null, "standard-chat")
+                () -> service.assertActiveSession(1L, "s1", null, ChatAgentIds.STANDARD_CHAT)
         );
         assertTrue(ex.getMessage().contains("会话不属于当前 Agent"));
     }
