@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyAgentStep,
   applyAssistantChunk,
   applyBlockedState,
   applyImageMessage,
@@ -18,6 +19,7 @@ test("buildPendingAssistantTurn creates user, reasoning, and assistant placehold
   assert.equal(reasoningMessage.content, "");
   assert.equal(assistantMessage.messageType, "AI");
   assert.equal(assistantMessage.content, "");
+  assert.deepEqual(assistantMessage.agentSteps, []);
 });
 
 test("applyReasoningChunk appends only reasoning content", () => {
@@ -34,6 +36,57 @@ test("applyAssistantChunk appends only assistant content", () => {
 
   assert.equal(next[0].content, "");
   assert.equal(next[1].content, "最终答案");
+});
+
+test("applyAgentStep upserts parallel steps on assistant message", () => {
+  const messages = [{ id: "assistant-1", role: "assistant", messageType: "AI", content: "", agentSteps: [] }];
+
+  const next = applyAgentStep(messages, "assistant-1", {
+    invocationId: "i1",
+    nodeId: "n1",
+    nodeName: "客户信息提取",
+    topology: "AI_AGENT",
+    status: "running",
+    depth: 1,
+    sequence: 1,
+  });
+
+  assert.equal(next[0].agentSteps.length, 1);
+  assert.equal(next[0].agentSteps[0].status, "running");
+});
+
+test("applyAgentStep updates existing step and sorts new parallel steps", () => {
+  const messages = [{ id: "assistant-1", role: "assistant", messageType: "AI", content: "", agentSteps: [] }];
+  const withSecondStep = applyAgentStep(messages, "assistant-1", {
+    invocationId: "i2",
+    nodeId: "n2",
+    nodeName: "库存查询",
+    topology: "AI_AGENT",
+    status: "running",
+    depth: 1,
+    sequence: 2,
+  });
+  const withFirstStep = applyAgentStep(withSecondStep, "assistant-1", {
+    invocationId: "i1",
+    nodeId: "n1",
+    nodeName: "客户信息提取",
+    topology: "AI_AGENT",
+    status: "running",
+    depth: 1,
+    sequence: 1,
+  });
+  const completed = applyAgentStep(withFirstStep, "assistant-1", {
+    invocationId: "i1",
+    nodeId: "n1",
+    nodeName: "客户信息提取",
+    topology: "AI_AGENT",
+    status: "completed",
+    depth: 1,
+    sequence: 1,
+  });
+
+  assert.deepEqual(completed[0].agentSteps.map((step) => step.invocationId), ["i1", "i2"]);
+  assert.equal(completed[0].agentSteps[0].status, "completed");
 });
 
 test("applyBlockedState keeps reasoning content and converts assistant placeholder to blocked", () => {
@@ -61,6 +114,7 @@ test("toRenderableTurns groups reasoning before blocked message", () => {
       answer: "",
       blocked: "命中安全规则",
       id: "2",
+      agentSteps: [],
     },
   ]);
 });
@@ -78,6 +132,7 @@ test("toRenderableTurns groups reasoning before assistant reply", () => {
       answer: "最终答案",
       blocked: null,
       id: "2",
+      agentSteps: [],
     },
   ]);
 });

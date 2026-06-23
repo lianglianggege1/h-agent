@@ -6,6 +6,18 @@ export type ApiResponse<T> = {
   data: T | null;
 };
 
+export type AgentStepPayload = {
+  runId: string | null;
+  agentId: string | null;
+  invocationId: string;
+  nodeId: string;
+  nodeName: string;
+  topology: string;
+  status: "running" | "completed" | "failed";
+  depth: number | null;
+  sequence: number;
+};
+
 async function parseApiResponse<T>(response: Response) {
   try {
     return (await response.json()) as ApiResponse<T>;
@@ -60,6 +72,7 @@ export async function apiStream(
     onChunk: (value: string) => void;
     onDone?: (value: string) => void;
     onImage?: (message: ChatSessionMessage) => void;
+    onAgentStep?: (payload: AgentStepPayload) => void;
     onBlocked?: (message: string) => void;
     onError?: (message: string) => void;
   },
@@ -110,6 +123,7 @@ export async function apiStream(
         type: string;
         content: string;
         message?: ChatSessionMessage;
+        payload?: unknown;
       };
       const eventType = eventName || payload.type;
 
@@ -121,6 +135,8 @@ export async function apiStream(
         handlers.onDone?.(payload.content);
       } else if (eventType === "image" && payload.message) {
         handlers.onImage?.(payload.message);
+      } else if (eventType === "agent_step" && payload.payload) {
+        handlers.onAgentStep?.(payload.payload as AgentStepPayload);
       } else if (eventType === "blocked") {
         handlers.onBlocked?.(payload.content);
       } else if (eventType === "error") {

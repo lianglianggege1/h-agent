@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyAgentStep,
   applyAssistantChunk,
   applyBlockedState,
   applyImageMessage,
@@ -11,6 +12,7 @@ import {
   buildPendingAssistantTurn,
   toRenderableTurns,
   toUiChatMessage,
+  type UiAgentStep,
   type UiChatMessage,
 } from "@/lib/chat-message-state";
 import { apiStream } from "@/lib/http";
@@ -142,6 +144,33 @@ function ReasoningDetails({ content, pending = false }: { content: string; pendi
         {pending ? "思考中..." : "思考过程"}
       </summary>
       <div className="mt-2 whitespace-pre-wrap text-xs leading-6 text-stone-500">{content}</div>
+    </details>
+  );
+}
+
+function AgentStepDetails({ steps, pending = false }: { steps: UiAgentStep[]; pending?: boolean }) {
+  if (steps.length === 0) {
+    return null;
+  }
+
+  return (
+    <details
+      className="rounded-2xl border border-stone-200 bg-stone-50/90 px-3 py-2 text-stone-600"
+      open={pending}
+    >
+      <summary className="cursor-pointer list-none text-xs font-medium tracking-[0.18em] text-stone-500">
+        执行过程
+      </summary>
+      <div className="mt-2 space-y-2">
+        {steps.map((step) => (
+          <div key={step.invocationId} className="flex items-center justify-between gap-3 text-xs">
+            <span className="min-w-0 truncate">{step.nodeName}</span>
+            <span className="shrink-0 text-stone-500">
+              {step.status === "running" ? "执行中" : step.status === "completed" ? "已完成" : "失败"}
+            </span>
+          </div>
+        ))}
+      </div>
     </details>
   );
 }
@@ -375,6 +404,7 @@ export default function ChatPage() {
             message: content,
             sessionId,
             promptId: selectedPromptId,
+            agentId: "standard-chat",
           }),
         },
         {
@@ -389,6 +419,9 @@ export default function ChatPage() {
           },
           onImage(message) {
             setMessages((current) => applyImageMessage(current, assistantMessage.id, message));
+          },
+          onAgentStep(step) {
+            setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
           onDone() {
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
@@ -649,6 +682,7 @@ export default function ChatPage() {
                     turn.content
                   ) : turn.kind === "blocked" ? (
                     <div className="space-y-3">
+                      <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
                       <BlockedMessageContent content={turn.blocked} />
                     </div>
@@ -656,15 +690,20 @@ export default function ChatPage() {
                     <ImageMessageContent content={turn.content} resources={turn.resources} />
                   ) : turn.answer ? (
                     <div className="space-y-3">
+                      <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
                       <AssistantMessageContent content={turn.answer} />
                     </div>
                   ) : turn.reasoning ? (
-                    <ReasoningDetails content={turn.reasoning} pending />
+                    <div className="space-y-3">
+                      <AgentStepDetails steps={turn.agentSteps} pending />
+                      <ReasoningDetails content={turn.reasoning} pending />
+                    </div>
                   ) : (
-                    streaming
-                      ? "正在思考..."
-                      : ""
+                    <div className="space-y-3">
+                      <AgentStepDetails steps={turn.agentSteps} pending />
+                      {streaming ? "正在思考..." : ""}
+                    </div>
                   )}
                 </div>
               </article>

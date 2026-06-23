@@ -1,10 +1,21 @@
 import type { ChatMessagePayload, ChatMessageResource, ChatSessionMessage, ChatSessionMessageType } from "./chat-sessions";
 
+export type UiAgentStep = {
+  invocationId: string;
+  nodeId: string;
+  nodeName: string;
+  topology: string;
+  status: "running" | "completed" | "failed";
+  depth: number | null;
+  sequence: number;
+};
+
 export type UiChatMessage = {
   id: string;
   role: "assistant" | "blocked" | "user";
   messageType: ChatSessionMessageType;
   content: string;
+  agentSteps?: UiAgentStep[];
   payload?: ChatMessagePayload;
   resources?: ChatMessageResource[];
   createdAt?: string;
@@ -22,6 +33,7 @@ export type RenderableTurn =
       reasoning: string | null;
       answer: string;
       blocked: null;
+      agentSteps: UiAgentStep[];
     }
   | {
       kind: "blocked";
@@ -29,6 +41,7 @@ export type RenderableTurn =
       reasoning: string | null;
       answer: "";
       blocked: string;
+      agentSteps: UiAgentStep[];
     }
   | {
       kind: "image";
@@ -56,6 +69,7 @@ export function buildPendingAssistantTurn(content: string, seed: number) {
       role: "assistant",
       messageType: "AI",
       content: "",
+      agentSteps: [],
     } satisfies UiChatMessage,
   };
 }
@@ -70,6 +84,27 @@ export function applyAssistantChunk(messages: UiChatMessage[], assistantId: stri
   return messages.map((message) =>
     message.id === assistantId ? { ...message, content: `${message.content}${chunk}` } : message,
   );
+}
+
+export function applyAgentStep(
+  messages: UiChatMessage[],
+  assistantId: string,
+  step: UiAgentStep,
+): UiChatMessage[] {
+  return messages.map((message) => {
+    if (message.id !== assistantId) {
+      return message;
+    }
+
+    const existing = message.agentSteps ?? [];
+    const index = existing.findIndex((item) => item.invocationId === step.invocationId);
+    const agentSteps =
+      index >= 0
+        ? existing.map((item, itemIndex) => (itemIndex === index ? { ...item, ...step } : item))
+        : [...existing, step].sort((left, right) => left.sequence - right.sequence);
+
+    return { ...message, agentSteps };
+  });
 }
 
 export function applyBlockedState(
@@ -131,6 +166,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         reasoning: null,
         answer: "",
         blocked: current.content,
+        agentSteps: current.agentSteps ?? [],
       });
       continue;
     }
@@ -152,6 +188,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           reasoning: current.content || null,
           answer: next.content,
           blocked: null,
+          agentSteps: next.agentSteps ?? [],
         });
         index += 1;
         continue;
@@ -163,6 +200,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           reasoning: current.content || null,
           answer: "",
           blocked: next.content,
+          agentSteps: next.agentSteps ?? [],
         });
         index += 1;
         continue;
@@ -173,6 +211,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         reasoning: current.content || null,
         answer: "",
         blocked: null,
+        agentSteps: current.agentSteps ?? [],
       });
       continue;
     }
@@ -182,6 +221,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
       reasoning: null,
       answer: current.content,
       blocked: null,
+      agentSteps: current.agentSteps ?? [],
     });
   }
 

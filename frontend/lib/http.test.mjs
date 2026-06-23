@@ -255,6 +255,43 @@ test("apiStream dispatches image events with message payload", async () => {
   }
 });
 
+test("apiStream dispatches agent_step events", async () => {
+  const originalFetch = globalThis.fetch;
+  const steps = [];
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: agent_step\n" +
+                'data: {"type":"agent_step","content":"正在执行：客户信息提取","payload":{"invocationId":"i1","nodeName":"客户信息提取","status":"running"}}\n\n' +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onAgentStep(step) {
+        steps.push(step);
+      },
+    });
+
+    assert.equal(steps[0].nodeName, "客户信息提取");
+    assert.equal(steps[0].status, "running");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches chunk and done events from sse blocks", async () => {
   const originalFetch = globalThis.fetch;
   const chunks = [];
