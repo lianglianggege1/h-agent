@@ -42,6 +42,7 @@ export type ChatSessionSummary = {
   title: string;
   lastUserMessage: string | null;
   promptId: number | null;
+  agentId: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -52,6 +53,7 @@ export type ChatSessionMeta = {
   sessionId: string;
   title: string;
   promptId: number | null;
+  agentId: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -80,12 +82,17 @@ export function bootstrapChatSession() {
   return apiFetch<ChatSessionBootstrap>("/api/chat/sessions/bootstrap");
 }
 
-export function createChatSession(payload?: { currentSessionId?: string | null; promptId?: number | null }) {
+export function createChatSession(payload?: {
+  currentSessionId?: string | null;
+  promptId?: number | null;
+  agentId?: string | null;
+}) {
   return apiFetch<ChatSessionOpen>("/api/chat/sessions/create", {
     method: "POST",
     body: JSON.stringify({
       currentSessionId: payload?.currentSessionId ?? null,
       promptId: payload?.promptId ?? null,
+      agentId: payload?.agentId ?? "standard-chat",
     }),
   });
 }
