@@ -6,6 +6,7 @@ import com.h.backend.chat.agent.AgentTopologyMapper;
 import com.h.backend.chat.dto.AgentSummaryDto;
 import com.h.backend.chat.dto.AgentTopologyDto;
 import com.h.backend.common.api.ApiResponse;
+import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,7 +37,10 @@ public class AgentController {
     @GetMapping("/{agentId}/topology")
     public ApiResponse<AgentTopologyDto> topology(@PathVariable String agentId) {
         AgentDefinition definition = agentRegistry.requireEnabled(agentId);
-        return ApiResponse.ok(topologyMapper.from(definition, (AgentInstance) definition.agentBean()));
+        if (!(definition.agentBean() instanceof AgentInstance agentInstance)) {
+            throw new BusinessException(41002, "该 Agent 暂不支持编排拓扑");
+        }
+        return ApiResponse.ok(topologyMapper.from(definition, agentInstance));
     }
 
     private AgentSummaryDto toSummary(AgentDefinition definition) {
