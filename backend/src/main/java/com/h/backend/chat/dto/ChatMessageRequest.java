@@ -11,6 +11,8 @@ public record ChatMessageRequest(
         @NotBlank(message = "sessionId 不能为空")
         String sessionId,
 
-        Long promptId
+        Long promptId,
+
+        String agentId
 ) {
 }

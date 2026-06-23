@@ -1,7 +1,13 @@
 package com.h.backend.chat.service.impl;
 
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.h.backend.chat.agent.AgentDefinition;
+import com.h.backend.chat.agent.AgentRegistry;
+import com.h.backend.chat.agent.AgentRuntimeType;
+import com.h.backend.chat.agent.ChatAgentExecutionCommand;
+import com.h.backend.chat.agent.ChatAgentExecutor;
+import com.h.backend.chat.agent.HAssistantStreamingExecutor;
 import com.h.backend.chat.ai.HAssistant;
-import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
@@ -12,45 +18,35 @@ import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.ChatStreamEventBridge;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
-import dev.langchain4j.guardrail.InputGuardrailException;
-import dev.langchain4j.guardrail.OutputGuardrailException;
-import dev.langchain4j.model.ModelDisabledException;
-import dev.langchain4j.service.tool.ToolExecution;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 @Slf4j
 @Service
 public class ChatServiceImpl implements ChatService {
 
-    private final HAssistant hAssistant;
-
     private final SystemPromptService systemPromptService;
-
     private final ChatSessionService chatSessionService;
-
     private final AgentRunService agentRunService;
-
     private final AgentRunTelemetryService agentRunTelemetryService;
-
     private final ExecutorService chatStreamExecutor;
-
     private final ChatStreamConcurrencyGuard concurrencyGuard;
-
     private final ImageGenerationService imageGenerationService;
-
-    private final ChatStreamEventBridge chatStreamEventBridge;
+    private final AgentRegistry agentRegistry;
+    private final Map<AgentRuntimeType, ChatAgentExecutor> executors;
 
     @Autowired
     public ChatServiceImpl(
-            HAssistant hAssistant,
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
@@ -58,9 +54,9 @@ public class ChatServiceImpl implements ChatService {
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
-            ChatStreamEventBridge chatStreamEventBridge
+            AgentRegistry agentRegistry,
+            List<ChatAgentExecutor> executors
     ) {
-        this.hAssistant = hAssistant;
         this.systemPromptService = systemPromptService;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
@@ -68,7 +64,8 @@ public class ChatServiceImpl implements ChatService {
         this.chatStreamExecutor = chatStreamExecutor;
         this.concurrencyGuard = concurrencyGuard;
         this.imageGenerationService = imageGenerationService;
-        this.chatStreamEventBridge = chatStreamEventBridge;
+        this.agentRegistry = agentRegistry;
+        this.executors = toExecutorMap(executors);
     }
 
     public ChatServiceImpl(
@@ -116,8 +113,73 @@ public class ChatServiceImpl implements ChatService {
         );
     }
 
+    public ChatServiceImpl(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            ChatStreamEventBridge chatStreamEventBridge
+    ) {
+        this(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                imageGenerationService,
+                chatStreamEventBridge,
+                new AgentRegistry(List.of(standardAgent(hAssistant))),
+                List.of()
+        );
+    }
+
+    public ChatServiceImpl(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            ChatStreamEventBridge chatStreamEventBridge,
+            AgentRegistry agentRegistry,
+            List<ChatAgentExecutor> executors
+    ) {
+        this(
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                imageGenerationService,
+                agentRegistry,
+                withStandardExecutorIfMissing(
+                        hAssistant,
+                        chatSessionService,
+                        agentRunService,
+                        agentRunTelemetryService,
+                        chatStreamEventBridge,
+                        executors
+                )
+        );
+    }
+
     @Override
-    public Flux<ChatStreamEvent> streamChat(Long userId, Long promptId, String sessionId, String userMessage) {
+    public Flux<ChatStreamEvent> streamChat(
+            Long userId,
+            Long promptId,
+            String agentId,
+            String sessionId,
+            String userMessage
+    ) {
         return Flux.defer(() -> {
             ChatStreamConcurrencyGuard.Permit permit = concurrencyGuard.tryAcquire(sessionId, userId);
             if (!permit.acquired()) {
@@ -126,7 +188,7 @@ public class ChatServiceImpl implements ChatService {
             return Flux.create(sink -> {
                 try {
                     chatStreamExecutor.submit(() ->
-                            runChatStream(sink, permit, userId, promptId, sessionId, userMessage));
+                            runChatStream(sink, permit, userId, promptId, agentId, sessionId, userMessage));
                 } catch (RuntimeException ex) {
                     log.error("Failed to submit chat stream task", ex);
                     permit.release();
@@ -141,24 +203,31 @@ public class ChatServiceImpl implements ChatService {
             ChatStreamConcurrencyGuard.Permit permit,
             Long userId,
             Long promptId,
+            String agentId,
             String sessionId,
             String userMessage
     ) {
         AtomicBoolean permitReleased = new AtomicBoolean();
         AgentRunTelemetryService.TelemetryRun telemetryRun = null;
         AgentRunService.AgentRunHandle runHandle = null;
-        String registeredMemoryId = null;
-        Consumer<ChatSessionMessageDto> registeredImagePublisher = null;
         try {
-            chatSessionService.assertActiveSession(userId, sessionId, promptId, ChatAgentIds.STANDARD_CHAT);
-            Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
-            if (isImageCommand(userMessage)) {
+            AgentDefinition agent = resolveAgent(agentId);
+            boolean standardChat = agent.runtimeType() == AgentRuntimeType.STANDARD_STREAMING_CHAT;
+            Long promptIdForSessionValidation = standardChat ? promptId : null;
+            chatSessionService.assertActiveSession(
+                    userId,
+                    sessionId,
+                    promptIdForSessionValidation,
+                    agent.agentId()
+            );
+
+            Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
+            if (standardChat && isImageCommand(userMessage)) {
                 emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);
                 releasePermitOnce(permit, permitReleased);
                 return;
             }
 
-            String memoryId = userId + ":" + resolvedPromptId + ":" + sessionId;
             Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
             telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
             runHandle = agentRunService.createRun(
@@ -166,104 +235,60 @@ public class ChatServiceImpl implements ChatService {
                     userId,
                     resolvedPromptId,
                     userMessageId,
-                    "unknown",
+                    agent.agentId(),
                     telemetryRun.traceId()
             );
 
-            StringBuilder reasoningBuilder = new StringBuilder();
-            StringBuilder replyBuilder = new StringBuilder();
-            AtomicBoolean imageEmitted = new AtomicBoolean();
-            AgentRunTelemetryService.TelemetryRun streamTelemetryRun = telemetryRun;
-            AgentRunService.AgentRunHandle streamRunHandle = runHandle;
-
-            Consumer<ChatSessionMessageDto> imagePublisher = message -> {
-                imageEmitted.set(true);
-                emitIfActive(sink, new ChatStreamEvent("image", "", message));
-            };
-            chatStreamEventBridge.registerPublisher(memoryId, imagePublisher);
-            registeredMemoryId = memoryId;
-            registeredImagePublisher = imagePublisher;
-            hAssistant.streamChat(memoryId, userMessage)
-                    .onPartialThinking(thinking -> {
-                        String thinkingText = thinking == null ? "" : thinking.text();
-                        if (thinkingText == null || thinkingText.isBlank()) {
-                            return;
-                        }
-                        reasoningBuilder.append(thinkingText);
-                        emitIfActive(sink, new ChatStreamEvent("reasoning", thinkingText));
-                    })
-                    .onPartialResponse(chunk -> {
-                        replyBuilder.append(chunk);
-                        emitIfActive(sink, new ChatStreamEvent("chunk", chunk));
-                    })
-                    .onToolExecuted(toolExecution -> recordToolUsage(streamRunHandle.id(), toolExecution))
-                    .onCompleteResponse(ignored -> {
-                        try {
-                            String reply = replyBuilder.toString();
-                            if (reply.isBlank()) {
-                                if (imageEmitted.get()) {
-                                    agentRunService.completeRun(streamRunHandle.id(), null);
-                                    agentRunTelemetryService.markSuccess(streamTelemetryRun);
-                                    emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
-                                    return;
-                                }
-                                IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
-                                agentRunService.failRun(streamRunHandle.id(), error.getMessage());
-                                agentRunTelemetryService.markFailure(streamTelemetryRun, error);
-                                emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 未返回有效内容"));
-                                return;
-                            }
-                            String reasoning = reasoningBuilder.toString();
-                            if (!reasoning.isBlank()) {
-                                chatSessionService.appendReasoningMessage(userId, sessionId, reasoning);
-                            }
-                            Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                                    userId,
-                                    sessionId,
-                                    reply
-                            );
-                            agentRunService.completeRun(streamRunHandle.id(), assistantMessageId);
-                            agentRunTelemetryService.markSuccess(streamTelemetryRun);
-                            emitAndCompleteIfActive(sink, new ChatStreamEvent("done", ""));
-                        } finally {
-                            chatStreamEventBridge.unregisterPublisher(memoryId, imagePublisher);
-                            releasePermitOnce(permit, permitReleased);
-                        }
-                    })
-                    .onError(error -> {
-                        try {
-                            emitFailureEvent(
-                                    sink,
-                                    userId,
-                                    sessionId,
-                                    streamRunHandle.id(),
-                                    streamTelemetryRun,
-                                    error
-                            );
-                        } finally {
-                            chatStreamEventBridge.unregisterPublisher(memoryId, imagePublisher);
-                            releasePermitOnce(permit, permitReleased);
-                        }
-                    })
-                    .start();
+            ChatAgentExecutor executor = executorFor(agent.runtimeType());
+            executor.execute(new ChatAgentExecutionCommand(
+                    sink,
+                    userId,
+                    resolvedPromptId,
+                    sessionId,
+                    userMessage,
+                    buildMemoryId(userId, resolvedPromptId, agent.agentId(), sessionId),
+                    agent,
+                    runHandle,
+                    telemetryRun,
+                    () -> releasePermitOnce(permit, permitReleased)
+            ));
         } catch (Exception ex) {
             try {
-                if (registeredMemoryId != null && registeredImagePublisher != null) {
-                    chatStreamEventBridge.unregisterPublisher(registeredMemoryId, registeredImagePublisher);
-                }
+                log.error("Error preparing chat stream", ex);
                 if (runHandle != null && telemetryRun != null) {
-                    emitFailureEvent(sink, userId, sessionId, runHandle.id(), telemetryRun, ex);
-                } else {
-                    log.error("Error preparing chat stream", ex);
-                    if (telemetryRun != null) {
-                        agentRunTelemetryService.markFailure(telemetryRun, ex);
-                    }
-                    emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
+                    agentRunService.failRun(
+                            runHandle.id(),
+                            ex.getMessage() == null ? "AI 服务调用失败" : ex.getMessage()
+                    );
+                    agentRunTelemetryService.markFailure(telemetryRun, ex);
+                } else if (telemetryRun != null) {
+                    agentRunTelemetryService.markFailure(telemetryRun, ex);
                 }
+                emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
             } finally {
                 releasePermitOnce(permit, permitReleased);
             }
         }
+    }
+
+    private AgentDefinition resolveAgent(String agentId) {
+        String resolvedAgentId = StringUtils.isBlank(agentId)
+                ? AgentRegistry.STANDARD_CHAT_AGENT_ID
+                : agentId;
+        return agentRegistry.requireEnabled(resolvedAgentId);
+    }
+
+    private ChatAgentExecutor executorFor(AgentRuntimeType runtimeType) {
+        ChatAgentExecutor executor = executors.get(runtimeType);
+        if (executor == null) {
+            throw new IllegalStateException("No executor configured for runtime " + runtimeType);
+        }
+        return executor;
+    }
+
+    private String buildMemoryId(Long userId, Long resolvedPromptId, String agentId, String sessionId) {
+        String promptSegment = resolvedPromptId == null ? "agent" : String.valueOf(resolvedPromptId);
+        return userId + ":" + promptSegment + ":" + agentId + ":" + sessionId;
     }
 
     private void emitImageCommandEvents(
@@ -346,54 +371,47 @@ public class ChatServiceImpl implements ChatService {
         return trimmed.substring("/image".length()).trim();
     }
 
-    private void emitFailureEvent(
-            FluxSink<ChatStreamEvent> sink,
-            Long userId,
-            String sessionId,
-            Long runId,
-            AgentRunTelemetryService.TelemetryRun telemetryRun,
-            Throwable error
+    private static Map<AgentRuntimeType, ChatAgentExecutor> toExecutorMap(List<ChatAgentExecutor> executors) {
+        Map<AgentRuntimeType, ChatAgentExecutor> mapped = new EnumMap<>(AgentRuntimeType.class);
+        for (ChatAgentExecutor executor : executors) {
+            mapped.put(executor.runtimeType(), executor);
+        }
+        return mapped;
+    }
+
+    private static List<ChatAgentExecutor> withStandardExecutorIfMissing(
+            HAssistant hAssistant,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ChatStreamEventBridge chatStreamEventBridge,
+            List<ChatAgentExecutor> executors
     ) {
-        log.error("Error streaming chat", error);
-        if (error instanceof ModelDisabledException) {
-            agentRunService.failRun(runId, "AI 服务未配置 OPENAI_API_KEY");
-            agentRunTelemetryService.markFailure(telemetryRun, error);
-            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY"));
-            return;
+        List<ChatAgentExecutor> merged = new ArrayList<>(executors);
+        boolean hasStandardExecutor = merged.stream()
+                .anyMatch(executor -> executor.runtimeType() == AgentRuntimeType.STANDARD_STREAMING_CHAT);
+        if (!hasStandardExecutor) {
+            merged.add(new HAssistantStreamingExecutor(
+                    hAssistant,
+                    chatSessionService,
+                    agentRunService,
+                    agentRunTelemetryService,
+                    chatStreamEventBridge
+            ));
         }
-        if (error instanceof InputGuardrailException || error instanceof OutputGuardrailException) {
-            String cleanMessage = cleanGuardrailMessage(error.getMessage());
-            chatSessionService.appendBlockedMessage(userId, sessionId, cleanMessage);
-            agentRunService.failRun(runId, cleanMessage);
-            agentRunTelemetryService.markFailure(telemetryRun, error);
-            emitAndCompleteIfActive(sink, new ChatStreamEvent("blocked", cleanMessage));
-            return;
-        }
-        agentRunService.failRun(runId, error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
-        agentRunTelemetryService.markFailure(telemetryRun, error);
-        emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
+        return merged;
     }
 
-    private void recordToolUsage(Long runId, ToolExecution toolExecution) {
-        if (toolExecution == null || toolExecution.request() == null) {
-            return;
-        }
-        String toolName = toolExecution.request().name();
-        if (toolName == null || toolName.isBlank()) {
-            return;
-        }
-        agentRunService.recordToolUsage(runId, toolName);
-    }
-
-    private String cleanGuardrailMessage(String message) {
-        if (message == null || message.isBlank()) {
-            return "平台检测到您的消息不符合使用规范，已自动拦截。";
-        }
-        String marker = " failed with this message: ";
-        int markerIndex = message.indexOf(marker);
-        if (markerIndex >= 0) {
-            return message.substring(markerIndex + marker.length()).trim();
-        }
-        return message.trim();
+    private static AgentDefinition standardAgent(HAssistant hAssistant) {
+        return new AgentDefinition(
+                AgentRegistry.STANDARD_CHAT_AGENT_ID,
+                "普通聊天",
+                "通用",
+                List.of("聊天", "知识库"),
+                "使用系统提示词和知识库的普通聊天助手",
+                hAssistant,
+                AgentRuntimeType.STANDARD_STREAMING_CHAT,
+                true
+        );
     }
 }

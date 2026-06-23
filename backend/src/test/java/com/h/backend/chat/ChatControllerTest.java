@@ -31,9 +31,9 @@ class ChatControllerTest {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
@@ -51,9 +51,9 @@ class ChatControllerTest {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("blocked", "平台检测到您的消息不符合使用规范，已自动拦截。")));
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
@@ -69,9 +69,9 @@ class ChatControllerTest {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("reasoning", "先看约束")));
 
         List<ServerSentEvent<ChatStreamEvent>> events = controller.streamMessage(principal, request)
@@ -89,9 +89,9 @@ class ChatControllerTest {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("error", "boom")));
 
         Flux<ServerSentEvent<ChatStreamEvent>> response = controller.streamMessage(principal, request);
@@ -107,9 +107,9 @@ class ChatControllerTest {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(
                         new ChatStreamEvent("chunk", "he"),
                         new ChatStreamEvent("done", "")
@@ -132,14 +132,34 @@ class ChatControllerTest {
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
 
-        controller.streamMessage(principal, new ChatMessageRequest("  hello  ", "session-1", 2L))
+        controller.streamMessage(principal, new ChatMessageRequest("  hello  ", "session-1", 2L, "standard-chat"))
                 .collectList()
                 .block(Duration.ofSeconds(1));
 
-        org.mockito.Mockito.verify(chatService).streamChat(1L, 2L, "session-1", "hello");
+        org.mockito.Mockito.verify(chatService).streamChat(1L, 2L, "standard-chat", "session-1", "hello");
+    }
+
+    @Test
+    void shouldForwardAgentIdToChatService() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService, defaultProperties());
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+
+        when(chatService.streamChat(1L, null, "car-rental-assistant", "session-car", "need towing"))
+                .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
+
+        controller.streamMessage(
+                        principal,
+                        new ChatMessageRequest(" need towing ", "session-car", null, "car-rental-assistant")
+                )
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        org.mockito.Mockito.verify(chatService)
+                .streamChat(1L, null, "car-rental-assistant", "session-car", "need towing");
     }
 
     @Test
@@ -149,9 +169,9 @@ class ChatControllerTest {
         properties.setHeartbeatInterval(Duration.ofMillis(200));
         ChatController controller = new ChatController(chatService, properties);
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L);
+        ChatMessageRequest request = new ChatMessageRequest("hello", "session-1", 2L, "standard-chat");
 
-        when(chatService.streamChat(1L, 2L, "session-1", "hello"))
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello"))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", ""))
                         .delaySubscription(Duration.ofMillis(450)));
 

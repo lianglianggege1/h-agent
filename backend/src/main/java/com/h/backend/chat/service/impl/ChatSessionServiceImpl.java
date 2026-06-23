@@ -116,7 +116,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
 
         String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
-        Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
+        Long resolvedPromptId = ChatAgentIds.STANDARD_CHAT.equals(resolvedAgentId)
+                ? systemPromptService.resolvePromptId(userId, promptId)
+                : null;
         LocalDateTime now = LocalDateTime.now();
         ChatSessionEntity entity = new ChatSessionEntity();
         entity.setUserId(userId);
@@ -243,6 +245,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 : session.getAgentId();
         if (!requestedAgentId.equals(sessionAgentId)) {
             throw new BusinessException(40008, "会话不属于当前 Agent，请重新创建会话");
+        }
+        if (!ChatAgentIds.STANDARD_CHAT.equals(requestedAgentId)) {
+            return;
         }
         Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
         if (!resolvedPromptId.equals(session.getPromptId())) {

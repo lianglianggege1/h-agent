@@ -43,6 +43,7 @@ public class ChatController {
         Flux<ServerSentEvent<ChatStreamEvent>> chatEvents = chatService.streamChat(
                 principal.userId(),
                 request.promptId(),
+                request.agentId(),
                 request.sessionId(),
                 request.message().trim()
         )

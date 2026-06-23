@@ -42,8 +42,6 @@ class ChatSessionServiceImplTest {
         SystemPromptService promptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = new ObjectMapper();
 
-        when(promptService.resolvePromptId(1L, null)).thenReturn(10L);
-
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 sessionMapper,
                 messageMapper,
@@ -57,6 +55,8 @@ class ChatSessionServiceImplTest {
         ArgumentCaptor<ChatSessionEntity> captor = ArgumentCaptor.forClass(ChatSessionEntity.class);
         verify(sessionMapper).insert(captor.capture());
         assertEquals("car-rental-assistant", captor.getValue().getAgentId());
+        assertEquals(null, captor.getValue().getPromptId());
+        verify(promptService, never()).resolvePromptId(any(), any());
     }
 
     @Test
