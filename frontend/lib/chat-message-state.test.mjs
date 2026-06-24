@@ -7,6 +7,7 @@ import {
   applyImageMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
+  removeEmptyAssistantPlaceholders,
   toRenderableTurns,
   toUiChatMessage,
 } from "./chat-message-state.ts";
@@ -183,7 +184,7 @@ test("toRenderableTurns exposes image messages as image turns", () => {
   ]);
 });
 
-test("applyImageMessage replaces an empty assistant placeholder", () => {
+test("applyImageMessage inserts image before an empty assistant placeholder", () => {
   const { userMessage, assistantMessage } = buildPendingAssistantTurn("/image 一只白猫", 100);
   const imageMessage = {
     id: "501",
@@ -196,9 +197,105 @@ test("applyImageMessage replaces an empty assistant placeholder", () => {
 
   const next = applyImageMessage([userMessage, assistantMessage], assistantMessage.id, imageMessage);
 
-  assert.equal(next.length, 2);
+  assert.equal(next.length, 3);
   assert.equal(next[1].id, "501");
   assert.equal(next[1].messageType, "IMAGE");
+  assert.equal(next[2].id, assistantMessage.id);
+  assert.equal(next[2].messageType, "AI");
+});
+
+test("removeEmptyAssistantPlaceholders removes unused assistant placeholders after image-only streams", () => {
+  const { userMessage, assistantMessage } = buildPendingAssistantTurn("/image 一只白猫", 100);
+  const imageMessage = {
+    id: "501",
+    role: "assistant",
+    messageType: "IMAGE",
+    content: "一只白猫",
+    resources: [],
+    createdAt: "",
+  };
+
+  const withImage = applyImageMessage([userMessage, assistantMessage], assistantMessage.id, imageMessage);
+  const cleaned = removeEmptyAssistantPlaceholders(withImage);
+
+  assert.deepEqual(cleaned.map((message) => message.id), [userMessage.id, "501"]);
+});
+
+test("applyImageMessage keeps assistant placeholder for text that follows tool image output", () => {
+  const { userMessage, assistantMessage } = buildPendingAssistantTurn("生成猫的肖像画", 100);
+  const imageMessage = {
+    id: "501",
+    role: "assistant",
+    messageType: "IMAGE",
+    content: "A beautiful portrait of a Ragdoll cat",
+    resources: [
+      {
+        id: "resource-1",
+        kind: "IMAGE",
+        viewUrl: "/api/chat/resources/resource-1/content",
+        downloadUrl: "/api/chat/resources/resource-1/download",
+        fileName: "generated.png",
+        mimeType: "image/png",
+        fileSize: 3,
+        width: 1024,
+        height: 1024,
+      },
+    ],
+    createdAt: "",
+  };
+
+  const withImage = applyImageMessage([userMessage, assistantMessage], assistantMessage.id, imageMessage);
+  const withAnswer = applyAssistantChunk(withImage, assistantMessage.id, "喵～这是我的自画像！");
+  const turns = toRenderableTurns(withAnswer);
+
+  assert.equal(turns[1].kind, "image");
+  assert.equal(turns[2].kind, "assistant");
+  assert.equal(turns[2].answer, "喵～这是我的自画像！");
+});
+
+test("toRenderableTurns groups reasoning with final assistant reply when images are emitted between them", () => {
+  const turns = toRenderableTurns([
+    {
+      id: "reasoning-1",
+      role: "assistant",
+      messageType: "REASONING",
+      content: "先生成图片，再回复用户",
+      createdAt: "",
+    },
+    {
+      id: "image-1",
+      role: "assistant",
+      messageType: "IMAGE",
+      content: "A beautiful portrait of a Ragdoll cat",
+      resources: [
+        {
+          id: "resource-1",
+          kind: "IMAGE",
+          viewUrl: "/api/chat/resources/resource-1/content",
+          downloadUrl: "/api/chat/resources/resource-1/download",
+          fileName: "generated.png",
+          mimeType: "image/png",
+          fileSize: 3,
+          width: 1024,
+          height: 1024,
+        },
+      ],
+      createdAt: "",
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      messageType: "AI",
+      content: "喵～这是我的自画像！",
+      createdAt: "",
+    },
+  ]);
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].kind, "image");
+  assert.equal(turns[1].kind, "assistant");
+  assert.equal(turns[1].reasoning, "先生成图片，再回复用户");
+  assert.equal(turns[1].answer, "喵～这是我的自画像！");
 });
 
 test("toRenderableTurns leaves legacy think-tag assistant content untouched", () => {

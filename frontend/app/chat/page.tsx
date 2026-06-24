@@ -10,6 +10,7 @@ import {
   applyImageMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
+  removeEmptyAssistantPlaceholders,
   toRenderableTurns,
   toUiChatMessage,
   type UiAgentStep,
@@ -21,11 +22,15 @@ import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
 import {
+  agentChatHref,
+  buildNewSessionPayload,
   buildChatSendPayload,
   isStandardAgent,
+  nextSelectedPromptIdForHydratedSession,
   shouldCreateSessionForRequestedAgent,
   STANDARD_AGENT_ID,
 } from "@/lib/chat-agent-mode";
+import { AgentSummary, listAgents } from "@/lib/agents";
 import {
   bootstrapChatSession,
   ChatSessionOpen,
@@ -207,8 +212,7 @@ function ImageMessageContent({
             width={resource.width ?? 1024}
             height={resource.height ?? 1024}
           />
-          <div className="flex items-start justify-between gap-3">
-            <p className="min-w-0 whitespace-pre-wrap text-sm leading-6 text-stone-700">{content}</p>
+          <div className="flex justify-end">
             <a
               className="shrink-0 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-white"
               href={resource.downloadUrl}
@@ -243,6 +247,9 @@ function ChatPageContent() {
   const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
   const [currentAgentId, setCurrentAgentId] = useState(STANDARD_AGENT_ID);
   const [currentAgentName, setCurrentAgentName] = useState("普通聊天");
+  const [agentOptions, setAgentOptions] = useState<AgentSummary[]>([]);
+  const [showNewSessionPicker, setShowNewSessionPicker] = useState(false);
+  const [creatingNewAgentId, setCreatingNewAgentId] = useState<string | null>(null);
   const [showSessionChooser, setShowSessionChooser] = useState(false);
   const [sessionCandidates, setSessionCandidates] = useState<ChatSessionSummary[]>([]);
   const [historySessions, setHistorySessions] = useState<ChatSessionSummary[]>([]);
@@ -256,9 +263,10 @@ function ChatPageContent() {
   useEffect(() => {
     getCurrentUser()
       .then(async () => {
-        const [list, bootstrap] = await Promise.all([listSystemPrompts(), bootstrapChatSession()]);
+        const [list, bootstrap, agents] = await Promise.all([listSystemPrompts(), bootstrapChatSession(), listAgents()]);
         setAuthenticated(true);
         setPrompts(list);
+        setAgentOptions(agents.filter((agent) => !isStandardAgent(agent.agentId)));
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
         if (bootstrap.resolution === "choose") {
           if (requestedAgentId) {
@@ -323,7 +331,14 @@ function ChatPageContent() {
     setCurrentSessionTitle(detail.title || "新会话");
     setCurrentAgentId(agentId);
     setCurrentAgentName(detail.agentDisplayName || "普通聊天");
-    setSelectedPromptId(isStandardAgent(agentId) ? (detail.promptId ?? fallbackPromptId) : null);
+    setSelectedPromptId((current) =>
+      nextSelectedPromptIdForHydratedSession({
+        hydratedAgentId: agentId,
+        hydratedPromptId: detail.promptId,
+        currentPromptId: current,
+        fallbackPromptId,
+      }),
+    );
     setMessages(messagePage.messages.map(toUiChatMessage));
     setHasOlderMessages(messagePage.hasMore);
     setNextBeforeSeq(messagePage.nextBeforeSeq);
@@ -383,15 +398,26 @@ function ChatPageContent() {
 
   async function handleCreateNewSession() {
     if (streaming) return;
+    setDrawerOpen(false);
+    setShowNewSessionPicker(true);
+  }
+
+  async function handleCreateNewSessionForAgent(targetAgentId: string) {
+    if (streaming) return;
+    setCreatingNewAgentId(targetAgentId);
     try {
-      const detail = await createChatSession({
+      const detail = await createChatSession(buildNewSessionPayload({
         currentSessionId: sessionId,
-        promptId: usingStandardAgent ? selectedPromptId : null,
-        agentId: currentAgentId,
-      });
+        targetAgentId,
+        promptId: selectedPromptId,
+      }));
       hydrateSession(detail, selectedPromptId);
+      setShowNewSessionPicker(false);
+      router.replace(isStandardAgent(targetAgentId) ? "/chat" : agentChatHref(targetAgentId), { scroll: false });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "新建会话失败");
+    } finally {
+      setCreatingNewAgentId(null);
     }
   }
 
@@ -467,6 +493,7 @@ function ChatPageContent() {
             setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
           onDone() {
+            setMessages((current) => removeEmptyAssistantPlaceholders(current));
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
           },
           onError(message) {
@@ -531,6 +558,77 @@ function ChatPageContent() {
                   </p>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showNewSessionPicker ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-stone-950/35 p-4 sm:items-center sm:justify-center">
+          <button
+            className="absolute inset-0"
+            type="button"
+            aria-label="关闭新会话选择"
+            disabled={creatingNewAgentId !== null}
+            onClick={() => setShowNewSessionPicker(false)}
+          />
+          <div className="relative w-full max-w-md rounded-[1.5rem] bg-[#f8f5ec] p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-700">New Chat</p>
+                <h2 className="mt-1 text-xl font-semibold">选择新会话</h2>
+              </div>
+              <button
+                className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-600"
+                type="button"
+                disabled={creatingNewAgentId !== null}
+                onClick={() => setShowNewSessionPicker(false)}
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-5 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+              <button
+                className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
+                type="button"
+                disabled={creatingNewAgentId !== null}
+                onClick={() => handleCreateNewSessionForAgent(STANDARD_AGENT_ID)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-900">普通聊天</p>
+                    <p className="mt-1 text-xs text-stone-500">SystemPrompt / 知识库</p>
+                  </div>
+                  {creatingNewAgentId === STANDARD_AGENT_ID ? <span className="text-xs text-amber-700">创建中...</span> : null}
+                </div>
+              </button>
+
+              {agentOptions.map((agent) => (
+                <button
+                  key={agent.agentId}
+                  className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
+                  type="button"
+                  disabled={creatingNewAgentId !== null}
+                  onClick={() => handleCreateNewSessionForAgent(agent.agentId)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-stone-900">{agent.displayName}</p>
+                      <p className="mt-1 text-xs text-stone-500">{agent.domain}</p>
+                    </div>
+                    {creatingNewAgentId === agent.agentId ? (
+                      <span className="shrink-0 text-xs text-amber-700">创建中...</span>
+                    ) : null}
+                  </div>
+                </button>
+              ))}
+
+              {agentOptions.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-stone-300 px-4 py-6 text-center text-sm text-stone-500">
+                  暂无领域 Agent
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

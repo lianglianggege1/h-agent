@@ -23,6 +23,32 @@ export function buildChatSendPayload(input: {
   };
 }
 
+export function buildNewSessionPayload(input: {
+  currentSessionId: string | null | undefined;
+  targetAgentId: string | null | undefined;
+  promptId: number | null;
+}) {
+  const targetAgentId = input.targetAgentId || STANDARD_AGENT_ID;
+  const standard = isStandardAgent(targetAgentId);
+  return {
+    currentSessionId: input.currentSessionId ?? null,
+    promptId: standard ? input.promptId : null,
+    agentId: standard ? STANDARD_AGENT_ID : targetAgentId,
+  };
+}
+
+export function nextSelectedPromptIdForHydratedSession(input: {
+  hydratedAgentId: string | null | undefined;
+  hydratedPromptId: number | null;
+  currentPromptId: number | null;
+  fallbackPromptId: number | null;
+}) {
+  if (isStandardAgent(input.hydratedAgentId)) {
+    return input.hydratedPromptId ?? input.fallbackPromptId;
+  }
+  return input.currentPromptId ?? input.fallbackPromptId;
+}
+
 export function agentChatHref(agentId: string) {
   return `/chat?agentId=${encodeURIComponent(agentId)}`;
 }

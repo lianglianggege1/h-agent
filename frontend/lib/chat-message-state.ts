@@ -125,17 +125,32 @@ export function applyImageMessage(
   imageMessage: ChatSessionMessage,
 ): UiChatMessage[] {
   const uiMessage = toUiChatMessage(imageMessage);
-  let replaced = false;
-  const next = messages
-    .map((message) => {
-      if (message.id === assistantId) {
-        replaced = true;
-        return uiMessage;
-      }
-      return message;
-    })
-    .filter((message) => message.messageType !== "REASONING" || message.content.trim().length > 0);
-  return replaced ? next : [...next, uiMessage];
+  let inserted = false;
+  const next: UiChatMessage[] = [];
+
+  for (const message of messages) {
+    if (message.id === assistantId) {
+      next.push(uiMessage, message);
+      inserted = true;
+      continue;
+    }
+    next.push(message);
+  }
+
+  const withImage = inserted ? next : [...next, uiMessage];
+  return withImage.filter((message) => message.messageType !== "REASONING" || message.content.trim().length > 0);
+}
+
+export function removeEmptyAssistantPlaceholders(messages: UiChatMessage[]): UiChatMessage[] {
+  return messages.filter((message) => {
+    const hasAgentSteps = (message.agentSteps ?? []).length > 0;
+    return !(
+      message.role === "assistant" &&
+      message.messageType === "AI" &&
+      message.content.trim().length === 0 &&
+      !hasAgentSteps
+    );
+  });
 }
 
 export function toUiChatMessage(message: ChatSessionMessage): UiChatMessage {
@@ -181,6 +196,53 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
     }
     if (current.messageType === "REASONING") {
       const next = messages[index + 1];
+      const imageMessages: UiChatMessage[] = [];
+      let afterImagesIndex = index + 1;
+      while (messages[afterImagesIndex]?.messageType === "IMAGE") {
+        imageMessages.push(messages[afterImagesIndex]);
+        afterImagesIndex += 1;
+      }
+      const afterImages = messages[afterImagesIndex];
+      if (imageMessages.length > 0 && afterImages?.role === "assistant" && afterImages.messageType === "AI") {
+        for (const imageMessage of imageMessages) {
+          turns.push({
+            kind: "image",
+            id: imageMessage.id,
+            content: imageMessage.content,
+            resources: imageMessage.resources ?? [],
+          });
+        }
+        turns.push({
+          kind: "assistant",
+          id: afterImages.id,
+          reasoning: current.content || null,
+          answer: afterImages.content,
+          blocked: null,
+          agentSteps: afterImages.agentSteps ?? [],
+        });
+        index = afterImagesIndex;
+        continue;
+      }
+      if (imageMessages.length > 0 && afterImages?.role === "blocked" && afterImages.messageType === "SYSTEM") {
+        for (const imageMessage of imageMessages) {
+          turns.push({
+            kind: "image",
+            id: imageMessage.id,
+            content: imageMessage.content,
+            resources: imageMessage.resources ?? [],
+          });
+        }
+        turns.push({
+          kind: "blocked",
+          id: afterImages.id,
+          reasoning: current.content || null,
+          answer: "",
+          blocked: afterImages.content,
+          agentSteps: afterImages.agentSteps ?? [],
+        });
+        index = afterImagesIndex;
+        continue;
+      }
       if (next && next.role === "assistant" && next.messageType === "AI") {
         turns.push({
           kind: "assistant",

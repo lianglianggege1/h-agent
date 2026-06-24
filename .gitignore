@@ -47,6 +47,7 @@ build/
 
 # Claude
 .claude/
+.qoder/
 
 # Git worktrees
 .worktrees/
