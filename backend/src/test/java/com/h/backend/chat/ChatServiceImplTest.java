@@ -127,7 +127,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
-        RecordingPermit permit = new RecordingPermit();
+        AtomicInteger guardCalls = new AtomicInteger();
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
@@ -135,7 +135,10 @@ class ChatServiceImplTest {
                 agentRunService,
                 agentRunTelemetryService,
                 new DirectExecutorService(),
-                (sessionId, userId) -> permit,
+                (sessionId, userId) -> {
+                    guardCalls.incrementAndGet();
+                    return new RecordingPermit();
+                },
                 imageGenerationService
         );
         ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
@@ -186,7 +189,71 @@ class ChatServiceImplTest {
         ));
         verify(hAssistant, never()).streamChat(any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
-        assertTrue(permit.released());
+        assertEquals(0, guardCalls.get());
+    }
+
+    @Test
+    void shouldBypassChatConcurrencyGuardForSlashImageCommand() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
+        AtomicInteger guardCalls = new AtomicInteger();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> {
+                    guardCalls.incrementAndGet();
+                    return new RejectedPermit("当前系统繁忙，请稍后再试");
+                },
+                imageGenerationService
+        );
+        ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
+                "501",
+                "assistant",
+                "IMAGE",
+                "给我生成一张柴犬的图片",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(1L, "session-1", "/image 给我生成一张柴犬的图片")).thenReturn(101L);
+        when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "给我生成一张柴犬的图片",
+                "COMMAND"
+        ))).thenReturn(imageMessage);
+
+        List<ChatStreamEvent> events = chatService
+                .streamChat(1L, 2L, null, "session-1", "/image 给我生成一张柴犬的图片")
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("image", "", imageMessage),
+                new ChatStreamEvent("done", "")
+        ), events);
+        assertEquals(0, guardCalls.get());
+        verify(chatSessionService).assertActiveSession(1L, "session-1", 2L, "standard-chat");
+        verify(imageGenerationService).generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L,
+                "session-1",
+                22L,
+                "给我生成一张柴犬的图片",
+                "COMMAND"
+        ));
+        verify(hAssistant, never()).streamChat(any(), any());
+        verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
     }
 
     @Test

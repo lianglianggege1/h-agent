@@ -187,6 +187,17 @@ public class ChatServiceImpl implements ChatService {
             String userMessage
     ) {
         return Flux.defer(() -> {
+            if (isStandardImageCommand(agentId, userMessage)) {
+                return Flux.create(sink -> {
+                    try {
+                        chatStreamExecutor.submit(() ->
+                                runImageCommandStream(sink, userId, promptId, sessionId, userMessage));
+                    } catch (RuntimeException ex) {
+                        log.error("Failed to submit image command stream task", ex);
+                        emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
+                    }
+                });
+            }
             ChatStreamConcurrencyGuard.Permit permit = concurrencyGuard.tryAcquire(sessionId, userId);
             if (!permit.acquired()) {
                 return Flux.just(new ChatStreamEvent("error", permit.message()));
@@ -202,6 +213,31 @@ public class ChatServiceImpl implements ChatService {
                 }
             });
         });
+    }
+
+    private void runImageCommandStream(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            Long promptId,
+            String sessionId,
+            String userMessage
+    ) {
+        try {
+            chatSessionService.assertActiveSession(
+                    userId,
+                    sessionId,
+                    promptId,
+                    AgentRegistry.STANDARD_CHAT_AGENT_ID
+            );
+            Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
+            emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);
+        } catch (Exception ex) {
+            log.error("Error preparing image command stream", ex);
+            String publicMessage = ex instanceof BusinessException
+                    ? ex.getMessage()
+                    : "AI 服务调用失败";
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", publicMessage));
+        }
     }
 
     private void runChatStream(
@@ -369,6 +405,13 @@ public class ChatServiceImpl implements ChatService {
     private boolean isImageCommand(String userMessage) {
         return userMessage != null
                 && (userMessage.trim().equals("/image") || userMessage.trim().startsWith("/image "));
+    }
+
+    private boolean isStandardImageCommand(String agentId, String userMessage) {
+        String resolvedAgentId = StringUtils.isBlank(agentId)
+                ? AgentRegistry.STANDARD_CHAT_AGENT_ID
+                : agentId;
+        return AgentRegistry.STANDARD_CHAT_AGENT_ID.equals(resolvedAgentId) && isImageCommand(userMessage);
     }
 
     private String extractImagePrompt(String userMessage) {
