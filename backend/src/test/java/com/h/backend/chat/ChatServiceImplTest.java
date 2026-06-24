@@ -432,7 +432,10 @@ class ChatServiceImplTest {
         verify(chatSessionService).appendUserMessage(1L, "session-car", "need towing");
         verify(agentRunService).createRun("session-car", 1L, null, 101L, "car-rental-assistant", "trace-car");
         verifyNoInteractions(hAssistant);
-        assertEquals("1:agent:car-rental-assistant:session-car", agenticExecutor.command.memoryId());
+        assertEquals(
+                "exec:v2:user:1:session:session-car:agent:car-rental-assistant",
+                agenticExecutor.command.memoryId()
+        );
         assertEquals("car-rental-assistant", agenticExecutor.command.agent().agentId());
     }
 

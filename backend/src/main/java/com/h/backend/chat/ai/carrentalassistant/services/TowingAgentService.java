@@ -2,7 +2,6 @@ package com.h.backend.chat.ai.carrentalassistant.services;
 
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import dev.langchain4j.agentic.Agent;
-import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
@@ -27,6 +26,6 @@ public interface TowingAgentService {
        我是客户：{{customerInfo}}
        客户留言：{{message}}
        """)
-    @Agent
-    String processTowingRequest(@MemoryId String memoryId, @V("message") String message, @V("customerInfo") CustomerInfo customerInfo);
+    @Agent(name = "拖车协助专员")
+    String processTowingRequest(@V("message") String message, @V("customerInfo") CustomerInfo customerInfo);
 }

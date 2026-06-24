@@ -2,9 +2,11 @@ package com.h.backend.chat.agent;
 
 import com.h.backend.chat.dto.AgentTopologyDto;
 import dev.langchain4j.agentic.planner.AgentArgument;
+import dev.langchain4j.agentic.planner.Action;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.agentic.planner.Planner;
+import dev.langchain4j.agentic.planner.PlanningContext;
 import dev.langchain4j.agentic.workflow.ConditionalAgent;
 import dev.langchain4j.agentic.workflow.ConditionalAgentInstance;
 import dev.langchain4j.agentic.workflow.LoopAgentInstance;
@@ -27,7 +29,10 @@ class AgentTopologyMapperTest {
                 "extract",
                 "Extract",
                 "customerInfo",
-                List.of(new AgentArgument(String.class, "message"))
+                List.of(
+                        new AgentArgument(String.class, "@MemoryId"),
+                        new AgentArgument(String.class, "message")
+                )
         );
         MockAgent root = MockAgent.sequence("root", "Root", "response", List.of(child));
         AgentDefinition definition = new AgentDefinition(
@@ -47,6 +52,7 @@ class AgentTopologyMapperTest {
         assertEquals("Car Agent", dto.agent().displayName());
         assertEquals("SEQUENCE", dto.root().topology());
         assertEquals("String", dto.root().returnType());
+        assertEquals("MockPlanner", dto.root().plannerType());
         assertEquals("response", dto.root().outputKey());
         assertEquals(1, dto.root().children().size());
         assertEquals("customerInfo", dto.root().children().getFirst().outputKey());
@@ -148,7 +154,7 @@ class AgentTopologyMapperTest {
 
         @Override
         public Class<? extends Planner> plannerType() {
-            return null;
+            return MockPlanner.class;
         }
 
         @Override
@@ -199,6 +205,13 @@ class AgentTopologyMapperTest {
         @Override
         public AgenticSystemTopology topology() {
             return topology;
+        }
+    }
+
+    static class MockPlanner implements Planner {
+        @Override
+        public Action nextAction(PlanningContext planningContext) {
+            return done();
         }
     }
 

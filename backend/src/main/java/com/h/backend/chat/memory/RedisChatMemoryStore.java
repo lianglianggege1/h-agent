@@ -1,9 +1,9 @@
 package com.h.backend.chat.memory;
 
-import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.h.backend.chat.service.ChatMemorySnapshotService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -12,11 +12,18 @@ import java.util.List;
 public class RedisChatMemoryStore implements ChatMemoryStore {
 
     private final ChatMemorySnapshotService chatMemorySnapshotService;
+    private final ChatMemoryIdFactory chatMemoryIdFactory;
 
     public RedisChatMemoryStore(
             ChatMemorySnapshotService chatMemorySnapshotService
     ) {
+        this(chatMemorySnapshotService, new ChatMemoryIdFactory());
+    }
+
+    @Autowired
+    public RedisChatMemoryStore(ChatMemorySnapshotService chatMemorySnapshotService, ChatMemoryIdFactory chatMemoryIdFactory) {
         this.chatMemorySnapshotService = chatMemorySnapshotService;
+        this.chatMemoryIdFactory = chatMemoryIdFactory;
     }
 
     @Override
@@ -36,17 +43,6 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
     }
 
     private ChatMemoryContext parseContext(Object memoryId) {
-        String value = String.valueOf(memoryId);
-        String[] parts = value.split(":", 4);
-        if (parts.length == 3 && StringUtils.isNotBlank(parts[2])) {
-            return new ChatMemoryContext(Long.valueOf(parts[0]), Long.valueOf(parts[1]), parts[2]);
-        }
-        if (parts.length == 4 && "agent".equals(parts[1]) && StringUtils.isNotBlank(parts[3])) {
-            return new ChatMemoryContext(Long.valueOf(parts[0]), null, parts[3]);
-        }
-        if (parts.length == 4 && StringUtils.isNotBlank(parts[3])) {
-            throw new IllegalArgumentException("Invalid memoryId: " + value);
-        }
-        throw new IllegalArgumentException("Invalid memoryId: " + value);
+        return chatMemoryIdFactory.parse(memoryId);
     }
 }

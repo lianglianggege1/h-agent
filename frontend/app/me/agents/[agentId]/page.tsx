@@ -2,109 +2,145 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AgentTopology, AgentTopologyNode, getAgentTopology } from "@/lib/agents";
+import { collectTopologyLegend, topologyLabel, topologyTone } from "@/lib/agent-ui";
 import { getCurrentUser } from "@/lib/auth";
+import { agentChatHref } from "@/lib/chat-agent-mode";
 import { savePostLoginRedirect } from "@/lib/session";
 
-function topologyClassName(topology: string | null) {
-  if (topology === "ROUTER") return "border-sky-200 bg-sky-50 text-sky-700";
-  if (topology === "LOOP") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (topology === "PARALLEL") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (topology === "STAR") return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700";
-  if (topology === "SEQUENCE") return "border-stone-200 bg-stone-50 text-stone-700";
-  return "border-indigo-200 bg-indigo-50 text-indigo-700";
+const toneClasses: Record<string, { badge: string; border: string; dot: string }> = {
+  ai: {
+    badge: "bg-[#2e8555] text-white",
+    border: "border-l-[#2e8555]",
+    dot: "bg-[#2e8555]",
+  },
+  nonai: {
+    badge: "bg-[#6b7280] text-white",
+    border: "border-l-[#6b7280]",
+    dot: "bg-[#6b7280]",
+  },
+  human: {
+    badge: "bg-[#d97706] text-white",
+    border: "border-l-[#d97706]",
+    dot: "bg-[#d97706]",
+  },
+  seq: {
+    badge: "bg-[#0891b2] text-white",
+    border: "border-l-[#0891b2]",
+    dot: "bg-[#0891b2]",
+  },
+  par: {
+    badge: "bg-[#3b82f6] text-white",
+    border: "border-l-[#3b82f6]",
+    dot: "bg-[#3b82f6]",
+  },
+  loop: {
+    badge: "bg-[#7c3aed] text-white",
+    border: "border-l-[#7c3aed]",
+    dot: "bg-[#7c3aed]",
+  },
+  rtr: {
+    badge: "bg-[#dc2626] text-white",
+    border: "border-l-[#dc2626]",
+    dot: "bg-[#dc2626]",
+  },
+  star: {
+    badge: "bg-[#ca8a04] text-white",
+    border: "border-l-[#ca8a04]",
+    dot: "bg-[#ca8a04]",
+  },
+};
+
+function toneClass(tone: string) {
+  return toneClasses[tone] ?? toneClasses.nonai;
 }
 
-function TopologyNodeView({
-  node,
-  onSelect,
-}: {
-  node: AgentTopologyNode;
-  onSelect: (node: AgentTopologyNode) => void;
-}) {
-  const hasChildren = node.children.length > 0;
-  const isParallelLike = node.topology === "PARALLEL" || node.topology === "STAR";
+function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null;
 
   return (
-    <li className="relative flex flex-col items-center">
-      {node.condition ? (
-        <div className="mb-2 max-w-48 rounded-md border border-sky-200 bg-white px-2 py-1 text-center text-[11px] text-sky-700">
-          {node.condition}
-        </div>
-      ) : null}
-      <button
-        className="w-52 rounded-lg border border-stone-200 bg-white p-3 text-left shadow-sm transition hover:border-amber-400"
-        type="button"
-        onClick={() => onSelect(node)}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${topologyClassName(node.topology)}`}>
-            {node.topology || "AGENT"}
-          </span>
-          {node.async ? <span className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">async</span> : null}
-        </div>
-        <strong className="mt-2 block text-sm text-stone-900">{node.name}</strong>
-        <span className="mt-1 block truncate text-xs text-stone-400">{node.nodeId}</span>
-      </button>
-      {hasChildren ? (
-        <>
-          <div className="h-5 w-px bg-stone-300" />
-          <ul className={`flex gap-4 ${isParallelLike ? "items-start" : "items-start"}`}>
-            {node.children.map((child) => (
-              <TopologyNodeView key={child.nodeId} node={child} onSelect={onSelect} />
-            ))}
-          </ul>
-        </>
-      ) : null}
-    </li>
+    <div className="mt-1 flex gap-1.5 text-[11px] leading-5">
+      <span className="shrink-0 font-semibold text-slate-400">{label}</span>
+      <span className="min-w-0 truncate text-slate-600" title={value}>
+        {value}
+      </span>
+    </div>
   );
 }
 
-function NodeDrawer({ node, onClose }: { node: AgentTopologyNode | null; onClose: () => void }) {
-  if (!node) return null;
+function LoopInfo({ node }: { node: AgentTopologyNode }) {
+  if (!node.loop) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-md px-3 pb-3">
-      <div className="rounded-lg border border-stone-200 bg-white p-4 shadow-[0_-16px_60px_rgba(31,27,22,0.18)]">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs text-amber-700">{node.topology}</p>
-            <h2 className="mt-1 text-lg font-semibold">{node.name}</h2>
-            <p className="mt-1 break-all text-xs text-stone-400">{node.nodeId}</p>
-          </div>
-          <button className="rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-600" type="button" onClick={onClose}>
-            关闭
-          </button>
-        </div>
-        {node.description ? <p className="mt-3 text-sm leading-6 text-stone-500">{node.description}</p> : null}
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-lg bg-stone-50 p-3">
-            <dt className="text-xs text-stone-400">类型</dt>
-            <dd className="mt-1 break-all text-stone-700">{node.type || "-"}</dd>
-          </div>
-          <div className="rounded-lg bg-stone-50 p-3">
-            <dt className="text-xs text-stone-400">输出</dt>
-            <dd className="mt-1 break-all text-stone-700">{node.outputKey || "-"}</dd>
-          </div>
-          <div className="rounded-lg bg-stone-50 p-3">
-            <dt className="text-xs text-stone-400">返回类型</dt>
-            <dd className="mt-1 break-all text-stone-700">{node.returnType || "-"}</dd>
-          </div>
-          <div className="rounded-lg bg-stone-50 p-3">
-            <dt className="text-xs text-stone-400">输入</dt>
-            <dd className="mt-1 break-all text-stone-700">{node.inputKeys.length ? node.inputKeys.join(", ") : "-"}</dd>
-          </div>
-        </dl>
-        {node.loop ? (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <p>最大循环：{node.loop.maxIterations ?? "-"}</p>
-            <p className="mt-1">退出条件：{node.loop.exitCondition || "-"}</p>
-            <p className="mt-1">循环末尾检测：{node.loop.testExitAtLoopEnd ? "是" : "否"}</p>
-          </div>
-        ) : null}
-      </div>
+    <div className="mt-2 flex flex-wrap gap-1">
+      <span className="rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700">
+        max {node.loop.maxIterations ?? "-"}
+      </span>
+      {node.loop.exitCondition ? (
+        <span
+          className="max-w-40 truncate rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700"
+          title={node.loop.exitCondition}
+        >
+          exit: {node.loop.exitCondition}
+        </span>
+      ) : null}
+      <span className="rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700">
+        {node.loop.testExitAtLoopEnd ? "test at end" : "test at start"}
+      </span>
     </div>
+  );
+}
+
+function TopologyNodeView({ node }: { node: AgentTopologyNode }) {
+  const hasChildren = node.children.length > 0;
+  const tone = toneClass(topologyTone(node.topology));
+  const type = node.type && node.type !== node.name ? node.type : null;
+
+  return (
+    <li className="relative flex flex-col items-center px-2 pt-6 before:absolute before:right-1/2 before:top-0 before:h-6 before:w-1/2 before:border-t before:border-slate-300 after:absolute after:left-1/2 after:top-0 after:h-6 after:w-1/2 after:border-l after:border-t after:border-slate-300 first:before:border-t-0 last:after:border-t-0 only:before:hidden only:after:border-t-0">
+      {node.condition ? (
+        <div
+          className="mb-1.5 max-w-52 truncate rounded-[3px] border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] leading-4 text-amber-700"
+          title={node.condition}
+        >
+          when: {node.condition}
+        </div>
+      ) : null}
+
+      <div
+        className={`w-56 rounded-md border border-slate-200 border-l-4 ${tone.border} bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.06)]`}
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-[10px] font-bold ${tone.badge}`}>
+            {topologyLabel(node.topology)}
+          </span>
+          <span className="min-w-0 truncate text-sm font-semibold text-slate-900" title={node.name}>
+            {node.name}
+          </span>
+          {node.async ? (
+            <span className="shrink-0 rounded-[3px] border border-amber-200 bg-amber-50 px-1 text-[9px] font-medium text-amber-700">
+              async
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-1.5">
+          <Detail label="Type" value={type} />
+          <Detail label="Desc" value={node.description} />
+          <Detail label="Returns" value={node.returnType} />
+          <LoopInfo node={node} />
+        </div>
+      </div>
+
+      {hasChildren ? (
+        <ul className="relative flex justify-center pt-6 before:absolute before:left-1/2 before:top-0 before:h-6 before:border-l before:border-slate-300">
+          {node.children.map((child) => (
+            <TopologyNodeView key={child.nodeId} node={child} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }
 
@@ -113,18 +149,16 @@ export default function AgentTopologyPage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
   const [topology, setTopology] = useState<AgentTopology | null>(null);
-  const [selectedNode, setSelectedNode] = useState<AgentTopologyNode | null>(null);
   const [error, setError] = useState("");
 
   const agentId = decodeURIComponent(params.agentId);
+  const legend = useMemo(() => (topology ? collectTopologyLegend(topology.root) : []), [topology]);
 
   useEffect(() => {
     getCurrentUser()
       .then(async () => {
         setAuthenticated(true);
-        const detail = await getAgentTopology(agentId);
-        setTopology(detail);
-        setSelectedNode(detail.root);
+        setTopology(await getAgentTopology(agentId));
       })
       .catch((loadError) => {
         if (loadError instanceof Error && loadError.message !== "Unauthorized") {
@@ -138,76 +172,64 @@ export default function AgentTopologyPage() {
   }, [agentId, router]);
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="min-h-screen bg-[#f7f8fa]" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4 pb-36">
-        <header className="rounded-lg border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
-          <Link className="text-sm text-amber-700" href="/me/agents">
+    <main className="min-h-screen bg-[#f7f8fa] px-4 py-5 text-slate-900 sm:px-6">
+      <section className="mx-auto w-full max-w-6xl space-y-4">
+        <header className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
+          <Link className="text-sm font-medium text-emerald-700" href="/me/agents">
             返回 Agent 管理
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold">{topology?.agent.displayName ?? "Agent 编排"}</h1>
-          {topology ? (
-            <>
-              <p className="mt-2 text-sm leading-6 text-stone-500">{topology.agent.summary}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{topology.agent.domain}</span>
-                <span className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{topology.agent.runtimeType}</span>
-                {topology.agent.tags.map((tag) => (
-                  <span key={tag} className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </>
-          ) : null}
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold">{topology?.agent.displayName ?? "Agent 编排"}</h1>
+              {topology?.agent.summary ? (
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{topology.agent.summary}</p>
+              ) : null}
+            </div>
+            {topology ? (
+              <Link
+                className="inline-flex h-9 items-center justify-center rounded-md bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                href={agentChatHref(topology.agent.agentId)}
+              >
+                开始问答
+              </Link>
+            ) : null}
+          </div>
         </header>
 
         {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
         {topology ? (
-          <>
-            <div className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold">编排拓扑</h2>
-                <Link className="text-sm font-medium text-amber-700" href={`/agents?agentId=${encodeURIComponent(topology.agent.agentId)}`}>
-                  开始问答
-                </Link>
-              </div>
-              <div className="mt-4 overflow-x-auto pb-3">
-                <ul className="inline-flex min-w-max justify-center px-2">
-                  <TopologyNodeView node={topology.root} onSelect={setSelectedNode} />
-                </ul>
+          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-lg font-semibold">System Topology</h2>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {legend.map((item) => (
+                  <div key={item.topology} className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span className={`h-2.5 w-2.5 rounded-[3px] ${toneClass(item.tone).dot}`} />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
-              <h2 className="text-base font-semibold">状态 Key</h2>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {topology.stateKeys.map((item) => (
-                  <span
-                    key={item.key}
-                    className="rounded-md border border-stone-200 bg-white px-2 py-1 text-xs text-stone-600"
-                    style={{ borderColor: item.color }}
-                  >
-                    {item.key}
-                    <span className="ml-1 text-stone-400">{item.type}</span>
-                  </span>
-                ))}
-                {topology.stateKeys.length === 0 ? <span className="text-sm text-stone-500">暂无状态 key</span> : null}
+            <div className="overflow-x-auto px-2 pb-5 pt-2 sm:px-4">
+              <div className="inline-block min-w-full text-center">
+                <ul className="inline-flex justify-center">
+                  <TopologyNodeView node={topology.root} />
+                </ul>
               </div>
             </div>
-          </>
+          </section>
         ) : !error ? (
-          <div className="rounded-lg border border-stone-200 bg-white/90 px-4 py-3 text-sm text-stone-500">
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
             正在加载拓扑...
           </div>
         ) : null}
       </section>
-
-      <NodeDrawer node={selectedNode} onClose={() => setSelectedNode(null)} />
     </main>
   );
 }

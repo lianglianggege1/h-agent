@@ -50,10 +50,15 @@ public class CustomerInfo {
      * @return 所有必填信息齐全返回true，否则返回false
      */
     public boolean isComplete() {
-        return name != null && !name.isEmpty() &&
-               bookingReference != null && !bookingReference.isEmpty() &&
-               carMake != null && !carMake.isEmpty() &&
-               carModel != null && !carModel.isEmpty();
+        return hasText(name) &&
+               (hasText(bookingReference) || hasText(customerId)) &&
+               hasText(carMake) &&
+               hasText(carModel) &&
+               hasText(location);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**

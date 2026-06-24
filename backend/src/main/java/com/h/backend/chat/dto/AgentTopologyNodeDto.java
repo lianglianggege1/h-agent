@@ -9,6 +9,7 @@ public record AgentTopologyNodeDto(
         String type,
         String description,
         String returnType,
+        String plannerType,
         String outputKey,
         List<String> inputKeys,
         String condition,

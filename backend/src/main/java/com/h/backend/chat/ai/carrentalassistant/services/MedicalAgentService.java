@@ -2,7 +2,6 @@ package com.h.backend.chat.ai.carrentalassistant.services;
 
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import dev.langchain4j.agentic.Agent;
-import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
@@ -32,6 +31,6 @@ public interface MedicalAgentService {
          我突发急症：{{medicalEmergency}}
          我该怎么做？
         """)
-    @Agent
-    String handleMedicalEmergency(@MemoryId String memoryId, @V("medicalEmergency") String medicalEmergency, @V("customerInfo") CustomerInfo customerInfo);
+    @Agent(name = "医疗急救助手")
+    String handleMedicalEmergency(@V("medicalEmergency") String medicalEmergency, @V("customerInfo") CustomerInfo customerInfo);
 }

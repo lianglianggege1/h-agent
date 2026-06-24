@@ -25,4 +25,6 @@ public interface ChatMemorySnapshotService {
     void restoreToRedis(String sessionId);
 
     void deleteSnapshot(String sessionId);
+
+    void deleteSnapshot(ChatMemoryContext context);
 }

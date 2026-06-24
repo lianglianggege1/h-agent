@@ -18,6 +18,10 @@ public interface EmergencyResponseService {
         
         公安警情反馈：{{policeResponse}}
         """)
-    @Agent
-    String summarizeEmergencies(@V("fireResponse") String fireResponse, @V("medicalResponse") String medicalResponse, @V("policeResponse") String policeResponse);
+    @Agent(name = "消防、医疗、公安应急部门回复的智能处理助手")
+    String summarizeEmergencies(
+            @V("fireResponse") String fireResponse,
+            @V("medicalResponse") String medicalResponse,
+            @V("policeResponse") String policeResponse
+    );
 }

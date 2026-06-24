@@ -25,6 +25,12 @@ public class ChatMemorySnapshotEntity {
     @TableField("prompt_id")
     private Long promptId;
 
+    @TableField("agent_id")
+    private String agentId;
+
+    @TableField("memory_scope")
+    private String memoryScope;
+
     @TableField("memory_payload_json")
     private String memoryPayloadJson;
 
@@ -87,6 +93,22 @@ public class ChatMemorySnapshotEntity {
 
     public void setPromptId(Long promptId) {
         this.promptId = promptId;
+    }
+
+    public String getAgentId() {
+        return agentId;
+    }
+
+    public void setAgentId(String agentId) {
+        this.agentId = agentId;
+    }
+
+    public String getMemoryScope() {
+        return memoryScope;
+    }
+
+    public void setMemoryScope(String memoryScope) {
+        this.memoryScope = memoryScope;
     }
 
     public String getMemoryPayloadJson() {

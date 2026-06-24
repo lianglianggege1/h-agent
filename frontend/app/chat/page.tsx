@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyAgentStep,
   applyAssistantChunk,
@@ -15,10 +15,17 @@ import {
   type UiAgentStep,
   type UiChatMessage,
 } from "@/lib/chat-message-state";
+import { agentStepStatusText, visibleAgentSteps } from "@/lib/agent-ui";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
+import {
+  buildChatSendPayload,
+  isStandardAgent,
+  shouldCreateSessionForRequestedAgent,
+  STANDARD_AGENT_ID,
+} from "@/lib/chat-agent-mode";
 import {
   bootstrapChatSession,
   ChatSessionOpen,
@@ -149,7 +156,9 @@ function ReasoningDetails({ content, pending = false }: { content: string; pendi
 }
 
 function AgentStepDetails({ steps, pending = false }: { steps: UiAgentStep[]; pending?: boolean }) {
-  if (steps.length === 0) {
+  const visibleSteps = visibleAgentSteps(steps);
+
+  if (visibleSteps.length === 0) {
     return null;
   }
 
@@ -159,15 +168,13 @@ function AgentStepDetails({ steps, pending = false }: { steps: UiAgentStep[]; pe
       open={pending}
     >
       <summary className="cursor-pointer list-none text-xs font-medium tracking-[0.18em] text-stone-500">
-        执行过程
+        子 Agent 状态
       </summary>
-      <div className="mt-2 space-y-2">
-        {steps.map((step) => (
-          <div key={step.invocationId} className="flex items-center justify-between gap-3 text-xs">
-            <span className="min-w-0 truncate">{step.nodeName}</span>
-            <span className="shrink-0 text-stone-500">
-              {step.status === "running" ? "执行中" : step.status === "completed" ? "已完成" : "失败"}
-            </span>
+      <div className="mt-2 grid gap-2">
+        {visibleSteps.map((step) => (
+          <div key={step.invocationId} className="flex h-8 items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white px-2 text-xs">
+            <span className="min-w-0 truncate font-medium text-stone-700">{step.nodeName}</span>
+            <span className="shrink-0 text-stone-500">{agentStepStatusText(step.status)}</span>
           </div>
         ))}
       </div>
@@ -215,8 +222,9 @@ function ImageMessageContent({
   );
 }
 
-export default function ChatPage() {
+function ChatPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -233,6 +241,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<UiChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
+  const [currentAgentId, setCurrentAgentId] = useState(STANDARD_AGENT_ID);
+  const [currentAgentName, setCurrentAgentName] = useState("普通聊天");
   const [showSessionChooser, setShowSessionChooser] = useState(false);
   const [sessionCandidates, setSessionCandidates] = useState<ChatSessionSummary[]>([]);
   const [historySessions, setHistorySessions] = useState<ChatSessionSummary[]>([]);
@@ -241,6 +251,7 @@ export default function ChatPage() {
   const [historyLoadedForSession, setHistoryLoadedForSession] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
+  const requestedAgentId = searchParams.get("agentId");
 
   useEffect(() => {
     getCurrentUser()
@@ -250,13 +261,40 @@ export default function ChatPage() {
         setPrompts(list);
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
         if (bootstrap.resolution === "choose") {
+          if (requestedAgentId) {
+            const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
+            const resolved = currentSessionId ? await resolveChatSession(currentSessionId) : null;
+            const requestedSession = await createChatSession({
+              currentSessionId: resolved?.session.sessionId ?? currentSessionId,
+              promptId: null,
+              agentId: requestedAgentId,
+            });
+            hydrateSession(requestedSession, defaultPrompt?.id ?? null);
+            return;
+          }
           setSelectedPromptId(defaultPrompt?.id ?? null);
           setSessionCandidates(bootstrap.candidates);
           setShowSessionChooser(true);
           setMessages([]);
           return;
         }
-        hydrateSession(bootstrap.session, defaultPrompt?.id ?? null);
+        const open = bootstrap.session;
+        if (
+          shouldCreateSessionForRequestedAgent({
+            requestedAgentId,
+            currentAgentId: open?.session.agentId,
+            sessionId: open?.session.sessionId,
+          })
+        ) {
+          const requestedSession = await createChatSession({
+            currentSessionId: open?.session.sessionId ?? null,
+            promptId: null,
+            agentId: requestedAgentId,
+          });
+          hydrateSession(requestedSession, defaultPrompt?.id ?? null);
+          return;
+        }
+        hydrateSession(open, defaultPrompt?.id ?? null);
       })
       .catch(() => {
         setAuthenticated(false);
@@ -264,7 +302,7 @@ export default function ChatPage() {
         router.replace("/auth/login");
       })
       .finally(() => setBootstrapping(false));
-  }, [router]);
+  }, [requestedAgentId, router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -274,14 +312,18 @@ export default function ChatPage() {
     () => input.trim().length > 0 && !streaming && !bootstrapping && !showSessionChooser && !!sessionId,
     [bootstrapping, input, sessionId, showSessionChooser, streaming],
   );
+  const usingStandardAgent = isStandardAgent(currentAgentId);
 
   function hydrateSession(open: ChatSessionOpen | null, fallbackPromptId: number | null) {
     if (!open) return;
     const detail = open.session;
     const messagePage = open.messagePage;
+    const agentId = detail.agentId || STANDARD_AGENT_ID;
     setSessionId(detail.sessionId);
     setCurrentSessionTitle(detail.title || "新会话");
-    setSelectedPromptId(detail.promptId ?? fallbackPromptId);
+    setCurrentAgentId(agentId);
+    setCurrentAgentName(detail.agentDisplayName || "普通聊天");
+    setSelectedPromptId(isStandardAgent(agentId) ? (detail.promptId ?? fallbackPromptId) : null);
     setMessages(messagePage.messages.map(toUiChatMessage));
     setHasOlderMessages(messagePage.hasMore);
     setNextBeforeSeq(messagePage.nextBeforeSeq);
@@ -344,7 +386,8 @@ export default function ChatPage() {
     try {
       const detail = await createChatSession({
         currentSessionId: sessionId,
-        promptId: selectedPromptId,
+        promptId: usingStandardAgent ? selectedPromptId : null,
+        agentId: currentAgentId,
       });
       hydrateSession(detail, selectedPromptId);
     } catch (sessionError) {
@@ -400,12 +443,12 @@ export default function ChatPage() {
         "/api/chat/messages/stream",
         {
           method: "POST",
-          body: JSON.stringify({
+          body: JSON.stringify(buildChatSendPayload({
             message: content,
             sessionId,
             promptId: selectedPromptId,
-            agentId: "standard-chat",
-          }),
+            agentId: currentAgentId,
+          })),
         },
         {
           onReasoning(chunk) {
@@ -590,42 +633,56 @@ export default function ChatPage() {
         </header>
 
         <div ref={historyContainerRef} className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
-          <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-amber-700">SystemPrompt</p>
-                <p className="mt-1 text-sm text-stone-500">选择当前对话使用的系统提示词</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                {selectedPromptId ? (
-                  <Link className="text-sm font-medium text-amber-700" href={`/me/knowledge?promptId=${selectedPromptId}`}>
-                    知识库
+          {usingStandardAgent ? (
+            <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">SystemPrompt</p>
+                  <p className="mt-1 text-sm text-stone-500">选择当前对话使用的系统提示词</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {selectedPromptId ? (
+                    <Link className="text-sm font-medium text-amber-700" href={`/me/knowledge?promptId=${selectedPromptId}`}>
+                      知识库
+                    </Link>
+                  ) : null}
+                  <Link className="text-sm font-medium text-amber-700" href="/me/system-prompts">
+                    管理
                   </Link>
-                ) : null}
-                <Link className="text-sm font-medium text-amber-700" href="/me/system-prompts">
-                  管理
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                {prompts.map((prompt) => (
+                  <button
+                    key={prompt.id}
+                    className={`shrink-0 rounded-full border px-4 py-2 text-sm shadow-sm ${
+                      prompt.id === selectedPromptId
+                        ? "border-stone-900 bg-stone-900 text-white"
+                        : "border-stone-200 bg-white text-stone-600"
+                    }`}
+                    type="button"
+                    disabled={streaming}
+                    onClick={() => handleSelectPrompt(prompt.id)}
+                  >
+                    {prompt.name}
+                    {prompt.isDefault ? " · 默认" : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Domain Agent</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+                </div>
+                <Link className="shrink-0 text-sm font-medium text-amber-700" href={`/me/agents/${encodeURIComponent(currentAgentId)}`}>
+                  拓扑详情
                 </Link>
               </div>
             </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-              {prompts.map((prompt) => (
-                <button
-                  key={prompt.id}
-                  className={`shrink-0 rounded-full border px-4 py-2 text-sm shadow-sm ${
-                    prompt.id === selectedPromptId
-                      ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 bg-white text-stone-600"
-                  }`}
-                  type="button"
-                  disabled={streaming}
-                  onClick={() => handleSelectPrompt(prompt.id)}
-                >
-                  {prompt.name}
-                  {prompt.isDefault ? " · 默认" : ""}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
           {hasOlderMessages ? (
             <div className="mt-4 text-center">
@@ -721,7 +778,7 @@ export default function ChatPage() {
                 className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.4rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="输入你想聊的内容..."
+                placeholder={usingStandardAgent ? "输入你想聊的内容..." : `询问 ${currentAgentName}...`}
                 rows={1}
               />
               <button
@@ -736,5 +793,13 @@ export default function ChatPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />}>
+      <ChatPageContent />
+    </Suspense>
   );
 }

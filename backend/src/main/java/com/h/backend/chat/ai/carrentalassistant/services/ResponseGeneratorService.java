@@ -29,6 +29,10 @@ public interface ResponseGeneratorService {
         
         应急专员回复：{{emergencyResponse}}
         """)
-    @Agent
-    String integrateResponses(@V("message") String message, @V("towingResponse") String towingResponse, @V("emergencyResponse") String emergencyResponse);
+    @Agent(name = "客户协助系统智能代理")
+    String integrateResponses(
+            @V("message") String message,
+            @V("towingResponse") String towingResponse,
+            @V("emergencyResponse") String emergencyResponse
+    );
 }

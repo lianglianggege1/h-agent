@@ -43,9 +43,11 @@ public class AgentTopologyMapper {
                 agent.type() == null ? null : agent.type().getSimpleName(),
                 agent.description(),
                 simpleTypeName(agent.outputType()),
+                agent.plannerType() == null ? null : agent.plannerType().getSimpleName(),
                 agent.outputKey(),
                 arguments(agent).stream()
                         .map(AgentArgument::name)
+                        .filter(this::isVisibleStateKey)
                         .toList(),
                 condition,
                 agent.async(),
@@ -100,7 +102,7 @@ public class AgentTopologyMapper {
 
     private void collectStateKeys(AgentInstance agent, Map<String, StateKeyDto> keys) {
         for (AgentArgument argument : arguments(agent)) {
-            if (argument.name() == null || argument.name().isBlank()) {
+            if (!isVisibleStateKey(argument.name())) {
                 continue;
             }
             keys.putIfAbsent(
@@ -109,7 +111,7 @@ public class AgentTopologyMapper {
             );
         }
 
-        if (agent.outputKey() != null && !agent.outputKey().isBlank()) {
+        if (isVisibleStateKey(agent.outputKey())) {
             keys.putIfAbsent(
                     agent.outputKey(),
                     new StateKeyDto(agent.outputKey(), simpleTypeName(agent.outputType()), colorFor(agent.outputKey()))
@@ -145,5 +147,9 @@ public class AgentTopologyMapper {
 
     private List<AgentInstance> subagents(AgentInstance agent) {
         return agent.subagents() == null ? List.of() : agent.subagents();
+    }
+
+    private boolean isVisibleStateKey(String key) {
+        return key != null && !key.isBlank() && !key.startsWith("@");
     }
 }

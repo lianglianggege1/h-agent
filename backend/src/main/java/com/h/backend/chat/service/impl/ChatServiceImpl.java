@@ -10,6 +10,7 @@ import com.h.backend.chat.agent.HAssistantStreamingExecutor;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
+import com.h.backend.chat.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import com.h.backend.chat.service.ChatService;
@@ -44,6 +45,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatStreamConcurrencyGuard concurrencyGuard;
     private final ImageGenerationService imageGenerationService;
     private final AgentRegistry agentRegistry;
+    private final ChatMemoryIdFactory chatMemoryIdFactory;
     private final Map<AgentRuntimeType, ChatAgentExecutor> executors;
 
     @Autowired
@@ -56,6 +58,7 @@ public class ChatServiceImpl implements ChatService {
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
             AgentRegistry agentRegistry,
+            ChatMemoryIdFactory chatMemoryIdFactory,
             List<ChatAgentExecutor> executors
     ) {
         this.systemPromptService = systemPromptService;
@@ -66,6 +69,7 @@ public class ChatServiceImpl implements ChatService {
         this.concurrencyGuard = concurrencyGuard;
         this.imageGenerationService = imageGenerationService;
         this.agentRegistry = agentRegistry;
+        this.chatMemoryIdFactory = chatMemoryIdFactory;
         this.executors = toExecutorMap(executors);
     }
 
@@ -162,6 +166,7 @@ public class ChatServiceImpl implements ChatService {
                 concurrencyGuard,
                 imageGenerationService,
                 agentRegistry,
+                new ChatMemoryIdFactory(),
                 withStandardExecutorIfMissing(
                         hAssistant,
                         chatSessionService,
@@ -294,7 +299,7 @@ public class ChatServiceImpl implements ChatService {
         if (AgentRegistry.STANDARD_CHAT_AGENT_ID.equals(agentId)) {
             return userId + ":" + resolvedPromptId + ":" + sessionId;
         }
-        return userId + ":agent:" + agentId + ":" + sessionId;
+        return chatMemoryIdFactory.executionId(userId, sessionId, agentId);
     }
 
     private void emitImageCommandEvents(

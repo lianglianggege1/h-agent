@@ -4,15 +4,21 @@ import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.ai.carrentalassistant.domain.Emergencies;
 import com.h.backend.chat.ai.carrentalassistant.services.*;
 import com.h.backend.chat.agent.AgentStepListener;
+import com.h.backend.chat.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
 import dev.langchain4j.agentic.scope.AgenticScope;
+import dev.langchain4j.agentic.workflow.HumanInTheLoop;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.model.chat.ChatModel;
 import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.ArrayList;
+import java.util.List;
 
 // agent 配置
 @Configuration
@@ -27,46 +33,59 @@ public class AgentConfig {
     @Resource
     private AgentStepListener agentStepListener;
 
+    @Resource
+    private ChatMemoryIdFactory chatMemoryIdFactory;
+
     @Bean
     public CarRentalAssistant createAssistant() {
         CustomerInfoExtractionService customerInfoExtraction = AgenticServices.agentBuilder(
                         CustomerInfoExtractionService.class
                 ).chatModel(chatModel)
                 .listener(agentStepListener)
-                // 记忆模块提供者
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
+                .chatMemoryProvider(scopedMemoryProvider("customer-info-extractor"))
                 .outputKey("customerInfo")
                 .build();
 
         TowingAgentService towingAgentService = AgenticServices.agentBuilder(TowingAgentService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("towingResponse")
                 .build();
 
         ResponseGeneratorService responseGeneratorService = AgenticServices.agentBuilder(ResponseGeneratorService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                // 记忆模块提供者
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("response")
                 .build();
+
+        HumanInTheLoop customerInfoClarifier = AgenticServices.humanInTheLoopBuilder()
+                .description("向用户追问缺失的租车救援客户信息")
+                .listener(agentStepListener)
+                .outputKey("response")
+                .responseProvider(scope -> customerInfoClarification((CustomerInfo) scope.readState("customerInfo")))
+                .build();
+
+        UntypedAgent businessFlow = AgenticServices.sequenceBuilder()
+                .listener(agentStepListener)
+                .subAgents(
+                        towingAgentService,
+                        emergencyService(chatModel, redisChatMemoryStore, agentStepListener),
+                        responseGeneratorService
+                )
+                .outputKey("response")
+                .build();
+
+        UntypedAgent customerInfoGate = AgenticServices.conditionalBuilder()
+                .listener(agentStepListener)
+                .subAgents(
+                        "customer info is incomplete",
+                        agenticScope -> !hasCompleteCustomerInfo(agenticScope),
+                        customerInfoClarifier
+                )
+                .subAgents("customer info is complete", AgentConfig::hasCompleteCustomerInfo, businessFlow)
+                .outputKey("response")
+                .build();
+
         return AgenticServices.sequenceBuilder(CarRentalAssistant.class)
                 .listener(agentStepListener)
                 .beforeCall(agenticScope -> {
@@ -74,8 +93,51 @@ public class AgentConfig {
                         agenticScope.writeState("customerInfo", new CustomerInfo());
                     }
                 })
-                .subAgents(customerInfoExtraction, towingAgentService, emergencyService(chatModel, redisChatMemoryStore, agentStepListener), responseGeneratorService)
+                .subAgents(customerInfoExtraction, customerInfoGate)
                 .outputKey("response")
+                .build();
+    }
+
+    static String customerInfoClarification(CustomerInfo customerInfo) {
+        List<String> missingFields = missingCustomerInfoFields(customerInfo);
+        return "为了继续处理租车救援请求，请补充：" + String.join("、", missingFields) + "。";
+    }
+
+    private static boolean hasCompleteCustomerInfo(AgenticScope agenticScope) {
+        CustomerInfo customerInfo = (CustomerInfo) agenticScope.readState("customerInfo");
+        return customerInfo != null && customerInfo.isComplete();
+    }
+
+    private static List<String> missingCustomerInfoFields(CustomerInfo customerInfo) {
+        List<String> fields = new ArrayList<>();
+        if (customerInfo == null || isBlank(customerInfo.getName())) {
+            fields.add("客户姓名");
+        }
+        if (customerInfo == null || (isBlank(customerInfo.getBookingReference()) && isBlank(customerInfo.getCustomerId()))) {
+            fields.add("预订参考号或客户编号");
+        }
+        if (customerInfo == null || isBlank(customerInfo.getCarMake())) {
+            fields.add("车辆品牌");
+        }
+        if (customerInfo == null || isBlank(customerInfo.getCarModel())) {
+            fields.add("车辆型号");
+        }
+        if (customerInfo == null || isBlank(customerInfo.getLocation())) {
+            fields.add("当前位置");
+        }
+        return fields;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private ChatMemoryProvider scopedMemoryProvider(String scopeKey) {
+        return memoryId -> MessageWindowChatMemory.builder()
+                .id(chatMemoryIdFactory.scopedMemoryId(String.valueOf(memoryId), scopeKey))
+                .maxMessages(10)
+                .alwaysKeepSystemMessageFirst(true)
+                .chatMemoryStore(redisChatMemoryStore)
                 .build();
     }
 
@@ -83,58 +145,28 @@ public class AgentConfig {
         EmergencyExtractorService emergencyExtractor = AgenticServices.agentBuilder(EmergencyExtractorService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("emergencies")
                 .build();
 
         EmergencyResponseService emergencyResponseService = AgenticServices.agentBuilder(EmergencyResponseService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("emergencyResponse")
                 .build();
 
         FireAgentService fireAgent = AgenticServices.agentBuilder(FireAgentService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("fireResponse")
                 .build();
         MedicalAgentService medicalAgent = AgenticServices.agentBuilder(MedicalAgentService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("medicalResponse")
                 .build();
         PoliceAgentService policeAgent = AgenticServices.agentBuilder(PoliceAgentService.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(10)
-                        .alwaysKeepSystemMessageFirst(true)
-                        .chatMemoryStore(redisChatMemoryStore)
-                        .build())
                 .outputKey("policeResponse")
                 .build();
 

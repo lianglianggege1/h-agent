@@ -24,6 +24,6 @@ public interface EmergencyExtractorService {
         我是求助用户：{{customerInfo}}
         我的留言内容：{{message}}
         """)
-    @Agent
+    @Agent(name = "紧急事件处置人员")
     Emergencies extractEmergencies(@V("message") String message, @V("customerInfo") CustomerInfo customerInfo);
 }

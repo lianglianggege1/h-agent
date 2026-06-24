@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.agent.AgentDefinition;
+import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.dto.ChatMessagePayloadDto;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
@@ -26,6 +28,7 @@ import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +54,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private final ChatMemorySnapshotService chatMemorySnapshotService;
     private final SystemPromptService systemPromptService;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<AgentRegistry> agentRegistryProvider;
 
     @Autowired
     public ChatSessionServiceImpl(
@@ -59,7 +63,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ChatMessageResourceMapper chatMessageResourceMapper,
             ChatMemorySnapshotService chatMemorySnapshotService,
             SystemPromptService systemPromptService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ObjectProvider<AgentRegistry> agentRegistryProvider
     ) {
         this.chatSessionMapper = chatSessionMapper;
         this.chatSessionMessageMapper = chatSessionMessageMapper;
@@ -67,6 +72,27 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.chatMemorySnapshotService = chatMemorySnapshotService;
         this.systemPromptService = systemPromptService;
         this.objectMapper = objectMapper;
+        this.agentRegistryProvider = agentRegistryProvider;
+    }
+
+    public ChatSessionServiceImpl(
+            ChatSessionMapper chatSessionMapper,
+            ChatSessionMessageMapper chatSessionMessageMapper,
+            ChatMessageResourceMapper chatMessageResourceMapper,
+            ChatMemorySnapshotService chatMemorySnapshotService,
+            SystemPromptService systemPromptService,
+            ObjectMapper objectMapper,
+            AgentRegistry agentRegistry
+    ) {
+        this(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper,
+                fixedAgentRegistryProvider(agentRegistry)
+        );
     }
 
     public ChatSessionServiceImpl(
@@ -74,7 +100,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ChatSessionMessageMapper chatSessionMessageMapper,
             ChatMemorySnapshotService chatMemorySnapshotService,
             SystemPromptService systemPromptService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            AgentRegistry agentRegistry
     ) {
         this(
                 chatSessionMapper,
@@ -82,7 +109,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 null,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                fixedAgentRegistryProvider(agentRegistry)
         );
     }
 
@@ -452,11 +480,16 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private ChatSessionMetaDto toMeta(ChatSessionEntity session) {
+        String agentId = StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId();
+        AgentMetadata agentMetadata = resolveAgentMetadata(agentId);
         return new ChatSessionMetaDto(
                 session.getSessionId(),
                 session.getTitle(),
                 session.getPromptId(),
-                StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId(),
+                agentId,
+                agentMetadata.displayName(),
+                agentMetadata.domain(),
+                agentMetadata.runtimeType(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
@@ -465,17 +498,73 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private ChatSessionSummaryDto toSummary(ChatSessionEntity session) {
+        String agentId = StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId();
+        AgentMetadata agentMetadata = resolveAgentMetadata(agentId);
         return new ChatSessionSummaryDto(
                 session.getSessionId(),
                 session.getTitle(),
                 session.getLastUserMessage(),
                 session.getPromptId(),
-                StringUtils.isBlank(session.getAgentId()) ? ChatAgentIds.STANDARD_CHAT : session.getAgentId(),
+                agentId,
+                agentMetadata.displayName(),
+                agentMetadata.domain(),
+                agentMetadata.runtimeType(),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
                 !STATUS_ACTIVE.equals(session.getStatus())
         );
+    }
+
+    private AgentMetadata resolveAgentMetadata(String agentId) {
+        AgentRegistry agentRegistry = agentRegistryProvider.getIfAvailable();
+        if (agentRegistry == null) {
+            return new AgentMetadata(agentId, "未知", "UNKNOWN");
+        }
+        return agentRegistry.listEnabled().stream()
+                .filter(definition -> definition.agentId().equals(agentId))
+                .findFirst()
+                .map(this::toAgentMetadata)
+                .orElseGet(() -> new AgentMetadata(agentId, "未知", "UNKNOWN"));
+    }
+
+    private static ObjectProvider<AgentRegistry> fixedAgentRegistryProvider(AgentRegistry agentRegistry) {
+        return new ObjectProvider<>() {
+            @Override
+            public AgentRegistry getObject(Object... args) {
+                return agentRegistry;
+            }
+
+            @Override
+            public AgentRegistry getIfAvailable() {
+                return agentRegistry;
+            }
+
+            @Override
+            public AgentRegistry getIfUnique() {
+                return agentRegistry;
+            }
+
+            @Override
+            public AgentRegistry getObject() {
+                return agentRegistry;
+            }
+        };
+    }
+
+    private AgentMetadata toAgentMetadata(AgentDefinition definition) {
+        return new AgentMetadata(
+                definition.displayName(),
+                definition.domain(),
+                definition.runtimeType().name()
+        );
+    }
+
+    private record AgentMetadata(
+            String displayName,
+            String domain,
+            String runtimeType
+    ) {
     }
 
     private ChatSessionMessagesPageDto buildMessagesPage(ChatSessionEntity session, int limit, Integer beforeSeq) {

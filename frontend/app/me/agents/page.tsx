@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AgentSummary, listAgents } from "@/lib/agents";
 import { getCurrentUser } from "@/lib/auth";
+import { agentChatHref } from "@/lib/chat-agent-mode";
 import { savePostLoginRedirect } from "@/lib/session";
 
 export default function AgentManagementPage() {
@@ -96,7 +97,7 @@ export default function AgentManagementPage() {
                 </Link>
                 <Link
                   className="rounded-lg border border-stone-200 px-3 py-2 text-center text-sm font-semibold text-stone-700"
-                  href={`/agents?agentId=${encodeURIComponent(agent.agentId)}`}
+                  href={agentChatHref(agent.agentId)}
                 >
                   开始问答
                 </Link>

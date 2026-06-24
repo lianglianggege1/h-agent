@@ -30,6 +30,6 @@ public interface CustomerInfoExtractionService {
              并更新现有客户信息：
              {{customerInfo}}
         """)
-    @Agent("从用户消息中提取客户信息")
+    @Agent(name = "客户信息提取助手")
     CustomerInfo extractCustomerInfo(@MemoryId String memoryId, @V("message") String message, @V("customerInfo") CustomerInfo customerInfo);
 }

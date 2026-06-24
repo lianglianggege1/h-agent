@@ -8,6 +8,6 @@ import dev.langchain4j.service.V;
 // 租车助手
 public interface CarRentalAssistant {
 
-    @Agent
+    @Agent(name = "租车助手")
     ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("message") String message);
 }

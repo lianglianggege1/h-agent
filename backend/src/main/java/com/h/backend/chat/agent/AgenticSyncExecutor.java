@@ -74,6 +74,7 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     private ResultWithAgenticScope<String> executeSelectedAgent(ChatAgentExecutionCommand command) {
         Object agentBean = command.agent().agentBean();
+        // 使用if else判断走的是哪个领域agent
         if (agentBean instanceof CarRentalAssistant assistant) {
             return assistant.chat(command.memoryId(), command.userMessage());
         }

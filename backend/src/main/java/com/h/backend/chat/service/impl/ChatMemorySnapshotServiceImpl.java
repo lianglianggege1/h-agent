@@ -64,14 +64,14 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
             redisUtil.expire(versionKey(context), MEMORY_TTL_SECONDS);
             Long currentVersion = readLong(versionKey(context));
             if (currentVersion == null) {
-                ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(context.sessionId());
+                ChatMemorySnapshotEntity snapshot = selectSnapshot(context);
                 long seedVersion = snapshot == null || snapshot.getSnapshotVersion() == null ? 0L : snapshot.getSnapshotVersion();
                 redisUtil.set(versionKey(context), seedVersion, MEMORY_TTL_SECONDS);
             }
             return Optional.of(ChatMessageDeserializer.messagesFromJson(cachedPayload));
         }
 
-        ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(context.sessionId());
+        ChatMemorySnapshotEntity snapshot = selectSnapshot(context);
         if (snapshot == null || StringUtils.isBlank(snapshot.getMemoryPayloadJson())) {
             return Optional.empty();
         }
@@ -104,24 +104,26 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
 
     @Override
     public void scheduleFlush(ChatMemoryContext context, List<ChatMessage> messages, long version) {
-        ScheduledFuture<?> previous = pendingFlushes.remove(context.sessionId());
+        String pendingKey = pendingKey(context);
+        ScheduledFuture<?> previous = pendingFlushes.remove(pendingKey);
         if (previous != null) {
             previous.cancel(false);
         }
         ScheduledFuture<?> future = flushScheduler.schedule(
                 () -> {
                     try {
-                        flushNow(context.sessionId());
+                        flushNow(context);
                     } catch (RuntimeException ex) {
-                        log.warn("异步刷新记忆快照失败，sessionId: {}, version: {}", context.sessionId(), version, ex);
+                        log.warn("异步刷新记忆快照失败，sessionId: {}, agentId: {}, scope: {}, version: {}",
+                                context.sessionId(), context.agentId(), context.memoryScope(), version, ex);
                     } finally {
-                        pendingFlushes.remove(context.sessionId());
+                        pendingFlushes.remove(pendingKey);
                     }
                 },
                 FLUSH_DEBOUNCE_MILLIS,
                 TimeUnit.MILLISECONDS
         );
-        pendingFlushes.put(context.sessionId(), future);
+        pendingFlushes.put(pendingKey, future);
     }
 
     @Override
@@ -130,8 +132,17 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
         if (context == null) {
             return;
         }
+        flushNow(context);
+        for (ChatMemorySnapshotEntity snapshot : chatMemorySnapshotMapper.selectAllBySessionId(sessionId)) {
+            ChatMemoryContext scopedContext = contextFromSnapshot(snapshot);
+            if (!scopedContext.equals(context)) {
+                flushNow(scopedContext);
+            }
+        }
+    }
 
-        redissonUtil.executeWithLock(lockKey(sessionId), 3, TimeUnit.SECONDS, () -> {
+    private void flushNow(ChatMemoryContext context) {
+        redissonUtil.executeWithLock(lockKey(context), 3, TimeUnit.SECONDS, () -> {
             Long dirtyVersion = readLong(dirtyKey(context));
             if (dirtyVersion == null) {
                 return;
@@ -142,12 +153,14 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
                 return;
             }
 
-            ChatSessionEntity session = chatSessionMapper.selectBySessionId(sessionId);
+            ChatSessionEntity session = chatSessionMapper.selectBySessionId(context.sessionId());
             ChatMemorySnapshotEntity entity = new ChatMemorySnapshotEntity();
             entity.setSessionRecordId(session == null ? null : session.getId());
             entity.setSessionId(context.sessionId());
             entity.setUserId(context.userId());
             entity.setPromptId(context.promptId());
+            entity.setAgentId(context.agentId());
+            entity.setMemoryScope(context.memoryScope());
             entity.setMemoryPayloadJson(payload);
             entity.setMemoryFormat(MEMORY_FORMAT);
             entity.setWindowSize(countMessages(payload));
@@ -162,7 +175,7 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
             }
 
             chatMemorySnapshotMapper.upsertLatestSnapshot(entity);
-            ChatMemorySnapshotEntity persisted = chatMemorySnapshotMapper.selectBySessionId(sessionId);
+            ChatMemorySnapshotEntity persisted = selectSnapshot(context);
             if (persisted != null && persisted.getSnapshotVersion() != null
                     && persisted.getSnapshotVersion() >= dirtyVersion) {
                 clearDirty(context);
@@ -181,6 +194,10 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
         cancelScheduledFlush(sessionId);
         redissonUtil.executeWithLock(lockKey(sessionId), 3, TimeUnit.SECONDS, () -> {
             redisUtil.delete(memoryKey(context), versionKey(context), dirtyKey(context));
+            for (ChatMemorySnapshotEntity snapshot : chatMemorySnapshotMapper.selectAllBySessionId(sessionId)) {
+                ChatMemoryContext scopedContext = contextFromSnapshot(snapshot);
+                redisUtil.delete(memoryKey(scopedContext), versionKey(scopedContext), dirtyKey(scopedContext));
+            }
             String resident = redisUtil.get(residentKey(context.userId()), String.class);
             if (sessionId.equals(resident)) {
                 redisUtil.delete(residentKey(context.userId()));
@@ -212,21 +229,30 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
         }
 
         redissonUtil.executeWithLock(lockKey(sessionId), 3, TimeUnit.SECONDS, () -> {
-            String payload = redisUtil.get(memoryKey(context), String.class);
-            if (StringUtils.isNotBlank(payload)) {
-                redisUtil.expire(memoryKey(context), MEMORY_TTL_SECONDS);
-                redisUtil.expire(versionKey(context), MEMORY_TTL_SECONDS);
-                Long dirtyVersion = readLong(dirtyKey(context));
-                if (dirtyVersion != null) {
-                    redisUtil.expire(dirtyKey(context), MEMORY_TTL_SECONDS);
+            List<ChatMemorySnapshotEntity> snapshots = chatMemorySnapshotMapper.selectAllBySessionId(sessionId);
+            if (snapshots.isEmpty()) {
+                ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(sessionId);
+                if (snapshot != null) {
+                    snapshots = List.of(snapshot);
                 }
-                return;
             }
-
-            ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(sessionId);
-            if (snapshot != null && StringUtils.isNotBlank(snapshot.getMemoryPayloadJson())) {
-                writeSnapshotToRedis(context, snapshot.getMemoryPayloadJson(), snapshot.getSnapshotVersion());
-                clearDirty(context);
+            for (ChatMemorySnapshotEntity snapshot : snapshots) {
+                if (snapshot == null || StringUtils.isBlank(snapshot.getMemoryPayloadJson())) {
+                    continue;
+                }
+                ChatMemoryContext snapshotContext = contextFromSnapshot(snapshot);
+                String payload = redisUtil.get(memoryKey(snapshotContext), String.class);
+                if (StringUtils.isNotBlank(payload)) {
+                    redisUtil.expire(memoryKey(snapshotContext), MEMORY_TTL_SECONDS);
+                    redisUtil.expire(versionKey(snapshotContext), MEMORY_TTL_SECONDS);
+                    Long dirtyVersion = readLong(dirtyKey(snapshotContext));
+                    if (dirtyVersion != null) {
+                        redisUtil.expire(dirtyKey(snapshotContext), MEMORY_TTL_SECONDS);
+                    }
+                    continue;
+                }
+                writeSnapshotToRedis(snapshotContext, snapshot.getMemoryPayloadJson(), snapshot.getSnapshotVersion());
+                clearDirty(snapshotContext);
             }
         });
     }
@@ -237,6 +263,16 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
         chatMemorySnapshotMapper.deleteBySessionId(sessionId);
     }
 
+    @Override
+    public void deleteSnapshot(ChatMemoryContext context) {
+        ScheduledFuture<?> future = pendingFlushes.remove(pendingKey(context));
+        if (future != null) {
+            future.cancel(false);
+        }
+        redisUtil.delete(memoryKey(context), versionKey(context), dirtyKey(context));
+        chatMemorySnapshotMapper.deleteBySessionScope(context.sessionId(), context.agentId(), context.memoryScope());
+    }
+
     @PreDestroy
     public void shutdownScheduler() {
         flushScheduler.shutdownNow();
@@ -245,20 +281,26 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
     private ChatMemoryContext resolveContext(String sessionId) {
         ChatSessionEntity session = chatSessionMapper.selectBySessionId(sessionId);
         if (session != null) {
-            return new ChatMemoryContext(session.getUserId(), session.getPromptId(), session.getSessionId());
+            return new ChatMemoryContext(
+                    session.getUserId(),
+                    session.getPromptId(),
+                    session.getSessionId(),
+                    session.getAgentId(),
+                    "default"
+            );
         }
 
         ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(sessionId);
         if (snapshot == null) {
             return null;
         }
-        return new ChatMemoryContext(snapshot.getUserId(), snapshot.getPromptId(), snapshot.getSessionId());
+        return contextFromSnapshot(snapshot);
     }
 
     private long nextSnapshotVersion(ChatMemoryContext context) {
         Long current = readLong(versionKey(context));
         if (current == null) {
-            ChatMemorySnapshotEntity snapshot = chatMemorySnapshotMapper.selectBySessionId(context.sessionId());
+            ChatMemorySnapshotEntity snapshot = selectSnapshot(context);
             current = snapshot == null || snapshot.getSnapshotVersion() == null ? 0L : snapshot.getSnapshotVersion();
             redisUtil.set(versionKey(context), current, MEMORY_TTL_SECONDS);
         }
@@ -302,22 +344,35 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
     }
 
     private void cancelScheduledFlush(String sessionId) {
-        ScheduledFuture<?> future = pendingFlushes.remove(sessionId);
-        if (future != null) {
-            future.cancel(false);
+        for (String pendingKey : List.copyOf(pendingFlushes.keySet())) {
+            if (pendingKey.startsWith(sessionId + ":")) {
+                ScheduledFuture<?> future = pendingFlushes.remove(pendingKey);
+                if (future != null) {
+                    future.cancel(false);
+                }
+            }
         }
     }
 
     private String memoryKey(ChatMemoryContext context) {
-        return "chat:memory:" + context.userId() + ":" + context.sessionId();
+        return "chat:memory:" + context.userId()
+                + ":" + context.sessionId()
+                + ":" + context.agentId()
+                + ":" + context.memoryScope();
     }
 
     private String versionKey(ChatMemoryContext context) {
-        return "chat:memory:version:" + context.userId() + ":" + context.sessionId();
+        return "chat:memory:version:" + context.userId()
+                + ":" + context.sessionId()
+                + ":" + context.agentId()
+                + ":" + context.memoryScope();
     }
 
     private String dirtyKey(ChatMemoryContext context) {
-        return "chat:memory:dirty:" + context.userId() + ":" + context.sessionId();
+        return "chat:memory:dirty:" + context.userId()
+                + ":" + context.sessionId()
+                + ":" + context.agentId()
+                + ":" + context.memoryScope();
     }
 
     private String residentKey(Long userId) {
@@ -326,6 +381,32 @@ public class ChatMemorySnapshotServiceImpl implements ChatMemorySnapshotService 
 
     private String lockKey(String sessionId) {
         return "chat:memory:lock:" + sessionId;
+    }
+
+    private String lockKey(ChatMemoryContext context) {
+        return "chat:memory:lock:" + context.sessionId() + ":" + context.agentId() + ":" + context.memoryScope();
+    }
+
+    private String pendingKey(ChatMemoryContext context) {
+        return context.sessionId() + ":" + context.agentId() + ":" + context.memoryScope();
+    }
+
+    private ChatMemorySnapshotEntity selectSnapshot(ChatMemoryContext context) {
+        return chatMemorySnapshotMapper.selectBySessionScope(
+                context.sessionId(),
+                context.agentId(),
+                context.memoryScope()
+        );
+    }
+
+    private ChatMemoryContext contextFromSnapshot(ChatMemorySnapshotEntity snapshot) {
+        return new ChatMemoryContext(
+                snapshot.getUserId(),
+                snapshot.getPromptId(),
+                snapshot.getSessionId(),
+                StringUtils.isBlank(snapshot.getAgentId()) ? "standard-chat" : snapshot.getAgentId(),
+                StringUtils.isBlank(snapshot.getMemoryScope()) ? "default" : snapshot.getMemoryScope()
+        );
     }
 
     private static final class SnapshotThreadFactory implements ThreadFactory {

@@ -1,7 +1,10 @@
 package com.h.backend.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.backend.chat.agent.AgentDefinition;
 import com.h.backend.chat.agent.ChatAgentIds;
+import com.h.backend.chat.agent.AgentRegistry;
+import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
@@ -22,6 +25,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,6 +37,105 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatSessionServiceImplTest {
+
+    @Test
+    void createSessionReturnsAgentMetadataForStandardChatAndDomainAgent() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                snapshotService,
+                promptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        when(promptService.resolvePromptId(1L, null)).thenReturn(99L);
+
+        var standardOpen = service.createSession(1L, null, null, null);
+
+        assertEquals("standard-chat", standardOpen.session().agentId());
+        assertEquals("普通聊天", standardOpen.session().agentDisplayName());
+        assertEquals("通用", standardOpen.session().agentDomain());
+        assertEquals("STANDARD_STREAMING_CHAT", standardOpen.session().runtimeType());
+
+        var agentOpen = service.createSession(1L, 123L, "car-rental-assistant", null);
+
+        assertEquals("car-rental-assistant", agentOpen.session().agentId());
+        assertEquals("租车应急协助 Agent", agentOpen.session().agentDisplayName());
+        assertEquals("出行服务", agentOpen.session().agentDomain());
+        assertEquals("AGENTIC_SYNC", agentOpen.session().runtimeType());
+        assertNull(agentOpen.session().promptId());
+    }
+
+    @Test
+    void bootstrapChooseReturnsAgentMetadataInSessionSummaries() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                snapshotService,
+                promptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionEntity standardSession = new ChatSessionEntity();
+        standardSession.setId(11L);
+        standardSession.setUserId(1L);
+        standardSession.setSessionId("standard-session");
+        standardSession.setTitle("普通会话");
+        standardSession.setPromptId(99L);
+        standardSession.setAgentId(ChatAgentIds.STANDARD_CHAT);
+        standardSession.setStatus("ACTIVE");
+        standardSession.setMessageCount(1);
+        standardSession.setCreatedAt(now.minusMinutes(10));
+        standardSession.setUpdatedAt(now.minusMinutes(5));
+
+        ChatSessionEntity agentSession = new ChatSessionEntity();
+        agentSession.setId(22L);
+        agentSession.setUserId(1L);
+        agentSession.setSessionId("agent-session");
+        agentSession.setTitle("租车会话");
+        agentSession.setPromptId(null);
+        agentSession.setAgentId("car-rental-assistant");
+        agentSession.setStatus("ACTIVE");
+        agentSession.setMessageCount(2);
+        agentSession.setCreatedAt(now.minusMinutes(20));
+        agentSession.setUpdatedAt(now);
+
+        when(sessionMapper.selectActiveByUserId(1L)).thenReturn(List.of(standardSession, agentSession));
+
+        var bootstrap = service.bootstrap(1L);
+
+        assertEquals("choose", bootstrap.resolution());
+        assertEquals(2, bootstrap.candidates().size());
+
+        var first = bootstrap.candidates().get(0);
+        assertEquals("agent-session", first.sessionId());
+        assertEquals("car-rental-assistant", first.agentId());
+        assertEquals("租车应急协助 Agent", first.agentDisplayName());
+        assertEquals("出行服务", first.agentDomain());
+        assertEquals("AGENTIC_SYNC", first.runtimeType());
+
+        var second = bootstrap.candidates().get(1);
+        assertEquals("standard-session", second.sessionId());
+        assertEquals("standard-chat", second.agentId());
+        assertEquals("普通聊天", second.agentDisplayName());
+        assertEquals("通用", second.agentDomain());
+        assertEquals("STANDARD_STREAMING_CHAT", second.runtimeType());
+    }
 
     @Test
     void createSessionStoresAgentId() {
@@ -47,7 +150,8 @@ class ChatSessionServiceImplTest {
                 messageMapper,
                 snapshotService,
                 promptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         service.createSession(1L, null, "car-rental-assistant", null);
@@ -76,7 +180,8 @@ class ChatSessionServiceImplTest {
                 mock(ChatSessionMessageMapper.class),
                 mock(ChatMemorySnapshotService.class),
                 mock(SystemPromptService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                testAgentRegistry()
         );
 
         BusinessException ex = assertThrows(
@@ -100,7 +205,8 @@ class ChatSessionServiceImplTest {
                 chatMessageResourceMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -177,7 +283,8 @@ class ChatSessionServiceImplTest {
                 chatMessageResourceMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -247,7 +354,8 @@ class ChatSessionServiceImplTest {
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -300,7 +408,8 @@ class ChatSessionServiceImplTest {
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -359,7 +468,8 @@ class ChatSessionServiceImplTest {
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -433,7 +543,8 @@ class ChatSessionServiceImplTest {
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
-                objectMapper
+                objectMapper,
+                testAgentRegistry()
         );
 
         ChatSessionEntity currentSession = new ChatSessionEntity();
@@ -463,5 +574,30 @@ class ChatSessionServiceImplTest {
         verify(chatSessionMapper, never()).deleteById(11L);
         verify(chatSessionMapper).updateById(currentSession);
         assertEquals("ARCHIVED", currentSession.getStatus());
+    }
+
+    private AgentRegistry testAgentRegistry() {
+        return new AgentRegistry(List.of(
+                new AgentDefinition(
+                        ChatAgentIds.STANDARD_CHAT,
+                        "普通聊天",
+                        "通用",
+                        List.of("聊天", "知识库"),
+                        "使用系统提示词和知识库的普通聊天助手",
+                        new Object(),
+                        AgentRuntimeType.STANDARD_STREAMING_CHAT,
+                        true
+                ),
+                new AgentDefinition(
+                        "car-rental-assistant",
+                        "租车应急协助 Agent",
+                        "出行服务",
+                        List.of("拖车", "应急", "客户协助"),
+                        "面向租车客户的拖车与紧急事件协助",
+                        new Object(),
+                        AgentRuntimeType.AGENTIC_SYNC,
+                        true
+                )
+        ));
     }
 }

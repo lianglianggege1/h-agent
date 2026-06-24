@@ -23,6 +23,7 @@ export type AgentTopologyNode = {
   type: string | null;
   description: string | null;
   returnType: string | null;
+  plannerType: string | null;
   outputKey: string | null;
   inputKeys: string[];
   condition: string | null;

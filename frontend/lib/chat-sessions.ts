@@ -43,6 +43,9 @@ export type ChatSessionSummary = {
   lastUserMessage: string | null;
   promptId: number | null;
   agentId: string;
+  agentDisplayName: string;
+  agentDomain: string;
+  runtimeType: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -54,6 +57,9 @@ export type ChatSessionMeta = {
   title: string;
   promptId: number | null;
   agentId: string;
+  agentDisplayName: string;
+  agentDomain: string;
+  runtimeType: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
