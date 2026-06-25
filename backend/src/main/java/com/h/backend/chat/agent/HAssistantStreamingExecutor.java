@@ -54,7 +54,6 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         AtomicBoolean imageEmitted = new AtomicBoolean();
         Consumer<ChatSessionMessageDto> imagePublisher = message -> {
             imageEmitted.set(true);
-            command.onActivity().run();
             emitIfActive(command.sink(), new ChatStreamEvent("image", "", message));
         };
         chatStreamEventBridge.registerPublisher(command.memoryId(), imagePublisher);
@@ -66,16 +65,13 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                             return;
                         }
                         reasoningBuilder.append(thinkingText);
-                        command.onActivity().run();
                         emitIfActive(command.sink(), new ChatStreamEvent("reasoning", thinkingText));
                     })
                     .onPartialResponse(chunk -> {
                         replyBuilder.append(chunk);
-                        command.onActivity().run();
                         emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
                     })
                     .onToolExecuted(toolExecution -> {
-                        command.onActivity().run();
                         recordToolUsage(command.runHandle().id(), toolExecution);
                     })
                     .onCompleteResponse(ignored -> {

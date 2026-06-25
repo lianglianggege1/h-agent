@@ -299,7 +299,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldRenewPermitWhenStreamingChunksArrive() {
+    void shouldReleasePermitWhenStreamingChunksArrive() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -318,16 +318,16 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-renew", "hello")).thenReturn(101L);
-        when(chatSessionService.appendAssistantMessage(1L, "session-renew", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-renew");
-        when(agentRunTelemetryService.startRun("session-renew", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-renew", 1L, 22L, 101L, "standard-chat", "trace-renew"))
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-stream");
+        when(agentRunTelemetryService.startRun("session-stream", 1L, 22L)).thenReturn(telemetryRun);
+        when(chatSessionService.appendUserMessage(1L, "session-stream", "hello")).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-stream", "hello")).thenReturn(202L);
+        when(agentRunService.createRun("session-stream", 1L, 22L, 101L, "standard-chat", "trace-stream"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-renew", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat("1:22:session-stream", "hello")).thenReturn(tokenStream);
 
-        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-renew", "hello")
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-stream", "hello")
                 .collectList()
                 .block();
 
@@ -336,7 +336,6 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("chunk", "llo"),
                 new ChatStreamEvent("done", "")
         ), events);
-        assertEquals(2, permit.renewCalls());
         assertTrue(permit.released());
     }
 
@@ -1351,7 +1350,6 @@ class ChatServiceImplTest {
 
     private static final class RecordingPermit implements ChatStreamConcurrencyGuard.Permit {
         private final AtomicBoolean released = new AtomicBoolean();
-        private final AtomicInteger renewCalls = new AtomicInteger();
         private final CountDownLatch releasedLatch = new CountDownLatch(1);
 
         @Override
@@ -1370,17 +1368,8 @@ class ChatServiceImplTest {
             releasedLatch.countDown();
         }
 
-        @Override
-        public void renew() {
-            renewCalls.incrementAndGet();
-        }
-
         boolean released() {
             return released.get();
-        }
-
-        int renewCalls() {
-            return renewCalls.get();
         }
 
         boolean awaitReleased(long timeout, TimeUnit unit) throws InterruptedException {
@@ -1392,10 +1381,6 @@ class ChatServiceImplTest {
         @Override
         public boolean acquired() {
             return false;
-        }
-
-        @Override
-        public void renew() {
         }
 
         @Override

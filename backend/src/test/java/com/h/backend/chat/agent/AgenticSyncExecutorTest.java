@@ -81,8 +81,6 @@ class AgenticSyncExecutorTest {
                                 runHandle,
                                 telemetryRun,
                                 () -> {
-                                },
-                                () -> {
                                 }
                         )
                 ))
@@ -145,8 +143,6 @@ class AgenticSyncExecutorTest {
                                 runHandle,
                                 telemetryRun,
                                 () -> {
-                                },
-                                () -> {
                                 }
                         )
                 ))
@@ -195,8 +191,6 @@ class AgenticSyncExecutorTest {
                                 agent,
                                 runHandle,
                                 telemetryRun,
-                                () -> {
-                                },
                                 () -> {
                                 }
                         )

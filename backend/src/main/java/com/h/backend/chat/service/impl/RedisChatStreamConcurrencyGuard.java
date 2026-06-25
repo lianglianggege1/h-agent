@@ -2,108 +2,51 @@ package com.h.backend.chat.service.impl;
 
 import com.h.backend.chat.config.ChatStreamProperties;
 import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
+import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RPermitExpirableSemaphore;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@Slf4j
 @Component
 public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGuard {
 
     private static final String SESSION_BUSY_MESSAGE = "当前会话正在处理中";
     private static final String SYSTEM_BUSY_MESSAGE = "当前系统繁忙，请稍后再试";
-    private static final Long ACQUIRED = 0L;
-    private static final Long SESSION_BUSY = 1L;
-    private static final String ACQUIRE_SCRIPT = """
-            local sessionKey = KEYS[1]
-            local userKey = KEYS[2]
-            local globalKey = KEYS[3]
-            local sessionId = ARGV[1]
-            local maxUser = tonumber(ARGV[2])
-            local maxGlobal = tonumber(ARGV[3])
-            local ttlMillis = tonumber(ARGV[4])
-            local nowMillis = tonumber(ARGV[5])
-            local expiresAt = nowMillis + ttlMillis
-
-            redis.call('ZREMRANGEBYSCORE', userKey, '-inf', nowMillis)
-            redis.call('ZREMRANGEBYSCORE', globalKey, '-inf', nowMillis)
-
-            if redis.call('EXISTS', sessionKey) == 1 then
-                return 1
-            end
-            if redis.call('ZCARD', userKey) >= maxUser then
-                return 2
-            end
-            if redis.call('ZCARD', globalKey) >= maxGlobal then
-                return 3
-            end
-
-            redis.call('SET', sessionKey, sessionId, 'PX', ttlMillis)
-            redis.call('ZADD', userKey, expiresAt, sessionId)
-            redis.call('ZADD', globalKey, expiresAt, sessionId)
-            redis.call('PEXPIRE', userKey, ttlMillis)
-            redis.call('PEXPIRE', globalKey, ttlMillis)
-            return 0
-            """;
-    private static final String RELEASE_SCRIPT = """
-            local sessionKey = KEYS[1]
-            local userKey = KEYS[2]
-            local globalKey = KEYS[3]
-            local sessionId = ARGV[1]
-
-            if redis.call('DEL', sessionKey) == 0 then
-                return 0
-            end
-
-            redis.call('ZREM', userKey, sessionId)
-            redis.call('ZREM', globalKey, sessionId)
-            return 1
-            """;
-    private static final String RENEW_SCRIPT = """
-            local sessionKey = KEYS[1]
-            local userKey = KEYS[2]
-            local globalKey = KEYS[3]
-            local sessionId = ARGV[1]
-            local ttlMillis = tonumber(ARGV[2])
-            local nowMillis = tonumber(ARGV[3])
-            local expiresAt = nowMillis + ttlMillis
-
-            if redis.call('EXISTS', sessionKey) == 0 then
-                redis.call('ZREM', userKey, sessionId)
-                redis.call('ZREM', globalKey, sessionId)
-                return 0
-            end
-
-            redis.call('PEXPIRE', sessionKey, ttlMillis)
-            redis.call('ZADD', userKey, expiresAt, sessionId)
-            redis.call('ZADD', globalKey, expiresAt, sessionId)
-            redis.call('PEXPIRE', userKey, ttlMillis)
-            redis.call('PEXPIRE', globalKey, ttlMillis)
-            return 1
-            """;
 
     private final int maxConcurrentPerUser;
     private final int maxConcurrentGlobal;
     private final long permitTtlMillis;
-    private final RedisScriptRunner redisScriptRunner;
+    private final long renewalIntervalMillis;
+    private final ExpirableSemaphoreClient semaphoreClient;
+    private final ScheduledExecutorService renewalExecutor;
 
     @Autowired
     public RedisChatStreamConcurrencyGuard(
             ChatStreamProperties properties,
-            StringRedisTemplate stringRedisTemplate,
+            RedissonClient redissonClient,
             @Value("${spring.application.name}") String applicationName
     ) {
         this(
                 properties.getMaxConcurrentPerUser(),
                 properties.getMaxConcurrentGlobal(),
                 properties.getPermitTtl(),
-                new StringRedisScriptRunner(stringRedisTemplate, applicationName)
+                new RedissonExpirableSemaphoreClient(redissonClient, applicationName),
+                Executors.newSingleThreadScheduledExecutor(runnable -> {
+                    Thread thread = new Thread(runnable, "chat-stream-permit-renewal");
+                    thread.setDaemon(true);
+                    return thread;
+                })
         );
     }
 
@@ -111,12 +54,15 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
             int maxConcurrentPerUser,
             int maxConcurrentGlobal,
             Duration permitTtl,
-            RedisScriptRunner redisScriptRunner
+            ExpirableSemaphoreClient semaphoreClient,
+            ScheduledExecutorService renewalExecutor
     ) {
         this.maxConcurrentPerUser = maxConcurrentPerUser;
         this.maxConcurrentGlobal = maxConcurrentGlobal;
         this.permitTtlMillis = Math.max(1L, permitTtl.toMillis());
-        this.redisScriptRunner = redisScriptRunner;
+        this.renewalIntervalMillis = Math.max(1L, this.permitTtlMillis / 3L);
+        this.semaphoreClient = semaphoreClient;
+        this.renewalExecutor = renewalExecutor;
     }
 
     @Override
@@ -124,54 +70,103 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         Objects.requireNonNull(sessionId, "sessionId must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
 
-        List<String> keys = keys(sessionId, userId);
-        Long result = redisScriptRunner.runAcquire(
-                keys,
-                maxConcurrentPerUser,
-                maxConcurrentGlobal,
-                permitTtlMillis
-        );
+        HeldPermit sessionPermit = null;
+        HeldPermit userPermit = null;
+        HeldPermit globalPermit = null;
+        try {
+            ExpirableSemaphore sessionSemaphore = semaphoreClient.semaphore(sessionKey(sessionId));
+            sessionSemaphore.trySetPermits(1);
+            String sessionPermitId = sessionSemaphore.tryAcquire(permitTtlMillis, TimeUnit.MILLISECONDS);
+            if (sessionPermitId == null) {
+                return rejected(SESSION_BUSY_MESSAGE);
+            }
+            sessionPermit = new HeldPermit(sessionSemaphore, sessionPermitId);
 
-        if (ACQUIRED.equals(result)) {
-            return new AcquiredPermit(sessionId, userId, keys);
+            ExpirableSemaphore userSemaphore = semaphoreClient.semaphore(userKey(userId));
+            userSemaphore.trySetPermits(maxConcurrentPerUser);
+            String userPermitId = userSemaphore.tryAcquire(permitTtlMillis, TimeUnit.MILLISECONDS);
+            if (userPermitId == null) {
+                sessionPermit.release();
+                sessionPermit = null;
+                return rejected(SYSTEM_BUSY_MESSAGE);
+            }
+            userPermit = new HeldPermit(userSemaphore, userPermitId);
+
+            ExpirableSemaphore globalSemaphore = semaphoreClient.semaphore(globalKey());
+            globalSemaphore.trySetPermits(maxConcurrentGlobal);
+            String globalPermitId = globalSemaphore.tryAcquire(permitTtlMillis, TimeUnit.MILLISECONDS);
+            if (globalPermitId == null) {
+                userPermit.release();
+                userPermit = null;
+                sessionPermit.release();
+                sessionPermit = null;
+                return rejected(SYSTEM_BUSY_MESSAGE);
+            }
+            globalPermit = new HeldPermit(globalSemaphore, globalPermitId);
+
+            return new AcquiredPermit(sessionPermit, userPermit, globalPermit);
+        } catch (RuntimeException ex) {
+            if (globalPermit != null) {
+                globalPermit.release();
+            }
+            if (userPermit != null) {
+                userPermit.release();
+            }
+            if (sessionPermit != null) {
+                sessionPermit.release();
+            }
+            throw ex;
         }
-        if (SESSION_BUSY.equals(result)) {
-            return rejected(SESSION_BUSY_MESSAGE);
-        }
-        return rejected(SYSTEM_BUSY_MESSAGE);
     }
 
-    private List<String> keys(String sessionId, Long userId) {
-        return List.of(
-                "chat:stream:{concurrency}:session:" + sessionId,
-                "chat:stream:{concurrency}:user:" + userId,
-                "chat:stream:{concurrency}:global"
-        );
+    private String sessionKey(String sessionId) {
+        return "chat:stream:{concurrency}:session:" + sessionId;
+    }
+
+    private String userKey(Long userId) {
+        return "chat:stream:{concurrency}:user:" + userId;
+    }
+
+    private String globalKey() {
+        return "chat:stream:{concurrency}:global";
     }
 
     private Permit rejected(String message) {
         return new RejectedPermit(message);
     }
 
-    public interface RedisScriptRunner {
-        Long runAcquire(List<String> keys, int maxConcurrentPerUser, int maxConcurrentGlobal, long ttlMillis);
+    public interface ExpirableSemaphoreClient {
+        ExpirableSemaphore semaphore(String name);
+    }
 
-        Long runRenew(List<String> keys, long ttlMillis);
+    public interface ExpirableSemaphore {
+        void trySetPermits(int permits);
 
-        Long runRelease(List<String> keys);
+        String tryAcquire(long leaseTime, TimeUnit unit);
+
+        boolean updateLeaseTime(String permitId, long leaseTime, TimeUnit unit);
+
+        boolean tryRelease(String permitId);
     }
 
     private final class AcquiredPermit implements Permit {
 
-        private final String sessionId;
-        private final Long userId;
-        private final List<String> keys;
+        private final HeldPermit sessionPermit;
+        private final HeldPermit userPermit;
+        private final HeldPermit globalPermit;
         private final AtomicBoolean released = new AtomicBoolean();
+        private final ScheduledFuture<?> renewalTask;
 
-        private AcquiredPermit(String sessionId, Long userId, List<String> keys) {
-            this.sessionId = sessionId;
-            this.userId = userId;
-            this.keys = keys;
+        private AcquiredPermit(HeldPermit sessionPermit, HeldPermit userPermit, HeldPermit globalPermit) {
+            this.sessionPermit = sessionPermit;
+            this.userPermit = userPermit;
+            this.globalPermit = globalPermit;
+            this.renewalTask = renewalExecutor.scheduleAtFixedRate(
+                    this::renew,
+                    renewalIntervalMillis,
+                    renewalIntervalMillis,
+                    TimeUnit.MILLISECONDS
+            );
         }
 
         @Override
@@ -185,17 +180,40 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         }
 
         @Override
-        public void renew() {
-            if (!released.get()) {
-                redisScriptRunner.runRenew(keys, permitTtlMillis);
+        public void release() {
+            if (released.compareAndSet(false, true)) {
+                renewalTask.cancel(false);
+                globalPermit.release();
+                userPermit.release();
+                sessionPermit.release();
             }
         }
 
-        @Override
-        public void release() {
-            if (released.compareAndSet(false, true)) {
-                redisScriptRunner.runRelease(keys);
+        private void renew() {
+            if (released.get()) {
+                return;
             }
+            try {
+                boolean renewed = sessionPermit.renew(permitTtlMillis)
+                        && userPermit.renew(permitTtlMillis)
+                        && globalPermit.renew(permitTtlMillis);
+                if (!renewed) {
+                    release();
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to renew chat stream concurrency permit", ex);
+            }
+        }
+    }
+
+    private record HeldPermit(ExpirableSemaphore semaphore, String permitId) {
+
+        private boolean renew(long permitTtlMillis) {
+            return semaphore.updateLeaseTime(permitId, permitTtlMillis, TimeUnit.MILLISECONDS);
+        }
+
+        private void release() {
+            semaphore.tryRelease(permitId);
         }
     }
 
@@ -207,66 +225,55 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         }
 
         @Override
-        public void renew() {
-        }
-
-        @Override
         public void release() {
         }
     }
 
-    private static final class StringRedisScriptRunner implements RedisScriptRunner {
+    private static final class RedissonExpirableSemaphoreClient implements ExpirableSemaphoreClient {
 
-        private final StringRedisTemplate stringRedisTemplate;
+        private final RedissonClient redissonClient;
         private final String applicationName;
 
-        private StringRedisScriptRunner(StringRedisTemplate stringRedisTemplate, String applicationName) {
-            this.stringRedisTemplate = stringRedisTemplate;
+        private RedissonExpirableSemaphoreClient(RedissonClient redissonClient, String applicationName) {
+            this.redissonClient = redissonClient;
             this.applicationName = applicationName;
         }
 
         @Override
-        public Long runAcquire(List<String> keys, int maxConcurrentPerUser, int maxConcurrentGlobal, long ttlMillis) {
-            return stringRedisTemplate.execute(
-                    redisScript(ACQUIRE_SCRIPT),
-                    keys.stream().map(this::buildKey).toList(),
-                    keys.get(0),
-                    String.valueOf(maxConcurrentPerUser),
-                    String.valueOf(maxConcurrentGlobal),
-                    String.valueOf(ttlMillis),
-                    String.valueOf(System.currentTimeMillis())
-            );
-        }
-
-        @Override
-        public Long runRenew(List<String> keys, long ttlMillis) {
-            return stringRedisTemplate.execute(
-                    redisScript(RENEW_SCRIPT),
-                    keys.stream().map(this::buildKey).toList(),
-                    keys.get(0),
-                    String.valueOf(ttlMillis),
-                    String.valueOf(System.currentTimeMillis())
-            );
-        }
-
-        @Override
-        public Long runRelease(List<String> keys) {
-            return stringRedisTemplate.execute(
-                    redisScript(RELEASE_SCRIPT),
-                    keys.stream().map(this::buildKey).toList(),
-                    keys.get(0)
-            );
+        public ExpirableSemaphore semaphore(String name) {
+            return new RedissonExpirableSemaphore(redissonClient.getPermitExpirableSemaphore(buildKey(name)));
         }
 
         private String buildKey(String key) {
             return applicationName + "_" + key;
         }
+    }
 
-        private DefaultRedisScript<Long> redisScript(String script) {
-            DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
-            redisScript.setScriptText(script);
-            redisScript.setResultType(Long.class);
-            return redisScript;
+    private record RedissonExpirableSemaphore(RPermitExpirableSemaphore semaphore) implements ExpirableSemaphore {
+
+        @Override
+        public void trySetPermits(int permits) {
+            semaphore.trySetPermits(permits);
+        }
+
+        @Override
+        public String tryAcquire(long leaseTime, TimeUnit unit) {
+            try {
+                return semaphore.tryAcquire(leaseTime, unit);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while acquiring chat stream concurrency permit", ex);
+            }
+        }
+
+        @Override
+        public boolean updateLeaseTime(String permitId, long leaseTime, TimeUnit unit) {
+            return semaphore.updateLeaseTime(permitId, leaseTime, unit);
+        }
+
+        @Override
+        public boolean tryRelease(String permitId) {
+            return semaphore.tryRelease(permitId);
         }
     }
 }

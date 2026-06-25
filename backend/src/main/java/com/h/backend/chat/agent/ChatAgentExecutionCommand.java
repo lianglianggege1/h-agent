@@ -15,7 +15,6 @@ public record ChatAgentExecutionCommand(
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
         AgentRunTelemetryService.TelemetryRun telemetryRun,
-        Runnable onActivity,
         Runnable onTerminal
 ) {
 }

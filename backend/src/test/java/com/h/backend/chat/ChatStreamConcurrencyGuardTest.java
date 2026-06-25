@@ -1,16 +1,25 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.config.ChatStreamProperties;
+import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.service.impl.RedisChatStreamConcurrencyGuard;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RunnableScheduledFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -27,7 +36,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldRejectSecondRunForSameSession() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         ChatStreamConcurrencyGuard.Permit second = guard.tryAcquire("session-1", 1L);
@@ -40,7 +50,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldRejectWhenUserLimitExceeded() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(1, 100);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(1, 100, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         ChatStreamConcurrencyGuard.Permit second = guard.tryAcquire("session-2", 1L);
@@ -53,7 +64,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldAllowDifferentSessionsForSameUserWithinUserLimit() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         ChatStreamConcurrencyGuard.Permit second = guard.tryAcquire("session-2", 1L);
@@ -66,7 +78,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldRejectDifferentSessionForSameUserOnlyAfterUnreleasedPermitsReachUserLimit() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         ChatStreamConcurrencyGuard.Permit second = guard.tryAcquire("session-2", 1L);
@@ -87,7 +100,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldRejectWhenGlobalLimitExceeded() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(10, 1);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(10, 1, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         ChatStreamConcurrencyGuard.Permit second = guard.tryAcquire("session-2", 2L);
@@ -100,7 +114,8 @@ class ChatStreamConcurrencyGuardTest {
 
     @Test
     void shouldAcquireAgainAfterRelease() {
-        RedisChatStreamConcurrencyGuard guard = newGuard(1, 1);
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        RedisChatStreamConcurrencyGuard guard = newGuard(1, 1, semaphores);
 
         ChatStreamConcurrencyGuard.Permit first = guard.tryAcquire("session-1", 1L);
         first.release();
@@ -114,102 +129,277 @@ class ChatStreamConcurrencyGuardTest {
     }
 
     @Test
+    void shouldReleaseAlreadyAcquiredPermitsWhenLaterAcquireFails() {
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        semaphores.fakeSemaphore("chat:stream:{concurrency}:user:1")
+                .failNextAcquire(new IllegalStateException("redis unavailable"));
+        RedisChatStreamConcurrencyGuard guard = newGuard(2, 100, semaphores);
+
+        try {
+            guard.tryAcquire("session-1", 1L);
+        } catch (IllegalStateException ignored) {
+        }
+
+        ChatStreamConcurrencyGuard.Permit afterFailure = guard.tryAcquire("session-1", 1L);
+
+        assertTrue(afterFailure.acquired());
+        afterFailure.release();
+    }
+
+    @Test
     void shouldUseConfiguredPermitTtlWhenAcquiring() {
-        FakeRedisScriptRunner runner = new FakeRedisScriptRunner();
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
         RedisChatStreamConcurrencyGuard guard = new RedisChatStreamConcurrencyGuard(
                 2,
                 100,
                 Duration.ofMinutes(3),
-                runner
+                semaphores,
+                new ManualScheduledExecutorService()
         );
 
         ChatStreamConcurrencyGuard.Permit permit = guard.tryAcquire("session-1", 1L);
 
         assertTrue(permit.acquired());
-        assertEquals(180_000L, runner.lastAcquireTtlMillis);
+        assertEquals(180_000L, semaphores.fakeSemaphore("chat:stream:{concurrency}:session:session-1")
+                .lastAcquireLeaseMillis);
         permit.release();
     }
 
     @Test
-    void shouldRenewAcquiredPermitWithConfiguredTtl() {
-        FakeRedisScriptRunner runner = new FakeRedisScriptRunner();
+    void shouldRenewOwnedPermitsUntilReleased() {
+        FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
+        ManualScheduledExecutorService scheduler = new ManualScheduledExecutorService();
         RedisChatStreamConcurrencyGuard guard = new RedisChatStreamConcurrencyGuard(
                 2,
                 100,
                 Duration.ofMinutes(3),
-                runner
+                semaphores,
+                scheduler
         );
 
         ChatStreamConcurrencyGuard.Permit permit = guard.tryAcquire("session-1", 1L);
-        permit.renew();
+        scheduler.runPeriodicTask();
 
-        assertTrue(permit.acquired());
-        assertEquals(180_000L, runner.lastRenewTtlMillis);
-        assertEquals(1, runner.renewCalls);
+        FakeSemaphore sessionSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:session:session-1");
+        FakeSemaphore userSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:user:1");
+        FakeSemaphore globalSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:global");
+        assertEquals(1, sessionSemaphore.renewCalls);
+        assertEquals(1, userSemaphore.renewCalls);
+        assertEquals(1, globalSemaphore.renewCalls);
+
         permit.release();
+        scheduler.runPeriodicTask();
+
+        assertTrue(scheduler.scheduledFuture.cancelled());
+        assertEquals(1, sessionSemaphore.renewCalls);
+        assertEquals(1, userSemaphore.renewCalls);
+        assertEquals(1, globalSemaphore.renewCalls);
     }
 
-    private RedisChatStreamConcurrencyGuard newGuard(int maxConcurrentPerUser, int maxConcurrentGlobal) {
+    private RedisChatStreamConcurrencyGuard newGuard(
+            int maxConcurrentPerUser,
+            int maxConcurrentGlobal,
+            FakeSemaphoreClient semaphores
+    ) {
         return new RedisChatStreamConcurrencyGuard(
                 maxConcurrentPerUser,
                 maxConcurrentGlobal,
                 Duration.ofMinutes(10),
-                new FakeRedisScriptRunner()
+                semaphores,
+                new ManualScheduledExecutorService()
         );
     }
 
-    private static final class FakeRedisScriptRunner implements RedisChatStreamConcurrencyGuard.RedisScriptRunner {
+    private static final class FakeSemaphoreClient implements RedisChatStreamConcurrencyGuard.ExpirableSemaphoreClient {
 
-        private final Set<String> activeSessions = new HashSet<>();
-        private final Map<String, Integer> activeUsers = new ConcurrentHashMap<>();
-        private int activeGlobal;
-        private long lastAcquireTtlMillis;
-        private long lastRenewTtlMillis;
+        private final Map<String, FakeSemaphore> semaphores = new HashMap<>();
+
+        @Override
+        public RedisChatStreamConcurrencyGuard.ExpirableSemaphore semaphore(String name) {
+            return fakeSemaphore(name);
+        }
+
+        private FakeSemaphore fakeSemaphore(String name) {
+            return semaphores.computeIfAbsent(name, key -> new FakeSemaphore());
+        }
+    }
+
+    private static final class FakeSemaphore implements RedisChatStreamConcurrencyGuard.ExpirableSemaphore {
+
+        private int permits;
+        private int nextPermitId;
+        private final Set<String> acquiredPermitIds = new HashSet<>();
+        private long lastAcquireLeaseMillis;
         private int renewCalls;
+        private RuntimeException nextAcquireFailure;
 
-        @Override
-        public Long runAcquire(List<String> keys, int maxConcurrentPerUser, int maxConcurrentGlobal, long ttlMillis) {
-            String sessionKey = keys.get(0);
-            String userKey = keys.get(1);
-            lastAcquireTtlMillis = ttlMillis;
-
-            if (activeSessions.contains(sessionKey)) {
-                return 1L;
-            }
-            if (activeUsers.getOrDefault(userKey, 0) >= maxConcurrentPerUser) {
-                return 2L;
-            }
-            if (activeGlobal >= maxConcurrentGlobal) {
-                return 3L;
-            }
-
-            activeSessions.add(sessionKey);
-            activeUsers.merge(userKey, 1, Integer::sum);
-            activeGlobal++;
-            return 0L;
+        private void failNextAcquire(RuntimeException failure) {
+            this.nextAcquireFailure = failure;
         }
 
         @Override
-        public Long runRenew(List<String> keys, long ttlMillis) {
-            lastRenewTtlMillis = ttlMillis;
+        public void trySetPermits(int permits) {
+            if (this.permits == 0) {
+                this.permits = permits;
+            }
+        }
+
+        @Override
+        public String tryAcquire(long leaseTime, TimeUnit unit) {
+            if (nextAcquireFailure != null) {
+                RuntimeException failure = nextAcquireFailure;
+                nextAcquireFailure = null;
+                throw failure;
+            }
+            lastAcquireLeaseMillis = unit.toMillis(leaseTime);
+            if (acquiredPermitIds.size() >= permits) {
+                return null;
+            }
+            String permitId = "permit-" + nextPermitId++;
+            acquiredPermitIds.add(permitId);
+            return permitId;
+        }
+
+        @Override
+        public boolean updateLeaseTime(String permitId, long leaseTime, TimeUnit unit) {
+            if (!acquiredPermitIds.contains(permitId)) {
+                return false;
+            }
             renewCalls++;
-            return activeSessions.contains(keys.get(0)) ? 1L : 0L;
+            return true;
         }
 
         @Override
-        public Long runRelease(List<String> keys) {
-            String sessionKey = keys.get(0);
-            String userKey = keys.get(1);
+        public boolean tryRelease(String permitId) {
+            return acquiredPermitIds.remove(permitId);
+        }
+    }
 
-            if (!activeSessions.remove(sessionKey)) {
-                return 0L;
-            }
+    private static final class ManualScheduledExecutorService
+            extends AbstractExecutorService implements ScheduledExecutorService {
 
-            activeUsers.computeIfPresent(userKey, (key, count) -> count > 1 ? count - 1 : null);
-            if (activeGlobal > 0) {
-                activeGlobal--;
+        private Runnable periodicTask;
+        private ManualScheduledFuture scheduledFuture;
+
+        void runPeriodicTask() {
+            if (periodicTask != null && !scheduledFuture.cancelled()) {
+                periodicTask.run();
             }
-            return 1L;
+        }
+
+        @Override
+        public ScheduledFuture<?> scheduleAtFixedRate(
+                Runnable command,
+                long initialDelay,
+                long period,
+                TimeUnit unit
+        ) {
+            this.periodicTask = command;
+            this.scheduledFuture = new ManualScheduledFuture();
+            return scheduledFuture;
+        }
+
+        @Override
+        public void shutdown() {
+        }
+
+        @Override
+        public java.util.List<Runnable> shutdownNow() {
+            return java.util.List.of();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return false;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return false;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return true;
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            command.run();
+        }
+
+        @Override
+        public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ScheduledFuture<?> scheduleWithFixedDelay(
+                Runnable command,
+                long initialDelay,
+                long delay,
+                TimeUnit unit
+        ) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class ManualScheduledFuture implements RunnableScheduledFuture<Object> {
+
+        private final AtomicBoolean cancelled = new AtomicBoolean();
+
+        boolean cancelled() {
+            return cancelled.get();
+        }
+
+        @Override
+        public boolean isPeriodic() {
+            return true;
+        }
+
+        @Override
+        public long getDelay(TimeUnit unit) {
+            return 0;
+        }
+
+        @Override
+        public int compareTo(Delayed other) {
+            return 0;
+        }
+
+        @Override
+        public void run() {
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            return cancelled.compareAndSet(false, true);
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled.get();
+        }
+
+        @Override
+        public boolean isDone() {
+            return cancelled.get();
+        }
+
+        @Override
+        public Object get() throws InterruptedException, ExecutionException {
+            return null;
+        }
+
+        @Override
+        public Object get(long timeout, TimeUnit unit)
+                throws InterruptedException, ExecutionException, TimeoutException {
+            return null;
         }
     }
 }

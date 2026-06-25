@@ -50,7 +50,6 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                 emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 未返回有效内容"));
                 return;
             }
-            command.onActivity().run();
             emitIfActive(command.sink(), new ChatStreamEvent("chunk", reply));
             Long assistantMessageId = chatSessionService.appendAssistantMessage(
                     command.userId(),
@@ -84,7 +83,6 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
     }
 
     private void emitAgentStep(ChatAgentExecutionCommand command, AgentStepPayloadDto payload) {
-        command.onActivity().run();
         AgentStepPayloadDto enriched = new AgentStepPayloadDto(
                 String.valueOf(command.runHandle().id()),
                 command.agent().agentId(),
