@@ -54,6 +54,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private final ChatMemorySnapshotService chatMemorySnapshotService;
     private final SystemPromptService systemPromptService;
     private final ObjectMapper objectMapper;
+    private final AgentRegistry agentRegistry;
     private final ObjectProvider<AgentRegistry> agentRegistryProvider;
 
     @Autowired
@@ -72,6 +73,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.chatMemorySnapshotService = chatMemorySnapshotService;
         this.systemPromptService = systemPromptService;
         this.objectMapper = objectMapper;
+        this.agentRegistry = null;
         this.agentRegistryProvider = agentRegistryProvider;
     }
 
@@ -84,15 +86,14 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ObjectMapper objectMapper,
             AgentRegistry agentRegistry
     ) {
-        this(
-                chatSessionMapper,
-                chatSessionMessageMapper,
-                chatMessageResourceMapper,
-                chatMemorySnapshotService,
-                systemPromptService,
-                objectMapper,
-                fixedAgentRegistryProvider(agentRegistry)
-        );
+        this.chatSessionMapper = chatSessionMapper;
+        this.chatSessionMessageMapper = chatSessionMessageMapper;
+        this.chatMessageResourceMapper = chatMessageResourceMapper;
+        this.chatMemorySnapshotService = chatMemorySnapshotService;
+        this.systemPromptService = systemPromptService;
+        this.objectMapper = objectMapper;
+        this.agentRegistry = agentRegistry;
+        this.agentRegistryProvider = null;
     }
 
     public ChatSessionServiceImpl(
@@ -103,15 +104,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ObjectMapper objectMapper,
             AgentRegistry agentRegistry
     ) {
-        this(
-                chatSessionMapper,
-                chatSessionMessageMapper,
-                null,
-                chatMemorySnapshotService,
-                systemPromptService,
-                objectMapper,
-                fixedAgentRegistryProvider(agentRegistry)
-        );
+        this(chatSessionMapper, chatSessionMessageMapper, null, chatMemorySnapshotService, systemPromptService, objectMapper, agentRegistry);
     }
 
     @Override
@@ -296,35 +289,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         ChatSessionMessage message = buildMessage("user", "USER", userMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
-        if (referenceResourceIds != null && !referenceResourceIds.isEmpty()) {
-            if (chatMessageResourceMapper == null) {
-                throw new IllegalStateException("ChatMessageResourceMapper is required to append messages with reference resources");
-            }
-            for (String resourceId : referenceResourceIds) {
-                ChatMessageResourceEntity original = chatMessageResourceMapper.selectByResourceId(resourceId);
-                if (original == null || original.getMessageId() != null) {
-                    continue;
-                }
-                ChatMessageResourceEntity copy = new ChatMessageResourceEntity();
-                copy.setId(UUID.randomUUID().toString());
-                copy.setMessageId(messageId);
-                copy.setUserId(userId);
-                copy.setSessionId(sessionId);
-                copy.setResourceKind("REFERENCE");
-                copy.setStorageType(original.getStorageType());
-                copy.setStorageKey(original.getStorageKey());
-                copy.setViewUrl(original.getViewUrl());
-                copy.setDownloadUrl(original.getDownloadUrl());
-                copy.setMimeType(original.getMimeType());
-                copy.setFileName(original.getFileName());
-                copy.setFileSize(original.getFileSize());
-                copy.setWidth(original.getWidth());
-                copy.setHeight(original.getHeight());
-                copy.setSha256(original.getSha256());
-                copy.setCreatedAt(now);
-                chatMessageResourceMapper.insert(copy);
-            }
-        }
+        bindResourcesToMessage(userId, messageId, referenceResourceIds);
 
         session.setMessageCount(nextSequence);
         session.setLastUserMessage(userMessage);
@@ -380,6 +345,12 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     @Override
     @Transactional
     public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage) {
+        return appendAssistantMessage(userId, sessionId, assistantMessage, null);
+    }
+
+    @Override
+    @Transactional
+    public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<String> resourceIds) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
@@ -389,6 +360,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("assistant", "AI", assistantMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
+        bindResourcesToMessage(userId, messageId, resourceIds);
 
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
@@ -437,7 +409,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setFileSize(resource.fileSize());
             row.setWidth(resource.width());
             row.setHeight(resource.height());
-            row.setSha256(resource.sha256());
             row.setCreatedAt(now);
             chatMessageResourceMapper.insert(row);
         }
@@ -456,6 +427,26 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 safeResources,
                 now
         );
+    }
+
+    private void bindResourcesToMessage(
+            Long userId,
+            Long messageId,
+            List<String> resourceIds
+    ) {
+        if (resourceIds == null || resourceIds.isEmpty()) {
+            return;
+        }
+        if (chatMessageResourceMapper == null) {
+            throw new IllegalStateException("ChatMessageResourceMapper is required to append messages with resources");
+        }
+        for (String resourceId : resourceIds) {
+            ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(resourceId);
+            if (resource == null || !userId.equals(resource.getUserId()) || resource.getMessageId() != null) {
+                continue;
+            }
+            chatMessageResourceMapper.bindMessage(resourceId, userId, messageId);
+        }
     }
 
     private void archiveExpiredSessionsForUser(Long userId) {
@@ -547,7 +538,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private AgentMetadata resolveAgentMetadata(String agentId) {
-        AgentRegistry agentRegistry = agentRegistryProvider.getIfAvailable();
+        AgentRegistry agentRegistry = this.agentRegistry != null
+                ? this.agentRegistry
+                : agentRegistryProvider == null ? null : agentRegistryProvider.getIfAvailable();
         if (agentRegistry == null) {
             return new AgentMetadata(agentId, "未知", "UNKNOWN");
         }
@@ -556,30 +549,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 .findFirst()
                 .map(this::toAgentMetadata)
                 .orElseGet(() -> new AgentMetadata(agentId, "未知", "UNKNOWN"));
-    }
-
-    private static ObjectProvider<AgentRegistry> fixedAgentRegistryProvider(AgentRegistry agentRegistry) {
-        return new ObjectProvider<>() {
-            @Override
-            public AgentRegistry getObject(Object... args) {
-                return agentRegistry;
-            }
-
-            @Override
-            public AgentRegistry getIfAvailable() {
-                return agentRegistry;
-            }
-
-            @Override
-            public AgentRegistry getIfUnique() {
-                return agentRegistry;
-            }
-
-            @Override
-            public AgentRegistry getObject() {
-                return agentRegistry;
-            }
-        };
     }
 
     private AgentMetadata toAgentMetadata(AgentDefinition definition) {
@@ -711,8 +680,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 row.getWidth(),
                 row.getHeight(),
                 row.getStorageType(),
-                row.getStorageKey(),
-                row.getSha256()
+                row.getStorageKey()
         );
     }
 

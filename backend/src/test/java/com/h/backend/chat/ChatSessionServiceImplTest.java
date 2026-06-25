@@ -19,8 +19,10 @@ import com.h.backend.chat.service.impl.ChatSessionServiceImpl;
 import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.LocalDateTime;
+import java.util.Iterator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,6 +39,47 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatSessionServiceImplTest {
+
+    @Test
+    void constructorDoesNotResolveAgentRegistryProvider() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectProvider<AgentRegistry> provider = new ObjectProvider<>() {
+            @Override
+            public AgentRegistry getObject(Object... args) {
+                throw new AssertionError("AgentRegistry should be resolved lazily");
+            }
+
+            @Override
+            public AgentRegistry getIfAvailable() {
+                throw new AssertionError("AgentRegistry should be resolved lazily");
+            }
+
+            @Override
+            public AgentRegistry getObject() {
+                throw new AssertionError("AgentRegistry should be resolved lazily");
+            }
+
+            @Override
+            public Iterator<AgentRegistry> iterator() {
+                return List.<AgentRegistry>of().iterator();
+            }
+        };
+
+        new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                resourceMapper,
+                snapshotService,
+                promptService,
+                objectMapper,
+                provider
+        );
+    }
 
     @Test
     void createSessionReturnsAgentMetadataForStandardChatAndDomainAgent() {
@@ -249,7 +292,6 @@ class ChatSessionServiceImplTest {
         resourceRow.setFileSize(1234L);
         resourceRow.setWidth(1024);
         resourceRow.setHeight(1024);
-        resourceRow.setSha256("abc");
         resourceRow.setCreatedAt(LocalDateTime.now());
 
         when(chatSessionMapper.selectList(any())).thenReturn(List.of());
@@ -265,6 +307,7 @@ class ChatSessionServiceImplTest {
         assertEquals("一只白猫", dto.content());
         assertEquals("MINIMAX", dto.payload().provider());
         assertEquals(1, dto.resources().size());
+        assertEquals("resource-701", dto.resources().getFirst().id());
         assertEquals("/api/chat/resources/resource-701/content", dto.resources().getFirst().viewUrl());
         assertEquals("/api/chat/resources/resource-701/download", dto.resources().getFirst().downloadUrl());
     }
@@ -324,8 +367,7 @@ class ChatSessionServiceImplTest {
                 1024,
                 1024,
                 "LOCAL_FILE",
-                "generated-images/2026/05/27/cat.png",
-                "abc"
+                "generated-images/2026/05/27/cat.png"
         );
 
         var message = service.appendImageMessage(1L, "session-1", "一只白猫", payload, List.of(resource));
@@ -337,9 +379,10 @@ class ChatSessionServiceImplTest {
         ArgumentCaptor<ChatMessageResourceEntity> resourceCaptor = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
         verify(chatMessageResourceMapper).insert(resourceCaptor.capture());
         ChatMessageResourceEntity resourceRow = resourceCaptor.getValue();
+        assertEquals("resource-701", resourceRow.getId());
+        assertEquals(501L, resourceRow.getMessageId());
         assertEquals("LOCAL_FILE", resourceRow.getStorageType());
         assertEquals("generated-images/2026/05/27/cat.png", resourceRow.getStorageKey());
-        assertEquals("abc", resourceRow.getSha256());
     }
 
     @Test
@@ -529,6 +572,124 @@ class ChatSessionServiceImplTest {
         assertEquals(2, session.getMessageCount());
         assertEquals("hello", session.getLastUserMessage());
         verify(chatSessionMapper, times(2)).updateById(session);
+    }
+
+    @Test
+    void appendUserMessage_shouldBindUploadedResourcesToPersistedMessage() throws Exception {
+        ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = mock(ObjectMapper.class);
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+        session.setPromptId(22L);
+        session.setTitle("新会话");
+        session.setStatus("ACTIVE");
+        session.setMessageCount(0);
+        session.setCreatedAt(LocalDateTime.now());
+        session.setUpdatedAt(LocalDateTime.now());
+
+        ChatMessageResourceEntity uploaded = new ChatMessageResourceEntity();
+        uploaded.setId("resource-1");
+        uploaded.setMessageId(null);
+        uploaded.setUserId(1L);
+        uploaded.setSessionId("session-1");
+        uploaded.setResourceKind("IMAGE");
+        uploaded.setStorageType("LOCAL_FILE");
+        uploaded.setStorageKey("uploads/resource-1.jpg");
+        uploaded.setViewUrl("/api/chat/resources/resource-1/content");
+        uploaded.setDownloadUrl("/api/chat/resources/resource-1/download");
+        uploaded.setMimeType("image/jpeg");
+        uploaded.setFileName("photo.jpg");
+        uploaded.setFileSize(1024L);
+        uploaded.setWidth(100);
+        uploaded.setHeight(100);
+
+        when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"ok\":true}");
+        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(uploaded);
+        doAnswer(invocation -> {
+            ChatSessionMessageEntity row = invocation.getArgument(0);
+            row.setId(101L);
+            return 1;
+        }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
+
+        Long messageId = service.appendUserMessage(1L, "session-1", "参考这张图生成", List.of("resource-1"));
+
+        assertEquals(101L, messageId);
+        verify(chatMessageResourceMapper).bindMessage("resource-1", 1L, 101L);
+    }
+
+    @Test
+    void appendAssistantMessage_shouldBindResourcesToPersistedMessage() throws Exception {
+        ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = mock(ObjectMapper.class);
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+        session.setPromptId(22L);
+        session.setTitle("新会话");
+        session.setStatus("ACTIVE");
+        session.setMessageCount(1);
+        session.setCreatedAt(LocalDateTime.now());
+        session.setUpdatedAt(LocalDateTime.now());
+
+        ChatMessageResourceEntity generated = new ChatMessageResourceEntity();
+        generated.setId("resource-2");
+        generated.setMessageId(null);
+        generated.setUserId(1L);
+        generated.setSessionId("session-1");
+        generated.setResourceKind("VIDEO");
+        generated.setStorageType("LOCAL_FILE");
+        generated.setStorageKey("generated-videos/resource-2.mp4");
+        generated.setViewUrl("/api/chat/resources/resource-2/content");
+        generated.setDownloadUrl("/api/chat/resources/resource-2/download");
+        generated.setMimeType("video/mp4");
+        generated.setFileName("clip.mp4");
+        generated.setFileSize(2048L);
+
+        when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"ok\":true}");
+        when(chatMessageResourceMapper.selectByResourceId("resource-2")).thenReturn(generated);
+        doAnswer(invocation -> {
+            ChatSessionMessageEntity row = invocation.getArgument(0);
+            row.setId(202L);
+            return 1;
+        }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
+
+        Long messageId = service.appendAssistantMessage(1L, "session-1", "生成了一个视频", List.of("resource-2"));
+
+        assertEquals(202L, messageId);
+        verify(chatMessageResourceMapper).bindMessage("resource-2", 1L, 202L);
     }
 
     @Test

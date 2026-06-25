@@ -9,7 +9,16 @@ import java.util.List;
 @ConfigurationProperties(prefix = "chat.resources.upload")
 public class ResourceUploadProperties {
 
-    private List<String> allowedMimeTypes = List.of("image/jpeg", "image/png");
+    private List<String> allowedMimeTypes = List.of(
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "video/mp4",
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/wav",
+            "audio/webm"
+    );
     private long maxFileSize = 10_485_760L;
 
     public List<String> getAllowedMimeTypes() {

@@ -10,10 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
-import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -60,8 +57,7 @@ public class LocalFileResourceStorage implements ResourceStorage {
                     "generated-%s.%s".formatted(resourceId, extension),
                     (long) content.length,
                     command.width() == null ? imageSize.width() : command.width(),
-                    command.height() == null ? imageSize.height() : command.height(),
-                    sha256(content)
+                    command.height() == null ? imageSize.height() : command.height()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to save generated image", ex);
@@ -112,15 +108,6 @@ public class LocalFileResourceStorage implements ResourceStorage {
             return new ImageSize(null, null);
         }
         return new ImageSize(image.getWidth(), image.getHeight());
-    }
-
-    private String sha256(byte[] content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(content));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", ex);
-        }
     }
 
     private record ImageSize(Integer width, Integer height) {

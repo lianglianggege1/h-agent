@@ -13,8 +13,7 @@ public record ChatMessageResourceDto(
         Integer width,
         Integer height,
         @JsonIgnore String storageType,
-        @JsonIgnore String storageKey,
-        @JsonIgnore String sha256
+        @JsonIgnore String storageKey
 ) {
     public ChatMessageResourceDto(
             String id,
@@ -27,6 +26,6 @@ public record ChatMessageResourceDto(
             Integer width,
             Integer height
     ) {
-        this(id, kind, viewUrl, downloadUrl, fileName, mimeType, fileSize, width, height, null, null, null);
+        this(id, kind, viewUrl, downloadUrl, fileName, mimeType, fileSize, width, height, null, null);
     }
 }

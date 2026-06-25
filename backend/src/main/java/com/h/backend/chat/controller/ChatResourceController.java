@@ -48,7 +48,7 @@ public class ChatResourceController {
     public ResponseEntity<ResourceUploadResponse> upload(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("sessionId") String sessionId
+            @RequestParam(value = "sessionId", required = false) String sessionId
     ) throws IOException {
         String mimeType = file.getContentType();
         if (mimeType == null || !uploadProperties.getAllowedMimeTypes().contains(mimeType)) {
@@ -84,7 +84,6 @@ public class ChatResourceController {
         row.setFileSize(stored.fileSize());
         row.setWidth(stored.width());
         row.setHeight(stored.height());
-        row.setSha256(stored.sha256());
         row.setCreatedAt(LocalDateTime.now());
         chatMessageResourceMapper.insert(row);
 
@@ -132,6 +131,9 @@ public class ChatResourceController {
         if ("image/webp".equalsIgnoreCase(mimeType)) return "webp";
         if ("video/mp4".equalsIgnoreCase(mimeType)) return "mp4";
         if ("audio/mpeg".equalsIgnoreCase(mimeType)) return "mp3";
+        if ("audio/mp4".equalsIgnoreCase(mimeType)) return "m4a";
+        if ("audio/wav".equalsIgnoreCase(mimeType)) return "wav";
+        if ("audio/webm".equalsIgnoreCase(mimeType)) return "webm";
         return "bin";
     }
 

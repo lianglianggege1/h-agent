@@ -51,9 +51,6 @@ public class ChatMessageResourceEntity {
     @TableField("height")
     private Integer height;
 
-    @TableField("sha256")
-    private String sha256;
-
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -167,14 +164,6 @@ public class ChatMessageResourceEntity {
 
     public void setHeight(Integer height) {
         this.height = height;
-    }
-
-    public String getSha256() {
-        return sha256;
-    }
-
-    public void setSha256(String sha256) {
-        this.sha256 = sha256;
     }
 
     public LocalDateTime getCreatedAt() {

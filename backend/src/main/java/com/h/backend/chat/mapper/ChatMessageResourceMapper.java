@@ -3,6 +3,7 @@ package com.h.backend.chat.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.h.backend.chat.entity.ChatMessageResourceEntity;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -14,7 +15,7 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
     @Select("""
             <script>
             SELECT id, message_id, user_id, session_id, resource_kind, storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height, sha256, created_at
+                   view_url, download_url, mime_type, file_name, file_size, width, height, created_at
             FROM chat_message_resources
             WHERE message_id IN
             <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
@@ -27,9 +28,22 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
 
     @Select("""
             SELECT id, message_id, user_id, session_id, resource_kind, storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height, sha256, created_at
+                   view_url, download_url, mime_type, file_name, file_size, width, height, created_at
             FROM chat_message_resources
             WHERE id = #{id}
             """)
     ChatMessageResourceEntity selectByResourceId(@Param("id") String id);
+
+    @Update("""
+            UPDATE chat_message_resources
+            SET message_id = #{messageId}
+            WHERE id = #{id}
+              AND user_id = #{userId}
+              AND message_id IS NULL
+            """)
+    int bindMessage(
+            @Param("id") String id,
+            @Param("userId") Long userId,
+            @Param("messageId") Long messageId
+    );
 }

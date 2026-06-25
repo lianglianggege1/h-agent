@@ -5,11 +5,11 @@ import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.image.MiniMaxImageClient;
 import com.h.backend.chat.image.MiniMaxImageGenerationResult;
+import com.h.backend.chat.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.impl.ImageGenerationServiceImpl;
-import com.h.backend.chat.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.storage.ResourceContent;
 import com.h.backend.chat.storage.ResourceSaveCommand;
 import com.h.backend.chat.storage.ResourceStorage;
@@ -63,8 +63,7 @@ class ImageGenerationServiceImplTest {
                 "generated-resource-1.png",
                 3L,
                 1024,
-                1024,
-                "sha"
+                1024
         );
 
         ChatSessionMessageDto appended = new ChatSessionMessageDto(
@@ -121,8 +120,7 @@ class ImageGenerationServiceImplTest {
                 argThat(resources ->
                         resources.size() == 1
                                 && "LOCAL_FILE".equals(resources.getFirst().storageType())
-                                && "generated-images/2026/06/03/resource-1.png".equals(resources.getFirst().storageKey())
-                                && "sha".equals(resources.getFirst().sha256()))
+                                && "generated-images/2026/06/03/resource-1.png".equals(resources.getFirst().storageKey()))
         );
     }
 
@@ -157,8 +155,7 @@ class ImageGenerationServiceImplTest {
                 "generated-resource-2.png",
                 3L,
                 null,
-                null,
-                "sha2"
+                null
         );
         ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
         referenceResource.setId("resource-1");
@@ -229,9 +226,9 @@ class ImageGenerationServiceImplTest {
         ));
         when(resourceStorage.save(any(ResourceSaveCommand.class)))
                 .thenReturn(
-                        new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null, "sha1"),
-                        new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null, "sha2"),
-                        new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null, "sha3")
+                        new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null),
+                        new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
+                        new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
                 );
         when(resourceStorage.buildViewUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/content");
         when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");

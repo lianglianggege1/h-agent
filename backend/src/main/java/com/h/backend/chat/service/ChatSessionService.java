@@ -39,6 +39,8 @@ public interface ChatSessionService {
 
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage);
 
+    Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<String> resourceIds);
+
     ChatSessionMessageDto appendImageMessage(
             Long userId,
             String sessionId,

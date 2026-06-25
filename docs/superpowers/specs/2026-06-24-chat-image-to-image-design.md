@@ -1,693 +1,503 @@
-# 图生图功能扩展设计
+# 聊天资源体系与图片生成首发设计
 
 ## 背景
 
-当前系统已具备文生图能力（`POST /v1/image_generation` + `ImageGenerationTool`），通过 `/image` 命令或 LLM 工具调用触发，生成图片并以 `IMAGE` 消息类型展示在聊天流中。
+当前系统已经具备文生图能力：用户可以通过 `/image` 命令或 LLM 工具调用触发 `ImageGenerationTool`，后端调用 MiniMax `POST /v1/image_generation`，生成图片落到自有资源存储，并以聊天消息返回前端。
 
-本次需求是扩展为图生图能力，并面向未来多模态（视频、音频）做通用化设计。核心约束：
+这次需求不是只补一个图生图参数，而是要把聊天里的多媒体资源边界先定稳：
 
-1. 扩展现有文生图接口，不新建 API 端点。
-2. 参考图输入采用双通道：本地文件上传 + 历史已生成图片选择。
-3. 参考图通过 MiniMax `subject_reference` 参数传入，支持 Base64 Data URL。
-4. `/image` 命令和非 `/image` 普通消息都支持图生图。
-5. 非 `/image` 消息带图时，由 LLM 工具调用自主决定是否生成图片。
-6. 先支持 1 张参考图，多张留待以后。
-7. 前端聊天流需通用化：用户消息和 AI 回复都能携带并渲染多媒体资源（图片、未来视频/音频）。
+1. 现有文生图能力需要扩展为可选参考图生成，即“图片 + 描述词生成图片”。
+2. 用户输入和 Agent 回复都需要支持资源附件。
+3. 当前首发图片，后续还会加入视频、音频和其他文件。
+4. 前端聊天流还会演进，不能把设计绑定到某一种现有气泡或 SSE 事件形态。
+5. 上层聊天模型应保持接近 LangChain4j 的 `Content` / `Image` / `Audio` / `Video` 习惯，避免未来更换底层模型供应商时改动业务层。
+
+因此，本设计将原“图生图功能扩展”升级为“聊天资源体系 + 图片生成首发”。图生图只是第一批落地能力，资源和内容对象需要先按多模态通用方式设计。
 
 ## 目标
 
-1. 为 MiniMax 图片生成请求增加 `subject_reference` 支持，实现图生图。
-2. 新增通用文件上传端点，支持本地上传参考图（当前仅图片，后续扩展视频/音频）。
-3. 前端聊天输入框支持上传本地文件 + 选择历史生成图片作为附件。
-4. 用户消息在聊天记录中展示附件资源（参考图缩略图等）。
-5. `ImageGenerationTool` 入参增加可选 `referenceResourceId`，LLM 自主决定是否传参。
-6. 前端渲染层通用化：按 `mimeType` 分发渲染（图片/视频/音频/文件）。
-7. 保持现有文生图链路不受影响。
+1. 扩展现有图片生成链路，支持不传参考图的文生图和传 1 张参考图的图生图。
+2. 建立统一聊天资源模型，让用户消息和 Agent 消息都能携带图片、视频、音频、文件等资源。
+3. 上传接口只负责创建资源并返回 `resourceId`，不负责提前绑定 `messageId`。
+4. 消息真正落库时，再把一个或多个资源绑定到这条消息。
+5. 上层对象参考 LangChain4j：消息由多个 `Content` 组成，媒体对象统一表达 `url`、`base64Data`、`mimeType`，供应商适配层负责转换成 MiniMax、OpenAI 或其他模型需要的请求格式。
+6. 前端按统一 `resources` / `contents` 渲染，不对图片生成写死特殊聊天流。
 
 ## 非目标
 
-1. 不支持一次传入多张参考图。
-2. 不实现视频/音频生成功能（仅预留通用化结构）。
-3. 不做参考图的裁剪、滤镜等编辑功能。
-4. 不做历史图片搜索或分类。
+1. 第一版不实现视频生成、音频生成、音频识别或视频理解。
+2. 第一版不支持一次传多张参考图给 MiniMax 图生图。
+3. 第一版不做复杂附件管理、资源搜索、素材库分类。
+4. 第一版不做后台异步任务队列，但资源和消息模型需要能承接后续异步生成。
+5. 第一版不要求所有 LangChain4j `Content` 类型完整落地 PDF 等能力，只保留扩展口。
 
 ## 外部约束
 
-### MiniMax 图生图接口
+### LangChain4j 内容模型
 
-与文生图共用 `POST https://api.minimaxi.com/v1/image_generation`，图生图额外传 `subject_reference` 数组。
+LangChain4j 在 `dev.langchain4j.data` 下的相关对象提供了很好的上层抽象参考：
 
-`ImageSubjectReference` 结构：
+1. `Content` 是消息内容的统一接口，通过 `ContentType` 区分 `TEXT`、`IMAGE`、`AUDIO`、`VIDEO`、`PDF`。
+2. `Image` 表达图片数据，核心字段是 `url`、`base64Data`、`mimeType`，并带有图片生成后的 `revisedPrompt`。
+3. `Audio` 表达音频数据，支持 `url`、`binaryData`、`base64Data`、`mimeType`。
+4. `Video` 表达视频数据，支持 `url`、`base64Data`、`mimeType`。
+5. `ImageContent`、`AudioContent`、`VideoContent` 把媒体对象包装成消息内容，模型适配层再决定如何发送给供应商。
 
-1. `type`：string，必填，仅支持 `character`（人像）
-2. `image_file`：string，必填，支持公网 URL 或 Base64 Data URL（`data:image/jpeg;base64,...`）
+我们的聊天层不应直接暴露 MiniMax 的 `subject_reference`、OpenAI 的图片输入格式或其他供应商私有字段。聊天层只表达“这条消息包含哪些内容和资源”，模型适配层负责供应商格式转换。
+
+### MiniMax 图片生成接口
+
+MiniMax 文生图和图生图共用 `POST https://api.minimaxi.com/v1/image_generation`。
+
+纯文生图请求继续使用：
+
+1. `model`
+2. `prompt`
+3. `aspect_ratio`
+4. `response_format`
+5. `n`
+6. `prompt_optimizer`
+
+图生图额外传 `subject_reference` 数组。当前可用结构：
+
+1. `type`：必填，当前仅支持 `character`
+2. `image_file`：必填，支持公网 URL 或 Base64 Data URL，例如 `data:image/jpeg;base64,...`
 
 图片要求：
 
-1. 格式：JPG、JPEG、PNG
-2. 大小：小于 10MB
-3. 最佳效果：单人正面照片
-4. 每次请求仅支持一张参考图
+1. JPG、JPEG、PNG
+2. 小于 10MB
+3. 最佳效果是单人正面照片
+4. 当前每次请求只支持一张参考图
 
-[MiniMax 图生图 API](https://platform.minimaxi.com/docs/api-reference/image-generation-i2i)
+MiniMax 约束只能出现在 `MiniMaxImageClient` 或图片生成适配层，不应该成为前端或聊天消息模型的基础字段。
 
-### 现有实现可复用点
+## 核心设计
 
-| 现有资产 | 位置 | 复用方式 |
-|---------|------|---------|
-| `MiniMaxImageGenerationRequest` | `backend/.../image/` | 新增 `subjectReference` 字段 |
-| `MiniMaxHttpImageClient` | `backend/.../image/` | 请求体构建改为可变 Map，条件加入 `subject_reference` |
-| `ImageGenerationCommand` | `backend/.../service/` | 已有 `sourceResourceId` 字段 |
-| `ImageGenerationTool` | `backend/.../tools/` | 入参加 `referenceResourceId`，@Tool 描述更新 |
-| `chat_message_resources` 表 | 数据库 | `resource_kind` 字段已支持任意字符串 |
-| `ChatMessageResourceMapper` | `backend/.../mapper/` | `selectByResourceId` 按 ID 查 storageKey |
-| `ResourceStorage` | `backend/.../storage/` | `open(storageKey)` 读取字节流 |
-| `ChatResourceService` | `backend/.../service/` | 鉴权 + 归属校验已封装 |
-| `UiChatMessage.resources` | `frontend/lib/` | 已有字段，`toUiChatMessage` 已透传 |
+### 1. 资源和消息绑定解耦
 
-## 设计决策
+上传接口只创建资源，不创建聊天消息，也不提前绑定 `messageId`。
 
-### 1. 通用文件上传端点
+用户选择本地图片、视频或音频时：
 
-新增 `POST /api/chat/resources/upload`（multipart/form-data），接受任意文件，返回 `resourceId` + 元数据。
+1. 前端调用 `POST /api/chat/resources/upload`
+2. 后端保存文件并创建资源记录
+3. 后端返回 `resourceId`、`kind`、`mimeType`、`viewUrl`、`downloadUrl` 等元数据
+4. 前端把这个 `resourceId` 放入待发送附件列表
 
-设计理由：
+用户真正发送消息时：
 
-1. 前端先上传拿到 resourceId，再随消息发送，避免在消息体里塞 Base64。
-2. 端点通用化，当前开放 `image/*`，后续按需放开 `video/*`、`audio/*`。
-3. 上传的资源初始不关联任何消息，发送消息时通过 `referenceResourceIds` 关联。
+1. `POST /api/chat/messages/stream` 携带 `resourceIds` 或 `referenceResourceIds`
+2. 后端先写入用户消息，拿到真实 `messageId`
+3. 后端再把这些 `resourceId` 绑定到该 `messageId`
+4. 历史消息查询通过 `messageId` 加载资源并返回给前端
 
-后端根据 mimeType 自动归类 `resource_kind`：
+Agent 回复同理：
 
-1. `image/*` → `IMAGE`
-2. `video/*` → `VIDEO`
-3. `audio/*` → `AUDIO`
-4. 其他 → `FILE`
+1. Agent 文本回复落库后，可以绑定由工具或模型产生的资源。
+2. 图片生成工具生成的新图片在 `appendImageMessage` 或更通用的 `appendAssistantMessage(..., resourceIds)` 中绑定到 Agent 消息。
+3. 未来视频、音频工具也复用同一套消息资源绑定机制。
 
-### 2. 消息请求携带附件引用
+### 2. 推荐数据模型
 
-`ChatMessageRequest` 新增可选字段 `referenceResourceIds`（`List<String>`）。
+当前项目还未上线，资源体系先采用单表模型，避免过早拆出两张高度相似的表。`chat_message_resources` 表示“聊天资源记录”，其中 `message_id` 可空：
 
-前端流程：
+1. 上传阶段创建资源记录，`message_id = null`。
+2. 消息落库后，把资源记录的 `message_id` 更新为真实消息 ID。
+3. Agent 生成资源时已经知道消息上下文，可以在消息落库时直接插入带 `message_id` 的资源记录。
+4. 如果未来出现同一个资源被多条消息复用、素材库、资源权限继承、资源清理策略复杂化等需求，再拆分为资源本体表和消息资源关系表。
 
-1. 用户选择本地文件 → 调用上传端点 → 拿到 resourceId
-2. 用户选择历史图片 → 已有 resourceId
-3. 发送消息时，`referenceResourceIds` 随消息一起提交
+资源表：`chat_message_resources`
 
-后端处理：
+| 字段 | 含义 |
+|------|------|
+| `id` | 资源 ID |
+| `message_id` | 聊天消息 ID，可空；空表示已上传但还未发送 |
+| `user_id` | 资源所有者 |
+| `session_id` | 创建资源时所在会话，可空但建议上传时传入 |
+| `resource_kind` | `IMAGE` / `AUDIO` / `VIDEO` / `FILE` |
+| `storage_type` | `LOCAL_FILE` / `OSS` / `MANAGED_URL` |
+| `storage_key` | 存储定位 |
+| `view_url` | 预览地址 |
+| `download_url` | 下载地址 |
+| `mime_type` | MIME 类型 |
+| `file_name` | 文件名 |
+| `file_size` | 文件大小 |
+| `width` | 图片或视频宽度 |
+| `height` | 图片或视频高度 |
+| `duration_ms` | 音频或视频时长，后续可补 |
+| `created_at` | 创建时间 |
 
-1. `appendUserMessage` 扩展：非空时查原上传记录 → 复制资源记录关联到用户消息（`resource_kind=REFERENCE`）
-2. 图片生成链路：按 resourceId 查 `storageKey` → `ResourceStorage.open()` → 读字节 → 转 Base64 Data URL → 传入 `subject_reference`
+`sha256` 不是密钥，也不是加密字段，只是文件内容摘要，常用于去重、完整性校验或审计。当前没有去重和完整性校验需求，因此不作为首版必要字段。
 
-### 3. LLM 工具调用决定意图
+### 3. 统一内容对象
 
-非 `/image` 消息带参考图时，不在 `runChatStream` 硬编码意图判断，而是让 LLM 在正常 agent 对话流程中自主决定是否调用 `ImageGenerationTool`。
-
-实现方式：
-
-1. `ImageGenerationTool.generateImage` 签名改为 `(memoryId, prompt, referenceResourceId)`
-2. `referenceResourceId` 为可选参数，LLM 不传则为纯文生图
-3. executor 在传给 LLM 的消息中注入参考图 ID 提示（不污染存储的用户消息原文）：
-   ```
-   {用户描述词}
-   [系统：用户附带了一张参考图（资源ID: {id}），如需基于此图生成新图片，调用 generateImage 并传入该资源ID]
-   ```
-4. LLM 从增强消息中获取 ID，调用工具时显式传入
-
-设计理由：
-
-1. `referenceResourceId` 是请求级业务参数，非记忆组成部分，不应与 memoryId 耦合。
-2. 显式入参比隐式注入（registry）更清晰。
-3. LLM 自主判断意图比硬编码规则更灵活。
-
-### 4. 前端渲染通用化
-
-当前前端 `ImageMessageContent` 只渲染 `<img>`。改为通用 `MediaContent` 组件，按 `mimeType` 前缀分发：
-
-1. `image/*` → `<img>` 标签
-2. `video/*` → `<video controls>` 标签
-3. `audio/*` → `<audio controls>` 标签
-4. 其他 → 文件图标 + 下载链接
-
-用户消息气泡和 AI 媒体消息都使用同一个 `MediaContent` 组件。
-
-### 5. 用户消息展示附件
-
-`RenderableTurn` 的 `user` 类型新增 `resources` 字段：
-
-```ts
-{ kind: "user"; id: string; content: string; resources?: ChatMessageResource[] }
-```
-
-`toRenderableTurns` 中 user 分支透传 `resources`。渲染层在文字下方展示附件缩略图/媒体。
-
-## 架构
-
-### 后端改动
-
-#### ① 新增：资源上传 Controller + Service
-
-`POST /api/chat/resources/upload`
-
-职责：
-
-1. 接收 multipart 文件
-2. 校验 mimeType 白名单（当前仅 `image/jpeg`、`image/png`）
-3. 校验文件大小（当前 ≤ 10MB）
-4. 调用 `ResourceStorage.save()` 落盘
-5. 写入 `chat_message_resources` 表（`messageId=null`，待消息发送时关联）
-6. 返回 `{ resourceId, kind, viewUrl, downloadUrl, fileName, mimeType, fileSize }`
-
-#### ② 修改：`ChatMessageRequest`
+后端上层引入接近 LangChain4j 习惯的聊天内容对象。名称可按项目风格调整，但语义建议如下。
 
 ```java
-public record ChatMessageRequest(
-    @NotBlank String message,
-    @NotBlank String sessionId,
-    Long promptId,
-    String agentId,
-    List<String> referenceResourceIds  // 新增，可空
-) {}
-```
+public sealed interface ChatContent permits TextChatContent, MediaChatContent {
+    ChatContentType type();
+}
 
-#### ③ 修改：`ChatSessionService.appendUserMessage`
+public enum ChatContentType {
+    TEXT,
+    IMAGE,
+    AUDIO,
+    VIDEO,
+    FILE
+}
 
-扩展签名：
-
-```java
-Long appendUserMessage(Long userId, String sessionId, String message, List<String> referenceResourceIds);
-```
-
-实现逻辑（在现有 `appendUserMessage` 基础上追加）：
-
-```java
-// 现有逻辑不变：存用户文本消息，拿到 messageId
-Long messageId = persistMessage(session, message);
-
-// 新增：关联参考图资源
-if (referenceResourceIds != null && !referenceResourceIds.isEmpty()) {
-    for (String resourceId : referenceResourceIds) {
-        // 查原上传记录（上传时 messageId=null, resource_kind=IMAGE）
-        ChatMessageResourceEntity original = chatMessageResourceMapper.selectByResourceId(resourceId);
-        if (original == null || !userId.equals(original.getUserId())) {
-            continue;
-        }
-        // 复制新记录关联到用户消息（不修改原记录）
-        ChatMessageResourceEntity ref = new ChatMessageResourceEntity();
-        ref.setId(UUID.randomUUID().toString());
-        ref.setMessageId(messageId);
-        ref.setUserId(userId);
-        ref.setSessionId(sessionId);
-        ref.setResourceKind("REFERENCE");
-        ref.setStorageType(original.getStorageType());
-        ref.setStorageKey(original.getStorageKey());
-        ref.setViewUrl(original.getViewUrl());
-        ref.setDownloadUrl(original.getDownloadUrl());
-        ref.setMimeType(original.getMimeType());
-        ref.setFileName(original.getFileName());
-        ref.setFileSize(original.getFileSize());
-        ref.setWidth(original.getWidth());
-        ref.setHeight(original.getHeight());
-        ref.setSha256(original.getSha256());
-        ref.setCreatedAt(now);
-        chatMessageResourceMapper.insert(ref);
+public record TextChatContent(String text) implements ChatContent {
+    @Override
+    public ChatContentType type() {
+        return ChatContentType.TEXT;
     }
 }
-```
 
-关键约束：采用"一次上传、多次引用"实践，上传记录和引用记录是两条独立记录，指向同一 `storageKey`（同一份文件），禁止直接修改原记录的 `messageId` 或 `kind` 字段。
-
-查询时 `selectByMessageIds` 按 `messageId` 查资源，用户消息的 `messageId` 下会查到 `kind=REFERENCE` 的记录，随消息返回前端。
-
-#### ④ 修改：`MiniMaxImageGenerationRequest`
-
-新增 `SubjectReference` 内部记录：
-
-```java
-public record MiniMaxImageGenerationRequest(
-    String model, String prompt, String aspectRatio,
-    String responseFormat, int n, boolean promptOptimizer,
-    SubjectReference subjectReference  // 新增，可为 null
-) {
-    public record SubjectReference(String type, String imageFile) {}
+public record MediaChatContent(
+        ChatContentType type,
+        String resourceId,
+        String url,
+        String base64Data,
+        String mimeType,
+        String fileName,
+        Long fileSize,
+        Integer width,
+        Integer height,
+        Long durationMs
+) implements ChatContent {
 }
 ```
 
-#### ⑤ 修改：`MiniMaxHttpImageClient`
+关键约束：
 
-请求体构建从 `Map.of(...)` 改为可变 `HashMap`：
+1. 图片、音频、视频都使用同一种 `MediaChatContent` 结构。
+2. `url` 是受管预览 URL 或供应商可访问 URL。
+3. `base64Data` 只在模型适配层需要时按需生成，不默认塞进前端 DTO。
+4. `mimeType` 是模型适配和前端渲染的主要分发依据。
+5. `resourceId` 是业务引用，不与模型供应商绑定。
 
-1. 现有 6 个字段照常放入
-2. `subjectReference` 非 null 时，构建 `"subject_reference": [{ "type": ..., "image_file": ... }]` 加入
+### 4. 供应商适配层负责转换
 
-#### ⑥ 修改：`ImageGenerationTool`
+图片生成服务接收通用 `MediaChatContent` 或 `resourceId`，内部转换为 MiniMax 所需格式。
 
-```java
-@Tool("根据描述生成图片并发送到聊天。若用户提供了参考图资源ID，传入该ID将基于参考图"
-    + "生成保留人物特征的新图；不传 referenceResourceId 则为纯文生图。")
-public String generateImage(
-    @ToolMemoryId String memoryId,
-    String prompt,
-    String referenceResourceId  // 新增，可选
-) {
-    // referenceResourceId 可能为 null（纯文生图）
-    // 非 null 时：查 storageKey → 读字节 → Base64 Data URL → 构建 SubjectReference
-}
-```
+纯文生图：
 
-工具内部调用 `ImageSubAgentService` 时，使用完整构造函数传 `sourceResourceId`：
+1. 没有参考媒体
+2. `MiniMaxImageGenerationRequest.subjectReference = null`
 
-```java
-imageSubAgentService.generateImage(
-    new ImageSubAgentCommand(
-        context.userId(), context.sessionId(), context.promptId(),
-        prompt, "TOOL",
-        referenceResourceId,  // sourceResourceId
-        null,                 // parentImageMessageId
-        "GENERATE"            // operationType
-    )
-);
-```
+图生图：
 
-`ImageSubAgentServiceImpl` 已正确将 `command.sourceResourceId()` 透传到 `ImageGenerationCommand.sourceResourceId()`，无需修改。
+1. 使用第一张 `type=IMAGE` 且 `usageType=REFERENCE` 的资源
+2. 通过 `ResourceStorage.open(storageKey)` 读取字节
+3. 转为 Base64 Data URL
+4. 构造 `SubjectReference("character", dataUrl)`
+5. 只在 `MiniMaxHttpImageClient` 请求体里生成 `subject_reference`
 
-#### ⑦ 修改：`ImageGenerationServiceImpl`
+未来换模型时，只替换适配层：
 
-`generateImage` 方法内：
+1. OpenAI 风格模型可以转成 `ImageContent` 或模型需要的图片输入格式。
+2. 支持公网 URL 的供应商可以用 `url`。
+3. 只接受 Base64 的供应商可以用 `base64Data`。
+4. 业务层仍然只传 `MediaChatContent` 或 `resourceId`。
 
-1. `command.sourceResourceId()` 非 null 时（来自 /image 命令路径或工具调用）：
-   - `ChatMessageResourceMapper.selectByResourceId(sourceResourceId)` 查 storageKey
-   - `ResourceStorage.open(storageKey)` 读取字节
-   - 转 Base64 Data URL：`data:image/jpeg;base64,{encoded}`
-   - 构建 `SubjectReference("character", dataUrl)` 传入 `MiniMaxImageGenerationRequest`
-2. 为 null 时走纯文生图（现有逻辑不变）
+### 5. 消息 API
 
-需要新增依赖注入 `ChatMessageResourceMapper`。
+请求体建议从图片专用 `referenceResourceIds` 逐步升级为通用 `resources` 或 `resourceIds`。
 
-#### ⑦.5 修改：`ChatServiceImpl.emitImageCommandEvents`
-
-`/image` 命令路径需要处理 `referenceResourceIds`：
-
-1. `emitImageCommandEvents` 签名新增 `List<String> referenceResourceIds` 参数
-2. 非空时取第一个 ID 作为 `sourceResourceId` 传入 `ImageGenerationCommand`
-3. 调用链路：`ChatController.stream()` → `ChatServiceImpl.streamChat()` → `emitImageCommandEvents(sink, userId, promptId, sessionId, message, referenceResourceIds)`
-
-#### ⑧ Executor 消息增强
-
-`referenceResourceIds` 从请求到 LLM 消息的传递路径：
-
-1. `ChatMessageRequest.referenceResourceIds()` → `ChatController.stream()`
-2. `ChatController` 将 `referenceResourceIds` 传入 `ChatServiceImpl.streamChat()`
-3. `ChatServiceImpl` 将 `referenceResourceIds` 传入 executor 调用（通过现有参数结构或新增参数）
-4. `HAssistantStreamingExecutor` 在构建 LLM 消息时：
-   - 检查 `referenceResourceIds` 是否非空
-   - 非空时，在用户消息后追加系统提示（不修改存储层的用户消息原文）
-   - 提示内容包含参考图资源 ID，引导 LLM 在需要时调用 `generateImage` 并传入该 ID
-
-具体实现建议：executor 的 `streamChat` 方法签名新增 `List<String> referenceResourceIds` 参数（可空），在调用 `chatMemory.add()` 之前，若 `referenceResourceIds` 非空，构造增强用户消息：
-
-```
-{用户原始描述}
-[系统：用户附带了一张参考图（资源ID: {id}），如需基于此图生成新图片，调用 generateImage 并传入该资源ID]
-```
-
-### 前端改动
-
-#### ① 新增：文件上传 API
-
-```ts
-export function uploadChatResource(file: File) {
-  const formData = new FormData();
-  formData.append("file", file);
-  return apiFetch<UploadedResource>("/api/chat/resources/upload", {
-    method: "POST",
-    body: formData,
-  });
-}
-```
-
-注意：此接口不能用 `Content-Type: application/json`，需要 multipart/form-data。`apiFetch` 需要支持或单独处理。
-
-#### ② 修改：聊天输入框
-
-在 `<textarea>` 左侧/上方新增：
-
-1. 文件上传按钮（当前仅接受图片 `accept="image/jpeg,image/png"`）
-2. 已选附件预览区（缩略图 + 删除按钮）
-3. 历史图片选择入口（从当前会话已生成的 IMAGE 消息中选择）
-
-状态新增：
-
-```ts
-const [pendingResources, setPendingResources] = useState<UploadedResource[]>([]);
-```
-
-发送时：
-
-```ts
-referenceResourceIds: pendingResources.map(r => r.resourceId)
-```
-
-发送后清空 `pendingResources`。
-
-#### ③ 修改：`RenderableTurn` user 类型
-
-```ts
-| {
-    kind: "user";
-    id: string;
-    content: string;
-    resources?: ChatMessageResource[];
-  }
-```
-
-#### ④ 修改：`toRenderableTurns` user 分支
-
-```ts
-turns.push({
-  kind: "user",
-  id: current.id,
-  content: current.content,
-  resources: current.resources ?? [],
-});
-```
-
-#### ⑤ 新增：通用 `MediaContent` 组件
-
-替代现有 `ImageMessageContent`，按 mimeType 渲染：
-
-```tsx
-function MediaContent({ content, resources }: {
-  content: string;
-  resources: ChatMessageResource[];
-}) {
-  return (
-    <div className="space-y-3">
-      {resources.map((resource) => (
-        <MediaItem key={resource.id} resource={resource} alt={content || resource.fileName} />
-      ))}
-    </div>
-  );
-}
-
-function MediaItem({ resource, alt }: { resource: ChatMessageResource; alt: string }) {
-  if (resource.mimeType.startsWith("image/")) {
-    return <img src={resource.viewUrl} alt={alt} className="..." />;
-  }
-  if (resource.mimeType.startsWith("video/")) {
-    return <video src={resource.viewUrl} controls className="..." />;
-  }
-  if (resource.mimeType.startsWith("audio/")) {
-    return <audio src={resource.viewUrl} controls className="..." />;
-  }
-  return <a href={resource.downloadUrl}>{resource.fileName}</a>;
-}
-```
-
-#### ⑥ 修改：用户消息气泡渲染
-
-用户消息渲染区从纯 `turn.content` 改为：
-
-```tsx
-{turn.kind === "user" ? (
-  <div className="space-y-2">
-    {turn.resources && turn.resources.length > 0 ? (
-      <MediaContent content={turn.content} resources={turn.resources} />
-    ) : null}
-    <p>{turn.content}</p>
-  </div>
-) : ...}
-```
-
-#### ⑦ 修改：`buildChatSendPayload`
-
-```ts
-export function buildChatSendPayload(params: {
-  message: string;
-  sessionId: string;
-  promptId: number | null;
-  agentId: string;
-  referenceResourceIds?: string[];  // 新增
-}) { ... }
-```
-
-#### ⑧ 修改：`buildPendingAssistantTurn`
-
-userMessage 增加 resources 透传，用于即时展示（乐观更新）：
-
-```ts
-userMessage: {
-  id: `user-${seed}`,
-  role: "user",
-  messageType: "USER",
-  content,
-  resources: pendingResources,  // 新增
-}
-```
-
-## 数据模型
-
-### 资源上传记录
-
-复用现有 `chat_message_resources` 表，上传时：
-
-1. `message_id`：null（未关联消息）
-2. `resource_kind`：按 mimeType 自动归类（`IMAGE` / `VIDEO` / `AUDIO` / `FILE`）
-3. 其余字段正常填写
-
-消息发送时，复制记录并关联：
-
-1. `message_id`：指向用户消息 ID
-2. `resource_kind`：改为 `REFERENCE`
-
-### 用户消息资源记录
-
-用户消息关联的资源在 `chat_message_resources` 中：
-
-1. `resource_kind = REFERENCE`
-2. `storage_key`、`view_url` 等与原上传记录一致
-3. `message_id` 指向用户消息
-
-### AI 生成图片资源记录
-
-不变，`resource_kind = IMAGE`。
-
-## 接口设计
-
-### 1. 资源上传
-
-`POST /api/chat/resources/upload`
-
-请求：`multipart/form-data`，字段 `file`
-
-响应：
-
-```json
-{
-  "resourceId": "r-upload-1",
-  "kind": "IMAGE",
-  "viewUrl": "/api/chat/resources/r-upload-1/content",
-  "downloadUrl": "/api/chat/resources/r-upload-1/download",
-  "fileName": "photo.jpg",
-  "mimeType": "image/jpeg",
-  "fileSize": 102400
-}
-```
-
-### 2. 聊天流（现有，扩展请求体）
-
-`POST /api/chat/messages/stream`
+第一版兼容方案：
 
 ```json
 {
   "message": "帮我生成戴墨镜的版本",
   "sessionId": "xxx",
   "promptId": 1,
-  "referenceResourceIds": ["r-upload-1"]
+  "agentId": "standard",
+  "referenceResourceIds": ["r1"]
 }
 ```
 
-`referenceResourceIds` 为可选字段，不传或空数组时行为与现有一致。
+目标方案：
 
-### 3. 资源预览/下载
-
-不变，复用现有 `GET /api/chat/resources/{resourceId}/content` 和 `GET /api/chat/resources/{resourceId}/download`。
-
-## SSE 事件设计
-
-不变。图生图结果仍通过现有 `image` 事件返回 `IMAGE` 消息。
-
-## 详细流程
-
-### 1. 本地上传 + /image 命令路径
-
-1. 用户在输入框选择本地图片文件
-2. 前端调用 `POST /api/chat/resources/upload` → 返回 `resourceId`
-3. 前端展示缩略图预览
-4. 用户输入 `/image 戴墨镜的版本` 并发送
-5. 前端调用 `POST /api/chat/messages/stream`，body 含 `referenceResourceIds: ["r1"]`
-6. 后端 `appendUserMessage`：存文本 + 关联资源记录（`REFERENCE`）
-7. 识别 `/image` 命令 → 直接走 `ImageGenerationService`
-8. `sourceResourceId` 非空 → 查 storageKey → 读字节 → Base64 → 构建 `SubjectReference`
-9. 调用 MiniMax API
-10. 存储生成图 → IMAGE 消息 → SSE `image` 事件
-
-### 2. 本地上传 + 普通消息路径
-
-1-5 同上
-6. 后端 `appendUserMessage`：存文本 + 关联资源记录
-7. 非 `/image` → 进入 LLM agent 流程
-8. executor 注入增强消息：`{用户描述}\n[系统：用户附带参考图（资源ID: r1），如需生成新图调用 generateImage]`
-9. LLM 决定调用 `generateImage(memoryId, "戴墨镜的人物", "r1")`
-10. 工具内部：查 r1 → Base64 → SubjectReference → MiniMax API
-11. IMAGE 消息落库 → SSE `image` 事件 → 工具返回短文本 → LLM 可选补充说明
-
-### 3. 历史图片选择路径
-
-1. 用户点击已生成的图片消息（已有 resourceId）
-2. 前端将 `resourceId` 加入 `pendingResources`
-3. 后续流程与"本地上传"相同（跳过上传步骤）
-
-### 4. 纯文生图（无参考图）
-
-与现有流程完全一致，`referenceResourceIds` 为空，`subjectReference` 为 null。
-
-## 前端设计
-
-### 输入框布局
-
-```
-┌──────────────────────────────────┐
-│ [📎] [缩略图1 ×] [缩略图2 ×]    │  ← 附件预览区（有附件时显示）
-│ ┌──────────────────────────┐ [发送] │
-│ │ 输入描述词...              │       │
-│ └──────────────────────────┘       │
-└──────────────────────────────────┘
+```json
+{
+  "message": "帮我生成戴墨镜的版本",
+  "sessionId": "xxx",
+  "promptId": 1,
+  "agentId": "standard",
+  "resources": [
+    {
+      "resourceId": "r1",
+      "usageType": "REFERENCE"
+    }
+  ]
+}
 ```
 
-1. 📎 按钮：点击弹出选择菜单（上传本地文件 / 从历史图片选择）
-2. 上传本地文件：触发 `<input type="file" accept="image/jpeg,image/png">`
-3. 历史图片选择：弹出当前会话已生成的 IMAGE 消息缩略图列表
-4. 已选附件以缩略图展示，可点 × 移除
+目标方案的好处：
 
-### 用户消息气泡
+1. 同一条消息可以同时有普通附件和生成参考素材。
+2. 图片、视频、音频不需要不同字段。
+3. Agent 未来也能返回 `usageType=GENERATED` 或 `ATTACHMENT` 的资源。
+4. 前端可以只按 `resources` 渲染，不关心资源来自用户还是 Agent。
 
+### 6. 上传接口
+
+`POST /api/chat/resources/upload`
+
+职责：
+
+1. 鉴权。
+2. 接收 multipart 文件。
+3. 校验 MIME 白名单和大小。
+4. 保存到 `ResourceStorage`。
+5. 写入资源本体。
+6. 返回资源 DTO。
+
+请求字段：
+
+1. `file`：必填。
+2. `sessionId`：建议传入，用于归属和清理，但不代表绑定消息。
+
+响应：
+
+```json
+{
+  "resourceId": "r1",
+  "type": "IMAGE",
+  "url": "/api/chat/resources/r1/content",
+  "viewUrl": "/api/chat/resources/r1/content",
+  "downloadUrl": "/api/chat/resources/r1/download",
+  "fileName": "photo.jpg",
+  "mimeType": "image/jpeg",
+  "fileSize": 102400,
+  "width": 1024,
+  "height": 1024,
+  "durationMs": null
+}
 ```
-┌──────────────────┐
-│  [参考图缩略图]    │  ← MediaContent 渲染
-│  帮我生成戴墨镜的  │  ← 文本内容
-│  版本             │
-└──────────────────┘
+
+上传接口不接收 `messageId`，因为上传发生时消息可能还不存在。强行传 `messageId` 会把前端交互流程绑死，也会阻碍用户先选附件再输入内容的体验。
+
+### 7. 消息落库与资源绑定
+
+用户消息：
+
+1. `appendUserMessage(userId, sessionId, text, resources)`
+2. 先落 `chat_session_messages`
+3. 校验每个 `resourceId` 属于当前用户，且允许用于当前会话
+4. 更新这些资源记录的 `message_id`，完成资源与消息绑定
+5. 返回消息 DTO 时带上资源 DTO
+
+Agent 回复：
+
+1. 文本回复使用 `appendAssistantMessage(...)`
+2. 带资源回复使用 `appendAssistantMessage(..., resourceIds)`
+3. 图片生成可以继续保留 `appendImageMessage` 作为兼容封装，但内部应走同一套资源绑定逻辑
+4. 未来视频/音频工具复用同一套方法，不再新增专用 `appendVideoMessage`、`appendAudioMessage`，除非有明确的领域语义
+
+### 8. 工具调用
+
+`ImageGenerationTool` 保留显式可选资源入参，但语义改成资源引用，不是 MiniMax 专用参考图。
+
+```java
+@Tool("根据描述生成图片。可选传入 referenceResourceId，表示基于该资源生成新图片；不传则为纯文生图。")
+public String generateImage(
+        @ToolMemoryId String memoryId,
+        String prompt,
+        String referenceResourceId
+) {
+}
 ```
 
-### AI 图片消息气泡
+执行规则：
 
-不变，继续使用 `MediaContent`（原 `ImageMessageContent`）渲染。
+1. `referenceResourceId` 为空时，纯文生图。
+2. 非空时，工具先校验资源属于当前用户。
+3. 资源必须是图片类型，当前 MiniMax 首发只取一张。
+4. 工具把资源交给图片生成服务，图片生成服务再转为 MiniMax `subject_reference`。
+
+普通消息带资源时，不在 `runChatStream` 写死意图判断。Executor 只给 LLM 增强上下文：
+
+```text
+用户附带了以下资源：
+- r1: IMAGE, image/jpeg, usage=REFERENCE
+
+如需基于参考图生成新图片，请调用 generateImage 并传入 referenceResourceId。
+```
+
+这段增强信息不写入用户原始消息，只用于本次模型调用。
+
+### 9. 前端渲染
+
+前端渲染层以统一 `resources` 为核心，不再以 `IMAGE` 消息类型决定一切。
+
+建议类型：
+
+```ts
+export type ChatMessageResource = {
+  id: string;
+  type: "IMAGE" | "AUDIO" | "VIDEO" | "FILE";
+  usageType?: "ATTACHMENT" | "REFERENCE" | "GENERATED" | "THUMBNAIL";
+  url?: string;
+  viewUrl: string;
+  downloadUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+};
+```
+
+`MediaContent` 按 `mimeType` 或 `type` 渲染：
+
+1. `image/*` 或 `IMAGE`：图片预览
+2. `video/*` 或 `VIDEO`：`<video controls>`
+3. `audio/*` 或 `AUDIO`：`<audio controls>`
+4. 其他：文件卡片 + 下载
+
+用户消息和 Agent 消息都使用同一个 `MediaContent`。
+
+`messageType=IMAGE` 可以作为兼容旧数据的展示语义继续存在，但新资源渲染不应依赖它。长期建议用：
+
+1. `role` 表达消息归属：`user` / `assistant` / `system`
+2. `messageType` 表达消息语义：`TEXT` / `REASONING` / `MEDIA` / `SYSTEM`
+3. `resources` 表达资源内容和渲染数据
+
+## 数据流
+
+### 本地上传 + `/image`
+
+1. 用户选择图片。
+2. 前端上传文件，获得 `resourceId=r1`。
+3. 前端发送 `/image 戴墨镜的版本`，携带 `resources=[{resourceId:r1, usageType:REFERENCE}]`。
+4. 后端写入用户消息。
+5. 后端绑定 `r1` 到用户消息。
+6. `/image` 命令直接调用图片生成服务。
+7. 图片生成服务读取 `r1`，适配成 MiniMax `subject_reference`。
+8. MiniMax 返回生成图。
+9. 后端保存生成图资源。
+10. 后端写入 Agent 媒体消息并绑定生成图资源。
+11. SSE 返回资源消息事件，前端按 `MediaContent` 展示。
+
+### 本地上传 + 普通消息
+
+1. 用户上传图片并发送“帮我生成戴墨镜版本”。
+2. 后端写入用户消息并绑定资源。
+3. Executor 给 LLM 增强资源上下文。
+4. LLM 自主决定是否调用 `generateImage(prompt, referenceResourceId)`。
+5. 如果调用，工具生成图片并写入 Agent 资源消息。
+6. 如果不调用，正常返回文本，用户附件仍保留在用户消息气泡里。
+
+### 历史生成图再利用
+
+首版单表模型下，一个资源记录只绑定一条消息，因此不直接支持把历史消息里的同一个 `resourceId` 再绑定到新消息。历史生成图再利用有两条后续路线：
+
+1. 拆出资源本体表和消息资源关系表，让同一个资源可被多条消息引用。
+2. 将历史资源复制为新的资源记录，再绑定到当前消息。
+
+在聊天流尚未确定之前，首版先聚焦本地上传资源和当轮生成资源的绑定。
 
 ## 错误处理
 
 ### 上传失败
 
-1. 文件超过 10MB → 前端拦截，提示"文件大小不能超过 10MB"
-2. mimeType 不在白名单 → 后端返回 400，前端提示"暂不支持该文件类型"
-3. 存储失败 → 后端返回 500，前端提示"上传失败，请重试"
+1. 未登录或登录态失效：返回 `40100 Unauthorized`，前端提示重新登录或刷新会话。
+2. MIME 不支持：返回业务错误，前端展示“不支持该文件类型”。
+3. 文件过大：返回业务错误，前端展示大小限制。
+4. 存储失败：返回上传失败，不创建资源记录。
 
-### 参考图读取失败
+### 资源绑定失败
 
-1. resourceId 对应的文件不存在 → `ImageGenerationServiceImpl` 降级为纯文生图
-2. 读取字节失败 → 同上降级
+1. `resourceId` 不存在：本次发送失败，提示资源不存在或已过期。
+2. 资源不属于当前用户：拒绝绑定。
+3. 资源类型不符合使用场景：例如图生图只接受图片，返回明确错误。
 
-### MiniMax 调用失败
+不要静默降级为纯文生图。用户明确附带参考图时，静默降级会造成结果不可解释。
 
-与现有文生图错误处理一致：返回 `error` 事件，不写 IMAGE 消息。
+### 模型调用失败
+
+1. MiniMax 返回错误：SSE 返回 `error`，不写生成媒体消息。
+2. 参考图读取失败：SSE 返回 `error`，不调用 MiniMax。
+3. 工具调用异常：Agent run 标记失败，并返回用户可理解的错误。
 
 ## 安全与权限
 
-1. 上传端点必须鉴权。
-2. 上传文件做 mimeType 白名单校验（当前仅 `image/jpeg`、`image/png`）。
-3. 文件大小限制 10MB。
-4. 文件名做安全过滤（去除路径分隔符、控制字符）。
-5. `referenceResourceIds` 中的每个 ID 必须校验归属（只允许引用自己的资源）。
+1. 上传、预览、下载、消息绑定都必须鉴权。
+2. 资源读取必须校验 `resource.userId == currentUserId`。
+3. 资源绑定必须校验用户对资源有权限。
+4. 上传文件名需要过滤路径分隔符和控制字符。
+5. MIME 白名单和文件大小限制由配置控制。
+6. 未绑定消息的临时资源需要定时清理。
 
-## 配置设计
+## 配置
 
-### 上传白名单（新增）
+第一版图片首发：
 
 ```yaml
 chat:
   resources:
     upload:
       allowed-mime-types: image/jpeg,image/png
-      max-file-size: 10485760  # 10MB
+      max-file-size: 10485760
 ```
 
-后续扩展时只需在 `allowed-mime-types` 中追加 `video/mp4`、`audio/mpeg` 等。
+未来开放视频和音频时追加：
+
+```yaml
+chat:
+  resources:
+    upload:
+      allowed-mime-types: image/jpeg,image/png,video/mp4,audio/mpeg,audio/wav
+```
 
 ## 测试策略
 
-### 后端单测
+### 后端
 
-1. 资源上传：mimeType 校验、文件大小校验、存储落盘
-2. `appendUserMessage` 带 `referenceResourceIds`：资源记录关联正确
-3. `MiniMaxHttpImageClient`：`subject_reference` 条件构建正确
-4. `ImageGenerationTool`：`referenceResourceId` 为 null 和非 null 两种路径
-5. Base64 Data URL 构建正确
+1. 上传接口：鉴权、MIME 校验、大小校验、资源本体写入。
+2. 消息绑定：用户消息绑定资源，Agent 消息绑定资源，非法资源拒绝。
+3. 历史消息：按 `messageId` 返回正确资源列表。
+4. MiniMax 适配：有参考图片时构建 `subject_reference`，无参考图片时保持文生图请求。
+5. 工具调用：`referenceResourceId` 为空和非空两条路径。
+6. 错误路径：资源不存在、类型不匹配、读取失败。
 
-### 后端集成测试
+### 前端
 
-1. 上传 → 发消息带 referenceResourceIds → 用户消息关联 REFERENCE 资源
-2. 图生图完整链路：上传 → /image 命令 → MiniMax mock → IMAGE 消息含资源
-3. 历史图片选择：使用已生成图片的 resourceId 作为参考
-
-### 前端测试
-
-1. 文件上传 → 缩略图预览 → 发送后清空
-2. 用户消息展示参考图缩略图
-3. 历史图片选择 → 发送
-4. 通用 `MediaContent` 按 mimeType 分发渲染
+1. 上传后生成待发送资源，发送后清空。
+2. 用户消息立即展示附件。
+3. 历史消息恢复附件展示。
+4. `MediaContent` 按图片、视频、音频、文件分发渲染。
+5. 历史生成图可作为参考资源再次发送。
 
 ## 实施顺序
 
-1. 后端：资源上传端点（Controller + Service + 配置）
-2. 后端：`ChatMessageRequest` 加 `referenceResourceIds`
-3. 后端：`appendUserMessage` 扩展支持关联资源
-4. 后端：`MiniMaxImageGenerationRequest` 加 `SubjectReference`
-5. 后端：`MiniMaxHttpImageClient` 请求体构建改为可变 Map
-6. 后端：`ImageGenerationTool` 加 `referenceResourceId` 入参
-7. 后端：`ImageGenerationServiceImpl` 支持参考图 Base64 读取
-8. 后端：executor 消息增强（注入参考图 ID 提示）
-9. 前端：上传 API + 输入框附件功能
-10. 前端：`RenderableTurn` user 加 resources
-11. 前端：通用 `MediaContent` 组件
-12. 前端：用户消息气泡展示附件
-13. 前端：历史图片选择入口
+1. 使用单表资源模型，允许上传记录 `message_id` 为空。
+2. 上传接口改为只创建资源，不接收 `messageId`。
+3. 消息请求支持通用 `resources`，兼容旧的 `referenceResourceIds`。
+4. `appendUserMessage` 支持消息落库后绑定资源。
+5. `appendAssistantMessage` 或统一消息写入服务支持 Agent 消息绑定资源。
+6. 图片生成服务从资源模型读取参考图片，适配成 MiniMax `subject_reference`。
+7. `ImageGenerationTool` 使用 `referenceResourceId`，但不暴露 MiniMax 字段。
+8. 前端输入框使用统一待发送资源列表。
+9. 前端用户消息和 Agent 消息统一使用 `MediaContent`。
+10. 增加临时未绑定资源清理策略。
 
-## 风险与缓解
+## 设计修正点
 
-### 1. Base64 大文件导致请求体过大
+相较原图生图方案，本版做了以下修正：
 
-10MB 图片 Base64 编码后约 13.3MB，MiniMax API 可能有请求体大小限制。
-
-缓解：第一版先测试实际可用性。若超限，考虑先上传到临时图床获取公网 URL。
-
-### 2. LLM 不传 referenceResourceId
-
-LLM 可能忽略参考图 ID，不调用工具或直接文生图。
-
-缓解：优化 @Tool 描述和 executor 注入的系统提示，明确引导 LLM 在用户附带参考图时优先使用图生图。
-
-### 3. 上传的孤立资源积累
-
-用户上传后未发送消息的资源没有 messageId，会成为孤立记录。
-
-缓解：定时清理任务，删除 `message_id IS NULL` 且创建时间超过 24 小时的资源记录及对应文件。
+1. 不再要求 `/upload` 传 `messageId`。上传时消息还不存在，强行传会破坏聊天输入体验。
+2. 不再把上传接口写入 `message_id = null` 视为异常；它是当前单表模型下的未绑定资源状态。
+3. 不再通过复制资源记录表达绑定；绑定应更新原资源记录的 `message_id`。
+4. 不再让前端按 `IMAGE` 消息类型推断所有媒体展示。统一按 `resources` 的 `mimeType` / `type` 渲染。
+5. 不再让 MiniMax 的 `subject_reference` 进入聊天层对象。供应商私有格式只存在于适配层。
+6. 不再静默降级参考图失败。用户提供参考资源时，失败应可见。
 
 ## 结论
 
-本方案在现有文生图基础上，通过扩展 `subject_reference` 参数实现图生图，同时面向多模态做通用化设计：
+本方案以 LangChain4j 的多模态内容模型为参考，把聊天系统抽象为“消息包含内容，内容可引用资源”。图片生成只是第一批能力：纯文生图不带资源，图生图带一个图片参考资源；未来视频、音频和文件都复用同一套资源对象、消息绑定和前端渲染机制。
 
-1. 通用文件上传端点，按 mimeType 自动归类。
-2. 消息请求携带 `referenceResourceIds`，后端关联到用户消息。
-3. `ImageGenerationTool` 显式入参 `referenceResourceId`，LLM 自主判断意图。
-4. 前端通用 `MediaContent` 组件，用户消息和 AI 消息统一渲染。
-5. 当前仅开放图片上传，结构上已为视频/音频预留扩展位。
+这样设计后，底层模型供应商可以从 MiniMax 切换到 OpenAI、其他图像模型或多模态模型，上层聊天流仍只面对统一的 `ChatContent` 和 `ChatMessageResource`，不会因为供应商请求格式变化而大面积改动。

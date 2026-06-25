@@ -82,19 +82,20 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                     generatedImage.width(),
                     generatedImage.height()
             ));
+            String viewUrl = resourceStorage.buildViewUrl(storedResource.id());
+            String downloadUrl = resourceStorage.buildDownloadUrl(storedResource.id());
             resources.add(new ChatMessageResourceDto(
                     storedResource.id(),
                     "IMAGE",
-                    resourceStorage.buildViewUrl(storedResource.id()),
-                    resourceStorage.buildDownloadUrl(storedResource.id()),
+                    viewUrl,
+                    downloadUrl,
                     storedResource.fileName(),
                     storedResource.mimeType(),
                     storedResource.fileSize(),
                     storedResource.width(),
                     storedResource.height(),
                     storedResource.storageType(),
-                    storedResource.storageKey(),
-                    storedResource.sha256()
+                    storedResource.storageKey()
             ));
         }
 

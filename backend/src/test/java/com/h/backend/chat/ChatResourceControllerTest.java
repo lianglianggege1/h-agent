@@ -25,12 +25,14 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class ChatResourceControllerTest {
 
@@ -90,22 +92,31 @@ class ChatResourceControllerTest {
     }
 
     @Test
-    void uploadImage_shouldSaveAndReturnResponse() throws IOException {
+    void uploadImage_shouldSaveUnboundResourceAndReturnResponse() throws IOException {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(
-                new StoredResource("r-1", "LOCAL_FILE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100, "abc")
+                new StoredResource("r-1", "LOCAL_FILE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100)
         );
         when(resourceStorage.buildViewUrl("r-1")).thenReturn("/api/chat/resources/r-1/content");
         when(resourceStorage.buildDownloadUrl("r-1")).thenReturn("/api/chat/resources/r-1/download");
 
         MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[1024]);
-        var response = controller.upload(principal, file);
+        var response = controller.upload(principal, file, "session-1");
 
         assertNotNull(response.getBody());
         assertEquals("r-1", response.getBody().resourceId());
         assertEquals("IMAGE", response.getBody().kind());
         assertEquals("photo.jpg", response.getBody().fileName());
-        verify(chatMessageResourceMapper).insert(any(ChatMessageResourceEntity.class));
+        ArgumentCaptor<ChatMessageResourceEntity> captor = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
+        verify(chatMessageResourceMapper).insert(captor.capture());
+        ChatMessageResourceEntity row = captor.getValue();
+        assertEquals("r-1", row.getId());
+        assertNull(row.getMessageId());
+        assertEquals(1L, row.getUserId());
+        assertEquals("session-1", row.getSessionId());
+        assertEquals("IMAGE", row.getResourceKind());
+        assertEquals("key1", row.getStorageKey());
+        assertEquals("photo.jpg", row.getFileName());
     }
 
     @Test
@@ -113,7 +124,7 @@ class ChatResourceControllerTest {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         MockMultipartFile file = new MockMultipartFile("file", "doc.pdf", "application/pdf", new byte[100]);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file));
+        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "session-1"));
         assertEquals(40000, error.getCode());
         assertTrue(error.getMessage().contains("暂不支持该文件类型"));
     }
@@ -124,7 +135,7 @@ class ChatResourceControllerTest {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         MockMultipartFile file = new MockMultipartFile("file", "big.jpg", "image/jpeg", new byte[200]);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file));
+        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "session-1"));
         assertEquals(40000, error.getCode());
         assertTrue(error.getMessage().contains("文件大小不能超过"));
     }

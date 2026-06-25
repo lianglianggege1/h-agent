@@ -8,7 +8,6 @@ public record StoredResource(
         String fileName,
         Long fileSize,
         Integer width,
-        Integer height,
-        String sha256
+        Integer height
 ) {
 }

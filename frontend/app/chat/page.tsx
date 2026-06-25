@@ -942,13 +942,13 @@ function ChatPageContent() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png"
+            accept="image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/wav,audio/webm"
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
               if (file.size > 10 * 1024 * 1024) {
-                setError("图片大小不能超过 10MB");
+                setError("文件大小不能超过 10MB");
                 return;
               }
               setUploading(true);
