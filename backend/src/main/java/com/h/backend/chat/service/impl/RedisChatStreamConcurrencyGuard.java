@@ -65,6 +65,28 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
             redis.call('ZREM', globalKey, sessionId)
             return 1
             """;
+    private static final String RENEW_SCRIPT = """
+            local sessionKey = KEYS[1]
+            local userKey = KEYS[2]
+            local globalKey = KEYS[3]
+            local sessionId = ARGV[1]
+            local ttlMillis = tonumber(ARGV[2])
+            local nowMillis = tonumber(ARGV[3])
+            local expiresAt = nowMillis + ttlMillis
+
+            if redis.call('EXISTS', sessionKey) == 0 then
+                redis.call('ZREM', userKey, sessionId)
+                redis.call('ZREM', globalKey, sessionId)
+                return 0
+            end
+
+            redis.call('PEXPIRE', sessionKey, ttlMillis)
+            redis.call('ZADD', userKey, expiresAt, sessionId)
+            redis.call('ZADD', globalKey, expiresAt, sessionId)
+            redis.call('PEXPIRE', userKey, ttlMillis)
+            redis.call('PEXPIRE', globalKey, ttlMillis)
+            return 1
+            """;
 
     private final int maxConcurrentPerUser;
     private final int maxConcurrentGlobal;
@@ -134,6 +156,8 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
     public interface RedisScriptRunner {
         Long runAcquire(List<String> keys, int maxConcurrentPerUser, int maxConcurrentGlobal, long ttlMillis);
 
+        Long runRenew(List<String> keys, long ttlMillis);
+
         Long runRelease(List<String> keys);
     }
 
@@ -161,6 +185,13 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         }
 
         @Override
+        public void renew() {
+            if (!released.get()) {
+                redisScriptRunner.runRenew(keys, permitTtlMillis);
+            }
+        }
+
+        @Override
         public void release() {
             if (released.compareAndSet(false, true)) {
                 redisScriptRunner.runRelease(keys);
@@ -173,6 +204,10 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         @Override
         public boolean acquired() {
             return false;
+        }
+
+        @Override
+        public void renew() {
         }
 
         @Override
@@ -198,6 +233,17 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
                     keys.get(0),
                     String.valueOf(maxConcurrentPerUser),
                     String.valueOf(maxConcurrentGlobal),
+                    String.valueOf(ttlMillis),
+                    String.valueOf(System.currentTimeMillis())
+            );
+        }
+
+        @Override
+        public Long runRenew(List<String> keys, long ttlMillis) {
+            return stringRedisTemplate.execute(
+                    redisScript(RENEW_SCRIPT),
+                    keys.stream().map(this::buildKey).toList(),
+                    keys.get(0),
                     String.valueOf(ttlMillis),
                     String.valueOf(System.currentTimeMillis())
             );

@@ -12,7 +12,7 @@ public class ChatStreamProperties {
     private Duration heartbeatInterval = Duration.ofSeconds(15);
     private int maxConcurrentPerUser = 2;
     private int maxConcurrentGlobal = 100;
-    private Duration permitTtl = Duration.ofHours(2);
+    private Duration permitTtl = Duration.ofMinutes(10);
 
     public Duration getHeartbeatInterval() {
         return heartbeatInterval;

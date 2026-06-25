@@ -53,7 +53,7 @@ chat:
     heartbeat-interval: 15s
     max-concurrent-per-user: 2
     max-concurrent-global: 100
-    permit-ttl: 2h
+    permit-ttl: 10m
 
 knowledge:
   retriever:

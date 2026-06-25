@@ -292,6 +292,7 @@ public class ChatServiceImpl implements ChatService {
                     agent,
                     runHandle,
                     telemetryRun,
+                    permit::renew,
                     () -> releasePermitOnce(permit, permitReleased)
             ));
         } catch (Exception ex) {

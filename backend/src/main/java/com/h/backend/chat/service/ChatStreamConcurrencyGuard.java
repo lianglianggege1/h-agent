@@ -9,6 +9,8 @@ public interface ChatStreamConcurrencyGuard {
 
         String message();
 
+        void renew();
+
         void release();
     }
 }
