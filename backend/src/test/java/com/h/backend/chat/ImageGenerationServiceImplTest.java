@@ -9,11 +9,14 @@ import com.h.backend.chat.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.impl.ImageGenerationServiceImpl;
+import com.h.backend.chat.entity.ChatMessageResourceEntity;
+import com.h.backend.chat.storage.ResourceContent;
 import com.h.backend.chat.storage.ResourceSaveCommand;
 import com.h.backend.chat.storage.ResourceStorage;
 import com.h.backend.chat.storage.StoredResource;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -157,6 +160,14 @@ class ImageGenerationServiceImplTest {
                 null,
                 "sha2"
         );
+        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
+        referenceResource.setId("resource-1");
+        referenceResource.setStorageKey("reference-images/resource-1.png");
+        referenceResource.setMimeType("image/png");
+        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
+        when(resourceStorage.open("reference-images/resource-1.png"))
+                .thenReturn(new ResourceContent(new ByteArrayInputStream(new byte[]{7, 8, 9}), "image/png", 3L));
+
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
         when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
         when(resourceStorage.buildDownloadUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/download");
