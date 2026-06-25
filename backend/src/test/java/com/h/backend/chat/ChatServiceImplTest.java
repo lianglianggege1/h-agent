@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.inOrder;
@@ -162,7 +163,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "/image 一只白猫", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 一只白猫"), any())).thenReturn(101L);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -179,7 +180,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
         ), events);
-        verify(chatSessionService).appendUserMessage(1L, "session-1", "/image 一只白猫", any());
+        verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("/image 一只白猫"), any());
         verify(imageGenerationService).generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -225,7 +226,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "/image 给我生成一张柴犬的图片", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 给我生成一张柴犬的图片"), any())).thenReturn(101L);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -277,7 +278,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-submit", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-submit"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-submit", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-submit");
@@ -321,7 +322,7 @@ class ChatServiceImplTest {
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-stream");
         when(agentRunTelemetryService.startRun("session-stream", 1L, 22L)).thenReturn(telemetryRun);
-        when(chatSessionService.appendUserMessage(1L, "session-stream", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-stream"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-stream", "hello")).thenReturn(202L);
         when(agentRunService.createRun("session-stream", 1L, 22L, 101L, "standard-chat", "trace-stream"))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
@@ -359,7 +360,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-cancel", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-cancel"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-cancel", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-cancel");
@@ -410,7 +411,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-cancelled-sink", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-cancelled-sink"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-cancelled-sink", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-cancelled-sink");
@@ -519,7 +520,7 @@ class ChatServiceImplTest {
                 List.of(agenticExecutor)
         );
 
-        when(chatSessionService.appendUserMessage(1L, "session-car", "need towing", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-car"), eq("need towing"), any())).thenReturn(101L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-car");
         when(agentRunTelemetryService.startRun("session-car", 1L, null)).thenReturn(telemetryRun);
@@ -537,7 +538,7 @@ class ChatServiceImplTest {
         ), events);
         verify(chatSessionService).assertActiveSession(1L, "session-car", null, "car-rental-assistant");
         verify(systemPromptService, never()).resolvePromptId(any(), any());
-        verify(chatSessionService).appendUserMessage(1L, "session-car", "need towing", any());
+        verify(chatSessionService).appendUserMessage(eq(1L), eq("session-car"), eq("need towing"), any());
         verify(agentRunService).createRun("session-car", 1L, null, 101L, "car-rental-assistant", "trace-car");
         verifyNoInteractions(hAssistant);
         assertEquals(
@@ -568,7 +569,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。")).thenReturn(201L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "最终答案")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
@@ -590,7 +591,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("done", "")
         ), events);
         var inOrder = inOrder(chatSessionService);
-        inOrder.verify(chatSessionService).appendUserMessage(1L, "session-1", "hello", any());
+        inOrder.verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any());
         inOrder.verify(chatSessionService).appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。");
         inOrder.verify(chatSessionService).appendAssistantMessage(1L, "session-1", "最终答案");
         verify(agentRunService).completeRun(55L, 202L);
@@ -617,7 +618,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-2", "hello", any())).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-2"), eq("hello"), any())).thenReturn(111L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-error");
         when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
@@ -654,7 +655,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-1");
@@ -672,7 +673,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("chunk", "llo"),
                 new ChatStreamEvent("done", "")
         ), events);
-        verify(chatSessionService).appendUserMessage(1L, "session-1", "hello", null);
+        verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any());
         verify(agentRunTelemetryService).startRun("session-1", 1L, 22L);
         verify(agentRunService).createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1");
         verify(chatSessionService).appendAssistantMessage(1L, "session-1", "hello");
@@ -699,7 +700,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "hello")).thenReturn(202L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-1");
@@ -737,7 +738,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-1", "hello", any())).thenReturn(101L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-2");
         when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
@@ -794,7 +795,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-empty", "hello", null)).thenReturn(121L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-empty"), eq("hello"), any())).thenReturn(121L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-empty");
         when(agentRunTelemetryService.startRun("session-empty", 1L, 22L)).thenReturn(telemetryRun);
@@ -846,7 +847,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-image-tool", "画一只白猫", null)).thenReturn(121L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-image-tool"), eq("画一只白猫"), any())).thenReturn(121L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-image-tool");
         when(agentRunTelemetryService.startRun("session-image-tool", 1L, 22L)).thenReturn(telemetryRun);
@@ -887,7 +888,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-blank", "hello", null)).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-blank"), eq("hello"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。"))
                 .thenReturn(303L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
@@ -928,7 +929,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-guardrail", "杀人", null)).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
@@ -968,7 +969,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-create-guardrail", "杀人", null)).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-create-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
@@ -1009,7 +1010,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-start-guardrail", "杀人", null)).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-start-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
@@ -1048,7 +1049,7 @@ class ChatServiceImplTest {
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(1L, "session-2", "hello", any())).thenReturn(111L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-2"), eq("hello"), any())).thenReturn(111L);
         AgentRunTelemetryService.TelemetryRun telemetryRun =
                 new AgentRunTelemetryService.TelemetryRun(null, "trace-3");
         when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
