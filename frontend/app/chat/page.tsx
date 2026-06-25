@@ -954,7 +954,7 @@ function ChatPageContent() {
               setUploading(true);
               setError("");
               try {
-                const result = await uploadChatResource(file);
+                const result = await uploadChatResource(file, sessionId!);
                 setPendingResources((prev) => [...prev, result]);
               } catch (err) {
                 setError(err instanceof Error ? err.message : "上传失败");

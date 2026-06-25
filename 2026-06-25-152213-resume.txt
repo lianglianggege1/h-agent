@@ -1,0 +1,222 @@
+============================================================
+图生图功能设计 - 完整交流记录
+============================================================
+
+------------------------------------------------------------
+【第1轮】用户
+------------------------------------------------------------
+（上一会话续接）用户提供了三份 MiniMax 本地 HTML 文档文件：
+- /Users/huajiang/Desktop/文生图 - MiniMax 开放平台文档中心.html
+- /Users/huajiang/Desktop/图生图 - MiniMax 开放平台文档中心.html
+- /Users/huajiang/Desktop/图片生成 - MiniMax 开放平台文档中心.html
+- /Users/huajiang/Desktop/文生图 - MiniMax 开放平台文档中心_files/
+
+要求助手阅读这些文档以理解 API 细节。之前已通过 WebFetch 获取了文生图 API 的 OpenAPI 规范。
+前一个会话中助手仅读取了前200行（页面框架代码），未读到实际 API 内容。
+
+------------------------------------------------------------
+【第2轮】用户
+------------------------------------------------------------
+"不要去网上查看了 你就直接看我本地的文件即可，现在你应该能读了"
+
+助手用 grep 搜索 HTML 文件，没有匹配到（内容被 HTML 实体编码或在 JSON 数据块中）。
+助手读取了图生图 HTML 文件的 200-600 行，获取到部分 API 信息。
+
+------------------------------------------------------------
+【第3轮】用户
+------------------------------------------------------------
+"把现有文生图接口直接扩成'支持传图 + 描述词'，当然也可以不传图,前端的聊天框里面可以上传本地图片+描述词，/image和非/image都要支持，以及也可以选中历史生成的图再加描述词"
+
+明确需求：
+- 扩展现有文生图接口（非新建）
+- 支持可选参考图（subject_reference），不传图时为纯文生图
+- 前端聊天框上传本地图片 + 描述词
+- /image 和非 /image 都支持
+- 也可以选中历史生成的图再加描述词
+
+------------------------------------------------------------
+【第4轮】用户
+------------------------------------------------------------
+"1.接受新增POST /api/chat/resources/upload
+2.不要在runChatStream里面写死，我所说的智能判断就是看大模型是否选择调用生成图片工具，为了支持这个需求，这个工具可能要变化，包括入参和描述啊之类的
+3.先一张吧，多张情况放在以后考虑"
+
+三个关键确认：
+1. 接受新增 POST /api/chat/resources/upload（multipart 上传端点）
+2. 意图判断 = LLM 工具调用本身，不在 runChatStream 写死；ImageGenerationTool 需要改（入参+描述）
+3. 先支持一张参考图
+
+------------------------------------------------------------
+【第5轮】用户
+------------------------------------------------------------
+"subject_reference.type string必填 主体类型，当前仅支持 character (人像)
+subject_reference.image_file string必填 参考图文件。支持公网 URL 或 Base64 编码的 Data URL (data:image/jpeg;base64,...)
+为获得最佳效果，请上传单人正面照片
+图片要求：格式：JPG, JPEG, PNG 大小：小于 10MB"
+
+用户补充了 MiniMax API 动态折叠部分的详细信息，确认文档明确支持 Base64 Data URL。
+
+------------------------------------------------------------
+【第6轮】用户
+------------------------------------------------------------
+"不认同后端的工具设计，加个入参又何妨呢？本身sourceResourceId 也不是记忆的一部分，要硬塞进去吗"
+
+用户否定了 registry 按 memoryId 隐式注入的方案。
+核心观点：sourceResourceId 不是记忆的一部分，不该硬塞进 memoryId 体系。
+决定：工具入参显式加 referenceResourceId，LLM 从增强消息中获取 ID 并传入工具。
+
+------------------------------------------------------------
+【第7轮】用户
+------------------------------------------------------------
+"好吧的确冤枉你了，本地是打不开
+你访问如下连接，仔细读文档在出方案，要和结合现有实现
+https://platform.minimaxi.com/docs/api-reference/image-generation-i2i
+https://platform.minimaxi.com/docs/api-reference/image-generation-t2i
+https://platform.minimaxi.com/docs/guides/image-generation
+把刚才说的动态折叠的信息也要读到，然后再分析"
+
+助手通过 WebFetch 读取了三个在线文档，获取了完整的 OpenAPI 规格（包括动态折叠的 ImageSubjectReference 子属性）。
+
+------------------------------------------------------------
+【第8轮】用户
+------------------------------------------------------------
+（助手完成了文档和现有实现的分析，给出了完整的方案方向）
+用户问："你确定动态折叠的你都看不到吗，我本地文件用浏览器打开就能看到的"
+用户不满助手用 grep 读 HTML："你为什么用grep命令呢 用浏览器打开 html文件，直接阅读不就好了"
+
+------------------------------------------------------------
+【第9轮】用户
+------------------------------------------------------------
+（助手给出了修正后的完整设计，包含后端10处改动 + 前端5处改动）
+助手提出待定点：resourceId → storageKey 查询如何实现（两个选项 A/B）
+
+------------------------------------------------------------
+【第10轮】用户
+------------------------------------------------------------
+"'/Users/huajiang/Desktop/h-agent/docs/superpowers/specs/2026-05-27-chat-image-generation-design.md' 原来设计的时候，这块加过，根据这个文档呢自己查一下"
+
+"我理解的存在哪里这个功能应该是可以直接复用原来的实现"
+
+用户指出资源查询能力已在原设计中实现，应该直接复用。
+助手查代码确认：ChatMessageResourceMapper.selectByResourceId 已可按 resourceId 查 storageKey。
+
+------------------------------------------------------------
+【第11轮】用户
+------------------------------------------------------------
+"为什么我看到的AI回复的聊天框里面已经能看到图片的历史记录了呢"
+"和你总结的情况不符啊"
+
+用户指出 AI 生成的图片消息（IMAGE 类型）在聊天记录里已经能正常展示。
+
+助手澄清区分：
+- AI 生成的图片（IMAGE 消息）→ 已能展示（现有功能）
+- 用户消息附带的参考图（REFERENCE）→ 目前只显示文字，需要新设计
+
+------------------------------------------------------------
+【第12轮】用户
+------------------------------------------------------------
+用户问："不开始，你前端的用户输入的图和选的历史图，会展示在聊天记录里面吗 我希望能展示的"
+
+用户明确要求：用户上传的参考图和选的历史图，需要在用户消息气泡中展示。
+
+助手补充方案：
+- 后端：appendUserMessage 扩展，带参考图资源记录（resource_kind=REFERENCE）
+- 前端：RenderableTurn user 类型加 resources，用户消息气泡渲染参考图缩略图
+
+------------------------------------------------------------
+【第13轮】用户
+------------------------------------------------------------
+"继续吧"
+
+用户确认设计完整，要求继续写设计文档。
+
+============================================================
+已确认的设计决策汇总
+============================================================
+
+1. 接口策略：扩展现有文生图接口，支持可选参考图（subject_reference）
+2. 参考图来源：双通道（本地上传 + 历史图片选择），统一收敛为 referenceResourceId
+3. 触发入口：/image 命令和非 /image 普通消息都支持
+4. 意图判断：LLM 工具调用自然决定，不在 runChatStream 写死
+5. 工具入参：显式加 referenceResourceId（可选），LLM 从增强消息获取
+6. 参考图传入：Base64 Data URL（data:image/jpeg;base64,...）
+7. 资源查询：复用现有 ChatMessageResourceMapper.selectByResourceId
+8. 上传端点：新增 POST /api/chat/resources/upload（multipart）
+9. 用户消息展示：参考图在用户消息气泡中展示（resource_kind=REFERENCE）
+10. 参考图数量：先支持 1 张
+
+============================================================
+后端改动清单（10处）
+============================================================
+
+1. MiniMaxImageGenerationRequest — 加 SubjectReference(type, imageFile)，可为 null
+2. MiniMaxHttpImageClient.generate — Map.of → HashMap，按需塞 subject_reference
+3. ImageGenerationServiceImpl — sourceResourceId 非空时：selectByResourceId 查 storageKey → open 读字节 → Base64 Data URL → 构造 SubjectReference
+4. ImageGenerationTool — generateImage(memoryId, prompt, referenceResourceId)，描述更新，填入 ImageSubAgentCommand.sourceResourceId
+5. ChatAgentExecutionCommand — 加 referenceResourceId 字段
+6. ChatService.streamChat + ChatController — 透传 referenceResourceId
+7. ChatServiceImpl — streamChat/runChatStream/emitImageCommandEvents 透传，后者填 sourceResourceId
+8. HAssistantStreamingExecutor + AgenticSyncExecutor — 消息增强（refId 非空时给 LLM 的消息追加参考图 ID 提示）
+9. ChatMessageRequest — 加 referenceResourceId
+10. 新增 POST /api/chat/resources/upload（multipart）→ ResourceStorage.save + 写 chat_message_resources 记录 → 返回 {resourceId, viewUrl}
+
+============================================================
+前端改动清单（5处）
+============================================================
+
+1. 输入框加图片按钮 + 已选参考图缩略条（可移除）
+2. ImageMessageContent 加"用作参考图"按钮
+3. buildChatSendPayload 加 referenceResourceId
+4. handleSubmit 带上 referenceResourceId，发送后清空
+5. 新增 uploadChatResource 调用 /api/chat/resources/upload
+
+============================================================
+用户消息展示参考图补充
+============================================================
+
+后端：
+- appendUserMessage 扩展签名，加 List<ChatMessageResourceDto> referenceResources
+- ChatSessionServiceImpl：参考图非空时，selectByResourceId 查原图 → 复制插入新记录（resource_kind=REFERENCE）
+- ChatServiceImpl 的 runChatStream / emitImageCommandEvents 调 appendUserMessage 时传入参考图资源
+
+前端：
+- RenderableTurn user 类型加 resources: ChatMessageResource[]
+- toRenderableTurns user 分支带上 resources
+- buildPendingAssistantTurn 接收参考图参数，userMessage 立即带 resources
+- page.tsx 用户消息气泡：文本下方渲染参考图缩略图
+
+============================================================
+关键文件引用
+============================================================
+
+后端核心文件：
+- backend/src/main/java/com/h/backend/chat/image/MiniMaxImageGenerationRequest.java
+- backend/src/main/java/com/h/backend/chat/image/MiniMaxHttpImageClient.java
+- backend/src/main/java/com/h/backend/chat/service/impl/ImageGenerationServiceImpl.java
+- backend/src/main/java/com/h/backend/chat/tools/ImageGenerationTool.java
+- backend/src/main/java/com/h/backend/chat/agent/ChatAgentExecutionCommand.java
+- backend/src/main/java/com/h/backend/chat/agent/HAssistantStreamingExecutor.java
+- backend/src/main/java/com/h/backend/chat/agent/AgenticSyncExecutor.java
+- backend/src/main/java/com/h/backend/chat/service/impl/ChatServiceImpl.java
+- backend/src/main/java/com/h/backend/chat/controller/ChatController.java
+- backend/src/main/java/com/h/backend/chat/dto/ChatMessageRequest.java
+- backend/src/main/java/com/h/backend/chat/service/ChatSessionService.java
+- backend/src/main/java/com/h/backend/chat/service/impl/ChatSessionServiceImpl.java
+- backend/src/main/java/com/h/backend/chat/mapper/ChatMessageResourceMapper.java
+- backend/src/main/java/com/h/backend/chat/service/impl/ChatResourceServiceImpl.java
+- backend/src/main/java/com/h/backend/chat/storage/LocalFileResourceStorage.java
+- backend/src/main/java/com/h/backend/chat/storage/ResourceStorage.java
+
+前端核心文件：
+- frontend/app/chat/page.tsx
+- frontend/lib/chat-message-state.ts
+- frontend/lib/chat-agent-mode.ts
+- frontend/lib/http.ts
+
+现有设计文档：
+- docs/superpowers/specs/2026-05-27-chat-image-generation-design.md
+
+MiniMax API 文档：
+- https://platform.minimaxi.com/docs/api-reference/image-generation-i2i
+- https://platform.minimaxi.com/docs/api-reference/image-generation-t2i
+- https://platform.minimaxi.com/docs/guides/image-generation

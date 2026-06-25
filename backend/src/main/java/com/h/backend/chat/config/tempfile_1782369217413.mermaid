@@ -1,0 +1,19 @@
+graph TB
+    A[前端输入框] -->|上传本地图| UP[POST /resources/upload]
+    A -->|选历史图| HR[从 image 消息取 resourceId]
+    UP --> RID[得到 referenceResourceId]
+    HR --> RID
+    A -->|描述词 + referenceResourceId| MSG[POST /messages/stream]
+
+    MSG --> B{是否 /image 命令?}
+    B -->|是| IMG[图生图流程]
+    B -->|否| C{是否带 referenceResourceId?}
+    C -->|否| LLM[正常 LLM 聊天]
+    C -->|是| INT[LLM 意图判断]
+    INT -->|IMAGE_GENERATION| IMG
+    INT -->|CHAT| LLM
+
+    IMG --> READ[ResourceStorage.open 读图字节]
+    READ --> B64[转 Base64 Data URL]
+    B64 --> API[MiniMax subject_reference]
+    API --> STORE[存生成图 + emit image event]

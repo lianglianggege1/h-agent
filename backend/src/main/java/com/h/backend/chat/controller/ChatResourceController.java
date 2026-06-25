@@ -47,7 +47,8 @@ public class ChatResourceController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ResourceUploadResponse> upload(
             @AuthenticationPrincipal AuthUserPrincipal principal,
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("sessionId") String sessionId
     ) throws IOException {
         String mimeType = file.getContentType();
         if (mimeType == null || !uploadProperties.getAllowedMimeTypes().contains(mimeType)) {
@@ -72,7 +73,7 @@ public class ChatResourceController {
         row.setId(stored.id());
         row.setMessageId(null);
         row.setUserId(principal.userId());
-        row.setSessionId(null);
+        row.setSessionId(sessionId);
         row.setResourceKind(kind);
         row.setStorageType(stored.storageType());
         row.setStorageKey(stored.storageKey());
