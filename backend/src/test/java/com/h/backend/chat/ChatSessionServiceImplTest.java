@@ -495,7 +495,7 @@ class ChatSessionServiceImplTest {
             return 1;
         }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
 
-        Long userMessageId = service.appendUserMessage(1L, "session-1", "hello");
+        Long userMessageId = service.appendUserMessage(1L, "session-1", "hello", null);
         Long assistantMessageId = service.appendAssistantMessage(1L, "session-1", "world");
 
         assertEquals(101L, userMessageId);
