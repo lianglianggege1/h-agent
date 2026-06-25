@@ -17,6 +17,7 @@ import {
   type UiChatMessage,
 } from "@/lib/chat-message-state";
 import { agentStepStatusText, visibleAgentSteps } from "@/lib/agent-ui";
+import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
@@ -33,6 +34,7 @@ import {
 import { AgentSummary, listAgents } from "@/lib/agents";
 import {
   bootstrapChatSession,
+  ChatMessageResource,
   ChatSessionOpen,
   ChatSessionSummary,
   activateHistorySession,
@@ -187,7 +189,7 @@ function AgentStepDetails({ steps, pending = false }: { steps: UiAgentStep[]; pe
   );
 }
 
-function ImageMessageContent({
+function MediaContent({
   content,
   resources,
 }: {
@@ -197,31 +199,51 @@ function ImageMessageContent({
     viewUrl: string;
     downloadUrl: string;
     fileName: string;
+    mimeType: string;
     width: number | null;
     height: number | null;
   }>;
 }) {
   return (
     <div className="space-y-3">
-      {resources.map((resource) => (
-        <div key={resource.id} className="space-y-2">
-          <img
-            className="aspect-square w-full rounded-[1.2rem] border border-stone-200 object-cover"
-            src={resource.viewUrl}
-            alt={content || resource.fileName}
-            width={resource.width ?? 1024}
-            height={resource.height ?? 1024}
-          />
-          <div className="flex justify-end">
-            <a
-              className="shrink-0 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-white"
-              href={resource.downloadUrl}
-            >
-              下载
-            </a>
-          </div>
-        </div>
-      ))}
+      {resources.map((resource) => {
+        if (resource.mimeType.startsWith("image/")) {
+          return (
+            <div key={resource.id} className="space-y-2">
+              <img
+                className="aspect-square w-full rounded-[1.2rem] border border-stone-200 object-cover"
+                src={resource.viewUrl}
+                alt={content || resource.fileName}
+                width={resource.width ?? 1024}
+                height={resource.height ?? 1024}
+              />
+              <div className="flex justify-end">
+                <a
+                  className="shrink-0 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-white"
+                  href={resource.downloadUrl}
+                >
+                  下载
+                </a>
+              </div>
+            </div>
+          );
+        }
+        if (resource.mimeType.startsWith("video/")) {
+          return <video key={resource.id} src={resource.viewUrl} controls className="w-full rounded-[1.2rem]" />;
+        }
+        if (resource.mimeType.startsWith("audio/")) {
+          return <audio key={resource.id} src={resource.viewUrl} controls className="w-full" />;
+        }
+        return (
+          <a
+            key={resource.id}
+            href={resource.downloadUrl}
+            className="block rounded-xl border border-stone-200 px-3 py-2 text-sm text-stone-600"
+          >
+            {resource.fileName}
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -258,7 +280,32 @@ function ChatPageContent() {
   const [historyLoadedForSession, setHistoryLoadedForSession] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
+  const [pendingResources, setPendingResources] = useState<UploadedResource[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [attachmentMenuMode, setAttachmentMenuMode] = useState<"menu" | "history">("menu");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const requestedAgentId = searchParams.get("agentId");
+
+  const generatedImages = useMemo(() => {
+    return messages
+      .filter((m) => m.messageType === "IMAGE" && m.resources && m.resources.length > 0)
+      .flatMap((m) => m.resources!.map((r) => ({ ...r, messageId: m.id })));
+  }, [messages]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(event.target as Node)) {
+        setShowAttachmentMenu(false);
+        setAttachmentMenuMode("menu");
+      }
+    }
+    if (showAttachmentMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAttachmentMenu]);
 
   useEffect(() => {
     getCurrentUser()
@@ -456,10 +503,28 @@ function ChatPageContent() {
     const content = input.trim();
     if (!content || streaming || !sessionId) return;
 
+    const resourceIds = pendingResources.map((r) => r.resourceId);
+    const pendingMessageResources: ChatMessageResource[] = pendingResources.map((r) => ({
+      id: r.resourceId,
+      kind: r.kind,
+      viewUrl: r.viewUrl,
+      downloadUrl: r.downloadUrl,
+      fileName: r.fileName,
+      mimeType: r.mimeType,
+      fileSize: r.fileSize,
+      width: null,
+      height: null,
+    }));
+
     const seed = Date.now();
-    const { userMessage, reasoningMessage, assistantMessage } = buildPendingAssistantTurn(content, seed);
+    const { userMessage, reasoningMessage, assistantMessage } = buildPendingAssistantTurn(
+      content,
+      seed,
+      pendingMessageResources,
+    );
 
     setInput("");
+    setPendingResources([]);
     setError("");
     setStreaming(true);
     setMessages((current) => [...current, userMessage, reasoningMessage, assistantMessage]);
@@ -474,6 +539,7 @@ function ChatPageContent() {
             sessionId,
             promptId: selectedPromptId,
             agentId: currentAgentId,
+            referenceResourceIds: resourceIds.length > 0 ? resourceIds : undefined,
           })),
         },
         {
@@ -834,7 +900,12 @@ function ChatPageContent() {
                   ].join(" ")}
                 >
                   {turn.kind === "user" ? (
-                    turn.content
+                    <div className="space-y-3">
+                      {turn.resources && turn.resources.length > 0 ? (
+                        <MediaContent content={turn.content} resources={turn.resources} />
+                      ) : null}
+                      {turn.content ? <p className="whitespace-pre-wrap">{turn.content}</p> : null}
+                    </div>
                   ) : turn.kind === "blocked" ? (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} />
@@ -842,7 +913,7 @@ function ChatPageContent() {
                       <BlockedMessageContent content={turn.blocked} />
                     </div>
                   ) : turn.kind === "image" ? (
-                    <ImageMessageContent content={turn.content} resources={turn.resources} />
+                    <MediaContent content={turn.content} resources={turn.resources} />
                   ) : turn.answer ? (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} />
@@ -868,25 +939,161 @@ function ChatPageContent() {
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-md bg-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <div className="rounded-[2rem] border border-stone-200 bg-[#f8f5ec]/95 p-3 shadow-[0_-8px_30px_rgba(58,45,28,0.12)] backdrop-blur">
-            {error ? <p className="px-2 pb-2 text-sm text-red-600">{error}</p> : null}
-
-            <form className="flex items-end gap-3" onSubmit={handleSubmit}>
-              <textarea
-                className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.4rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={usingStandardAgent ? "输入你想聊的内容..." : `询问 ${currentAgentName}...`}
-                rows={1}
-              />
-              <button
-                className="h-12 shrink-0 rounded-full bg-stone-900 px-5 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
-                type="submit"
-                disabled={!canSubmit}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              if (file.size > 10 * 1024 * 1024) {
+                setError("图片大小不能超过 10MB");
+                return;
+              }
+              setUploading(true);
+              setError("");
+              try {
+                const result = await uploadChatResource(file);
+                setPendingResources((prev) => [...prev, result]);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "上传失败");
+              } finally {
+                setUploading(false);
+                e.target.value = "";
+              }
+            }}
+          />
+          <div className="relative">
+            {showAttachmentMenu ? (
+              <div
+                ref={attachmentMenuRef}
+                className="absolute bottom-full left-0 mb-2 w-full rounded-[1.2rem] border border-stone-200 bg-[#f8f5ec]/95 p-3 shadow-[0_-8px_30px_rgba(58,45,28,0.12)] backdrop-blur"
               >
-                {streaming ? "生成中" : "发送"}
-              </button>
-            </form>
+                {attachmentMenuMode === "menu" ? (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-white px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-stone-100"
+                      onClick={() => {
+                        fileInputRef.current?.click();
+                        setShowAttachmentMenu(false);
+                      }}
+                    >
+                      上传本地图片
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-white px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-stone-100"
+                      onClick={() => setAttachmentMenuMode("history")}
+                    >
+                      从历史选择
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-stone-500">选择历史图片</p>
+                      <button
+                        type="button"
+                        className="text-xs text-amber-700"
+                        onClick={() => setAttachmentMenuMode("menu")}
+                      >
+                        返回
+                      </button>
+                    </div>
+                    <div className="grid max-h-40 grid-cols-4 gap-2 overflow-y-auto">
+                      {generatedImages.map((resource) => (
+                        <button
+                          key={`${resource.messageId}-${resource.id}`}
+                          type="button"
+                          className="relative aspect-square overflow-hidden rounded-xl border border-stone-200"
+                          onClick={() => {
+                            setPendingResources((prev) => [
+                              ...prev,
+                              {
+                                resourceId: resource.id,
+                                kind: resource.kind,
+                                viewUrl: resource.viewUrl,
+                                downloadUrl: resource.downloadUrl,
+                                fileName: resource.fileName,
+                                mimeType: resource.mimeType,
+                                fileSize: resource.fileSize ?? 0,
+                              },
+                            ]);
+                            setShowAttachmentMenu(false);
+                            setAttachmentMenuMode("menu");
+                          }}
+                        >
+                          <img
+                            src={resource.viewUrl}
+                            alt={resource.fileName}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="rounded-[2rem] border border-stone-200 bg-[#f8f5ec]/95 p-3 shadow-[0_-8px_30px_rgba(58,45,28,0.12)] backdrop-blur">
+              {error ? <p className="px-2 pb-2 text-sm text-red-600">{error}</p> : null}
+              {pendingResources.length > 0 ? (
+                <div className="flex gap-2 px-2 pb-2">
+                  {pendingResources.map((r) => (
+                    <div key={r.resourceId} className="relative h-16 w-16">
+                      <img
+                        src={r.viewUrl}
+                        alt={r.fileName}
+                        className="h-full w-full rounded-lg border border-stone-200 object-cover"
+                      />
+                      <button
+                        type="button"
+                        className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-stone-800 text-xs text-white"
+                        onClick={() =>
+                          setPendingResources((prev) => prev.filter((p) => p.resourceId !== r.resourceId))
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <form className="flex items-end gap-3" onSubmit={handleSubmit}>
+                <button
+                  type="button"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:bg-stone-100 disabled:opacity-60"
+                  onClick={() => {
+                    if (generatedImages.length > 0) {
+                      setShowAttachmentMenu(true);
+                      setAttachmentMenuMode("menu");
+                    } else {
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  disabled={uploading || streaming}
+                >
+                  {uploading ? "..." : "📎"}
+                </button>
+                <textarea
+                  className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.4rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder={usingStandardAgent ? "输入你想聊的内容..." : `询问 ${currentAgentName}...`}
+                  rows={1}
+                />
+                <button
+                  className="h-12 shrink-0 rounded-full bg-stone-900 px-5 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
+                  type="submit"
+                  disabled={!canSubmit}
+                >
+                  {streaming ? "生成中" : "发送"}
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </section>

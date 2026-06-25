@@ -285,7 +285,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public Long appendUserMessage(Long userId, String sessionId, String userMessage) {
+    public Long appendUserMessage(Long userId, String sessionId, String userMessage, List<String> referenceResourceIds) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
@@ -295,6 +295,36 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("user", "USER", userMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
+
+        if (referenceResourceIds != null && !referenceResourceIds.isEmpty()) {
+            if (chatMessageResourceMapper == null) {
+                throw new IllegalStateException("ChatMessageResourceMapper is required to append messages with reference resources");
+            }
+            for (String resourceId : referenceResourceIds) {
+                ChatMessageResourceEntity original = chatMessageResourceMapper.selectByResourceId(resourceId);
+                if (original == null || original.getMessageId() != null) {
+                    continue;
+                }
+                ChatMessageResourceEntity copy = new ChatMessageResourceEntity();
+                copy.setId(UUID.randomUUID().toString());
+                copy.setMessageId(messageId);
+                copy.setUserId(userId);
+                copy.setSessionId(sessionId);
+                copy.setResourceKind("REFERENCE");
+                copy.setStorageType(original.getStorageType());
+                copy.setStorageKey(original.getStorageKey());
+                copy.setViewUrl(original.getViewUrl());
+                copy.setDownloadUrl(original.getDownloadUrl());
+                copy.setMimeType(original.getMimeType());
+                copy.setFileName(original.getFileName());
+                copy.setFileSize(original.getFileSize());
+                copy.setWidth(original.getWidth());
+                copy.setHeight(original.getHeight());
+                copy.setSha256(original.getSha256());
+                copy.setCreatedAt(now);
+                chatMessageResourceMapper.insert(copy);
+            }
+        }
 
         session.setMessageCount(nextSequence);
         session.setLastUserMessage(userMessage);

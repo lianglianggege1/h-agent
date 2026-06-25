@@ -43,7 +43,7 @@ class ImageGenerationToolTest {
         String result = bridge.withPublisher(
                 "1:22:session-1",
                 published::add,
-                () -> tool.generateImage("1:22:session-1", "一只白猫")
+                () -> tool.generateImage("1:22:session-1", "一只白猫", null)
         );
 
         assertEquals("图片已生成并发送到聊天中。", result);
@@ -85,7 +85,7 @@ class ImageGenerationToolTest {
         String result = bridge.withPublisher(
                 memoryId,
                 published::add,
-                () -> tool.generateImage(memoryId, "事故现场")
+                () -> tool.generateImage(memoryId, "事故现场", null)
         );
 
         assertEquals("图片已生成并发送到聊天中。", result);

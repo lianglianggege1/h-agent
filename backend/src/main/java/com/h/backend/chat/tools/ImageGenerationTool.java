@@ -19,8 +19,8 @@ public class ImageGenerationTool {
         this.chatStreamEventBridge = chatStreamEventBridge;
     }
 
-    @Tool(value = "根据用户提示生成一张图片，并把图片发送到当前聊天中。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
-    public String generateImage(@ToolMemoryId String memoryId, String prompt) {
+    @Tool(value = "根据用户提示生成一张图片，可选择传入参考图片，并把图片发送到当前聊天中。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
+    public String generateImage(@ToolMemoryId String memoryId, String prompt, String referenceResourceId) {
         ImageGenerationContext context = parseMemoryId(memoryId);
         ChatSessionMessageDto message = imageSubAgentService.generateImage(
                 new ImageSubAgentService.ImageSubAgentCommand(
@@ -28,7 +28,10 @@ public class ImageGenerationTool {
                         context.sessionId(),
                         context.promptId(),
                         prompt,
-                        "TOOL"
+                        "TOOL",
+                        referenceResourceId,
+                        null,
+                        "GENERATE"
                 )
         );
         chatStreamEventBridge.publishImage(memoryId, message);

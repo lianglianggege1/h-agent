@@ -3,6 +3,8 @@ package com.h.backend.chat.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.List;
+
 public record ChatMessageRequest(
         @NotBlank(message = "消息不能为空")
         @Size(max = 4000, message = "消息长度不能超过 4000")
@@ -13,6 +15,8 @@ public record ChatMessageRequest(
 
         Long promptId,
 
-        String agentId
+        String agentId,
+
+        List<String> referenceResourceIds
 ) {
 }

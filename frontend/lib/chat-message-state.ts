@@ -26,6 +26,7 @@ export type RenderableTurn =
       kind: "user";
       id: string;
       content: string;
+      resources?: ChatMessageResource[];
     }
   | {
       kind: "assistant";
@@ -50,13 +51,14 @@ export type RenderableTurn =
       resources: ChatMessageResource[];
     };
 
-export function buildPendingAssistantTurn(content: string, seed: number) {
+export function buildPendingAssistantTurn(content: string, seed: number, pendingResources?: ChatMessageResource[]) {
   return {
     userMessage: {
       id: `user-${seed}`,
       role: "user",
       messageType: "USER",
       content,
+      resources: pendingResources ?? [],
     } satisfies UiChatMessage,
     reasoningMessage: {
       id: `reasoning-${seed}`,
@@ -171,7 +173,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
   for (let index = 0; index < messages.length; index += 1) {
     const current = messages[index];
     if (current.role === "user") {
-      turns.push({ kind: "user", id: current.id, content: current.content });
+      turns.push({ kind: "user", id: current.id, content: current.content, resources: current.resources ?? [] });
       continue;
     }
     if (current.role === "blocked") {

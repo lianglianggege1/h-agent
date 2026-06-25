@@ -58,7 +58,13 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         };
         chatStreamEventBridge.registerPublisher(command.memoryId(), imagePublisher);
         try {
-            hAssistant.streamChat(command.memoryId(), command.userMessage())
+            String messageForLlm = command.userMessage();
+            if (command.referenceResourceIds() != null && !command.referenceResourceIds().isEmpty()) {
+                messageForLlm = command.userMessage()
+                        + "\n[系统：用户附带了一张参考图（资源ID: " + command.referenceResourceIds().get(0)
+                        + "），如需基于此图生成新图片，调用 generateImage 并传入该资源ID]";
+            }
+            hAssistant.streamChat(command.memoryId(), messageForLlm)
                     .onPartialThinking(thinking -> {
                         String thinkingText = thinking == null ? "" : thinking.text();
                         if (thinkingText == null || thinkingText.isBlank()) {

@@ -184,14 +184,15 @@ public class ChatServiceImpl implements ChatService {
             Long promptId,
             String agentId,
             String sessionId,
-            String userMessage
+            String userMessage,
+            List<String> referenceResourceIds
     ) {
         return Flux.defer(() -> {
             if (isStandardImageCommand(agentId, userMessage)) {
                 return Flux.create(sink -> {
                     try {
                         chatStreamExecutor.submit(() ->
-                                runImageCommandStream(sink, userId, promptId, sessionId, userMessage));
+                                runImageCommandStream(sink, userId, promptId, sessionId, userMessage, referenceResourceIds));
                     } catch (RuntimeException ex) {
                         log.error("Failed to submit image command stream task", ex);
                         emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
@@ -205,7 +206,7 @@ public class ChatServiceImpl implements ChatService {
             return Flux.create(sink -> {
                 try {
                     chatStreamExecutor.submit(() ->
-                            runChatStream(sink, permit, userId, promptId, agentId, sessionId, userMessage));
+                            runChatStream(sink, permit, userId, promptId, agentId, sessionId, userMessage, referenceResourceIds));
                 } catch (RuntimeException ex) {
                     log.error("Failed to submit chat stream task", ex);
                     permit.release();
@@ -220,7 +221,8 @@ public class ChatServiceImpl implements ChatService {
             Long userId,
             Long promptId,
             String sessionId,
-            String userMessage
+            String userMessage,
+            List<String> referenceResourceIds
     ) {
         try {
             chatSessionService.assertActiveSession(
@@ -230,7 +232,7 @@ public class ChatServiceImpl implements ChatService {
                     AgentRegistry.STANDARD_CHAT_AGENT_ID
             );
             Long resolvedPromptId = systemPromptService.resolvePromptId(userId, promptId);
-            emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);
+            emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage, referenceResourceIds);
         } catch (Exception ex) {
             log.error("Error preparing image command stream", ex);
             String publicMessage = ex instanceof BusinessException
@@ -247,7 +249,8 @@ public class ChatServiceImpl implements ChatService {
             Long promptId,
             String agentId,
             String sessionId,
-            String userMessage
+            String userMessage,
+            List<String> referenceResourceIds
     ) {
         AtomicBoolean permitReleased = new AtomicBoolean();
         AgentRunTelemetryService.TelemetryRun telemetryRun = null;
@@ -265,12 +268,12 @@ public class ChatServiceImpl implements ChatService {
 
             Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
             if (standardChat && isImageCommand(userMessage)) {
-                emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage);
+                emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage, referenceResourceIds);
                 releasePermitOnce(permit, permitReleased);
                 return;
             }
 
-            Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage);
+            Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, referenceResourceIds);
             telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
             runHandle = agentRunService.createRun(
                     sessionId,
@@ -288,6 +291,7 @@ public class ChatServiceImpl implements ChatService {
                     resolvedPromptId,
                     sessionId,
                     userMessage,
+                    referenceResourceIds,
                     buildMemoryId(userId, resolvedPromptId, agent.agentId(), sessionId),
                     agent,
                     runHandle,
@@ -343,7 +347,8 @@ public class ChatServiceImpl implements ChatService {
             Long userId,
             Long resolvedPromptId,
             String sessionId,
-            String userMessage
+            String userMessage,
+            List<String> referenceResourceIds
     ) {
         if (imageGenerationService == null) {
             emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "图片生成服务未启用"));
@@ -354,7 +359,10 @@ public class ChatServiceImpl implements ChatService {
             emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "请输入图片提示词"));
             return;
         }
-        chatSessionService.appendUserMessage(userId, sessionId, userMessage);
+        chatSessionService.appendUserMessage(userId, sessionId, userMessage, referenceResourceIds);
+        String sourceResourceId = (referenceResourceIds != null && !referenceResourceIds.isEmpty())
+                ? referenceResourceIds.get(0)
+                : null;
         try {
             ChatSessionMessageDto message = imageGenerationService.generateImage(
                     new ImageGenerationService.ImageGenerationCommand(
@@ -362,7 +370,10 @@ public class ChatServiceImpl implements ChatService {
                             sessionId,
                             resolvedPromptId,
                             imagePrompt,
-                            "COMMAND"
+                            "COMMAND",
+                            sourceResourceId,
+                            null,
+                            "GENERATE"
                     )
             );
             emitIfActive(sink, new ChatStreamEvent("image", "", message));

@@ -74,7 +74,8 @@ class MiniMaxHttpImageClientTest {
                 "16:9",
                 "url",
                 1,
-                true
+                true,
+                null
         ));
 
         assertEquals("03ff3cd0820949eb8a410056b5f21d38", result.providerRequestId());
@@ -129,7 +130,8 @@ class MiniMaxHttpImageClientTest {
                 "16:9",
                 "url",
                 3,
-                true
+                true,
+                null
         ));
 
         assertEquals(3, result.images().size());
@@ -166,7 +168,7 @@ class MiniMaxHttpImageClientTest {
 
         IllegalStateException error = org.junit.jupiter.api.Assertions.assertThrows(
                 IllegalStateException.class,
-                () -> client.generate(new MiniMaxImageGenerationRequest("image-01", "cat", "1:1", "url", 1, true))
+                () -> client.generate(new MiniMaxImageGenerationRequest("image-01", "cat", "1:1", "url", 1, true, null))
         );
 
         assertTrue(error.getMessage().contains("invalid api key"));
@@ -207,7 +209,7 @@ class MiniMaxHttpImageClientTest {
 
         assertThrows(
                 RuntimeException.class,
-                () -> client.generate(new MiniMaxImageGenerationRequest("image-01", "cat", "1:1", "url", 1, true))
+                () -> client.generate(new MiniMaxImageGenerationRequest("image-01", "cat", "1:1", "url", 1, true, null))
         );
     }
 

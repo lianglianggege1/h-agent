@@ -45,7 +45,8 @@ public class ChatController {
                 request.promptId(),
                 request.agentId(),
                 request.sessionId(),
-                request.message().trim()
+                request.message().trim(),
+                request.referenceResourceIds()
         )
                 .map(event -> ServerSentEvent.<ChatStreamEvent>builder()
                         .event(event.type())

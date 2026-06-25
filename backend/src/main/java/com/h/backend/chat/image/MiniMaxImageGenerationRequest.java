@@ -6,6 +6,9 @@ public record MiniMaxImageGenerationRequest(
         String aspectRatio,
         String responseFormat,
         int n,
-        boolean promptOptimizer
+        boolean promptOptimizer,
+        SubjectReference subjectReference
 ) {
+    public record SubjectReference(String type, String imageFile) {
+    }
 }

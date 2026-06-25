@@ -31,7 +31,7 @@ public interface ChatSessionService {
 
     void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId);
 
-    Long appendUserMessage(Long userId, String sessionId, String userMessage);
+    Long appendUserMessage(Long userId, String sessionId, String userMessage, List<String> referenceResourceIds);
 
     Long appendBlockedMessage(Long userId, String sessionId, String blockedMessage);
 

@@ -1,9 +1,11 @@
 package com.h.backend.chat;
 
+import com.h.backend.chat.config.ImageGenerationProperties;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.image.MiniMaxImageClient;
 import com.h.backend.chat.image.MiniMaxImageGenerationResult;
+import com.h.backend.chat.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.impl.ImageGenerationServiceImpl;
@@ -32,10 +34,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
-                chatSessionService
+                chatSessionService,
+                new ImageGenerationProperties(null, null),
+                chatMessageResourceMapper
         );
 
         MiniMaxImageGenerationResult generationResult = new MiniMaxImageGenerationResult(
@@ -123,10 +128,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
-                chatSessionService
+                chatSessionService,
+                new ImageGenerationProperties(null, null),
+                chatMessageResourceMapper
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
@@ -185,10 +193,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
-                chatSessionService
+                chatSessionService,
+                new ImageGenerationProperties(null, null),
+                chatMessageResourceMapper
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(

@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -59,14 +60,19 @@ public class MiniMaxHttpImageClient implements MiniMaxImageClient {
                 request.prompt() == null ? 0 : request.prompt().length(),
                 truncate(request.prompt(), 120)
         );
-        Map<String, Object> body = Map.of(
-                "model", request.model(),
-                "prompt", request.prompt(),
-                "aspect_ratio", request.aspectRatio(),
-                "response_format", request.responseFormat(),
-                "n", request.n(),
-                "prompt_optimizer", request.promptOptimizer()
-        );
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", request.model());
+        body.put("prompt", request.prompt());
+        body.put("aspect_ratio", request.aspectRatio());
+        body.put("response_format", request.responseFormat());
+        body.put("n", request.n());
+        body.put("prompt_optimizer", request.promptOptimizer());
+        if (request.subjectReference() != null) {
+            body.put("subject_reference", List.of(Map.of(
+                    "type", request.subjectReference().type(),
+                    "image_file", request.subjectReference().imageFile()
+            )));
+        }
         try {
             String response = restClient.post()
                     .uri(IMAGE_GENERATION_PATH)
