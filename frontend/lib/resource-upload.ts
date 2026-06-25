@@ -14,6 +14,7 @@ export function uploadChatResource(file: File, sessionId: string): Promise<Uploa
   formData.append("sessionId", sessionId);
   return fetch("/api/chat/resources/upload", {
     method: "POST",
+    credentials: "include",
     body: formData,
   }).then(async (res) => {
     if (!res.ok) {

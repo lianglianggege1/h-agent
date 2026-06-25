@@ -113,7 +113,7 @@ public class ChatModelConfig {
                                  RetrievalAugmentor knowledgeRetrievalAugmentor) {
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
-                .retrievalAugmentor(knowledgeRetrievalAugmentor)
+//                .retrievalAugmentor(knowledgeRetrievalAugmentor)
                 // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> {
                     String[] parts = memoryId.toString().split(":", 3);
@@ -123,7 +123,7 @@ public class ChatModelConfig {
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
                 .tools(toolWithP, imageGenerationTool)
-                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
+//                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
                 .executeToolsConcurrently() // 并发调用工具
