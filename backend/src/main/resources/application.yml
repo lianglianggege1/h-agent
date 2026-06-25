@@ -54,6 +54,10 @@ chat:
     max-concurrent-per-user: 2
     max-concurrent-global: 100
     permit-ttl: 10m
+  resources:
+    upload:
+      allowed-mime-types: image/jpeg,image/png
+      max-file-size: 10485760
 
 knowledge:
   retriever:
