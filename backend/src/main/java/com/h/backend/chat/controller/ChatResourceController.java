@@ -48,7 +48,8 @@ public class ChatResourceController {
     public ResponseEntity<ResourceUploadResponse> upload(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "sessionId", required = false) String sessionId
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "role", required = false, defaultValue = "ATTACHMENT") String role
     ) throws IOException {
         String mimeType = file.getContentType();
         if (mimeType == null || !uploadProperties.getAllowedMimeTypes().contains(mimeType)) {
@@ -59,13 +60,14 @@ public class ChatResourceController {
             throw new BusinessException(40000, "文件大小不能超过 " + maxMb + "MB");
         }
 
-        String kind = mimeType.startsWith("image/") ? "IMAGE"
+        String resourceType = mimeType.startsWith("image/") ? "IMAGE"
                 : mimeType.startsWith("video/") ? "VIDEO"
                 : mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+        String resourceRole = normalizeRole(role);
 
         String extension = extensionForMimeType(mimeType);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                kind, null, null, file.getBytes(), mimeType, extension, null, null
+                resourceType, null, null, file.getBytes(), mimeType, extension, null, null
         ));
 
         String originalName = safeFileName(file.getOriginalFilename(), extension);
@@ -74,7 +76,8 @@ public class ChatResourceController {
         row.setMessageId(null);
         row.setUserId(principal.userId());
         row.setSessionId(sessionId);
-        row.setResourceKind(kind);
+        row.setResourceType(resourceType);
+        row.setResourceRole(resourceRole);
         row.setStorageType(stored.storageType());
         row.setStorageKey(stored.storageKey());
         row.setViewUrl(resourceStorage.buildViewUrl(stored.id()));
@@ -88,7 +91,7 @@ public class ChatResourceController {
         chatMessageResourceMapper.insert(row);
 
         return ResponseEntity.ok(new ResourceUploadResponse(
-                stored.id(), kind,
+                stored.id(), resourceType, resourceRole,
                 resourceStorage.buildViewUrl(stored.id()),
                 resourceStorage.buildDownloadUrl(stored.id()),
                 originalName, stored.mimeType(), stored.fileSize()
@@ -142,5 +145,13 @@ public class ChatResourceController {
             return "upload." + extension;
         }
         return name.replaceAll("[\\r\\n\\\\/]", "_");
+    }
+
+    private String normalizeRole(String role) {
+        String normalized = role == null ? "ATTACHMENT" : role.trim().toUpperCase();
+        if ("ATTACHMENT".equals(normalized) || "REFERENCE".equals(normalized) || "GENERATED".equals(normalized)) {
+            return normalized;
+        }
+        throw new BusinessException(40000, "暂不支持该资源角色: " + role);
     }
 }

@@ -1,6 +1,7 @@
 package com.h.backend.chat.agent;
 
 import com.h.backend.chat.dto.ChatStreamEvent;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
 import reactor.core.publisher.FluxSink;
@@ -13,7 +14,7 @@ public record ChatAgentExecutionCommand(
         Long resolvedPromptId,
         String sessionId,
         String userMessage,
-        List<String> referenceResourceIds,
+        List<ChatMessageResourceUseDto> resources,
         String memoryId,
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,

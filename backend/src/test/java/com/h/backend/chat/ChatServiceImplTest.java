@@ -7,6 +7,7 @@ import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.agent.ChatAgentExecutor;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
@@ -151,6 +152,7 @@ class ChatServiceImplTest {
                 List.of(new ChatMessageResourceDto(
                         "resource-1",
                         "IMAGE",
+                        "GENERATED",
                         "/api/chat/resources/resource-1/content",
                         "/api/chat/resources/resource-1/download",
                         "generated-resource-1.png",
@@ -1231,7 +1233,7 @@ class ChatServiceImplTest {
             Long promptId,
             String sessionId,
             String userMessage,
-            List<String> referenceResourceIds
+            List<ChatMessageResourceUseDto> resources
     ) throws Exception {
         Method method = ChatServiceImpl.class.getDeclaredMethod(
                 "runChatStream",
@@ -1246,7 +1248,7 @@ class ChatServiceImplTest {
         );
         method.setAccessible(true);
         try {
-            method.invoke(chatService, sink, permit, userId, promptId, null, sessionId, userMessage, referenceResourceIds);
+            method.invoke(chatService, sink, permit, userId, promptId, null, sessionId, userMessage, resources);
         } catch (InvocationTargetException ex) {
             if (ex.getCause() instanceof Exception cause) {
                 throw cause;

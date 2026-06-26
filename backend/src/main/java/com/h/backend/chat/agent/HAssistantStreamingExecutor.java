@@ -1,6 +1,7 @@
 package com.h.backend.chat.agent;
 
 import com.h.backend.chat.ai.HAssistant;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
@@ -59,9 +60,10 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         chatStreamEventBridge.registerPublisher(command.memoryId(), imagePublisher);
         try {
             String messageForLlm = command.userMessage();
-            if (command.referenceResourceIds() != null && !command.referenceResourceIds().isEmpty()) {
+            String referenceResourceId = firstReferenceResourceId(command);
+            if (referenceResourceId != null) {
                 messageForLlm = command.userMessage()
-                        + "\n[系统：用户附带了一张参考图（资源ID: " + command.referenceResourceIds().get(0)
+                        + "\n[系统：用户附带了一张参考图（资源ID: " + referenceResourceId
                         + "），如需基于此图生成新图片，调用 generateImage 并传入该资源ID]";
             }
             hAssistant.streamChat(command.memoryId(), messageForLlm)
@@ -105,6 +107,17 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 command.onTerminal().run();
             }
         }
+    }
+
+    private String firstReferenceResourceId(ChatAgentExecutionCommand command) {
+        if (command.resources() == null || command.resources().isEmpty()) {
+            return null;
+        }
+        return command.resources().stream()
+                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role()))
+                .map(ChatMessageResourceUseDto::resourceId)
+                .findFirst()
+                .orElse(null);
     }
 
     private void completeSuccessfulStream(

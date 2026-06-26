@@ -1,6 +1,7 @@
 package com.h.backend.chat.service;
 
 import com.h.backend.chat.dto.ChatSessionBootstrapDto;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatSessionMessagesPageDto;
@@ -31,7 +32,7 @@ public interface ChatSessionService {
 
     void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId);
 
-    Long appendUserMessage(Long userId, String sessionId, String userMessage, List<String> referenceResourceIds);
+    Long appendUserMessage(Long userId, String sessionId, String userMessage, List<ChatMessageResourceUseDto> resources);
 
     Long appendBlockedMessage(Long userId, String sessionId, String blockedMessage);
 
@@ -39,7 +40,7 @@ public interface ChatSessionService {
 
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage);
 
-    Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<String> resourceIds);
+    Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<ChatMessageResourceUseDto> resources);
 
     ChatSessionMessageDto appendImageMessage(
             Long userId,

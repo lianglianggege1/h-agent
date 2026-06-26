@@ -1,6 +1,7 @@
 package com.h.backend.chat.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
@@ -17,6 +18,7 @@ public record ChatMessageRequest(
 
         String agentId,
 
-        List<String> referenceResourceIds
+        @Valid
+        List<ChatMessageResourceUseDto> resources
 ) {
 }

@@ -6,6 +6,7 @@ import com.h.backend.chat.agent.ChatAgentIds;
 import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.entity.ChatMessageResourceEntity;
@@ -282,7 +283,8 @@ class ChatSessionServiceImplTest {
         resourceRow.setMessageId(501L);
         resourceRow.setUserId(1L);
         resourceRow.setSessionId("session-1");
-        resourceRow.setResourceKind("IMAGE");
+        resourceRow.setResourceType("IMAGE");
+        resourceRow.setResourceRole("GENERATED");
         resourceRow.setStorageType("LOCAL_FILE");
         resourceRow.setStorageKey("generated-images/2026/05/27/cat.png");
         resourceRow.setViewUrl("/api/chat/resources/resource-701/content");
@@ -308,6 +310,8 @@ class ChatSessionServiceImplTest {
         assertEquals("MINIMAX", dto.payload().provider());
         assertEquals(1, dto.resources().size());
         assertEquals("resource-701", dto.resources().getFirst().id());
+        assertEquals("IMAGE", dto.resources().getFirst().type());
+        assertEquals("GENERATED", dto.resources().getFirst().role());
         assertEquals("/api/chat/resources/resource-701/content", dto.resources().getFirst().viewUrl());
         assertEquals("/api/chat/resources/resource-701/download", dto.resources().getFirst().downloadUrl());
     }
@@ -359,6 +363,7 @@ class ChatSessionServiceImplTest {
         ChatMessageResourceDto resource = new ChatMessageResourceDto(
                 "resource-701",
                 "IMAGE",
+                "GENERATED",
                 "/api/chat/resources/resource-701/content",
                 "/api/chat/resources/resource-701/download",
                 "generated-cat.png",
@@ -381,6 +386,8 @@ class ChatSessionServiceImplTest {
         ChatMessageResourceEntity resourceRow = resourceCaptor.getValue();
         assertEquals("resource-701", resourceRow.getId());
         assertEquals(501L, resourceRow.getMessageId());
+        assertEquals("IMAGE", resourceRow.getResourceType());
+        assertEquals("GENERATED", resourceRow.getResourceRole());
         assertEquals("LOCAL_FILE", resourceRow.getStorageType());
         assertEquals("generated-images/2026/05/27/cat.png", resourceRow.getStorageKey());
     }
@@ -608,7 +615,8 @@ class ChatSessionServiceImplTest {
         uploaded.setMessageId(null);
         uploaded.setUserId(1L);
         uploaded.setSessionId("session-1");
-        uploaded.setResourceKind("IMAGE");
+        uploaded.setResourceType("IMAGE");
+        uploaded.setResourceRole("ATTACHMENT");
         uploaded.setStorageType("LOCAL_FILE");
         uploaded.setStorageKey("uploads/resource-1.jpg");
         uploaded.setViewUrl("/api/chat/resources/resource-1/content");
@@ -628,10 +636,15 @@ class ChatSessionServiceImplTest {
             return 1;
         }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
 
-        Long messageId = service.appendUserMessage(1L, "session-1", "参考这张图生成", List.of("resource-1"));
+        Long messageId = service.appendUserMessage(
+                1L,
+                "session-1",
+                "参考这张图生成",
+                List.of(new ChatMessageResourceUseDto("resource-1", "REFERENCE", "UPLOAD"))
+        );
 
         assertEquals(101L, messageId);
-        verify(chatMessageResourceMapper).bindMessage("resource-1", 1L, 101L);
+        verify(chatMessageResourceMapper).bindMessage("resource-1", 1L, 101L, "REFERENCE", "{\"ok\":true}");
     }
 
     @Test
@@ -665,10 +678,11 @@ class ChatSessionServiceImplTest {
 
         ChatMessageResourceEntity generated = new ChatMessageResourceEntity();
         generated.setId("resource-2");
-        generated.setMessageId(null);
+        generated.setMessageId(99L);
         generated.setUserId(1L);
         generated.setSessionId("session-1");
-        generated.setResourceKind("VIDEO");
+        generated.setResourceType("VIDEO");
+        generated.setResourceRole("GENERATED");
         generated.setStorageType("LOCAL_FILE");
         generated.setStorageKey("generated-videos/resource-2.mp4");
         generated.setViewUrl("/api/chat/resources/resource-2/content");
@@ -686,10 +700,19 @@ class ChatSessionServiceImplTest {
             return 1;
         }).when(chatSessionMessageMapper).insert(any(ChatSessionMessageEntity.class));
 
-        Long messageId = service.appendAssistantMessage(1L, "session-1", "生成了一个视频", List.of("resource-2"));
+        Long messageId = service.appendAssistantMessage(
+                1L,
+                "session-1",
+                "生成了一个视频",
+                List.of(new ChatMessageResourceUseDto("resource-2", "REFERENCE", "HISTORY"))
+        );
 
         assertEquals(202L, messageId);
-        verify(chatMessageResourceMapper).bindMessage("resource-2", 1L, 202L);
+        ArgumentCaptor<ChatMessageResourceEntity> copiedResource = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
+        verify(chatMessageResourceMapper).insert(copiedResource.capture());
+        assertEquals(202L, copiedResource.getValue().getMessageId());
+        assertEquals("REFERENCE", copiedResource.getValue().getResourceRole());
+        assertEquals("generated-videos/resource-2.mp4", copiedResource.getValue().getStorageKey());
     }
 
     @Test

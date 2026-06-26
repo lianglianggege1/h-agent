@@ -148,7 +148,8 @@ test("toRenderableTurns exposes image messages as image turns", () => {
       resources: [
         {
           id: "resource-1",
-          kind: "IMAGE",
+          type: "IMAGE",
+          role: "GENERATED",
           viewUrl: "/api/chat/resources/resource-1/content",
           downloadUrl: "/api/chat/resources/resource-1/download",
           fileName: "generated.png",
@@ -170,7 +171,8 @@ test("toRenderableTurns exposes image messages as image turns", () => {
       resources: [
         {
           id: "resource-1",
-          kind: "IMAGE",
+          type: "IMAGE",
+          role: "GENERATED",
           viewUrl: "/api/chat/resources/resource-1/content",
           downloadUrl: "/api/chat/resources/resource-1/download",
           fileName: "generated.png",
@@ -231,7 +233,8 @@ test("applyImageMessage keeps assistant placeholder for text that follows tool i
     resources: [
       {
         id: "resource-1",
-        kind: "IMAGE",
+        type: "IMAGE",
+        role: "GENERATED",
         viewUrl: "/api/chat/resources/resource-1/content",
         downloadUrl: "/api/chat/resources/resource-1/download",
         fileName: "generated.png",
@@ -270,7 +273,8 @@ test("toRenderableTurns groups reasoning with final assistant reply when images 
       resources: [
         {
           id: "resource-1",
-          kind: "IMAGE",
+          type: "IMAGE",
+          role: "GENERATED",
           viewUrl: "/api/chat/resources/resource-1/content",
           downloadUrl: "/api/chat/resources/resource-1/download",
           fileName: "generated.png",

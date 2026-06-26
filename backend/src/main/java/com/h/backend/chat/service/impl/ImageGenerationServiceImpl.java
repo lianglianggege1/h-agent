@@ -58,7 +58,10 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
             throw new IllegalArgumentException("图片提示词不能为空");
         }
         ImageGenerationProperties.MiniMax minimax = properties.minimaxOrDefault();
-        MiniMaxImageGenerationRequest.SubjectReference subjectReference = buildSubjectReference(command.sourceResourceId());
+        MiniMaxImageGenerationRequest.SubjectReference subjectReference = buildSubjectReference(
+                command.userId(),
+                command.sourceResourceId()
+        );
         MiniMaxImageGenerationResult generationResult = miniMaxImageClient.generate(
                 new MiniMaxImageGenerationRequest(
                         minimax.model(),
@@ -87,6 +90,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
             resources.add(new ChatMessageResourceDto(
                     storedResource.id(),
                     "IMAGE",
+                    "GENERATED",
                     viewUrl,
                     downloadUrl,
                     storedResource.fileName(),
@@ -120,13 +124,16 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         );
     }
 
-    private MiniMaxImageGenerationRequest.SubjectReference buildSubjectReference(String sourceResourceId) {
+    private MiniMaxImageGenerationRequest.SubjectReference buildSubjectReference(Long userId, String sourceResourceId) {
         if (sourceResourceId == null || sourceResourceId.isBlank()) {
             return null;
         }
         ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(sourceResourceId);
-        if (resource == null) {
+        if (resource == null || !userId.equals(resource.getUserId())) {
             throw new IllegalArgumentException("参考图片资源不存在: " + sourceResourceId);
+        }
+        if (!"IMAGE".equalsIgnoreCase(resource.getResourceType())) {
+            throw new IllegalArgumentException("参考资源必须是图片: " + sourceResourceId);
         }
         ResourceContent content = resourceStorage.open(resource.getStorageKey());
         try (InputStream inputStream = content.inputStream()) {

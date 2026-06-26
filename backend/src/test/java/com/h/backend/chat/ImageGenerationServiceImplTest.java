@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -75,6 +76,7 @@ class ImageGenerationServiceImplTest {
                 List.of(new ChatMessageResourceDto(
                         "resource-1",
                         "IMAGE",
+                        "GENERATED",
                         "/api/chat/resources/resource-1/content",
                         "/api/chat/resources/resource-1/download",
                         "generated-resource-1.png",
@@ -159,6 +161,8 @@ class ImageGenerationServiceImplTest {
         );
         ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
         referenceResource.setId("resource-1");
+        referenceResource.setUserId(1L);
+        referenceResource.setResourceType("IMAGE");
         referenceResource.setStorageKey("reference-images/resource-1.png");
         referenceResource.setMimeType("image/png");
         when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
@@ -194,6 +198,76 @@ class ImageGenerationServiceImplTest {
         assertEquals("resource-1", payloadCaptor.getValue().getSourceResourceId());
         assertEquals("501", payloadCaptor.getValue().getParentImageMessageId());
         assertEquals("EDIT_PROMPT", payloadCaptor.getValue().getOperationType());
+    }
+
+    @Test
+    void shouldRejectReferenceResourceOwnedByAnotherUser() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                resourceStorage,
+                chatSessionService,
+                new ImageGenerationProperties(null, null),
+                chatMessageResourceMapper
+        );
+        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
+        referenceResource.setId("resource-1");
+        referenceResource.setUserId(2L);
+        referenceResource.setResourceType("IMAGE");
+        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                        1L,
+                        "session-1",
+                        22L,
+                        "参考这张图",
+                        "COMMAND",
+                        "resource-1",
+                        null,
+                        "GENERATE"
+                ))
+        );
+
+        assertEquals("参考图片资源不存在: resource-1", error.getMessage());
+    }
+
+    @Test
+    void shouldRejectNonImageReferenceResource() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                resourceStorage,
+                chatSessionService,
+                new ImageGenerationProperties(null, null),
+                chatMessageResourceMapper
+        );
+        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
+        referenceResource.setId("resource-1");
+        referenceResource.setUserId(1L);
+        referenceResource.setResourceType("VIDEO");
+        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                        1L,
+                        "session-1",
+                        22L,
+                        "参考这张图",
+                        "COMMAND",
+                        "resource-1",
+                        null,
+                        "GENERATE"
+                ))
+        );
+
+        assertEquals("参考资源必须是图片: resource-1", error.getMessage());
     }
 
     @Test

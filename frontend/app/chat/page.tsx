@@ -196,6 +196,8 @@ function MediaContent({
   content: string;
   resources: Array<{
     id: string;
+    type: string;
+    role: string;
     viewUrl: string;
     downloadUrl: string;
     fileName: string;
@@ -207,7 +209,8 @@ function MediaContent({
   return (
     <div className="space-y-3">
       {resources.map((resource) => {
-        if (resource.mimeType.startsWith("image/")) {
+        const resourceType = resource.type.toUpperCase();
+        if (resourceType === "IMAGE" || resource.mimeType.startsWith("image/")) {
           return (
             <div key={resource.id} className="space-y-2">
               <img
@@ -228,10 +231,10 @@ function MediaContent({
             </div>
           );
         }
-        if (resource.mimeType.startsWith("video/")) {
+        if (resourceType === "VIDEO" || resource.mimeType.startsWith("video/")) {
           return <video key={resource.id} src={resource.viewUrl} controls className="w-full rounded-[1.2rem]" />;
         }
-        if (resource.mimeType.startsWith("audio/")) {
+        if (resourceType === "AUDIO" || resource.mimeType.startsWith("audio/")) {
           return <audio key={resource.id} src={resource.viewUrl} controls className="w-full" />;
         }
         return (
@@ -291,7 +294,11 @@ function ChatPageContent() {
   const generatedImages = useMemo(() => {
     return messages
       .filter((m) => m.messageType === "IMAGE" && m.resources && m.resources.length > 0)
-      .flatMap((m) => m.resources!.map((r) => ({ ...r, messageId: m.id })));
+      .flatMap((m) =>
+        m.resources!
+          .filter((r) => r.type === "IMAGE")
+          .map((r) => ({ ...r, messageId: m.id })),
+      );
   }, [messages]);
 
   useEffect(() => {
@@ -503,10 +510,15 @@ function ChatPageContent() {
     const content = input.trim();
     if (!content || streaming || !sessionId) return;
 
-    const resourceIds = pendingResources.map((r) => r.resourceId);
+    const messageResources = pendingResources.map((r) => ({
+      resourceId: r.resourceId,
+      role: r.role,
+      source: r.source,
+    }));
     const pendingMessageResources: ChatMessageResource[] = pendingResources.map((r) => ({
       id: r.resourceId,
-      kind: r.kind,
+      type: r.type,
+      role: r.role,
       viewUrl: r.viewUrl,
       downloadUrl: r.downloadUrl,
       fileName: r.fileName,
@@ -539,7 +551,7 @@ function ChatPageContent() {
             sessionId,
             promptId: selectedPromptId,
             agentId: currentAgentId,
-            referenceResourceIds: resourceIds.length > 0 ? resourceIds : undefined,
+            resources: messageResources.length > 0 ? messageResources : undefined,
           })),
         },
         {
@@ -954,7 +966,7 @@ function ChatPageContent() {
               setUploading(true);
               setError("");
               try {
-                const result = await uploadChatResource(file, sessionId!);
+                const result = await uploadChatResource(file, sessionId!, "ATTACHMENT");
                 setPendingResources((prev) => [...prev, result]);
               } catch (err) {
                 setError(err instanceof Error ? err.message : "上传失败");
@@ -1013,7 +1025,9 @@ function ChatPageContent() {
                               ...prev,
                               {
                                 resourceId: resource.id,
-                                kind: resource.kind,
+                                type: resource.type,
+                                role: "REFERENCE",
+                                source: "HISTORY",
                                 viewUrl: resource.viewUrl,
                                 downloadUrl: resource.downloadUrl,
                                 fileName: resource.fileName,

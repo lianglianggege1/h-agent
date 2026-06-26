@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.agent.AgentDefinition;
 import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.ChatAgentIds;
+import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.dto.ChatMessagePayloadDto;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatSessionBootstrapDto;
@@ -278,7 +279,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public Long appendUserMessage(Long userId, String sessionId, String userMessage, List<String> referenceResourceIds) {
+    public Long appendUserMessage(Long userId, String sessionId, String userMessage, List<ChatMessageResourceUseDto> resources) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
@@ -289,7 +290,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         ChatSessionMessage message = buildMessage("user", "USER", userMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
-        bindResourcesToMessage(userId, messageId, referenceResourceIds);
+        bindResourcesToMessage(userId, sessionId, messageId, resources);
 
         session.setMessageCount(nextSequence);
         session.setLastUserMessage(userMessage);
@@ -350,7 +351,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<String> resourceIds) {
+    public Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<ChatMessageResourceUseDto> resources) {
         ChatSessionEntity session = requireOwnedSession(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
@@ -360,7 +361,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("assistant", "AI", assistantMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
-        bindResourcesToMessage(userId, messageId, resourceIds);
+        bindResourcesToMessage(userId, sessionId, messageId, resources);
 
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
@@ -399,7 +400,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setMessageId(messageId);
             row.setUserId(userId);
             row.setSessionId(sessionId);
-            row.setResourceKind(resource.kind());
+            row.setResourceType(requireResourceField(resource.type(), "type"));
+            row.setResourceRole(requireResourceField(resource.role(), "role"));
             row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
             row.setStorageKey(resource.storageKey() == null ? resource.id() : resource.storageKey());
             row.setViewUrl(resource.viewUrl());
@@ -409,6 +411,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setFileSize(resource.fileSize());
             row.setWidth(resource.width());
             row.setHeight(resource.height());
+            row.setMetadataJson(toMetadataJson(resource.metadata()));
             row.setCreatedAt(now);
             chatMessageResourceMapper.insert(row);
         }
@@ -431,22 +434,70 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private void bindResourcesToMessage(
             Long userId,
+            String sessionId,
             Long messageId,
-            List<String> resourceIds
+            List<ChatMessageResourceUseDto> resources
     ) {
-        if (resourceIds == null || resourceIds.isEmpty()) {
+        if (resources == null || resources.isEmpty()) {
             return;
         }
         if (chatMessageResourceMapper == null) {
             throw new IllegalStateException("ChatMessageResourceMapper is required to append messages with resources");
         }
-        for (String resourceId : resourceIds) {
-            ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(resourceId);
+        for (ChatMessageResourceUseDto resourceUse : resources) {
+            ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(resourceUse.resourceId());
             if (resource == null || !userId.equals(resource.getUserId()) || resource.getMessageId() != null) {
+                if (resource != null && userId.equals(resource.getUserId()) && resource.getMessageId() != null) {
+                    chatMessageResourceMapper.insert(copyResourceForMessage(resource, sessionId, messageId, resourceUse));
+                }
                 continue;
             }
-            chatMessageResourceMapper.bindMessage(resourceId, userId, messageId);
+            chatMessageResourceMapper.bindMessage(
+                    resourceUse.resourceId(),
+                    userId,
+                    messageId,
+                    normalizeResourceRole(resourceUse.role()),
+                    toMetadataJson(Map.of("source", normalizeResourceSource(resourceUse.source())))
+            );
         }
+    }
+
+    private ChatMessageResourceEntity copyResourceForMessage(
+            ChatMessageResourceEntity original,
+            String sessionId,
+            Long messageId,
+            ChatMessageResourceUseDto resourceUse
+    ) {
+        ChatMessageResourceEntity copy = new ChatMessageResourceEntity();
+        copy.setId(UUID.randomUUID().toString());
+        copy.setMessageId(messageId);
+        copy.setUserId(original.getUserId());
+        copy.setSessionId(sessionId);
+        copy.setResourceType(original.getResourceType());
+        copy.setResourceRole(normalizeResourceRole(resourceUse.role()));
+        copy.setStorageType(original.getStorageType());
+        copy.setStorageKey(original.getStorageKey());
+        copy.setViewUrl(original.getViewUrl());
+        copy.setDownloadUrl(original.getDownloadUrl());
+        copy.setMimeType(original.getMimeType());
+        copy.setFileName(original.getFileName());
+        copy.setFileSize(original.getFileSize());
+        copy.setWidth(original.getWidth());
+        copy.setHeight(original.getHeight());
+        copy.setMetadataJson(toMetadataJson(Map.of(
+                "source", normalizeResourceSource(resourceUse.source()),
+                "sourceResourceId", original.getId()
+        )));
+        copy.setCreatedAt(LocalDateTime.now());
+        return copy;
+    }
+
+    private String normalizeResourceRole(String role) {
+        return requireResourceField(role, "role").trim().toUpperCase();
+    }
+
+    private String normalizeResourceSource(String source) {
+        return requireResourceField(source, "source").trim().toUpperCase();
     }
 
     private void archiveExpiredSessionsForUser(Long userId) {
@@ -671,7 +722,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private ChatMessageResourceDto toResourceDto(ChatMessageResourceEntity row) {
         return new ChatMessageResourceDto(
                 row.getId(),
-                row.getResourceKind(),
+                row.getResourceType(),
+                row.getResourceRole(),
                 row.getViewUrl(),
                 row.getDownloadUrl(),
                 row.getFileName(),
@@ -679,9 +731,39 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 row.getFileSize(),
                 row.getWidth(),
                 row.getHeight(),
+                parseMetadata(row.getMetadataJson()),
                 row.getStorageType(),
                 row.getStorageKey()
         );
+    }
+
+    private String requireResourceField(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("resource " + fieldName + " is required");
+        }
+        return value;
+    }
+
+    private Object parseMetadata(String metadataJson) {
+        if (metadataJson == null || metadataJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(metadataJson, Object.class);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private String toMetadataJson(Object metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
     }
 
     private ChatSessionMessageDto toMessageDto(ChatSessionMessageEntity row, List<ChatMessageResourceDto> resources) {

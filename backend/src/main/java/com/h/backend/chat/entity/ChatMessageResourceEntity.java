@@ -21,8 +21,11 @@ public class ChatMessageResourceEntity {
     @TableField("session_id")
     private String sessionId;
 
-    @TableField("resource_kind")
-    private String resourceKind;
+    @TableField("resource_type")
+    private String resourceType;
+
+    @TableField("resource_role")
+    private String resourceRole;
 
     @TableField("storage_type")
     private String storageType;
@@ -50,6 +53,9 @@ public class ChatMessageResourceEntity {
 
     @TableField("height")
     private Integer height;
+
+    @TableField("metadata_json")
+    private String metadataJson;
 
     @TableField("created_at")
     private LocalDateTime createdAt;
@@ -86,12 +92,20 @@ public class ChatMessageResourceEntity {
         this.sessionId = sessionId;
     }
 
-    public String getResourceKind() {
-        return resourceKind;
+    public String getResourceType() {
+        return resourceType;
     }
 
-    public void setResourceKind(String resourceKind) {
-        this.resourceKind = resourceKind;
+    public void setResourceType(String resourceType) {
+        this.resourceType = resourceType;
+    }
+
+    public String getResourceRole() {
+        return resourceRole;
+    }
+
+    public void setResourceRole(String resourceRole) {
+        this.resourceRole = resourceRole;
     }
 
     public String getStorageType() {
@@ -164,6 +178,14 @@ public class ChatMessageResourceEntity {
 
     public void setHeight(Integer height) {
         this.height = height;
+    }
+
+    public String getMetadataJson() {
+        return metadataJson;
+    }
+
+    public void setMetadataJson(String metadataJson) {
+        this.metadataJson = metadataJson;
     }
 
     public LocalDateTime getCreatedAt() {

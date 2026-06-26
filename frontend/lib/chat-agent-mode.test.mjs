@@ -33,7 +33,7 @@ test("buildChatSendPayload sends domain agent id and null prompt", () => {
       sessionId: "s1",
       agentId: "car-rental-assistant",
       promptId: null,
-      referenceResourceIds: null,
+      resources: null,
     },
   );
 });
@@ -51,7 +51,7 @@ test("buildChatSendPayload keeps standard agent id and prompt", () => {
       sessionId: "s2",
       agentId: "standard-chat",
       promptId: 9,
-      referenceResourceIds: null,
+      resources: null,
     },
   );
 });

@@ -2,7 +2,8 @@ package com.h.backend.chat.dto;
 
 public record ResourceUploadResponse(
     String resourceId,
-    String kind,
+    String type,
+    String role,
     String viewUrl,
     String downloadUrl,
     String fileName,

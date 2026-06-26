@@ -1,7 +1,7 @@
 package com.h.backend.chat.storage;
 
 public record ResourceSaveCommand(
-        String resourceKind,
+        String resourceType,
         String sessionId,
         String prompt,
         byte[] content,

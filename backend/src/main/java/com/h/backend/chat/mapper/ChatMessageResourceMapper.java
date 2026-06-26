@@ -14,8 +14,10 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
 
     @Select("""
             <script>
-            SELECT id, message_id, user_id, session_id, resource_kind, storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height, created_at
+            SELECT id, message_id, user_id, session_id, resource_type, resource_role,
+                   storage_type, storage_key,
+                   view_url, download_url, mime_type, file_name, file_size, width, height,
+                   metadata_json, created_at
             FROM chat_message_resources
             WHERE message_id IN
             <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
@@ -27,8 +29,10 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
     List<ChatMessageResourceEntity> selectByMessageIds(@Param("messageIds") List<Long> messageIds);
 
     @Select("""
-            SELECT id, message_id, user_id, session_id, resource_kind, storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height, created_at
+            SELECT id, message_id, user_id, session_id, resource_type, resource_role,
+                   storage_type, storage_key,
+                   view_url, download_url, mime_type, file_name, file_size, width, height,
+                   metadata_json, created_at
             FROM chat_message_resources
             WHERE id = #{id}
             """)
@@ -36,7 +40,9 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
 
     @Update("""
             UPDATE chat_message_resources
-            SET message_id = #{messageId}
+            SET message_id = #{messageId},
+                resource_role = #{resourceRole},
+                metadata_json = #{metadataJson}
             WHERE id = #{id}
               AND user_id = #{userId}
               AND message_id IS NULL
@@ -44,6 +50,8 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
     int bindMessage(
             @Param("id") String id,
             @Param("userId") Long userId,
-            @Param("messageId") Long messageId
+            @Param("messageId") Long messageId,
+            @Param("resourceRole") String resourceRole,
+            @Param("metadataJson") String metadataJson
     );
 }

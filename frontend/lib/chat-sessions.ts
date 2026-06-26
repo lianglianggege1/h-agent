@@ -17,7 +17,8 @@ export type ChatMessagePayload = {
 
 export type ChatMessageResource = {
   id: string;
-  kind: string;
+  type: string;
+  role: string;
   viewUrl: string;
   downloadUrl: string;
   fileName: string;
@@ -25,6 +26,7 @@ export type ChatMessageResource = {
   fileSize: number | null;
   width: number | null;
   height: number | null;
+  metadata?: unknown;
 };
 
 export type ChatSessionMessage = {

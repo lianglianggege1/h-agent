@@ -1,6 +1,8 @@
 export type UploadedResource = {
   resourceId: string;
-  kind: string;
+  type: string;
+  role: string;
+  source: "UPLOAD" | "HISTORY";
   viewUrl: string;
   downloadUrl: string;
   fileName: string;
@@ -8,10 +10,11 @@ export type UploadedResource = {
   fileSize: number;
 };
 
-export function uploadChatResource(file: File, sessionId: string): Promise<UploadedResource> {
+export function uploadChatResource(file: File, sessionId: string, role: "ATTACHMENT" | "REFERENCE" = "ATTACHMENT"): Promise<UploadedResource> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("sessionId", sessionId);
+  formData.append("role", role);
   return fetch("/api/chat/resources/upload", {
     method: "POST",
     credentials: "include",
@@ -21,6 +24,7 @@ export function uploadChatResource(file: File, sessionId: string): Promise<Uploa
       const text = await res.text();
       throw new Error(text || "上传失败");
     }
-    return res.json();
+    const uploaded = await res.json();
+    return { ...uploaded, source: "UPLOAD" };
   });
 }

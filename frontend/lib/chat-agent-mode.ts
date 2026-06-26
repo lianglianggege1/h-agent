@@ -13,7 +13,7 @@ export function buildChatSendPayload(input: {
   sessionId: string;
   agentId: string;
   promptId: number | null;
-  referenceResourceIds?: string[];
+  resources?: Array<{ resourceId: string; role: string; source: string }>;
 }) {
   const standard = isStandardAgent(input.agentId);
   return {
@@ -21,7 +21,7 @@ export function buildChatSendPayload(input: {
     sessionId: input.sessionId,
     promptId: standard ? input.promptId : null,
     agentId: standard ? STANDARD_AGENT_ID : input.agentId,
-    referenceResourceIds: input.referenceResourceIds ?? null,
+    resources: input.resources ?? null,
   };
 }
 
