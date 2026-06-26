@@ -84,6 +84,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                     })
                     .onCompleteResponse(ignored -> {
                         try {
+                            logCompletedStream(command, reasoningBuilder, replyBuilder, imageEmitted);
                             completeSuccessfulStream(command, reasoningBuilder, replyBuilder, imageEmitted);
                         } finally {
                             chatStreamEventBridge.unregisterPublisher(command.memoryId(), imagePublisher);
@@ -107,6 +108,22 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 command.onTerminal().run();
             }
         }
+    }
+
+    private void logCompletedStream(
+            ChatAgentExecutionCommand command,
+            StringBuilder reasoningBuilder,
+            StringBuilder replyBuilder,
+            AtomicBoolean imageEmitted
+    ) {
+        log.info(
+                "Chat stream completed memoryId={} runId={} imageEmitted={} reasoning={} reply={}",
+                command.memoryId(),
+                command.runHandle().id(),
+                imageEmitted.get(),
+                reasoningBuilder,
+                replyBuilder
+        );
     }
 
     private String firstReferenceResourceId(ChatAgentExecutionCommand command) {

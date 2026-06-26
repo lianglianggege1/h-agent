@@ -6,6 +6,7 @@ import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.agent.ChatAgentExecutor;
+import com.h.backend.chat.agent.HAssistantStreamingExecutor;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
@@ -18,6 +19,10 @@ import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.service.ImageGenerationService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatServiceImpl;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.invocation.InvocationContext;
@@ -28,6 +33,7 @@ import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.FluxSink;
 
@@ -48,6 +54,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -598,6 +605,56 @@ class ChatServiceImplTest {
         inOrder.verify(chatSessionService).appendAssistantMessage(1L, "session-1", "最终答案");
         verify(agentRunService).completeRun(55L, 202L);
         verify(agentRunTelemetryService).markSuccess(telemetryRun);
+    }
+
+    @Test
+    void shouldLogCompletedStreamResponseWhenAssistantFinishes() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream()
+                .emitThinking("推理")
+                .emitText("最终")
+                .emitText("答案");
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+        ListAppender<ILoggingEvent> appender = attachListAppender(HAssistantStreamingExecutor.class);
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-log"), eq("hello"), any())).thenReturn(101L);
+        when(chatSessionService.appendReasoningMessage(1L, "session-log", "推理")).thenReturn(201L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-log", "最终答案")).thenReturn(202L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-log");
+        when(agentRunTelemetryService.startRun("session-log", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-log", 1L, 22L, 101L, "standard-chat", "trace-log"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-log", "hello")).thenReturn(tokenStream);
+
+        try {
+            chatService.streamChat(1L, 2L, null, "session-log", "hello", null)
+                    .collectList()
+                    .block();
+        } finally {
+            detachListAppender(HAssistantStreamingExecutor.class, appender);
+        }
+
+        ILoggingEvent completedLog = appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains("Chat stream completed"))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(completedLog);
+        assertEquals(Level.INFO, completedLog.getLevel());
+        assertTrue(completedLog.getFormattedMessage().contains("memoryId=1:22:session-log"));
+        assertTrue(completedLog.getFormattedMessage().contains("reasoning=推理"));
+        assertTrue(completedLog.getFormattedMessage().contains("reply=最终答案"));
     }
 
     @Test
@@ -1223,6 +1280,20 @@ class ChatServiceImplTest {
                 agentRegistry,
                 executors
         );
+    }
+
+    private static ListAppender<ILoggingEvent> attachListAppender(Class<?> loggerClass) {
+        Logger logger = (Logger) LoggerFactory.getLogger(loggerClass);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return appender;
+    }
+
+    private static void detachListAppender(Class<?> loggerClass, ListAppender<ILoggingEvent> appender) {
+        Logger logger = (Logger) LoggerFactory.getLogger(loggerClass);
+        logger.detachAppender(appender);
+        appender.stop();
     }
 
     private void invokeRunChatStream(
