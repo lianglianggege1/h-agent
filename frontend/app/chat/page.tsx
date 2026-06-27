@@ -32,6 +32,7 @@ import {
   STANDARD_AGENT_ID,
 } from "@/lib/chat-agent-mode";
 import { AgentSummary, listAgents } from "@/lib/agents";
+import { MarkdownContent } from "./markdown-content";
 import {
   bootstrapChatSession,
   ChatMessageResource,
@@ -106,11 +107,7 @@ function AssistantMessageContent({ content }: { content: string }) {
     <div className="space-y-3">
       {segments.map((segment, index) => {
         if (segment.type === "text") {
-          return (
-            <p key={`text-${index}`} className="whitespace-pre-wrap">
-              {segment.content}
-            </p>
-          );
+          return <MarkdownContent key={`text-${index}`} content={segment.content} />;
         }
 
         return (
