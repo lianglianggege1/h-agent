@@ -68,7 +68,7 @@ export function segmentAssistantText(
 }
 
 export type AudioQueueState = {
-  items: string[];
+  items: readonly string[];
   playing: boolean;
   enqueue: (url: string) => AudioQueueState;
   startCurrent: () => AudioQueueState;
@@ -76,10 +76,10 @@ export type AudioQueueState = {
   clear: () => AudioQueueState;
 };
 
-export function createAudioQueue(items: string[] = [], playing = false): AudioQueueState {
+export function createAudioQueue(items: readonly string[] = [], playing = false): AudioQueueState {
   const frozenItems = Object.freeze([...items]);
 
-  return Object.freeze({
+  const queue: AudioQueueState = {
     items: frozenItems,
     playing,
     enqueue(url: string) {
@@ -94,7 +94,9 @@ export function createAudioQueue(items: string[] = [], playing = false): AudioQu
     clear() {
       return createAudioQueue([], false);
     },
-  });
+  };
+
+  return Object.freeze(queue);
 }
 
 export function buildCallHref(agentId: string, sessionId: string): string {
