@@ -1,5 +1,6 @@
 package com.h.backend.voice.service;
 
+import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.service.ChatSessionService;
 import com.h.backend.chat.storage.ResourceSaveCommand;
@@ -50,12 +51,13 @@ public class CallTurnService {
         if (sessionId == null || sessionId.isBlank()) {
             throw new BusinessException(40000, "会话不能为空");
         }
-        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
+        String resolvedAgentId = normalizeAgentId(agentId);
+        chatSessionService.assertActiveSession(userId, sessionId, null, resolvedAgentId);
         String turnId = UUID.randomUUID().toString();
         Path dir = turnDir(userId, turnId);
         try {
             Files.createDirectories(dir);
-            writeMetadata(dir, sessionId, agentId);
+            writeMetadata(dir, sessionId, resolvedAgentId);
         } catch (IOException ex) {
             throw new UncheckedIOException("Failed to create call turn directory", ex);
         }
@@ -98,10 +100,11 @@ public class CallTurnService {
     ) {
         Path dir = existingTurnDir(userId, turnId);
         TurnMetadata metadata = readMetadata(dir);
-        if (!metadata.sessionId().equals(sessionId) || !metadata.agentId().equals(agentId)) {
+        String resolvedAgentId = normalizeAgentId(agentId);
+        if (!metadata.sessionId().equals(sessionId) || !metadata.agentId().equals(resolvedAgentId)) {
             throw new BusinessException(40000, "通话片段与会话不匹配");
         }
-        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
+        chatSessionService.assertActiveSession(userId, sessionId, null, resolvedAgentId);
         byte[] audio = mergeChunks(dir);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
@@ -174,6 +177,10 @@ public class CallTurnService {
             throw new BusinessException(40404, "通话片段不存在");
         }
         return new TurnMetadata(sessionId, agentId);
+    }
+
+    private String normalizeAgentId(String agentId) {
+        return agentId == null || agentId.isBlank() ? AgentRegistry.STANDARD_CHAT_AGENT_ID : agentId;
     }
 
     private Path turnDir(Long userId, String turnId) {

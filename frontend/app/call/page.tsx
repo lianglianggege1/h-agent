@@ -572,7 +572,14 @@ function CallPageContent() {
                     }
                   })
                   .catch((previewError) => {
-                    if (callGenerationRef.current !== callGeneration) {
+                    if (!shouldAcceptPreviewAudio({
+                      mounted: mountedRef.current,
+                      callEnding: callEndingRef.current,
+                      currentCallGeneration: callGenerationRef.current,
+                      previewCallGeneration: callGeneration,
+                      currentPlaybackGeneration: playbackGenerationRef.current,
+                      previewPlaybackGeneration,
+                    })) {
                       return;
                     }
                     const message = previewError instanceof Error ? previewError.message : "语音合成失败";
