@@ -33,11 +33,25 @@ test("appendTranscript refreshes timestamp only when normalized text changes", (
   });
 });
 
+test("appendTranscript ignores blank interim transcript", () => {
+  const state = { transcript: "你好", lastTranscriptAt: 1000 };
+
+  assert.equal(appendTranscript(state, "   ", 2000), state);
+  assert.equal(appendTranscript(state, "", 3000), state);
+});
+
 test("segmentAssistantText emits complete Chinese sentence and preserves remainder", () => {
   const result = segmentAssistantText("你好。我正在查询", "");
 
   assert.deepEqual(result.segments, ["你好。"]);
   assert.equal(result.remainder, "我正在查询");
+});
+
+test("segmentAssistantText trims sentence whitespace and keeps consecutive punctuation together", () => {
+  const result = segmentAssistantText("你好。 我继续！真的吗？！", "");
+
+  assert.deepEqual(result.segments, ["你好。", "我继续！", "真的吗？！"]);
+  assert.equal(result.remainder, "");
 });
 
 test("segmentAssistantText combines previous remainder and flushes long remainder", () => {
@@ -64,6 +78,13 @@ test("createAudioQueue enqueues, starts, finishes, and clears immutable queue st
   assert.equal(finished.playing, false);
   assert.deepEqual(cleared.items, []);
   assert.equal(cleared.playing, false);
+});
+
+test("createAudioQueue safely finishes an empty queue", () => {
+  const finished = createAudioQueue().finishCurrent();
+
+  assert.deepEqual(finished.items, []);
+  assert.equal(finished.playing, false);
 });
 
 test("buildCallHref and buildChatHrefFromCall preserve agent and session ids", () => {

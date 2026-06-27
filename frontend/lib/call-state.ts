@@ -10,6 +10,10 @@ export function appendTranscript(
 ): TranscriptState {
   const normalized = nextTranscript.trim();
 
+  if (normalized.length === 0) {
+    return state;
+  }
+
   if (normalized === state.transcript) {
     return state;
   }
@@ -35,13 +39,13 @@ export function segmentAssistantText(
 ): { segments: string[]; remainder: string } {
   let buffer = previousRemainder + text;
   const segments: string[] = [];
-  const sentenceEndPattern = /[。！？!?]/g;
+  const sentenceEndPattern = /[。！？!?]+\s*/g;
   let lastSegmentEnd = 0;
   let match: RegExpExecArray | null;
 
   while ((match = sentenceEndPattern.exec(buffer)) !== null) {
     const segmentEnd = match.index + match[0].length;
-    const segment = buffer.slice(lastSegmentEnd, segmentEnd);
+    const segment = buffer.slice(lastSegmentEnd, segmentEnd).trim();
 
     if (segment.length > 0) {
       segments.push(segment);
