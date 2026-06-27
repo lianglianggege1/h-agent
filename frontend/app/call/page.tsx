@@ -67,6 +67,7 @@ type RecordedTurn = {
   uploadPromises: Promise<void>[];
   recordingFailed: boolean;
   cancelled: boolean;
+  cancelRequested: boolean;
   finalized: boolean;
   finalizing: boolean;
 };
@@ -109,6 +110,7 @@ function createRecordedTurn(turnId: string, uploadPromises: Promise<void>[], rec
     uploadPromises,
     recordingFailed,
     cancelled: false,
+    cancelRequested: false,
     finalized: false,
     finalizing: false,
   };
@@ -381,6 +383,11 @@ function CallPageContent() {
         return false;
       } finally {
         recordedTurn.finalizing = false;
+        if (!recordedTurn.finalized && recordedTurn.cancelRequested && !recordedTurn.cancelled) {
+          recordedTurn.cancelled = true;
+          await Promise.allSettled(recordedTurn.uploadPromises);
+          await cancelCallTurn(recordedTurn.turnId).catch(() => setErrorIfMounted(recordingSaveError));
+        }
       }
     },
     [setErrorIfMounted],
@@ -391,7 +398,11 @@ function CallPageContent() {
       if (!recordedTurn) {
         return;
       }
-      if (recordedTurn.cancelled || recordedTurn.finalized || recordedTurn.finalizing) {
+      if (recordedTurn.cancelled || recordedTurn.finalized) {
+        return;
+      }
+      if (recordedTurn.finalizing) {
+        recordedTurn.cancelRequested = true;
         return;
       }
       recordedTurn.cancelled = true;
@@ -556,6 +567,9 @@ function CallPageContent() {
                     }
                   })
                   .catch((previewError) => {
+                    if (callGenerationRef.current !== callGeneration) {
+                      return;
+                    }
                     const message = previewError instanceof Error ? previewError.message : "语音合成失败";
                     setErrorIfMounted(message);
                   });
@@ -662,6 +676,7 @@ function CallPageContent() {
   const startListening = useCallback(() => {
     callGenerationRef.current += 1;
     callEndingRef.current = false;
+    void cancelOpenTurns();
     stopPlayback();
     if (listeningRef.current) {
       setStatusIfMounted("正在听你说");
@@ -695,10 +710,8 @@ function CallPageContent() {
       recognition.onerror = (event) => {
         const reason = event.error ? `：${event.error}` : "";
         setErrorIfMounted(`语音识别失败${reason}`);
-        if (["not-allowed", "service-not-allowed", "audio-capture"].includes(event.error ?? "")) {
-          stopListeningControls();
-          void stopRecordingTurn().then(cancelOpenTurns);
-        }
+        stopListeningControls();
+        void stopRecordingTurn().then(cancelOpenTurns);
       };
       recognition.onend = () => {
         if (!listeningRef.current) {
@@ -727,6 +740,11 @@ function CallPageContent() {
       });
     } catch (recognitionError) {
       listeningRef.current = false;
+      speechRecognitionRef.current = null;
+      if (mountedRef.current) {
+        setListening(false);
+      }
+      void stopRecordingTurn().then(cancelOpenTurns);
       const message = recognitionError instanceof Error ? recognitionError.message : "启动语音识别失败";
       setErrorIfMounted(message);
     }
