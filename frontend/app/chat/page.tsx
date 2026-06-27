@@ -8,6 +8,7 @@ import {
   applyAssistantChunk,
   applyBlockedState,
   applyImageMessage,
+  applyPersistedMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
   removeEmptyAssistantPlaceholders,
@@ -57,6 +58,7 @@ type MessageSegment =
     };
 
 const starterPrompts = ["主人，你今天工作怎么样呢？", "主人，和我聊聊天吧!", "主人，有什么难题尽管问我哦!"];
+const callReturnRefreshKey = "h-agent:call-return-refresh";
 
 function parseMessageSegments(content: string): MessageSegment[] {
   if (!content) return [];
@@ -460,6 +462,59 @@ function ChatPageContent() {
     setError("");
   }
 
+  async function refreshCurrentMessages(targetSessionId: string) {
+    const detail = await getChatSessionMessages(targetSessionId, 20);
+    setMessages(detail.messages.map(toUiChatMessage));
+    setHasOlderMessages(detail.hasMore);
+    setNextBeforeSeq(detail.nextBeforeSeq);
+  }
+
+  useEffect(() => {
+    if (!sessionId || routeBootstrapping) {
+      return;
+    }
+    const raw = sessionStorage.getItem(callReturnRefreshKey);
+    if (!raw) {
+      return;
+    }
+
+    let parsed: { sessionId?: string; at?: number };
+    try {
+      parsed = JSON.parse(raw) as { sessionId?: string; at?: number };
+    } catch {
+      sessionStorage.removeItem(callReturnRefreshKey);
+      return;
+    }
+    if (parsed.sessionId !== sessionId || !parsed.at || Date.now() - parsed.at > 30_000) {
+      sessionStorage.removeItem(callReturnRefreshKey);
+      return;
+    }
+
+    let cancelled = false;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    const scheduleRefresh = (delayMs: number) => {
+      const timeout = setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        void refreshCurrentMessages(sessionId).catch(() => undefined);
+      }, delayMs);
+      timeouts.push(timeout);
+    };
+
+    scheduleRefresh(400);
+    scheduleRefresh(1600);
+    scheduleRefresh(3500);
+    sessionStorage.removeItem(callReturnRefreshKey);
+
+    return () => {
+      cancelled = true;
+      for (const timeout of timeouts) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [routeBootstrapping, sessionId]);
+
   async function loadHistory(reset: boolean) {
     if (!sessionId) return;
     setLoadingHistory(true);
@@ -618,6 +673,9 @@ function ChatPageContent() {
           })),
         },
         {
+          onUserMessage(message) {
+            setMessages((current) => applyPersistedMessage(current, userMessage.id, message));
+          },
           onReasoning(chunk) {
             setMessages((current) => applyReasoningChunk(current, reasoningMessage.id, chunk));
           },
@@ -633,8 +691,13 @@ function ChatPageContent() {
           onAgentStep(step) {
             setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
-          onDone() {
-            setMessages((current) => removeEmptyAssistantPlaceholders(current));
+          onDone(_content, message) {
+            setMessages((current) => {
+              const withPersistedMessage = message
+                ? applyPersistedMessage(current, assistantMessage.id, message)
+                : current;
+              return removeEmptyAssistantPlaceholders(withPersistedMessage);
+            });
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
           },
           onError(message) {

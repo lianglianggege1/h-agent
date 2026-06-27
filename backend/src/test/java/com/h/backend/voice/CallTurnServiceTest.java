@@ -304,6 +304,50 @@ class CallTurnServiceTest {
     }
 
     @Test
+    void finalizeRejectsMismatchedSessionFromStartedTurn() {
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        String turnId = service.start(1L, "session-1", "standard-chat");
+        service.appendChunk(
+                1L,
+                turnId,
+                new MockMultipartFile("chunk", "0.webm", "audio/webm", new byte[]{1}),
+                0,
+                "audio/webm"
+        );
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.finalizeTurn(1L, turnId, "session-2", "standard-chat", 101L, "你好")
+        );
+
+        assertEquals(40000, ex.getCode());
+    }
+
+    @Test
+    void appendRejectsTurnWithoutMetadata() throws Exception {
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        String turnId = UUID.randomUUID().toString();
+        Files.createDirectories(tempDir.resolve("1").resolve(turnId));
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.appendChunk(
+                        1L,
+                        turnId,
+                        new MockMultipartFile("chunk", "0.webm", "audio/webm", new byte[]{1}),
+                        0,
+                        "audio/webm"
+                )
+        );
+
+        assertEquals(40404, ex.getCode());
+    }
+
+    @Test
     void finalizeRejectsMissingSequence() {
         ResourceStorage storage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);

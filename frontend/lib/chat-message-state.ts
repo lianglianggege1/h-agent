@@ -90,6 +90,25 @@ export function applyAssistantChunk(messages: UiChatMessage[], assistantId: stri
   );
 }
 
+export function applyPersistedMessage(
+  messages: UiChatMessage[],
+  placeholderId: string,
+  persistedMessage: ChatSessionMessage,
+): UiChatMessage[] {
+  const persisted = toUiChatMessage(persistedMessage);
+
+  return messages.map((message) => {
+    if (message.id !== placeholderId) {
+      return message;
+    }
+
+    return {
+      ...persisted,
+      agentSteps: message.agentSteps ?? persisted.agentSteps,
+    };
+  });
+}
+
 export function applyAgentStep(
   messages: UiChatMessage[],
   assistantId: string,

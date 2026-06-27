@@ -99,6 +99,29 @@ export function createAudioQueue(items: readonly string[] = [], playing = false)
   return Object.freeze(queue);
 }
 
+export function shouldAcceptPreviewAudio({
+  mounted,
+  callEnding,
+  currentCallGeneration,
+  previewCallGeneration,
+  currentPlaybackGeneration,
+  previewPlaybackGeneration,
+}: {
+  mounted: boolean;
+  callEnding: boolean;
+  currentCallGeneration: number;
+  previewCallGeneration: number;
+  currentPlaybackGeneration: number;
+  previewPlaybackGeneration: number;
+}): boolean {
+  return (
+    mounted &&
+    !callEnding &&
+    currentCallGeneration === previewCallGeneration &&
+    currentPlaybackGeneration === previewPlaybackGeneration
+  );
+}
+
 export function buildCallHref(agentId: string, sessionId: string): string {
   return buildHref("/call", agentId, sessionId);
 }

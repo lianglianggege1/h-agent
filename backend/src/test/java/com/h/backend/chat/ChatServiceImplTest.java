@@ -170,9 +170,19 @@ class ChatServiceImplTest {
                 )),
                 java.time.LocalDateTime.now()
         );
+        ChatSessionMessageDto userMessage = new ChatSessionMessageDto(
+                "101",
+                "user",
+                "USER",
+                "/image 一只白猫",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 一只白猫"), any())).thenReturn(101L);
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(userMessage);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -186,6 +196,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(
+                new ChatStreamEvent("user_message", "", userMessage),
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
         ), events);
@@ -233,9 +244,19 @@ class ChatServiceImplTest {
                 List.of(),
                 java.time.LocalDateTime.now()
         );
+        ChatSessionMessageDto userMessage = new ChatSessionMessageDto(
+                "101",
+                "user",
+                "USER",
+                "/image 给我生成一张柴犬的图片",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 给我生成一张柴犬的图片"), any())).thenReturn(101L);
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(userMessage);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -250,6 +271,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(
+                new ChatStreamEvent("user_message", "", userMessage),
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
         ), events);

@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -54,6 +55,7 @@ public class CallTurnService {
         Path dir = turnDir(userId, turnId);
         try {
             Files.createDirectories(dir);
+            writeMetadata(dir, sessionId, agentId);
         } catch (IOException ex) {
             throw new UncheckedIOException("Failed to create call turn directory", ex);
         }
@@ -71,6 +73,7 @@ public class CallTurnService {
             throw new BusinessException(40000, "不支持的音频格式");
         }
         Path dir = existingTurnDir(userId, turnId);
+        readMetadata(dir);
         Path target = dir.resolve("chunk-%06d.webm".formatted(sequence)).normalize();
         if (!target.startsWith(dir)) {
             throw new BusinessException(40000, "turnId 无效");
@@ -94,6 +97,11 @@ public class CallTurnService {
             String transcript
     ) {
         Path dir = existingTurnDir(userId, turnId);
+        TurnMetadata metadata = readMetadata(dir);
+        if (!metadata.sessionId().equals(sessionId) || !metadata.agentId().equals(agentId)) {
+            throw new BusinessException(40000, "通话片段与会话不匹配");
+        }
+        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
         byte[] audio = mergeChunks(dir);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
@@ -138,6 +146,34 @@ public class CallTurnService {
             throw new BusinessException(40404, "通话片段不存在");
         }
         return dir;
+    }
+
+    private void writeMetadata(Path dir, String sessionId, String agentId) throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty("sessionId", sessionId);
+        properties.setProperty("agentId", agentId);
+        try (var output = Files.newOutputStream(dir.resolve("metadata.properties"))) {
+            properties.store(output, "call turn metadata");
+        }
+    }
+
+    private TurnMetadata readMetadata(Path dir) {
+        Path metadataFile = dir.resolve("metadata.properties");
+        if (!Files.isRegularFile(metadataFile)) {
+            throw new BusinessException(40404, "通话片段不存在");
+        }
+        Properties properties = new Properties();
+        try (var input = Files.newInputStream(metadataFile)) {
+            properties.load(input);
+        } catch (IOException ex) {
+            throw new UncheckedIOException("Failed to read call turn metadata", ex);
+        }
+        String sessionId = properties.getProperty("sessionId");
+        String agentId = properties.getProperty("agentId");
+        if (sessionId == null || sessionId.isBlank() || agentId == null || agentId.isBlank()) {
+            throw new BusinessException(40404, "通话片段不存在");
+        }
+        return new TurnMetadata(sessionId, agentId);
     }
 
     private Path turnDir(Long userId, String turnId) {
@@ -194,6 +230,9 @@ public class CallTurnService {
     private int sequenceOf(Path chunk) {
         String fileName = chunk.getFileName().toString();
         return Integer.parseInt(fileName.substring("chunk-".length(), "chunk-000000".length()));
+    }
+
+    private record TurnMetadata(String sessionId, String agentId) {
     }
 
     private void deleteDirectory(Path dir) {

@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
-import { buildChatHrefFromCall, segmentAssistantText } from "@/lib/call-state";
+import { buildChatHrefFromCall, segmentAssistantText, shouldAcceptPreviewAudio } from "@/lib/call-state";
 import { buildChatSendPayload, buildNewSessionPayload, STANDARD_AGENT_ID } from "@/lib/chat-agent-mode";
 import { createChatSession, getChatSession } from "@/lib/chat-sessions";
 import { apiStream } from "@/lib/http";
@@ -75,6 +75,7 @@ type RecordedTurn = {
 const silenceMs = 3000;
 const recordingSaveError = "本轮录音保存失败，文字对话已保留。";
 const assistantVoiceSaveError = "回复语音保存失败，文字对话已保留。";
+const callReturnRefreshKey = "h-agent:call-return-refresh";
 
 function resultListToTranscript(results: CallSpeechRecognitionResultList) {
   const parts: string[] = [];
@@ -556,13 +557,17 @@ function CallPageContent() {
               const next = segmentAssistantText(chunk, assistantRemainderRef.current);
               assistantRemainderRef.current = next.remainder;
               for (const segment of next.segments) {
+                const previewPlaybackGeneration = playbackGenerationRef.current;
                 previewTts(activeSessionId, activeAgentId, segment)
                   .then((blob) => {
-                    if (
-                      mountedRef.current &&
-                      !callEndingRef.current &&
-                      callGenerationRef.current === callGeneration
-                    ) {
+                    if (shouldAcceptPreviewAudio({
+                      mounted: mountedRef.current,
+                      callEnding: callEndingRef.current,
+                      currentCallGeneration: callGenerationRef.current,
+                      previewCallGeneration: callGeneration,
+                      currentPlaybackGeneration: playbackGenerationRef.current,
+                      previewPlaybackGeneration,
+                    })) {
                       enqueueAudio(blob);
                     }
                   })
@@ -783,6 +788,7 @@ function CallPageContent() {
     const activeSessionId = latestSessionIdRef.current;
     const activeAgentId = latestAgentIdRef.current;
     if (activeSessionId) {
+      sessionStorage.setItem(callReturnRefreshKey, JSON.stringify({ sessionId: activeSessionId, at: Date.now() }));
       router.replace(buildChatHrefFromCall(activeAgentId, activeSessionId));
       return;
     }

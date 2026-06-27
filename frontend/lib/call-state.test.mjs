@@ -5,6 +5,7 @@ import {
   buildCallHref,
   buildChatHrefFromCall,
   createAudioQueue,
+  shouldAcceptPreviewAudio,
   segmentAssistantText,
   shouldCommitUtterance,
 } from "./call-state.ts";
@@ -85,6 +86,31 @@ test("createAudioQueue safely finishes an empty queue", () => {
 
   assert.deepEqual(finished.items, []);
   assert.equal(finished.playing, false);
+});
+
+test("shouldAcceptPreviewAudio rejects stale playback generations after interruption", () => {
+  assert.equal(
+    shouldAcceptPreviewAudio({
+      mounted: true,
+      callEnding: false,
+      currentCallGeneration: 3,
+      previewCallGeneration: 3,
+      currentPlaybackGeneration: 5,
+      previewPlaybackGeneration: 4,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAcceptPreviewAudio({
+      mounted: true,
+      callEnding: false,
+      currentCallGeneration: 3,
+      previewCallGeneration: 3,
+      currentPlaybackGeneration: 5,
+      previewPlaybackGeneration: 5,
+    }),
+    true,
+  );
 });
 
 test("buildCallHref and buildChatHrefFromCall preserve agent and session ids", () => {
