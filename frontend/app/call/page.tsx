@@ -576,17 +576,26 @@ function CallPageContent() {
               }
             },
             onAgentStep(step) {
+              if (callEndingRef.current || callGenerationRef.current !== callGeneration) {
+                return;
+              }
               setStatusIfMounted(`正在执行：${step.nodeName}`);
             },
             onDone(_content, message) {
               assistantMessageId = message?.id ?? null;
             },
             onBlocked(message) {
+              if (callEndingRef.current || callGenerationRef.current !== callGeneration) {
+                return;
+              }
               if (mountedRef.current) {
                 setAssistantText(message);
               }
             },
             onError(message) {
+              if (callEndingRef.current || callGenerationRef.current !== callGeneration) {
+                return;
+              }
               setErrorIfMounted(message);
             },
           },
@@ -674,14 +683,14 @@ function CallPageContent() {
   );
 
   const startListening = useCallback(() => {
-    callGenerationRef.current += 1;
-    callEndingRef.current = false;
-    void cancelOpenTurns();
-    stopPlayback();
     if (listeningRef.current) {
       setStatusIfMounted("正在听你说");
       return;
     }
+    callGenerationRef.current += 1;
+    callEndingRef.current = false;
+    void cancelOpenTurns();
+    stopPlayback();
 
     const SpeechRecognitionConstructor =
       (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition;
@@ -720,11 +729,7 @@ function CallPageContent() {
         try {
           recognition.start();
         } catch {
-          listeningRef.current = false;
-          speechRecognitionRef.current = null;
-          if (mountedRef.current) {
-            setListening(false);
-          }
+          stopListeningControls();
           void stopRecordingTurn().then(cancelOpenTurns);
         }
       };
