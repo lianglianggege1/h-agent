@@ -721,9 +721,11 @@ function CallPageContent() {
           recognition.start();
         } catch {
           listeningRef.current = false;
+          speechRecognitionRef.current = null;
           if (mountedRef.current) {
             setListening(false);
           }
+          void stopRecordingTurn().then(cancelOpenTurns);
         }
       };
 
