@@ -1,0 +1,131 @@
+package com.h.backend.voice;
+
+import com.h.backend.chat.dto.ChatMessageResourceDto;
+import com.h.backend.chat.dto.ChatSessionMessageDto;
+import com.h.backend.chat.service.ChatSessionService;
+import com.h.backend.chat.storage.ResourceSaveCommand;
+import com.h.backend.chat.storage.ResourceStorage;
+import com.h.backend.chat.storage.StoredResource;
+import com.h.backend.voice.config.VoiceTtsProperties;
+import com.h.backend.voice.service.VoiceTtsService;
+import com.h.backend.voice.tts.MiniMaxTtsClient;
+import com.h.backend.voice.tts.MiniMaxTtsRequest;
+import com.h.backend.voice.tts.MiniMaxTtsResult;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class VoiceTtsServiceTest {
+
+    @Test
+    void previewReturnsAudioBytesWithoutPersisting() {
+        MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        when(client.synthesize(new MiniMaxTtsRequest("你好", null)))
+                .thenReturn(new MiniMaxTtsResult(new byte[]{1, 2, 3}, "audio/mpeg", "trace-1", null, null));
+
+        VoiceTtsService.PreviewAudio audio = service.preview(1L, "session-1", "standard-chat", "你好");
+
+        assertArrayEquals(new byte[]{1, 2, 3}, audio.audioBytes());
+        assertEquals("audio/mpeg", audio.mimeType());
+        verify(storage, never()).save(any(ResourceSaveCommand.class));
+    }
+
+    @Test
+    void messageTtsReadsAssistantMessageAndBindsAudioResource() {
+        MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        ChatSessionMessageDto message = new ChatSessionMessageDto(
+                "101",
+                "assistant",
+                "AI",
+                "完整回复",
+                null,
+                List.of(),
+                LocalDateTime.now()
+        );
+        StoredResource stored = new StoredResource(
+                "audio-1",
+                "LOCAL_FILE",
+                "call-audio/audio-1.mp3",
+                "audio/mpeg",
+                "audio-1.mp3",
+                3L,
+                null,
+                null
+        );
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(message);
+        when(client.synthesize(new MiniMaxTtsRequest("完整回复", null)))
+                .thenReturn(new MiniMaxTtsResult(
+                        new byte[]{1, 2, 3},
+                        "audio/mpeg",
+                        "trace-1",
+                        "speech-2.8-turbo",
+                        "voice-1"
+                ));
+        when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored);
+        when(chatSessionService.bindStoredAudioResource(
+                eq(1L),
+                eq("session-1"),
+                eq(101L),
+                eq("ASSISTANT_TTS"),
+                eq(stored),
+                any()
+        )).thenReturn(new ChatMessageResourceDto(
+                "audio-1",
+                "AUDIO",
+                "GENERATED",
+                "/api/chat/resources/audio-1/content",
+                "/api/chat/resources/audio-1/download",
+                "audio-1.mp3",
+                "audio/mpeg",
+                3L,
+                null,
+                null
+        ));
+
+        var response = service.messageTts(1L, "session-1", "standard-chat", 101L);
+
+        ArgumentCaptor<ResourceSaveCommand> saveCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(storage).save(saveCaptor.capture());
+        ResourceSaveCommand command = saveCaptor.getValue();
+        assertEquals("AUDIO", command.resourceType());
+        assertEquals("session-1", command.sessionId());
+        assertEquals("call-assistant-tts", command.prompt());
+        assertArrayEquals(new byte[]{1, 2, 3}, command.content());
+        assertEquals("audio/mpeg", command.mimeType());
+        assertEquals("mp3", command.extension());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> metadataCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(chatSessionService).bindStoredAudioResource(
+                eq(1L),
+                eq("session-1"),
+                eq(101L),
+                eq("ASSISTANT_TTS"),
+                eq(stored),
+                metadataCaptor.capture()
+        );
+        assertEquals(
+                Map.of("source", "ASSISTANT_TTS", "voiceId", "voice-1", "model", "speech-2.8-turbo"),
+                metadataCaptor.getValue()
+        );
+        assertEquals("audio-1", response.resourceId());
+    }
+}
