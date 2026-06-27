@@ -49,6 +49,7 @@ public class CallTurnService {
         if (sessionId == null || sessionId.isBlank()) {
             throw new BusinessException(40000, "会话不能为空");
         }
+        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
         String turnId = UUID.randomUUID().toString();
         Path dir = turnDir(userId, turnId);
         try {
@@ -63,11 +64,19 @@ public class CallTurnService {
         if (sequence < 0) {
             throw new BusinessException(40000, "音频分片序号无效");
         }
+        if (chunk == null || chunk.isEmpty()) {
+            throw new BusinessException(40000, "音频分片不能为空");
+        }
+        if (mimeType != null && !mimeType.isBlank() && !"audio/webm".equalsIgnoreCase(mimeType)) {
+            throw new BusinessException(40000, "不支持的音频格式");
+        }
         Path dir = existingTurnDir(userId, turnId);
-        String extension = extensionFor(mimeType);
-        Path target = dir.resolve("chunk-%06d.%s".formatted(sequence, extension)).normalize();
+        Path target = dir.resolve("chunk-%06d.webm".formatted(sequence)).normalize();
         if (!target.startsWith(dir)) {
             throw new BusinessException(40000, "turnId 无效");
+        }
+        if (Files.exists(target)) {
+            throw new BusinessException(40000, "音频分片重复");
         }
         try {
             Files.write(target, chunk.getBytes());
@@ -85,40 +94,38 @@ public class CallTurnService {
             String transcript
     ) {
         Path dir = existingTurnDir(userId, turnId);
-        try {
-            byte[] audio = mergeChunks(dir);
-            StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                    "AUDIO",
-                    sessionId,
-                    "call-user-recording",
-                    audio,
-                    "audio/webm",
-                    "webm",
-                    null,
-                    null
-            ));
-            ChatMessageResourceDto resource = chatSessionService.bindStoredAudioResource(
-                    userId,
-                    sessionId,
-                    messageId,
-                    "USER_RECORDING",
-                    stored,
-                    Map.of(
-                            "source", "USER_RECORDING",
-                            "callTurnId", turnId,
-                            "transcript", transcript == null ? "" : transcript
-                    )
-            );
-            return new VoiceResourceResponse(
-                    resource.id(),
-                    resource.viewUrl(),
-                    resource.downloadUrl(),
-                    resource.mimeType(),
-                    null
-            );
-        } finally {
-            deleteDirectory(dir);
-        }
+        byte[] audio = mergeChunks(dir);
+        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
+                "AUDIO",
+                sessionId,
+                "call-user-recording",
+                audio,
+                "audio/webm",
+                "webm",
+                null,
+                null
+        ));
+        ChatMessageResourceDto resource = chatSessionService.bindStoredAudioResource(
+                userId,
+                sessionId,
+                messageId,
+                "USER_RECORDING",
+                stored,
+                Map.of(
+                        "source", "USER_RECORDING",
+                        "callTurnId", turnId,
+                        "transcript", transcript == null ? "" : transcript
+                )
+        );
+        VoiceResourceResponse response = new VoiceResourceResponse(
+                resource.id(),
+                resource.viewUrl(),
+                resource.downloadUrl(),
+                resource.mimeType(),
+                null
+        );
+        deleteDirectory(dir);
+        return response;
     }
 
     public void cancel(Long userId, String turnId) {
@@ -137,8 +144,14 @@ public class CallTurnService {
         if (turnId == null || turnId.isBlank()) {
             throw new BusinessException(40000, "turnId 无效");
         }
+        try {
+            UUID.fromString(turnId);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(40000, "turnId 无效");
+        }
+        Path userDir = baseDir.resolve(String.valueOf(userId)).normalize();
         Path dir = baseDir.resolve(String.valueOf(userId)).resolve(turnId).normalize();
-        if (!dir.startsWith(baseDir)) {
+        if (!dir.startsWith(userDir)) {
             throw new BusinessException(40000, "turnId 无效");
         }
         return dir;
@@ -149,10 +162,19 @@ public class CallTurnService {
         try (Stream<Path> stream = Files.list(dir)) {
             chunks = stream
                     .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().matches("chunk-\\d{6}\\.webm"))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                     .toList();
         } catch (IOException ex) {
             throw new UncheckedIOException("Failed to list call turn chunks", ex);
+        }
+        if (chunks.isEmpty()) {
+            throw new BusinessException(40000, "音频分片不能为空");
+        }
+        for (int i = 0; i < chunks.size(); i++) {
+            if (sequenceOf(chunks.get(i)) != i) {
+                throw new BusinessException(40000, "音频分片不完整");
+            }
         }
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -166,14 +188,9 @@ public class CallTurnService {
         return output.toByteArray();
     }
 
-    private String extensionFor(String mimeType) {
-        if ("audio/mpeg".equalsIgnoreCase(mimeType)) {
-            return "mp3";
-        }
-        if ("audio/wav".equalsIgnoreCase(mimeType)) {
-            return "wav";
-        }
-        return "webm";
+    private int sequenceOf(Path chunk) {
+        String fileName = chunk.getFileName().toString();
+        return Integer.parseInt(fileName.substring("chunk-".length(), "chunk-000000".length()));
     }
 
     private void deleteDirectory(Path dir) {
