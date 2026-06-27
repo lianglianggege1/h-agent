@@ -262,6 +262,7 @@ function ChatPageContent() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [hydratedRouteKey, setHydratedRouteKey] = useState("");
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [resolvingChoice, setResolvingChoice] = useState(false);
@@ -292,6 +293,8 @@ function ChatPageContent() {
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const requestedAgentId = searchParams.get("agentId");
   const requestedSessionId = searchParams.get("sessionId");
+  const routeRequestKey = `${requestedAgentId ?? ""}:${requestedSessionId ?? ""}`;
+  const routeBootstrapping = bootstrapping || hydratedRouteKey !== routeRequestKey;
 
   const generatedImages = useMemo(() => {
     return messages
@@ -317,9 +320,25 @@ function ChatPageContent() {
   }, [showAttachmentMenu]);
 
   useEffect(() => {
+    let cancelled = false;
+    let requestedSessionError = "";
+
+    async function activateRequestedSession(currentSessionId: string | null) {
+      if (!requestedSessionId) {
+        return null;
+      }
+      try {
+        return await activateHistorySession(requestedSessionId, currentSessionId);
+      } catch (sessionError) {
+        requestedSessionError = sessionError instanceof Error ? sessionError.message : "加载会话失败";
+        return null;
+      }
+    }
+
     getCurrentUser()
       .then(async () => {
         const [list, bootstrap, agents] = await Promise.all([listSystemPrompts(), bootstrapChatSession(), listAgents()]);
+        if (cancelled) return;
         setAuthenticated(true);
         setPrompts(list);
         setAgentOptions(agents.filter((agent) => !isStandardAgent(agent.agentId)));
@@ -327,18 +346,23 @@ function ChatPageContent() {
         if (bootstrap.resolution === "choose") {
           if (requestedSessionId) {
             const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
-            const requested = await activateHistorySession(requestedSessionId, currentSessionId);
-            hydrateSession(requested, defaultPrompt?.id ?? null);
-            return;
+            const requested = await activateRequestedSession(currentSessionId);
+            if (cancelled) return;
+            if (requested) {
+              hydrateSession(requested, defaultPrompt?.id ?? null);
+              return;
+            }
           }
           if (requestedAgentId) {
             const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
             const resolved = currentSessionId ? await resolveChatSession(currentSessionId) : null;
+            if (cancelled) return;
             const requestedSession = await createChatSession({
               currentSessionId: resolved?.session.sessionId ?? currentSessionId,
               promptId: null,
               agentId: requestedAgentId,
             });
+            if (cancelled) return;
             hydrateSession(requestedSession, defaultPrompt?.id ?? null);
             return;
           }
@@ -346,14 +370,20 @@ function ChatPageContent() {
           setSessionCandidates(bootstrap.candidates);
           setShowSessionChooser(true);
           setMessages([]);
+          if (requestedSessionError) {
+            setError(requestedSessionError);
+          }
           return;
         }
         const open = bootstrap.session;
         if (requestedSessionId) {
           const currentSessionId = open?.session.sessionId ?? bootstrap.candidates[0]?.sessionId ?? null;
-          const requested = await activateHistorySession(requestedSessionId, currentSessionId);
-          hydrateSession(requested, defaultPrompt?.id ?? null);
-          return;
+          const requested = await activateRequestedSession(currentSessionId);
+          if (cancelled) return;
+          if (requested) {
+            hydrateSession(requested, defaultPrompt?.id ?? null);
+            return;
+          }
         }
         if (
           shouldCreateSessionForRequestedAgent({
@@ -367,26 +397,40 @@ function ChatPageContent() {
             promptId: null,
             agentId: requestedAgentId,
           });
+          if (cancelled) return;
           hydrateSession(requestedSession, defaultPrompt?.id ?? null);
           return;
         }
         hydrateSession(open, defaultPrompt?.id ?? null);
+        if (requestedSessionError) {
+          setError(requestedSessionError);
+        }
       })
       .catch(() => {
+        if (cancelled) return;
         setAuthenticated(false);
         savePostLoginRedirect("/chat");
         router.replace("/auth/login");
       })
-      .finally(() => setBootstrapping(false));
-  }, [requestedAgentId, requestedSessionId, router]);
+      .finally(() => {
+        if (!cancelled) {
+          setBootstrapping(false);
+          setHydratedRouteKey(routeRequestKey);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedAgentId, requestedSessionId, routeRequestKey, router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const canSubmit = useMemo(
-    () => input.trim().length > 0 && !streaming && !bootstrapping && !showSessionChooser && !!sessionId,
-    [bootstrapping, input, sessionId, showSessionChooser, streaming],
+    () => input.trim().length > 0 && !streaming && !routeBootstrapping && !showSessionChooser && !!sessionId,
+    [input, routeBootstrapping, sessionId, showSessionChooser, streaming],
   );
   const usingStandardAgent = isStandardAgent(currentAgentId);
 
@@ -520,7 +564,7 @@ function ChatPageContent() {
   }
 
   function handleOpenCall() {
-    if (!sessionId || streaming) return;
+    if (!sessionId || streaming || routeBootstrapping) return;
     router.push(buildCallHref(currentAgentId, sessionId));
   }
 
@@ -827,7 +871,7 @@ function ChatPageContent() {
             <button
               className="shrink-0 rounded-full border border-stone-300 bg-white/80 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
-              disabled={!sessionId || streaming}
+              disabled={!sessionId || streaming || routeBootstrapping}
               onClick={handleOpenCall}
             >
               电话
