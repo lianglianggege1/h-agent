@@ -66,6 +66,9 @@ type RecordedTurn = {
   turnId: string;
   uploadPromises: Promise<void>[];
   recordingFailed: boolean;
+  cancelled: boolean;
+  finalized: boolean;
+  finalizing: boolean;
 };
 
 const silenceMs = 3000;
@@ -100,6 +103,17 @@ function visibleTranscript(fullTranscript: string, committedTranscript: string) 
   return fullTranscript.trim();
 }
 
+function createRecordedTurn(turnId: string, uploadPromises: Promise<void>[], recordingFailed: boolean): RecordedTurn {
+  return {
+    turnId,
+    uploadPromises,
+    recordingFailed,
+    cancelled: false,
+    finalized: false,
+    finalizing: false,
+  };
+}
+
 function CallPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -130,6 +144,7 @@ function CallPageContent() {
   const pendingUtterancesRef = useRef<PendingUtterance[]>([]);
   const activeRecordedTurnRef = useRef<RecordedTurn | null>(null);
   const callEndingRef = useRef(false);
+  const callGenerationRef = useRef(0);
   const assistantRemainderRef = useRef("");
   const audioQueueRef = useRef<string[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -336,7 +351,13 @@ function CallPageContent() {
       transcript: string,
     ): Promise<boolean> => {
       const uploadResults = await Promise.allSettled(recordedTurn.uploadPromises);
-      if (recordedTurn.recordingFailed || uploadResults.some((result) => result.status === "rejected")) {
+      if (
+        recordedTurn.cancelled ||
+        recordedTurn.finalized ||
+        recordedTurn.finalizing ||
+        recordedTurn.recordingFailed ||
+        uploadResults.some((result) => result.status === "rejected")
+      ) {
         setErrorIfMounted(recordingSaveError);
         return false;
       }
@@ -345,6 +366,7 @@ function CallPageContent() {
         if (callEndingRef.current || activeRecordedTurnRef.current !== recordedTurn) {
           return false;
         }
+        recordedTurn.finalizing = true;
         await finalizeCallTurn({
           turnId: recordedTurn.turnId,
           sessionId: activeSessionId,
@@ -352,10 +374,13 @@ function CallPageContent() {
           messageId,
           transcript,
         });
+        recordedTurn.finalized = true;
         return true;
       } catch {
         setErrorIfMounted(recordingSaveError);
         return false;
+      } finally {
+        recordedTurn.finalizing = false;
       }
     },
     [setErrorIfMounted],
@@ -366,6 +391,10 @@ function CallPageContent() {
       if (!recordedTurn) {
         return;
       }
+      if (recordedTurn.cancelled || recordedTurn.finalized || recordedTurn.finalizing) {
+        return;
+      }
+      recordedTurn.cancelled = true;
       await Promise.allSettled(recordedTurn.uploadPromises);
       try {
         await cancelCallTurn(recordedTurn.turnId);
@@ -390,11 +419,9 @@ function CallPageContent() {
     const turnId = currentTurnIdRef.current;
     currentTurnIdRef.current = null;
     if (turnId) {
-      pendingCancels.push(cancelRecordedTurn({
-        turnId,
-        uploadPromises: [...chunkUploadPromisesRef.current],
-        recordingFailed: recordingFailedRef.current,
-      }));
+      pendingCancels.push(cancelRecordedTurn(
+        createRecordedTurn(turnId, [...chunkUploadPromisesRef.current], recordingFailedRef.current),
+      ));
     }
 
     await Promise.allSettled(pendingCancels);
@@ -413,11 +440,11 @@ function CallPageContent() {
       if (queuedTurn !== undefined) {
         recordedTurn = queuedTurn;
       } else if (currentTurnIdRef.current) {
-        recordedTurn = {
-          turnId: currentTurnIdRef.current,
-          uploadPromises: [...chunkUploadPromisesRef.current],
-          recordingFailed: recordingFailedRef.current,
-        };
+        recordedTurn = createRecordedTurn(
+          currentTurnIdRef.current,
+          [...chunkUploadPromisesRef.current],
+          recordingFailedRef.current,
+        );
       }
 
       if (queuedTurn === undefined) {
@@ -430,11 +457,11 @@ function CallPageContent() {
         }
         currentTurnIdRef.current = null;
         if (recordedTurn) {
-          recordedTurn = {
-            ...recordedTurn,
-            uploadPromises: [...chunkUploadPromisesRef.current],
-            recordingFailed: recordingFailedRef.current,
-          };
+          recordedTurn = createRecordedTurn(
+            recordedTurn.turnId,
+            [...chunkUploadPromisesRef.current],
+            recordingFailedRef.current,
+          );
         }
         if (listeningRef.current) {
           void startRecordingTurnRef.current?.().catch(() => {
@@ -455,6 +482,7 @@ function CallPageContent() {
         return;
       }
 
+      const callGeneration = callGenerationRef.current;
       streamingRef.current = true;
       activeRecordedTurnRef.current = recordedTurn;
       if (mountedRef.current) {
@@ -483,7 +511,12 @@ function CallPageContent() {
           },
           {
             onUserMessage(message) {
-              if (!recordedTurn || callEndingRef.current || activeRecordedTurnRef.current !== recordedTurn) {
+              if (
+                !recordedTurn ||
+                callEndingRef.current ||
+                callGenerationRef.current !== callGeneration ||
+                activeRecordedTurnRef.current !== recordedTurn
+              ) {
                 return;
               }
               sideEffects.push(
@@ -503,7 +536,7 @@ function CallPageContent() {
               );
             },
             onChunk(chunk) {
-              if (callEndingRef.current) {
+              if (callEndingRef.current || callGenerationRef.current !== callGeneration) {
                 return;
               }
               if (mountedRef.current) {
@@ -514,7 +547,11 @@ function CallPageContent() {
               for (const segment of next.segments) {
                 previewTts(activeSessionId, activeAgentId, segment)
                   .then((blob) => {
-                    if (mountedRef.current && !callEndingRef.current) {
+                    if (
+                      mountedRef.current &&
+                      !callEndingRef.current &&
+                      callGenerationRef.current === callGeneration
+                    ) {
                       enqueueAudio(blob);
                     }
                   })
@@ -541,7 +578,7 @@ function CallPageContent() {
           },
         );
 
-        if (assistantMessageId && !callEndingRef.current) {
+        if (assistantMessageId && !callEndingRef.current && callGenerationRef.current === callGeneration) {
           try {
             await messageTts(activeSessionId, activeAgentId, assistantMessageId);
           } catch {
@@ -567,8 +604,11 @@ function CallPageContent() {
           activeRecordedTurnRef.current = null;
           await cancelRecordedTurn(recordedTurn);
         }
-        const pending = callEndingRef.current ? null : pendingUtterancesRef.current.shift();
-        if (pending && !callEndingRef.current) {
+        const pending =
+          callEndingRef.current || callGenerationRef.current !== callGeneration
+            ? null
+            : pendingUtterancesRef.current.shift();
+        if (pending && !callEndingRef.current && callGenerationRef.current === callGeneration) {
           void submitUtterance(pending.text, pending.recordedTurn);
         }
       }
@@ -620,6 +660,7 @@ function CallPageContent() {
   );
 
   const startListening = useCallback(() => {
+    callGenerationRef.current += 1;
     callEndingRef.current = false;
     stopPlayback();
     if (listeningRef.current) {
@@ -654,6 +695,10 @@ function CallPageContent() {
       recognition.onerror = (event) => {
         const reason = event.error ? `：${event.error}` : "";
         setErrorIfMounted(`语音识别失败${reason}`);
+        if (["not-allowed", "service-not-allowed", "audio-capture"].includes(event.error ?? "")) {
+          stopListeningControls();
+          void stopRecordingTurn().then(cancelOpenTurns);
+        }
       };
       recognition.onend = () => {
         if (!listeningRef.current) {
@@ -685,7 +730,16 @@ function CallPageContent() {
       const message = recognitionError instanceof Error ? recognitionError.message : "启动语音识别失败";
       setErrorIfMounted(message);
     }
-  }, [scheduleSilenceCommit, setErrorIfMounted, setStatusIfMounted, startRecordingTurn, stopPlayback]);
+  }, [
+    cancelOpenTurns,
+    scheduleSilenceCommit,
+    setErrorIfMounted,
+    setStatusIfMounted,
+    startRecordingTurn,
+    stopListeningControls,
+    stopPlayback,
+    stopRecordingTurn,
+  ]);
 
   const hangUp = useCallback(async () => {
     callEndingRef.current = true;
