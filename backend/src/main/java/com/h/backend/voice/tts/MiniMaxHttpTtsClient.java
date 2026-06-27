@@ -60,7 +60,7 @@ public class MiniMaxHttpTtsClient implements MiniMaxTtsClient {
                     String responseBody = StreamUtils.copyToString(clientResponse.getBody(), StandardCharsets.UTF_8);
                     if (!clientResponse.getStatusCode().is2xxSuccessful()) {
                         throw new IllegalStateException("MiniMax TTS request failed with HTTP "
-                                + clientResponse.getStatusCode().value() + ": " + responseBody);
+                                + clientResponse.getStatusCode().value());
                     }
                     return responseBody;
                 });

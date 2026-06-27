@@ -83,10 +83,38 @@ class MiniMaxHttpTtsClientTest {
         assertTrue(error.getMessage().contains("bad voice"));
     }
 
+    @Test
+    void doesNotLeakHttpErrorResponseBodyInExceptionMessage() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/t2a_v2", exchange -> respond(exchange, """
+                {"error":"bad","text":"用户敏感文本","apiKey":"secret-key"}
+                """, 500));
+        server.start();
+
+        VoiceTtsProperties properties = new VoiceTtsProperties();
+        properties.getMinimax().setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.getMinimax().setApiKey("test-key");
+        MiniMaxHttpTtsClient client = new MiniMaxHttpTtsClient(properties, new ObjectMapper());
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                () -> client.synthesize(new MiniMaxTtsRequest("用户敏感文本", null))
+        );
+
+        assertTrue(error.getMessage().contains("500"));
+        assertTrue(!error.getMessage().contains("用户敏感文本"));
+        assertTrue(!error.getMessage().contains("secret-key"));
+        assertTrue(!error.getMessage().contains("bad"));
+    }
+
     private void respond(HttpExchange exchange, String body) throws IOException {
+        respond(exchange, body, 200);
+    }
+
+    private void respond(HttpExchange exchange, String body, int statusCode) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
-        exchange.sendResponseHeaders(200, bytes.length);
+        exchange.sendResponseHeaders(statusCode, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
     }
