@@ -170,9 +170,19 @@ class ChatServiceImplTest {
                 )),
                 java.time.LocalDateTime.now()
         );
+        ChatSessionMessageDto userMessage = new ChatSessionMessageDto(
+                "101",
+                "user",
+                "USER",
+                "/image 一只白猫",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 一只白猫"), any())).thenReturn(101L);
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(userMessage);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -186,6 +196,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(
+                new ChatStreamEvent("user_message", "", userMessage),
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
         ), events);
@@ -233,9 +244,19 @@ class ChatServiceImplTest {
                 List.of(),
                 java.time.LocalDateTime.now()
         );
+        ChatSessionMessageDto userMessage = new ChatSessionMessageDto(
+                "101",
+                "user",
+                "USER",
+                "/image 给我生成一张柴犬的图片",
+                null,
+                List.of(),
+                java.time.LocalDateTime.now()
+        );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("/image 给我生成一张柴犬的图片"), any())).thenReturn(101L);
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(userMessage);
         when(imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
                 1L,
                 "session-1",
@@ -250,6 +271,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(
+                new ChatStreamEvent("user_message", "", userMessage),
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
         ), events);
@@ -303,9 +325,56 @@ class ChatServiceImplTest {
         assertEquals(List.of(
                 new ChatStreamEvent("chunk", "hello"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         assertEquals(1, executor.submittedCount());
         assertTrue(permit.released());
+    }
+
+    @Test
+    void shouldEmitUserMessageEventAfterAppendingUserMessage() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("你好呀");
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> new RecordingPermit()
+        );
+
+        ChatSessionMessageDto userMessage = new ChatSessionMessageDto(
+                "101", "user", "USER", "你好", null, List.of(), java.time.LocalDateTime.now()
+        );
+        ChatSessionMessageDto assistantMessage = new ChatSessionMessageDto(
+                "202", "assistant", "AI", "你好呀", null, List.of(), java.time.LocalDateTime.now()
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-call"), eq("你好"), any())).thenReturn(101L);
+        when(chatSessionService.getOwnedMessage(1L, "session-call", 101L)).thenReturn(userMessage);
+        when(chatSessionService.appendAssistantMessage(1L, "session-call", "你好呀")).thenReturn(202L);
+        when(chatSessionService.getOwnedMessage(1L, "session-call", 202L)).thenReturn(assistantMessage);
+        when(agentRunTelemetryService.startRun("session-call", 1L, 22L))
+                .thenReturn(new AgentRunTelemetryService.TelemetryRun(null, "trace-call"));
+        when(agentRunService.createRun("session-call", 1L, 22L, 101L, "standard-chat", "trace-call"))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(hAssistant.streamChat("1:22:session-call", "你好")).thenReturn(tokenStream);
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "standard-chat", "session-call", "你好", null)
+                .collectList()
+                .block();
+
+        assertEquals("user_message", events.get(0).type());
+        assertEquals(userMessage, events.get(0).message());
+        assertEquals("chunk", events.get(1).type());
+        assertEquals("done", events.get(2).type());
+        assertEquals(assistantMessage, events.get(2).message());
     }
 
     @Test
@@ -345,7 +414,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("chunk", "he"),
                 new ChatStreamEvent("chunk", "llo"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         assertTrue(permit.released());
     }
 
@@ -397,7 +466,10 @@ class ChatServiceImplTest {
                 .appendAssistantMessage(1L, "session-cancel", "hello");
         assertTrue(tokenStream.awaitCompletion(1, TimeUnit.SECONDS));
         assertTrue(permit.awaitReleased(1, TimeUnit.SECONDS));
-        assertEquals(List.of(new ChatStreamEvent("chunk", "hello")), receivedEvents);
+        assertEquals(List.of(
+                new ChatStreamEvent("user_message", ""),
+                new ChatStreamEvent("chunk", "hello")
+        ), receivedEvents);
     }
 
     @Test
@@ -544,7 +616,7 @@ class ChatServiceImplTest {
         assertEquals(List.of(
                 new ChatStreamEvent("chunk", "agentic-ok"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         verify(chatSessionService).assertActiveSession(1L, "session-car", null, "car-rental-assistant");
         verify(systemPromptService, never()).resolvePromptId(any(), any());
         verify(chatSessionService).appendUserMessage(eq(1L), eq("session-car"), eq("need towing"), any());
@@ -598,7 +670,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("chunk", "最终"),
                 new ChatStreamEvent("chunk", "答案"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         var inOrder = inOrder(chatSessionService);
         inOrder.verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any());
         inOrder.verify(chatSessionService).appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。");
@@ -692,7 +764,7 @@ class ChatServiceImplTest {
         assertEquals(List.of(
                 new ChatStreamEvent("reasoning", "先分析"),
                 new ChatStreamEvent("error", "AI 服务调用失败")
-        ), events);
+        ), eventsAfterUserMessage(events));
         verify(chatSessionService, never()).appendReasoningMessage(any(), any(), any());
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
@@ -731,7 +803,7 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("chunk", "he"),
                 new ChatStreamEvent("chunk", "llo"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any());
         verify(agentRunTelemetryService).startRun("session-1", 1L, 22L);
         verify(agentRunService).createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1");
@@ -775,7 +847,7 @@ class ChatServiceImplTest {
         assertEquals(List.of(
                 new ChatStreamEvent("chunk", "hello"),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         verify(agentRunService).recordToolUsage(55L, "search_web");
         verify(agentRunService).completeRun(55L, 202L);
     }
@@ -809,7 +881,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY")),
+                eventsAfterUserMessage(events)
+        );
         verify(agentRunService).failRun(55L, "AI 服务未配置 OPENAI_API_KEY");
         verify(agentRunTelemetryService).markFailure(telemetryRun, tokenStream.error);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
@@ -866,7 +941,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("error", "AI 未返回有效内容")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("error", "AI 未返回有效内容")),
+                eventsAfterUserMessage(events)
+        );
         verify(agentRunService).failRun(88L, "AI 未返回有效内容");
         verify(agentRunTelemetryService).markFailure(
                 org.mockito.Mockito.eq(telemetryRun),
@@ -921,7 +999,7 @@ class ChatServiceImplTest {
         assertEquals(List.of(
                 new ChatStreamEvent("image", "", imageMessage),
                 new ChatStreamEvent("done", "")
-        ), events);
+        ), eventsAfterUserMessage(events));
         verify(agentRunService).recordToolUsage(88L, "generateImage");
         verify(agentRunService).completeRun(88L, null);
         verify(agentRunTelemetryService).markSuccess(telemetryRun);
@@ -961,7 +1039,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("blocked", "平台检测到您的消息不符合使用规范，已自动拦截。")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("blocked", "平台检测到您的消息不符合使用规范，已自动拦截。")),
+                eventsAfterUserMessage(events)
+        );
         verify(chatSessionService).appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。");
         verify(agentRunService).failRun(77L, "平台检测到您的消息不符合使用规范，已自动拦截。");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -1002,7 +1083,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")),
+                eventsAfterUserMessage(events)
+        );
         verify(chatSessionService).appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -1042,7 +1126,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")),
+                eventsAfterUserMessage(events)
+        );
         verify(chatSessionService).appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -1083,7 +1170,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("blocked", "系统提醒您：请勿使用暴力")),
+                eventsAfterUserMessage(events)
+        );
         verify(chatSessionService).appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
         verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
@@ -1120,7 +1210,10 @@ class ChatServiceImplTest {
                 .collectList()
                 .block();
 
-        assertEquals(List.of(new ChatStreamEvent("error", "AI 服务调用失败")), events);
+        assertEquals(
+                List.of(new ChatStreamEvent("error", "AI 服务调用失败")),
+                eventsAfterUserMessage(events)
+        );
         verify(agentRunService).failRun(66L, "boom");
         verify(agentRunTelemetryService).markFailure(telemetryRun, runtimeException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
@@ -1294,6 +1387,12 @@ class ChatServiceImplTest {
         Logger logger = (Logger) LoggerFactory.getLogger(loggerClass);
         logger.detachAppender(appender);
         appender.stop();
+    }
+
+    private List<ChatStreamEvent> eventsAfterUserMessage(List<ChatStreamEvent> events) {
+        assertTrue(events.size() >= 1);
+        assertEquals("user_message", events.getFirst().type());
+        return events.subList(1, events.size());
     }
 
     private void invokeRunChatStream(

@@ -275,6 +275,9 @@ public class ChatServiceImpl implements ChatService {
             }
 
             Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
+            ChatSessionMessageDto persistedUserMessage =
+                    chatSessionService.getOwnedMessage(userId, sessionId, userMessageId);
+            emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
             telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
             runHandle = agentRunService.createRun(
                     sessionId,
@@ -360,7 +363,9 @@ public class ChatServiceImpl implements ChatService {
             emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "请输入图片提示词"));
             return;
         }
-        chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
+        Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
+        ChatSessionMessageDto persistedUserMessage = chatSessionService.getOwnedMessage(userId, sessionId, userMessageId);
+        emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
         String sourceResourceId = firstReferenceResourceId(resources);
         try {
             ChatSessionMessageDto message = imageGenerationService.generateImage(

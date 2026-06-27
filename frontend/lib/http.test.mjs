@@ -255,6 +255,63 @@ test("apiStream dispatches image events with message payload", async () => {
   }
 });
 
+test("apiStream dispatches user_message and done message payloads", async () => {
+  const originalFetch = globalThis.fetch;
+  const events = [];
+  const userMessage = {
+    id: "601",
+    role: "user",
+    messageType: "TEXT",
+    content: "你好",
+    resources: [],
+    createdAt: "2026-06-27T10:00:00",
+  };
+  const assistantMessage = {
+    id: "602",
+    role: "assistant",
+    messageType: "TEXT",
+    content: "你好，有什么可以帮你？",
+    resources: [],
+    createdAt: "2026-06-27T10:00:01",
+  };
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: user_message\n" +
+                `data: ${JSON.stringify({ type: "user_message", content: "", message: userMessage })}\n\n` +
+                "event: done\n" +
+                `data: ${JSON.stringify({ type: "done", content: "", message: assistantMessage })}\n\n`,
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onUserMessage(message) {
+        events.push(["user", message]);
+      },
+      onDone(_content, message) {
+        events.push(["done", message]);
+      },
+    });
+    assert.deepEqual(events, [
+      ["user", userMessage],
+      ["done", assistantMessage],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches agent_step events", async () => {
   const originalFetch = globalThis.fetch;
   const steps = [];

@@ -166,9 +166,14 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 command.sessionId(),
                 reply
         );
+        ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
+                command.userId(),
+                command.sessionId(),
+                assistantMessageId
+        );
         agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
         agentRunTelemetryService.markSuccess(command.telemetryRun());
-        emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", ""));
+        emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
     }
 
     private void emitFailureEvent(

@@ -7,6 +7,7 @@ import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.dto.ChatMessageResourceDto;
 import com.h.backend.chat.dto.ChatMessageResourceUseDto;
+import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.entity.ChatSessionEntity;
 import com.h.backend.chat.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.entity.ChatMessageResourceEntity;
@@ -17,6 +18,7 @@ import com.h.backend.chat.model.ChatMessagePayload;
 import com.h.backend.chat.service.ChatMemorySnapshotService;
 import com.h.backend.chat.service.SystemPromptService;
 import com.h.backend.chat.service.impl.ChatSessionServiceImpl;
+import com.h.backend.chat.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import java.time.LocalDateTime;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -314,6 +317,127 @@ class ChatSessionServiceImplTest {
         assertEquals("GENERATED", dto.resources().getFirst().role());
         assertEquals("/api/chat/resources/resource-701/content", dto.resources().getFirst().viewUrl());
         assertEquals("/api/chat/resources/resource-701/download", dto.resources().getFirst().downloadUrl());
+    }
+
+    @Test
+    void getOwnedMessageReturnsMessageWithResources() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                resourceMapper,
+                snapshotService,
+                promptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+        session.setAgentId("standard-chat");
+        session.setStatus("ACTIVE");
+
+        ChatSessionMessageEntity row = new ChatSessionMessageEntity();
+        row.setId(101L);
+        row.setSessionRecordId(11L);
+        row.setSessionId("session-1");
+        row.setUserId(1L);
+        row.setRoleCode("user");
+        row.setMessageType("USER");
+        row.setContentText("你好");
+        row.setCreatedAt(LocalDateTime.now());
+
+        ChatMessageResourceEntity audio = new ChatMessageResourceEntity();
+        audio.setId("audio-1");
+        audio.setMessageId(101L);
+        audio.setUserId(1L);
+        audio.setSessionId("session-1");
+        audio.setResourceType("AUDIO");
+        audio.setResourceRole("ATTACHMENT");
+        audio.setViewUrl("/api/chat/resources/audio-1/content");
+        audio.setDownloadUrl("/api/chat/resources/audio-1/download");
+        audio.setMimeType("audio/webm");
+        audio.setFileName("call-audio.webm");
+        audio.setFileSize(3L);
+        audio.setCreatedAt(LocalDateTime.now());
+
+        when(sessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        when(messageMapper.selectById(101L)).thenReturn(row);
+        when(resourceMapper.selectByMessageIds(List.of(101L))).thenReturn(List.of(audio));
+
+        ChatSessionMessageDto dto = service.getOwnedMessage(1L, "session-1", 101L);
+
+        assertEquals("101", dto.id());
+        assertEquals("user", dto.role());
+        assertEquals("USER", dto.messageType());
+        assertEquals("你好", dto.content());
+        assertEquals(1, dto.resources().size());
+        assertEquals("AUDIO", dto.resources().getFirst().type());
+    }
+
+    @Test
+    void bindStoredAudioResourceRejectsNonUserMessageForRecording() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                messageMapper,
+                resourceMapper,
+                snapshotService,
+                promptService,
+                objectMapper,
+                testAgentRegistry()
+        );
+
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(11L);
+        session.setUserId(1L);
+        session.setSessionId("session-1");
+
+        ChatSessionMessageEntity assistantMessage = new ChatSessionMessageEntity();
+        assistantMessage.setId(202L);
+        assistantMessage.setSessionRecordId(11L);
+        assistantMessage.setSessionId("session-1");
+        assistantMessage.setUserId(1L);
+        assistantMessage.setRoleCode("assistant");
+        assistantMessage.setMessageType("AI");
+
+        when(sessionMapper.selectBySessionId("session-1")).thenReturn(session);
+        when(messageMapper.selectById(202L)).thenReturn(assistantMessage);
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.bindStoredAudioResource(
+                        1L,
+                        "session-1",
+                        202L,
+                        "USER_RECORDING",
+                        new StoredResource(
+                                "audio-1",
+                                "LOCAL_FILE",
+                                "call-audio/audio-1.webm",
+                                "audio/webm",
+                                "call.webm",
+                                3L,
+                                null,
+                                null
+                        ),
+                        Map.of("source", "USER_RECORDING")
+                )
+        );
+
+        assertEquals(40000, ex.getCode());
     }
 
     @Test
