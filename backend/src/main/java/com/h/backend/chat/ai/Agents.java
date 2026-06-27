@@ -2,6 +2,15 @@ package com.h.backend.chat.ai;
 
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.agentic.agent.ErrorContext;
+import dev.langchain4j.agentic.agent.ErrorRecoveryResult;
+import dev.langchain4j.agentic.agent.MissingArgumentException;
+import dev.langchain4j.agentic.declarative.*;
+import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
+import dev.langchain4j.agentic.supervisor.SupervisorResponseStrategy;
+import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
@@ -72,5 +81,138 @@ public class Agents {
         String technical(@MemoryId String memoryId, @V("request") String request);
     }
 
+
+    public interface CreativeWriter {
+
+        @UserMessage("""
+                你是一名创意写作者。
+                根据给定主题创作故事初稿，篇幅不超过三句话。
+                仅返回故事内容，不输出其他任何文字。
+                主题：{{topic}}。
+                """)
+        @Agent(name = "创意写作者", description = "根据指定主题生成故事", outputKey = "story")
+        String generateStory(@V("topic") String topic);
+    }
+
+    public interface AudienceEditor {
+
+        @UserMessage("""
+                    你是专业编辑。
+                    分析并重写下方故事，使其更贴合{{audience}}目标受众。
+                    仅返回修改后的故事，不输出其他内容。
+                    原文故事："{{story}}"。
+                """)
+        @Agent(name = "受众编辑器", description = "修改故事适配指定受众群体", outputKey = "story")
+        String editStory(@V("story") String story, @V("audience") String audience);
+    }
+
+
+    public interface StyleEditor {
+
+        @UserMessage("""
+                你是专业编辑。
+                分析并重写下文故事，使其贴合{{style}}文风、行文更连贯统一。
+                仅输出修改后的故事，不附带其他内容。
+                原文故事："{{story}}"。
+                """)
+        @Agent(name = "风格编辑器", description = "调整故事适配指定文风", outputKey = "story")
+        String editStory(@V("story") String story, @V("style") String style);
+    }
+
+
+    public interface StyleScorer {
+
+        @UserMessage("""
+                你是专业评审。
+                根据故事与指定风格「{{style}}」的匹配程度给出0.0至1.0之间的评分。
+                仅返回分数，不输出其他任何内容。
+                故事原文："{{story}}"
+                """)
+        @Agent(description = "依据故事与指定风格的契合度进行打分", outputKey = "score")
+        double scoreStyle(@V("story") String story, @V("style") String style);
+    }
+
+    public interface StyleReviewLoop {
+
+        @Agent(name = "风格评审循环", description = "评审指定故事，确保其符合要求文风")
+        String scoreAndReview(@V("story") String story, @V("style") String style);
+
+    }
+
+    public interface StyleReviewLoopWithExitCondition extends StyleReviewLoop {
+
+        @ExitCondition
+        static boolean exitCondition(@V("score") double score) {
+            return score >= 0.8;
+        }
+
+    }
+
+
+    public interface StoryCreator {
+
+        @SequenceAgent(
+                outputKey = "story",
+                subAgents = {CreativeWriter.class, AudienceEditor.class, StyleEditor.class})
+        String write(@V("topic") String topic, @V("style") String style, @V("audience") String audience);
+
+        @ErrorHandler
+        static ErrorRecoveryResult errorHandler(ErrorContext errorContext) {
+            if (errorContext.agentName().equals("generateStory")
+                    && errorContext.exception() instanceof MissingArgumentException mEx
+                    && mEx.argumentName().equals("topic")) {
+                errorContext.agenticScope().writeState("topic", "dragons and wizards");
+                return ErrorRecoveryResult.retry();
+            }
+            return ErrorRecoveryResult.throwException();
+        }
+    }
+
+    public interface StyleReviewLoopAgent {
+
+        @LoopAgent(
+                description = "Review and score the given story to ensure it aligns with the specified style",
+                outputKey = "story",
+                maxIterations = 5,
+                subAgents = {StyleScorer.class, StyleEditor.class})
+        String reviewAndScore(@V("story") String story);
+
+        @ExitCondition
+        static boolean exit(@V("score") double score) {
+            return score >= 0.8;
+        }
+    }
+
+    public interface StoryCreatorWithReview {
+
+        @SequenceAgent(
+                outputKey = "story",
+                subAgents = {StoryCreator.class, StyleReviewLoopAgent.class})
+        ResultWithAgenticScope<String> write(@V("topic") String topic, @V("style") String style);
+    }
+
+    public interface SupervisorStoryCreator {
+
+        @SupervisorAgent(
+                outputKey = "story",
+                responseStrategy = SupervisorResponseStrategy.LAST,
+                subAgents = {CreativeWriter.class, StyleReviewLoopAgent.class})
+        ResultWithAgenticScope<String> write(@V("topic") String topic, @V("style") String style);
+
+        @SupervisorRequest
+        static String request(@V("topic") String topic, @V("style") String style) {
+            return "Write a story about " + topic + " in " + style + " style";
+        }
+
+        @ChatModelSupplier
+        static ChatModel chatModel() {
+            return plannerModel();
+        }
+
+        @ChatMemoryProviderSupplier
+        static ChatMemory chatMemory(Object memoryId) {
+            return MessageWindowChatMemory.withMaxMessages(10);
+        }
+    }
 
 }

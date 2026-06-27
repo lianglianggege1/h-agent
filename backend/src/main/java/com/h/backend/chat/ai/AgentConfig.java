@@ -155,7 +155,7 @@ public class AgentConfig {
                 .build();
     }
 
-    static String customerInfoClarification(CustomerInfo customerInfo) {
+    public static String customerInfoClarification(CustomerInfo customerInfo) {
         List<String> missingFields = missingCustomerInfoFields(customerInfo);
         return "为了继续处理租车救援请求，请补充：" + String.join("、", missingFields) + "。";
     }
