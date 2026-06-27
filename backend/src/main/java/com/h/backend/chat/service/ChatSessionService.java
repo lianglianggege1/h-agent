@@ -9,8 +9,10 @@ import com.h.backend.chat.dto.ChatSessionMetaDto;
 import com.h.backend.chat.dto.ChatSessionOpenDto;
 import com.h.backend.chat.dto.ChatSessionSummaryDto;
 import com.h.backend.chat.model.ChatMessagePayload;
+import com.h.backend.chat.storage.StoredResource;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ChatSessionService {
 
@@ -43,6 +45,15 @@ public interface ChatSessionService {
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage);
 
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<ChatMessageResourceUseDto> resources);
+
+    ChatMessageResourceDto bindStoredAudioResource(
+            Long userId,
+            String sessionId,
+            Long messageId,
+            String source,
+            StoredResource storedResource,
+            Map<String, Object> metadata
+    );
 
     ChatSessionMessageDto appendImageMessage(
             Long userId,
