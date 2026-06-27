@@ -34,7 +34,10 @@ public class LocalFileResourceStorage implements ResourceStorage {
         String resourceId = UUID.randomUUID().toString();
         String extension = normalizeExtension(command.extension(), command.mimeType());
         LocalDate today = LocalDate.now();
-        String relativeKey = "generated-images/%04d/%02d/%02d/%s.%s".formatted(
+        String directory = "AUDIO".equalsIgnoreCase(command.resourceType()) ? "call-audio" : "generated-images";
+        String filePrefix = "AUDIO".equalsIgnoreCase(command.resourceType()) ? "call-audio" : "generated";
+        String relativeKey = "%s/%04d/%02d/%02d/%s.%s".formatted(
+                directory,
                 today.getYear(),
                 today.getMonthValue(),
                 today.getDayOfMonth(),
@@ -54,7 +57,7 @@ public class LocalFileResourceStorage implements ResourceStorage {
                     STORAGE_TYPE,
                     relativeKey,
                     command.mimeType(),
-                    "generated-%s.%s".formatted(resourceId, extension),
+                    "%s-%s.%s".formatted(filePrefix, resourceId, extension),
                     (long) content.length,
                     command.width() == null ? imageSize.width() : command.width(),
                     command.height() == null ? imageSize.height() : command.height()
