@@ -128,6 +128,8 @@ function CallPageContent() {
   const committedRecognitionTranscriptRef = useRef("");
   const streamingRef = useRef(false);
   const pendingUtterancesRef = useRef<PendingUtterance[]>([]);
+  const activeRecordedTurnRef = useRef<RecordedTurn | null>(null);
+  const callEndingRef = useRef(false);
   const assistantRemainderRef = useRef("");
   const audioQueueRef = useRef<string[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -256,20 +258,34 @@ function CallPageContent() {
   const startRecordingTurn = useCallback(async () => {
     const activeSessionId = latestSessionIdRef.current;
     const activeAgentId = latestAgentIdRef.current;
-    if (!activeSessionId) {
+    if (!activeSessionId || callEndingRef.current) {
       return;
     }
 
     await stopRecordingTurn();
+    if (callEndingRef.current) {
+      return;
+    }
     recordingFailedRef.current = false;
     chunkSequenceRef.current = 0;
     chunkUploadPromisesRef.current = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (callEndingRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     mediaStreamRef.current = stream;
+    let createdTurnId: string | null = null;
 
     try {
       const turn = await startCallTurn(activeSessionId, activeAgentId);
+      createdTurnId = turn.turnId;
+      if (callEndingRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        await cancelCallTurn(turn.turnId).catch(() => undefined);
+        return;
+      }
       currentTurnIdRef.current = turn.turnId;
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       mediaRecorderRef.current = recorder;
@@ -304,6 +320,9 @@ function CallPageContent() {
       stream.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
       currentTurnIdRef.current = null;
+      if (createdTurnId) {
+        await cancelCallTurn(createdTurnId).catch(() => undefined);
+      }
       throw recordingError;
     }
   }, [setErrorIfMounted, stopRecordingTurn]);
@@ -357,6 +376,12 @@ function CallPageContent() {
     pendingUtterancesRef.current = [];
     const pendingCancels = pending.map((utterance) => cancelRecordedTurn(utterance.recordedTurn));
 
+    const activeRecordedTurn = activeRecordedTurnRef.current;
+    activeRecordedTurnRef.current = null;
+    if (activeRecordedTurn) {
+      pendingCancels.push(cancelRecordedTurn(activeRecordedTurn));
+    }
+
     const turnId = currentTurnIdRef.current;
     currentTurnIdRef.current = null;
     if (turnId) {
@@ -375,7 +400,7 @@ function CallPageContent() {
       const text = textInput.trim();
       const activeSessionId = latestSessionIdRef.current;
       const activeAgentId = latestAgentIdRef.current;
-      if (!text || !activeSessionId) {
+      if (!text || !activeSessionId || callEndingRef.current) {
         return;
       }
 
@@ -414,6 +439,7 @@ function CallPageContent() {
       }
 
       streamingRef.current = true;
+      activeRecordedTurnRef.current = recordedTurn;
       if (mountedRef.current) {
         setStreaming(true);
         setAssistantText("");
@@ -440,9 +466,10 @@ function CallPageContent() {
           },
           {
             onUserMessage(message) {
-              if (!recordedTurn) {
+              if (!recordedTurn || callEndingRef.current || activeRecordedTurnRef.current !== recordedTurn) {
                 return;
               }
+              activeRecordedTurnRef.current = null;
               sideEffects.push(
                 finalizeRecordedTurn(recordedTurn, activeSessionId, activeAgentId, message.id, text),
               );
@@ -483,7 +510,7 @@ function CallPageContent() {
           },
         );
 
-        if (assistantMessageId) {
+        if (assistantMessageId && !callEndingRef.current) {
           try {
             await messageTts(activeSessionId, activeAgentId, assistantMessageId);
           } catch {
@@ -494,6 +521,10 @@ function CallPageContent() {
       } catch (streamError) {
         const message = streamError instanceof Error ? streamError.message : "发送失败";
         setErrorIfMounted(message);
+        if (recordedTurn && activeRecordedTurnRef.current === recordedTurn) {
+          activeRecordedTurnRef.current = null;
+          await cancelRecordedTurn(recordedTurn);
+        }
       } finally {
         streamingRef.current = false;
         assistantRemainderRef.current = "";
@@ -501,13 +532,17 @@ function CallPageContent() {
           setStreaming(false);
           setStatus("正在听你说");
         }
-        const pending = pendingUtterancesRef.current.shift();
-        if (pending) {
+        if (recordedTurn && activeRecordedTurnRef.current === recordedTurn) {
+          activeRecordedTurnRef.current = null;
+          await cancelRecordedTurn(recordedTurn);
+        }
+        const pending = callEndingRef.current ? null : pendingUtterancesRef.current.shift();
+        if (pending && !callEndingRef.current) {
           void submitUtterance(pending.text, pending.recordedTurn);
         }
       }
     },
-    [enqueueAudio, finalizeRecordedTurn, setErrorIfMounted, setStatusIfMounted, stopRecordingTurn],
+    [cancelRecordedTurn, enqueueAudio, finalizeRecordedTurn, setErrorIfMounted, setStatusIfMounted, stopRecordingTurn],
   );
 
   useEffect(() => {
@@ -554,6 +589,7 @@ function CallPageContent() {
   );
 
   const startListening = useCallback(() => {
+    callEndingRef.current = false;
     stopPlayback();
     if (listeningRef.current) {
       setStatusIfMounted("正在听你说");
@@ -621,6 +657,8 @@ function CallPageContent() {
   }, [scheduleSilenceCommit, setErrorIfMounted, setStatusIfMounted, startRecordingTurn, stopPlayback]);
 
   const hangUp = useCallback(async () => {
+    callEndingRef.current = true;
+    pendingUtterancesRef.current = [];
     stopListeningControls(false);
     await stopRecordingTurn();
     await cancelOpenTurns();
@@ -639,6 +677,8 @@ function CallPageContent() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      callEndingRef.current = true;
+      pendingUtterancesRef.current = [];
       stopListeningControls(false);
       void stopRecordingTurn().then(cancelOpenTurns);
       stopPlayback();
