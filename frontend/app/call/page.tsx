@@ -127,7 +127,7 @@ function CallPageContent() {
   const recognitionTranscriptRef = useRef("");
   const committedRecognitionTranscriptRef = useRef("");
   const streamingRef = useRef(false);
-  const pendingUtteranceRef = useRef<PendingUtterance | null>(null);
+  const pendingUtterancesRef = useRef<PendingUtterance[]>([]);
   const assistantRemainderRef = useRef("");
   const audioQueueRef = useRef<string[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -337,6 +337,39 @@ function CallPageContent() {
     [setErrorIfMounted],
   );
 
+  const cancelRecordedTurn = useCallback(
+    async (recordedTurn: RecordedTurn | null) => {
+      if (!recordedTurn) {
+        return;
+      }
+      await Promise.allSettled(recordedTurn.uploadPromises);
+      try {
+        await cancelCallTurn(recordedTurn.turnId);
+      } catch {
+        setErrorIfMounted(recordingSaveError);
+      }
+    },
+    [setErrorIfMounted],
+  );
+
+  const cancelOpenTurns = useCallback(async () => {
+    const pending = pendingUtterancesRef.current;
+    pendingUtterancesRef.current = [];
+    const pendingCancels = pending.map((utterance) => cancelRecordedTurn(utterance.recordedTurn));
+
+    const turnId = currentTurnIdRef.current;
+    currentTurnIdRef.current = null;
+    if (turnId) {
+      pendingCancels.push(cancelRecordedTurn({
+        turnId,
+        uploadPromises: [...chunkUploadPromisesRef.current],
+        recordingFailed: recordingFailedRef.current,
+      }));
+    }
+
+    await Promise.allSettled(pendingCancels);
+  }, [cancelRecordedTurn]);
+
   const submitUtterance = useCallback(
     async function submitUtterance(textInput: string, queuedTurn?: RecordedTurn | null) {
       const text = textInput.trim();
@@ -375,7 +408,7 @@ function CallPageContent() {
       }
 
       if (streamingRef.current) {
-        pendingUtteranceRef.current = { text, recordedTurn };
+        pendingUtterancesRef.current.push({ text, recordedTurn });
         setStatusIfMounted("等待上一轮回复结束");
         return;
       }
@@ -468,8 +501,7 @@ function CallPageContent() {
           setStreaming(false);
           setStatus("正在听你说");
         }
-        const pending = pendingUtteranceRef.current;
-        pendingUtteranceRef.current = null;
+        const pending = pendingUtterancesRef.current.shift();
         if (pending) {
           void submitUtterance(pending.text, pending.recordedTurn);
         }
@@ -591,15 +623,7 @@ function CallPageContent() {
   const hangUp = useCallback(async () => {
     stopListeningControls(false);
     await stopRecordingTurn();
-    const turnId = currentTurnIdRef.current;
-    currentTurnIdRef.current = null;
-    if (turnId) {
-      try {
-        await cancelCallTurn(turnId);
-      } catch {
-        setErrorIfMounted(recordingSaveError);
-      }
-    }
+    await cancelOpenTurns();
     stopPlayback();
 
     const activeSessionId = latestSessionIdRef.current;
@@ -609,17 +633,17 @@ function CallPageContent() {
       return;
     }
     router.replace("/chat");
-  }, [router, setErrorIfMounted, stopListeningControls, stopPlayback, stopRecordingTurn]);
+  }, [cancelOpenTurns, router, stopListeningControls, stopPlayback, stopRecordingTurn]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       stopListeningControls(false);
-      void stopRecordingTurn();
+      void stopRecordingTurn().then(cancelOpenTurns);
       stopPlayback();
     };
-  }, [stopListeningControls, stopPlayback, stopRecordingTurn]);
+  }, [cancelOpenTurns, stopListeningControls, stopPlayback, stopRecordingTurn]);
 
   useEffect(() => {
     let cancelled = false;
