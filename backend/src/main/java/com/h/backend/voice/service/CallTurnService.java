@@ -61,7 +61,7 @@ public class CallTurnService {
     }
 
     public void appendChunk(Long userId, String turnId, MultipartFile chunk, int sequence, String mimeType) {
-        if (sequence < 0) {
+        if (sequence < 0 || sequence > 999_999) {
             throw new BusinessException(40000, "音频分片序号无效");
         }
         if (chunk == null || chunk.isEmpty()) {
@@ -145,7 +145,10 @@ public class CallTurnService {
             throw new BusinessException(40000, "turnId 无效");
         }
         try {
-            UUID.fromString(turnId);
+            UUID parsed = UUID.fromString(turnId);
+            if (!parsed.toString().equals(turnId)) {
+                throw new BusinessException(40000, "turnId 无效");
+            }
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(40000, "turnId 无效");
         }

@@ -211,6 +211,27 @@ class CallTurnServiceTest {
     }
 
     @Test
+    void appendRejectsSequenceOutsideChunkFilenameRange() {
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        String turnId = service.start(1L, "session-1", "standard-chat");
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.appendChunk(
+                        1L,
+                        turnId,
+                        new MockMultipartFile("chunk", "1000000.webm", "audio/webm", new byte[]{1}),
+                        1_000_000,
+                        "audio/webm"
+                )
+        );
+
+        assertEquals(40000, ex.getCode());
+    }
+
+    @Test
     void appendRejectsEmptyChunk() {
         ResourceStorage storage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -247,6 +268,21 @@ class CallTurnServiceTest {
                         0,
                         "audio/mpeg"
                 )
+        );
+
+        assertEquals(40000, ex.getCode());
+    }
+
+    @Test
+    void cancelRejectsNonCanonicalUuidTurnId() {
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        String upperCaseTurnId = UUID.randomUUID().toString().toUpperCase();
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.cancel(1L, upperCaseTurnId)
         );
 
         assertEquals(40000, ex.getCode());
