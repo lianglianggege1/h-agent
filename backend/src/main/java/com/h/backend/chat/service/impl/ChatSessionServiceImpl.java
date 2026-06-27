@@ -230,6 +230,20 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     @Override
+    public ChatSessionMessageDto getOwnedMessage(Long userId, String sessionId, Long messageId) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
+        if (message == null
+                || !session.getId().equals(message.getSessionRecordId())
+                || !sessionId.equals(message.getSessionId())
+                || !userId.equals(message.getUserId())) {
+            throw new BusinessException(40404, "消息不存在");
+        }
+        Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(List.of(message));
+        return toMessageDto(message, resourcesByMessageId.getOrDefault(messageId, List.of()));
+    }
+
+    @Override
     public List<ChatSessionSummaryDto> listHistory(Long userId, int page, int size) {
         archiveExpiredSessionsForUser(userId);
         int offset = Math.max(page, 0) * size;

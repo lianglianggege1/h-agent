@@ -275,6 +275,9 @@ public class ChatServiceImpl implements ChatService {
             }
 
             Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
+            ChatSessionMessageDto persistedUserMessage =
+                    chatSessionService.getOwnedMessage(userId, sessionId, userMessageId);
+            emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
             telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
             runHandle = agentRunService.createRun(
                     sessionId,

@@ -26,6 +26,8 @@ public interface ChatSessionService {
 
     ChatSessionMessagesPageDto getSessionMessages(Long userId, String sessionId, int limit, Integer beforeSeq);
 
+    ChatSessionMessageDto getOwnedMessage(Long userId, String sessionId, Long messageId);
+
     List<ChatSessionSummaryDto> listHistory(Long userId, int page, int size);
 
     void archiveExpiredSessions();
