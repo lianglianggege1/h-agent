@@ -70,7 +70,8 @@ export async function apiStream(
   handlers: {
     onReasoning?: (value: string) => void;
     onChunk: (value: string) => void;
-    onDone?: (value: string) => void;
+    onUserMessage?: (message: ChatSessionMessage) => void;
+    onDone?: (value: string, message?: ChatSessionMessage) => void;
     onImage?: (message: ChatSessionMessage) => void;
     onAgentStep?: (payload: AgentStepPayload) => void;
     onBlocked?: (message: string) => void;
@@ -131,8 +132,10 @@ export async function apiStream(
         handlers.onReasoning?.(payload.content);
       } else if (eventType === "chunk") {
         handlers.onChunk(payload.content);
+      } else if (eventType === "user_message" && payload.message) {
+        handlers.onUserMessage?.(payload.message);
       } else if (eventType === "done") {
-        handlers.onDone?.(payload.content);
+        handlers.onDone?.(payload.content, payload.message);
       } else if (eventType === "image" && payload.message) {
         handlers.onImage?.(payload.message);
       } else if (eventType === "agent_step" && payload.payload) {
