@@ -334,14 +334,17 @@ function CallPageContent() {
       activeAgentId: string,
       messageId: string,
       transcript: string,
-    ) => {
+    ): Promise<boolean> => {
       const uploadResults = await Promise.allSettled(recordedTurn.uploadPromises);
       if (recordedTurn.recordingFailed || uploadResults.some((result) => result.status === "rejected")) {
         setErrorIfMounted(recordingSaveError);
-        return;
+        return false;
       }
 
       try {
+        if (callEndingRef.current || activeRecordedTurnRef.current !== recordedTurn) {
+          return false;
+        }
         await finalizeCallTurn({
           turnId: recordedTurn.turnId,
           sessionId: activeSessionId,
@@ -349,8 +352,10 @@ function CallPageContent() {
           messageId,
           transcript,
         });
+        return true;
       } catch {
         setErrorIfMounted(recordingSaveError);
+        return false;
       }
     },
     [setErrorIfMounted],
@@ -417,6 +422,12 @@ function CallPageContent() {
 
       if (queuedTurn === undefined) {
         await stopRecordingTurn();
+        if (callEndingRef.current) {
+          if (recordedTurn) {
+            await cancelRecordedTurn(recordedTurn);
+          }
+          return;
+        }
         currentTurnIdRef.current = null;
         if (recordedTurn) {
           recordedTurn = {
@@ -433,6 +444,12 @@ function CallPageContent() {
       }
 
       if (streamingRef.current) {
+        if (callEndingRef.current) {
+          if (recordedTurn) {
+            await cancelRecordedTurn(recordedTurn);
+          }
+          return;
+        }
         pendingUtterancesRef.current.push({ text, recordedTurn });
         setStatusIfMounted("等待上一轮回复结束");
         return;
@@ -469,12 +486,26 @@ function CallPageContent() {
               if (!recordedTurn || callEndingRef.current || activeRecordedTurnRef.current !== recordedTurn) {
                 return;
               }
-              activeRecordedTurnRef.current = null;
               sideEffects.push(
-                finalizeRecordedTurn(recordedTurn, activeSessionId, activeAgentId, message.id, text),
+                finalizeRecordedTurn(recordedTurn, activeSessionId, activeAgentId, message.id, text)
+                  .then(async (finalized) => {
+                    if (finalized) {
+                      if (activeRecordedTurnRef.current === recordedTurn) {
+                        activeRecordedTurnRef.current = null;
+                      }
+                      return;
+                    }
+                    if (activeRecordedTurnRef.current === recordedTurn) {
+                      activeRecordedTurnRef.current = null;
+                      await cancelRecordedTurn(recordedTurn);
+                    }
+                  }),
               );
             },
             onChunk(chunk) {
+              if (callEndingRef.current) {
+                return;
+              }
               if (mountedRef.current) {
                 setAssistantText((current) => current + chunk);
               }
@@ -483,7 +514,7 @@ function CallPageContent() {
               for (const segment of next.segments) {
                 previewTts(activeSessionId, activeAgentId, segment)
                   .then((blob) => {
-                    if (mountedRef.current) {
+                    if (mountedRef.current && !callEndingRef.current) {
                       enqueueAudio(blob);
                     }
                   })
