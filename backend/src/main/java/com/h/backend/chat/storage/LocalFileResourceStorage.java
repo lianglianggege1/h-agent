@@ -102,7 +102,22 @@ public class LocalFileResourceStorage implements ResourceStorage {
         if ("image/webp".equalsIgnoreCase(mimeType)) {
             return "webp";
         }
-        return "png";
+        if ("audio/webm".equalsIgnoreCase(mimeType)) {
+            return "webm";
+        }
+        if ("audio/mpeg".equalsIgnoreCase(mimeType)) {
+            return "mp3";
+        }
+        if ("audio/mp4".equalsIgnoreCase(mimeType)) {
+            return "m4a";
+        }
+        if ("audio/wav".equalsIgnoreCase(mimeType) || "audio/x-wav".equalsIgnoreCase(mimeType)) {
+            return "wav";
+        }
+        if (mimeType != null && mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            return "png";
+        }
+        return "bin";
     }
 
     private ImageSize readImageSize(byte[] content) throws IOException {

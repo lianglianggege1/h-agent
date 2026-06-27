@@ -40,4 +40,28 @@ class LocalFileResourceStorageTest {
         assertEquals(3L, stored.fileSize());
         assertTrue(Files.exists(tempDir.resolve(stored.storageKey())));
     }
+
+    @Test
+    void infersAudioExtensionFromMimeType() {
+        ImageGenerationProperties properties = new ImageGenerationProperties(
+                null,
+                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
+        );
+        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "AUDIO",
+                "session-1",
+                "call-user-recording",
+                new byte[]{1, 2, 3},
+                "audio/webm",
+                null,
+                null,
+                null
+        ));
+
+        assertTrue(stored.storageKey().startsWith("call-audio/"));
+        assertTrue(stored.storageKey().endsWith(".webm"));
+        assertTrue(stored.fileName().endsWith(".webm"));
+    }
 }
