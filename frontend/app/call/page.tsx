@@ -611,17 +611,23 @@ function CallPageContent() {
         await Promise.allSettled(sideEffects);
       } catch (streamError) {
         const message = streamError instanceof Error ? streamError.message : "发送失败";
-        setErrorIfMounted(message);
+        if (!callEndingRef.current && callGenerationRef.current === callGeneration) {
+          setErrorIfMounted(message);
+        }
         if (recordedTurn && activeRecordedTurnRef.current === recordedTurn) {
           activeRecordedTurnRef.current = null;
           await cancelRecordedTurn(recordedTurn);
         }
       } finally {
-        streamingRef.current = false;
         assistantRemainderRef.current = "";
-        if (mountedRef.current) {
-          setStreaming(false);
-          setStatus("正在听你说");
+        if (callGenerationRef.current === callGeneration) {
+          streamingRef.current = false;
+          if (mountedRef.current) {
+            setStreaming(false);
+            if (!callEndingRef.current) {
+              setStatus("正在听你说");
+            }
+          }
         }
         if (recordedTurn && activeRecordedTurnRef.current === recordedTurn) {
           activeRecordedTurnRef.current = null;
