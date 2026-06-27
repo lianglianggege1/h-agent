@@ -14,6 +14,7 @@ import com.h.backend.voice.tts.MiniMaxTtsRequest;
 import com.h.backend.voice.tts.MiniMaxTtsResult;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
@@ -38,17 +39,20 @@ public class VoiceTtsService {
 
     public PreviewAudio preview(Long userId, String sessionId, String agentId, String text) {
         String normalizedText = validateText(text, properties.getPreviewMaxTextLength());
+        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
         MiniMaxTtsResult result = ttsClient.synthesize(new MiniMaxTtsRequest(normalizedText, null));
         return new PreviewAudio(result.audioBytes(), result.mimeType());
     }
 
     public VoiceResourceResponse messageTts(Long userId, String sessionId, String agentId, Long messageId) {
+        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
         ChatSessionMessageDto message = chatSessionService.getOwnedMessage(userId, sessionId, messageId);
         if (!"assistant".equalsIgnoreCase(message.role()) || !"AI".equalsIgnoreCase(message.messageType())) {
             throw new BusinessException(40000, "Assistant TTS 只能绑定 AI 回复消息");
         }
         String normalizedText = validateText(message.content(), properties.getMessageMaxTextLength());
         MiniMaxTtsResult result = ttsClient.synthesize(new MiniMaxTtsRequest(normalizedText, null));
+        Map<String, Object> metadata = assistantTtsMetadata(result);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
                 sessionId,
@@ -65,11 +69,7 @@ public class VoiceTtsService {
                 messageId,
                 "ASSISTANT_TTS",
                 stored,
-                Map.of(
-                        "source", "ASSISTANT_TTS",
-                        "voiceId", result.voiceId(),
-                        "model", result.model()
-                )
+                metadata
         );
         return new VoiceResourceResponse(
                 resource.id(),
@@ -89,6 +89,20 @@ public class VoiceTtsService {
             throw new BusinessException(40000, "TTS 文本长度不能超过 " + maxLength);
         }
         return normalized;
+    }
+
+    private Map<String, Object> assistantTtsMetadata(MiniMaxTtsResult result) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("source", "ASSISTANT_TTS");
+        putIfPresent(metadata, "voiceId", result.voiceId());
+        putIfPresent(metadata, "model", result.model());
+        return metadata;
+    }
+
+    private void putIfPresent(Map<String, Object> metadata, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            metadata.put(key, value);
+        }
     }
 
     private String extension(String mimeType) {
