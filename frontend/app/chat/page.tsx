@@ -22,6 +22,7 @@ import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
+import { buildCallHref } from "@/lib/call-state";
 import {
   agentChatHref,
   buildNewSessionPayload,
@@ -290,6 +291,7 @@ function ChatPageContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const requestedAgentId = searchParams.get("agentId");
+  const requestedSessionId = searchParams.get("sessionId");
 
   const generatedImages = useMemo(() => {
     return messages
@@ -323,6 +325,12 @@ function ChatPageContent() {
         setAgentOptions(agents.filter((agent) => !isStandardAgent(agent.agentId)));
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
         if (bootstrap.resolution === "choose") {
+          if (requestedSessionId) {
+            const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
+            const requested = await activateHistorySession(requestedSessionId, currentSessionId);
+            hydrateSession(requested, defaultPrompt?.id ?? null);
+            return;
+          }
           if (requestedAgentId) {
             const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
             const resolved = currentSessionId ? await resolveChatSession(currentSessionId) : null;
@@ -341,6 +349,12 @@ function ChatPageContent() {
           return;
         }
         const open = bootstrap.session;
+        if (requestedSessionId) {
+          const currentSessionId = open?.session.sessionId ?? bootstrap.candidates[0]?.sessionId ?? null;
+          const requested = await activateHistorySession(requestedSessionId, currentSessionId);
+          hydrateSession(requested, defaultPrompt?.id ?? null);
+          return;
+        }
         if (
           shouldCreateSessionForRequestedAgent({
             requestedAgentId,
@@ -364,7 +378,7 @@ function ChatPageContent() {
         router.replace("/auth/login");
       })
       .finally(() => setBootstrapping(false));
-  }, [requestedAgentId, router]);
+  }, [requestedAgentId, requestedSessionId, router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -503,6 +517,11 @@ function ChatPageContent() {
     } finally {
       setLoadingOlderMessages(false);
     }
+  }
+
+  function handleOpenCall() {
+    if (!sessionId || streaming) return;
+    router.push(buildCallHref(currentAgentId, sessionId));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -801,10 +820,18 @@ function ChatPageContent() {
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
             </button>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
-              <h1 className="mt-2 text-xl font-semibold">{currentSessionTitle}</h1>
+              <h1 className="mt-2 truncate text-xl font-semibold">{currentSessionTitle}</h1>
             </div>
+            <button
+              className="shrink-0 rounded-full border border-stone-300 bg-white/80 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={!sessionId || streaming}
+              onClick={handleOpenCall}
+            >
+              电话
+            </button>
           </div>
         </header>
 
@@ -923,14 +950,24 @@ function ChatPageContent() {
                       <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
                       <BlockedMessageContent content={turn.blocked} />
+                      {turn.resources && turn.resources.length > 0 ? (
+                        <div className="mt-3">
+                          <MediaContent content={turn.answer} resources={turn.resources} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : turn.kind === "image" ? (
                     <MediaContent content={turn.content} resources={turn.resources} />
-                  ) : turn.answer ? (
+                  ) : turn.answer || turn.resources.length > 0 ? (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
-                      <AssistantMessageContent content={turn.answer} />
+                      {turn.answer ? <AssistantMessageContent content={turn.answer} /> : null}
+                      {turn.resources && turn.resources.length > 0 ? (
+                        <div className="mt-3">
+                          <MediaContent content={turn.answer} resources={turn.resources} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : turn.reasoning ? (
                     <div className="space-y-3">

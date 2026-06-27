@@ -116,6 +116,7 @@ test("toRenderableTurns groups reasoning before blocked message", () => {
       blocked: "命中安全规则",
       id: "2",
       agentSteps: [],
+      resources: [],
     },
   ]);
 });
@@ -134,8 +135,39 @@ test("toRenderableTurns groups reasoning before assistant reply", () => {
       blocked: null,
       id: "2",
       agentSteps: [],
+      resources: [],
     },
   ]);
+});
+
+test("toRenderableTurns keeps assistant audio resources with assistant answer", () => {
+  const turns = toRenderableTurns([
+    {
+      id: "audio-answer-1",
+      role: "assistant",
+      messageType: "AI",
+      content: "这是语音回复",
+      resources: [
+        {
+          id: "audio-resource-1",
+          type: "AUDIO",
+          role: "GENERATED",
+          viewUrl: "/api/chat/resources/audio-resource-1/content",
+          downloadUrl: "/api/chat/resources/audio-resource-1/download",
+          fileName: "answer.mp3",
+          mimeType: "audio/mpeg",
+          fileSize: 128,
+          width: null,
+          height: null,
+        },
+      ],
+      createdAt: "",
+    },
+  ]);
+
+  assert.equal(turns[0].kind, "assistant");
+  assert.equal(turns[0].resources.length, 1);
+  assert.equal(turns[0].resources[0].mimeType, "audio/mpeg");
 });
 
 test("toRenderableTurns exposes image messages as image turns", () => {

@@ -35,6 +35,7 @@ export type RenderableTurn =
       answer: string;
       blocked: null;
       agentSteps: UiAgentStep[];
+      resources: ChatMessageResource[];
     }
   | {
       kind: "blocked";
@@ -43,6 +44,7 @@ export type RenderableTurn =
       answer: "";
       blocked: string;
       agentSteps: UiAgentStep[];
+      resources: ChatMessageResource[];
     }
   | {
       kind: "image";
@@ -184,6 +186,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         answer: "",
         blocked: current.content,
         agentSteps: current.agentSteps ?? [],
+        resources: current.resources ?? [],
       });
       continue;
     }
@@ -221,6 +224,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           answer: afterImages.content,
           blocked: null,
           agentSteps: afterImages.agentSteps ?? [],
+          resources: afterImages.resources ?? [],
         });
         index = afterImagesIndex;
         continue;
@@ -241,6 +245,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           answer: "",
           blocked: afterImages.content,
           agentSteps: afterImages.agentSteps ?? [],
+          resources: afterImages.resources ?? [],
         });
         index = afterImagesIndex;
         continue;
@@ -253,6 +258,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           answer: next.content,
           blocked: null,
           agentSteps: next.agentSteps ?? [],
+          resources: next.resources ?? [],
         });
         index += 1;
         continue;
@@ -265,6 +271,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
           answer: "",
           blocked: next.content,
           agentSteps: next.agentSteps ?? [],
+          resources: next.resources ?? [],
         });
         index += 1;
         continue;
@@ -276,6 +283,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
         answer: "",
         blocked: null,
         agentSteps: current.agentSteps ?? [],
+        resources: current.resources ?? [],
       });
       continue;
     }
@@ -286,6 +294,7 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
       answer: current.content,
       blocked: null,
       agentSteps: current.agentSteps ?? [],
+      resources: current.resources ?? [],
     });
   }
 
