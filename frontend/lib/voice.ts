@@ -27,6 +27,14 @@ export function uploadCallTurnChunk(turnId: string, chunk: Blob, sequence: numbe
   return apiFormFetch<void>(`/api/voice/call-turns/${encodeURIComponent(turnId)}/chunks`, form);
 }
 
+function parseMessageId(messageId: string) {
+  const parsed = Number(messageId);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("消息 ID 无效");
+  }
+  return parsed;
+}
+
 export function finalizeCallTurn(input: {
   turnId: string;
   sessionId: string;
@@ -34,12 +42,13 @@ export function finalizeCallTurn(input: {
   messageId: string;
   transcript: string;
 }) {
+  const messageId = parseMessageId(input.messageId);
   return apiFetch<VoiceResourceResponse>(`/api/voice/call-turns/${encodeURIComponent(input.turnId)}/finalize`, {
     method: "POST",
     body: JSON.stringify({
       sessionId: input.sessionId,
       agentId: input.agentId,
-      messageId: Number(input.messageId),
+      messageId,
       transcript: input.transcript,
     }),
   });
@@ -59,14 +68,24 @@ export async function previewTts(sessionId: string, agentId: string, text: strin
     body: JSON.stringify({ sessionId, agentId, text }),
   });
   if (!response.ok) {
-    throw new Error("语音合成失败");
+    let message = "语音合成失败";
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (typeof body.message === "string" && body.message.trim().length > 0) {
+        message = body.message;
+      }
+    } catch {
+      // Non-JSON upstream errors are common for proxied audio endpoints.
+    }
+    throw new Error(message);
   }
   return response.blob();
 }
 
 export function messageTts(sessionId: string, agentId: string, messageId: string) {
+  const parsedMessageId = parseMessageId(messageId);
   return apiFetch<VoiceResourceResponse>("/api/voice/tts/message", {
     method: "POST",
-    body: JSON.stringify({ sessionId, agentId, messageId: Number(messageId) }),
+    body: JSON.stringify({ sessionId, agentId, messageId: parsedMessageId }),
   });
 }
