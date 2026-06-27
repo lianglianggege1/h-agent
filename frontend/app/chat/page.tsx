@@ -16,7 +16,7 @@ import {
   type UiAgentStep,
   type UiChatMessage,
 } from "@/lib/chat-message-state";
-import { agentStepStatusText, visibleAgentSteps } from "@/lib/agent-ui";
+import { agentStepStatusText, currentAgentStepText, visibleAgentSteps } from "@/lib/agent-ui";
 import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
@@ -187,6 +187,14 @@ function AgentStepDetails({ steps, pending = false }: { steps: UiAgentStep[]; pe
       </div>
     </details>
   );
+}
+
+function PendingAssistantStatus({ steps, streaming }: { steps: UiAgentStep[]; streaming: boolean }) {
+  if (!streaming) {
+    return null;
+  }
+
+  return <p>{currentAgentStepText(steps) ?? "正在思考..."}</p>;
 }
 
 function MediaContent({
@@ -935,12 +943,13 @@ function ChatPageContent() {
                   ) : turn.reasoning ? (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} pending />
+                      <PendingAssistantStatus steps={turn.agentSteps} streaming={streaming} />
                       <ReasoningDetails content={turn.reasoning} pending />
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} pending />
-                      {streaming ? "正在思考..." : ""}
+                      <PendingAssistantStatus steps={turn.agentSteps} streaming={streaming} />
                     </div>
                   )}
                 </div>

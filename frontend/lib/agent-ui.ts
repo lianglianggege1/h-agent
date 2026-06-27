@@ -11,9 +11,28 @@ export function agentStepStatusText(status: UiAgentStep["status"]) {
 
 export function visibleAgentSteps(steps: UiAgentStep[]) {
   return steps
-    .filter((step) => (step.depth ?? 0) > 0)
     .filter((step) => !CONTAINER_TOPOLOGIES.has(step.topology))
     .sort((left, right) => left.sequence - right.sequence);
+}
+
+export function currentAgentStepText(steps: UiAgentStep[]) {
+  const visibleSteps = visibleAgentSteps(steps);
+  const running = [...visibleSteps].reverse().find((step) => step.status === "running");
+  const latest = running ?? visibleSteps.at(-1);
+
+  if (!latest) {
+    return null;
+  }
+
+  if (latest.status === "completed") {
+    return `已完成：${latest.nodeName}`;
+  }
+
+  if (latest.status === "failed") {
+    return `执行失败：${latest.nodeName}`;
+  }
+
+  return `正在执行：${latest.nodeName}`;
 }
 
 export function topologyLabel(topology: string | null) {

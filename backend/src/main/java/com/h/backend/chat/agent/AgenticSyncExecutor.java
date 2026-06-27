@@ -1,6 +1,7 @@
 package com.h.backend.chat.agent;
 
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
+import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
 import com.h.backend.chat.dto.AgentStepPayloadDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
@@ -74,8 +75,9 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     private ResultWithAgenticScope<String> executeSelectedAgent(ChatAgentExecutionCommand command) {
         Object agentBean = command.agent().agentBean();
-        // 使用if else判断走的是哪个领域agent
         if (agentBean instanceof CarRentalAssistant assistant) {
+            return assistant.chat(command.memoryId(), command.userMessage());
+        } else if (agentBean instanceof ExportAssistant assistant) {
             return assistant.chat(command.memoryId(), command.userMessage());
         }
         throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "

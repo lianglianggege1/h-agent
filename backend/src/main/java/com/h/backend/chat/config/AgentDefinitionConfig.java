@@ -5,6 +5,7 @@ import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
+import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -40,4 +41,20 @@ public class AgentDefinitionConfig {
                 true
         );
     }
+
+    @Bean
+    public AgentDefinition exportAgent(ExportAssistant exportAssistant) {
+        return new AgentDefinition(
+                "export-assistant",
+                "专家智能体",
+                "专家服务",
+                List.of("专家"),
+                "法律类、医疗类、技术类专家协助",
+                exportAssistant,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+    }
+
+
 }

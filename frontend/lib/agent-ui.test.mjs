@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collectTopologyLegend, visibleAgentSteps, visibleTopologyStateKeys } from "./agent-ui.ts";
+import { collectTopologyLegend, currentAgentStepText, visibleAgentSteps, visibleTopologyStateKeys } from "./agent-ui.ts";
 
 test("visibleAgentSteps keeps only child executable agent states", () => {
   const steps = [
@@ -43,6 +43,56 @@ test("visibleAgentSteps keeps only child executable agent states", () => {
   ];
 
   assert.deepEqual(visibleAgentSteps(steps).map((step) => step.invocationId), ["extract", "ask"]);
+});
+
+test("visibleAgentSteps keeps executable agent states without depth metadata", () => {
+  const steps = [
+    {
+      invocationId: "router",
+      nodeId: "router",
+      nodeName: "专家分流",
+      topology: "ROUTER",
+      status: "running",
+      depth: null,
+      sequence: 1,
+    },
+    {
+      invocationId: "legal",
+      nodeId: "legal",
+      nodeName: "法律专家",
+      topology: "AI_AGENT",
+      status: "running",
+      depth: null,
+      sequence: 2,
+    },
+  ];
+
+  assert.deepEqual(visibleAgentSteps(steps).map((step) => step.invocationId), ["legal"]);
+});
+
+test("currentAgentStepText describes the active executable agent", () => {
+  const steps = [
+    {
+      invocationId: "medical",
+      nodeId: "medical",
+      nodeName: "医疗专家",
+      topology: "AI_AGENT",
+      status: "completed",
+      depth: 1,
+      sequence: 1,
+    },
+    {
+      invocationId: "technical",
+      nodeId: "technical",
+      nodeName: "技术专家",
+      topology: "AI_AGENT",
+      status: "running",
+      depth: 1,
+      sequence: 2,
+    },
+  ];
+
+  assert.equal(currentAgentStepText(steps), "正在执行：技术专家");
 });
 
 test("collectTopologyLegend follows topology order from the system tree", () => {

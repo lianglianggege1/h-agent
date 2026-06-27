@@ -1,5 +1,6 @@
 package com.h.backend.chat.config;
 
+import com.h.backend.chat.ai.AgentConfig;
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.agent.AgentStepListener;

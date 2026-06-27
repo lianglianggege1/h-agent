@@ -1,4 +1,4 @@
-package com.h.backend.chat.config;
+package com.h.backend.chat.ai;
 
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.ai.carrentalassistant.domain.Emergencies;
@@ -35,6 +35,63 @@ public class AgentConfig {
 
     @Resource
     private ChatMemoryIdFactory chatMemoryIdFactory;
+
+    @Bean
+    public ExportAssistant exportAssistant() {
+        Agents.CategoryRouter categoryRouter = AgenticServices.agentBuilder(Agents.CategoryRouter.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("category")
+                .build();
+
+        Agents.MedicalExpert medicalExpert = AgenticServices.agentBuilder(Agents.MedicalExpert.class)
+                .chatModel(chatModel)
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .listener(agentStepListener)
+                .outputKey("response")
+                .build();
+
+        Agents.LegalExpert legalExpert = AgenticServices.agentBuilder(Agents.LegalExpert.class)
+                .chatModel(chatModel)
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .listener(agentStepListener)
+                .outputKey("response")
+                .build();
+
+        Agents.TechnicalExpert technicalExpert = AgenticServices.agentBuilder(Agents.TechnicalExpert.class)
+                .chatModel(chatModel)
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .listener(agentStepListener)
+                .outputKey("response")
+                .build();
+
+        UntypedAgent expertsAgent = AgenticServices.conditionalBuilder()
+                .name("router")
+                .outputKey("response")
+                .listener(agentStepListener)
+                .subAgents(
+                        "Medical request",
+                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.MEDICAL,
+                        medicalExpert)
+                .subAgents(
+                        "Technical request",
+                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.TECHNICAL,
+                        technicalExpert)
+                .subAgents(
+                        "Legal request",
+                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.LEGAL,
+                        legalExpert)
+                .build();
+
+        return AgenticServices.sequenceBuilder(
+                        ExportAssistant.class)
+                .subAgents(categoryRouter, expertsAgent)
+                .listener(agentStepListener)
+                .outputKey("response")
+                .build();
+
+    }
+
 
     @Bean
     public CarRentalAssistant createAssistant() {
