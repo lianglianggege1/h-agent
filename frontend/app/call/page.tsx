@@ -5,10 +5,10 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import {
   buildChatHrefFromCall,
+  normalizeRecordedTranscript,
   preferredRecordingMimeType,
   segmentAssistantText,
   shouldAcceptPreviewAudio,
-  shouldStopListeningForNoSpeech,
 } from "@/lib/call-state";
 import { buildChatSendPayload, buildNewSessionPayload, STANDARD_AGENT_ID } from "@/lib/chat-agent-mode";
 import { createChatSession, getChatSession } from "@/lib/chat-sessions";
@@ -78,9 +78,9 @@ type RecordedTurn = {
   finalizing: boolean;
 };
 
-const silenceMs = 3000;
 const recordingSaveError = "本轮录音保存失败，文字对话已保留。";
 const recordingStartError = "录音启动失败，请检查麦克风权限或浏览器录音支持。";
+const transcriptRequiredError = "未识别到文字，请重新录音。";
 const assistantVoiceSaveError = "回复语音保存失败，文字对话已保留。";
 const callReturnRefreshKey = "h-agent:call-return-refresh";
 
@@ -155,9 +155,6 @@ function CallPageContent() {
   const latestAgentIdRef = useRef(requestedAgentId);
   const latestPromptIdRef = useRef<number | null>(requestedPromptId);
   const speechRecognitionRef = useRef<CallSpeechRecognition | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listeningStartedAtRef = useRef(0);
   const listeningRef = useRef(false);
   const transcriptRef = useRef("");
   const recognitionTranscriptRef = useRef("");
@@ -176,10 +173,9 @@ function CallPageContent() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const currentTurnIdRef = useRef<string | null>(null);
-  const startRecordingTurnRef = useRef<(() => Promise<void>) | null>(null);
-  const chunkSequenceRef = useRef(0);
-  const chunkUploadPromisesRef = useRef<Promise<void>[]>([]);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const recordingFailedRef = useRef(false);
+  const recordingStartupPromiseRef = useRef<Promise<void> | null>(null);
   const recordingStoppedPromiseRef = useRef<Promise<void> | null>(null);
   const resolveRecordingStoppedRef = useRef<(() => void) | null>(null);
 
@@ -192,20 +188,6 @@ function CallPageContent() {
   const setStatusIfMounted = useCallback((message: string) => {
     if (mountedRef.current) {
       setStatus(message);
-    }
-  }, []);
-
-  const clearSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-  }, []);
-
-  const clearNoSpeechTimer = useCallback(() => {
-    if (noSpeechTimerRef.current) {
-      clearTimeout(noSpeechTimerRef.current);
-      noSpeechTimerRef.current = null;
     }
   }, []);
 
@@ -299,7 +281,7 @@ function CallPageContent() {
     resolveRecordingStoppedRef.current = null;
   }, []);
 
-  const startRecordingTurn = useCallback(async () => {
+  const startRecordingTurn = useCallback(async (recordingGeneration: number) => {
     const activeSessionId = latestSessionIdRef.current;
     const activeAgentId = latestAgentIdRef.current;
     if (!activeSessionId || callEndingRef.current) {
@@ -311,11 +293,10 @@ function CallPageContent() {
       return;
     }
     recordingFailedRef.current = false;
-    chunkSequenceRef.current = 0;
-    chunkUploadPromisesRef.current = [];
+    recordedChunksRef.current = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    if (callEndingRef.current) {
+    if (callEndingRef.current || !listeningRef.current || callGenerationRef.current !== recordingGeneration) {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
@@ -325,7 +306,7 @@ function CallPageContent() {
     try {
       const turn = await startCallTurn(activeSessionId, activeAgentId);
       createdTurnId = turn.turnId;
-      if (callEndingRef.current) {
+      if (callEndingRef.current || !listeningRef.current || callGenerationRef.current !== recordingGeneration) {
         stream.getTracks().forEach((track) => track.stop());
         await cancelCallTurn(turn.turnId).catch(() => undefined);
         return;
@@ -342,25 +323,12 @@ function CallPageContent() {
         if (!event.data || event.data.size === 0) {
           return;
         }
-
-        const sequence = chunkSequenceRef.current;
-        chunkSequenceRef.current += 1;
-        const upload = uploadCallTurnChunk(
-          turn.turnId,
-          event.data,
-          sequence,
-          event.data.type || "audio/webm",
-        );
-        upload.catch(() => {
-          recordingFailedRef.current = true;
-          setErrorIfMounted(recordingSaveError);
-        });
-        chunkUploadPromisesRef.current.push(upload);
+        recordedChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
         resolveRecordingStoppedRef.current?.();
       };
-      recorder.start(500);
+      recorder.start();
     } catch (recordingError) {
       stream.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -370,7 +338,27 @@ function CallPageContent() {
       }
       throw recordingError;
     }
-  }, [setErrorIfMounted, stopRecordingTurn]);
+  }, [stopRecordingTurn]);
+
+  const uploadRecordedTurn = useCallback(
+    async (recordedTurn: RecordedTurn, chunks: Blob[]): Promise<boolean> => {
+      if (recordedTurn.cancelled || recordedTurn.recordingFailed || chunks.length === 0) {
+        return false;
+      }
+      const mimeType = chunks.find((chunk) => chunk.type)?.type || "audio/webm";
+      const recording = new Blob(chunks, { type: mimeType });
+      const upload = uploadCallTurnChunk(recordedTurn.turnId, recording, 0, mimeType);
+      recordedTurn.uploadPromises.push(upload);
+      const result = await Promise.allSettled([upload]);
+      if (result.some((item) => item.status === "rejected")) {
+        recordedTurn.recordingFailed = true;
+        setErrorIfMounted(recordingSaveError);
+        return false;
+      }
+      return true;
+    },
+    [setErrorIfMounted],
+  );
 
   const finalizeRecordedTurn = useCallback(
     async (
@@ -459,7 +447,7 @@ function CallPageContent() {
     currentTurnIdRef.current = null;
     if (turnId) {
       pendingCancels.push(cancelRecordedTurn(
-        createRecordedTurn(turnId, [...chunkUploadPromisesRef.current], recordingFailedRef.current),
+        createRecordedTurn(turnId, [], recordingFailedRef.current),
       ));
     }
 
@@ -467,47 +455,13 @@ function CallPageContent() {
   }, [cancelRecordedTurn]);
 
   const submitUtterance = useCallback(
-    async function submitUtterance(textInput: string, queuedTurn?: RecordedTurn | null) {
+    async function submitUtterance(textInput: string, recordedTurn: RecordedTurn | null) {
       const text = textInput.trim();
       const activeSessionId = latestSessionIdRef.current;
       const activeAgentId = latestAgentIdRef.current;
       const activePromptId = latestPromptIdRef.current;
       if (!text || !activeSessionId || callEndingRef.current) {
         return;
-      }
-
-      let recordedTurn: RecordedTurn | null = null;
-      if (queuedTurn !== undefined) {
-        recordedTurn = queuedTurn;
-      } else if (currentTurnIdRef.current) {
-        recordedTurn = createRecordedTurn(
-          currentTurnIdRef.current,
-          [...chunkUploadPromisesRef.current],
-          recordingFailedRef.current,
-        );
-      }
-
-      if (queuedTurn === undefined) {
-        await stopRecordingTurn();
-        if (callEndingRef.current) {
-          if (recordedTurn) {
-            await cancelRecordedTurn(recordedTurn);
-          }
-          return;
-        }
-        currentTurnIdRef.current = null;
-        if (recordedTurn) {
-          recordedTurn = createRecordedTurn(
-            recordedTurn.turnId,
-            [...chunkUploadPromisesRef.current],
-            recordingFailedRef.current,
-          );
-        }
-        if (listeningRef.current) {
-          void startRecordingTurnRef.current?.().catch(() => {
-            setErrorIfMounted(recordingSaveError);
-          });
-        }
       }
 
       if (streamingRef.current) {
@@ -665,7 +619,7 @@ function CallPageContent() {
           if (mountedRef.current) {
             setStreaming(false);
             if (!callEndingRef.current) {
-              setStatus("正在听你说");
+              setStatus("准备就绪");
             }
           }
         }
@@ -682,34 +636,12 @@ function CallPageContent() {
         }
       }
     },
-    [cancelRecordedTurn, enqueueAudio, finalizeRecordedTurn, setErrorIfMounted, setStatusIfMounted, stopRecordingTurn],
+    [cancelRecordedTurn, enqueueAudio, finalizeRecordedTurn, setErrorIfMounted, setStatusIfMounted],
   );
-
-  useEffect(() => {
-    startRecordingTurnRef.current = startRecordingTurn;
-  }, [startRecordingTurn]);
-
-  const scheduleSilenceCommit = useCallback(() => {
-    clearSilenceTimer();
-    silenceTimerRef.current = setTimeout(() => {
-      const finalText = transcriptRef.current.trim();
-      if (!finalText) {
-        return;
-      }
-      transcriptRef.current = "";
-      committedRecognitionTranscriptRef.current = recognitionTranscriptRef.current;
-      if (mountedRef.current) {
-        setUserTranscript(finalText);
-      }
-      void submitUtterance(finalText);
-    }, silenceMs);
-  }, [clearSilenceTimer, submitUtterance]);
 
   const stopListeningControls = useCallback(
     (updateState = true) => {
       listeningRef.current = false;
-      clearSilenceTimer();
-      clearNoSpeechTimer();
       const recognition = speechRecognitionRef.current;
       if (recognition) {
         recognition.onresult = null;
@@ -726,43 +658,76 @@ function CallPageContent() {
         setListening(false);
       }
     },
-    [clearNoSpeechTimer, clearSilenceTimer],
+    [],
   );
 
-  const stopListening = useCallback(async () => {
-    stopListeningControls();
+  const finishRecordingAndSubmit = useCallback(async () => {
+    if (!listeningRef.current) {
+      return;
+    }
+    stopListeningControls(false);
+    await recordingStartupPromiseRef.current?.catch(() => undefined);
+    const turnId = currentTurnIdRef.current;
     await stopRecordingTurn();
-    await cancelOpenTurns();
+    const chunks = [...recordedChunksRef.current];
+    currentTurnIdRef.current = null;
     stopPlayback();
+    if (mountedRef.current) {
+      setListening(false);
+    }
+
+    if (!turnId) {
+      setErrorIfMounted(recordingStartError);
+      return;
+    }
+
+    const recordedTurn = createRecordedTurn(turnId, [], recordingFailedRef.current);
+    const text = normalizeRecordedTranscript(transcriptRef.current);
+    if (!text) {
+      await cancelRecordedTurn(recordedTurn);
+      recordedChunksRef.current = [];
+      transcriptRef.current = "";
+      recognitionTranscriptRef.current = "";
+      committedRecognitionTranscriptRef.current = "";
+      if (mountedRef.current) {
+        setUserTranscript("等待重新录音");
+        setStatus("未识别到文字");
+      }
+      setErrorIfMounted(transcriptRequiredError);
+      return;
+    }
+
+    if (mountedRef.current) {
+      setUserTranscript(text);
+      setStatus("正在上传录音");
+      setError("");
+    }
+
+    const uploaded = await uploadRecordedTurn(recordedTurn, chunks);
+    if (!uploaded) {
+      await cancelRecordedTurn(recordedTurn);
+      recordedChunksRef.current = [];
+      return;
+    }
+
     transcriptRef.current = "";
     recognitionTranscriptRef.current = "";
     committedRecognitionTranscriptRef.current = "";
-    if (mountedRef.current) {
-      setUserTranscript("已暂停收音");
-      setStatus("已暂停");
-    }
-  }, [cancelOpenTurns, stopListeningControls, stopPlayback, stopRecordingTurn]);
-
-  const scheduleNoSpeechStop = useCallback(() => {
-    clearNoSpeechTimer();
-    listeningStartedAtRef.current = Date.now();
-    noSpeechTimerRef.current = setTimeout(() => {
-      if (!shouldStopListeningForNoSpeech({
-        listening: listeningRef.current,
-        transcript: transcriptRef.current,
-        listeningStartedAt: listeningStartedAtRef.current,
-        now: Date.now(),
-        silenceMs,
-      })) {
-        return;
-      }
-      void stopListening();
-    }, silenceMs);
-  }, [clearNoSpeechTimer, stopListening]);
+    recordedChunksRef.current = [];
+    void submitUtterance(text, recordedTurn);
+  }, [
+    cancelRecordedTurn,
+    setErrorIfMounted,
+    stopListeningControls,
+    stopPlayback,
+    stopRecordingTurn,
+    submitUtterance,
+    uploadRecordedTurn,
+  ]);
 
   const startListening = useCallback(() => {
     if (listeningRef.current) {
-      void stopListening();
+      void finishRecordingAndSubmit();
       return;
     }
     callGenerationRef.current += 1;
@@ -783,7 +748,6 @@ function CallPageContent() {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.onresult = (event) => {
-        clearNoSpeechTimer();
         stopPlayback();
         const fullTranscript = resultListToTranscript(event.results);
         recognitionTranscriptRef.current = fullTranscript;
@@ -791,9 +755,8 @@ function CallPageContent() {
         transcriptRef.current = nextTranscript;
         if (mountedRef.current) {
           setUserTranscript(nextTranscript || "正在听你说");
-          setStatus("正在听你说");
+          setStatus("录音中");
         }
-        scheduleSilenceCommit();
       };
       recognition.onerror = (event) => {
         const reason = event.error ? `：${event.error}` : "";
@@ -815,17 +778,36 @@ function CallPageContent() {
 
       speechRecognitionRef.current = recognition;
       listeningRef.current = true;
+      transcriptRef.current = "";
+      recognitionTranscriptRef.current = "";
+      committedRecognitionTranscriptRef.current = "";
+      recordedChunksRef.current = [];
       if (mountedRef.current) {
         setListening(true);
         setError("");
-        setStatus("正在听你说");
+        setStatus("录音中");
+        setUserTranscript("正在录音");
       }
       recognition.start();
-      scheduleNoSpeechStop();
-      void startRecordingTurn().catch(() => {
+      const recordingGeneration = callGenerationRef.current;
+      const recordingStartup = startRecordingTurn(recordingGeneration);
+      recordingStartupPromiseRef.current = recordingStartup;
+      void recordingStartup.catch(() => {
+        recordedChunksRef.current = [];
+        transcriptRef.current = "";
+        recognitionTranscriptRef.current = "";
+        committedRecognitionTranscriptRef.current = "";
         stopListeningControls();
         void stopRecordingTurn().then(cancelOpenTurns);
         setErrorIfMounted(recordingStartError);
+        if (mountedRef.current) {
+          setUserTranscript("等待重新录音");
+          setStatus("录音启动失败");
+        }
+      }).finally(() => {
+        if (recordingStartupPromiseRef.current === recordingStartup) {
+          recordingStartupPromiseRef.current = null;
+        }
       });
     } catch (recognitionError) {
       listeningRef.current = false;
@@ -836,15 +818,16 @@ function CallPageContent() {
       void stopRecordingTurn().then(cancelOpenTurns);
       const message = recognitionError instanceof Error ? recognitionError.message : "启动语音识别失败";
       setErrorIfMounted(message);
+      if (mountedRef.current) {
+        setUserTranscript("等待重新录音");
+        setStatus("录音启动失败");
+      }
     }
   }, [
     cancelOpenTurns,
-    clearNoSpeechTimer,
-    scheduleSilenceCommit,
-    scheduleNoSpeechStop,
+    finishRecordingAndSubmit,
     setErrorIfMounted,
     startRecordingTurn,
-    stopListening,
     stopListeningControls,
     stopPlayback,
     stopRecordingTurn,
@@ -993,7 +976,7 @@ function CallPageContent() {
             disabled={hydrating || !sessionId || (!listening && streaming)}
             onClick={startListening}
           >
-            {listening ? "暂停" : "开始"}
+            {listening ? "结束录音" : "开始录音"}
           </button>
           <button
             className="h-12 rounded-full bg-red-500 text-sm font-semibold text-white transition hover:bg-red-400"

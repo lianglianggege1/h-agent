@@ -1,85 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  appendTranscript,
   buildCallHref,
   buildChatHrefFromCall,
   createAudioQueue,
+  normalizeRecordedTranscript,
   preferredRecordingMimeType,
   shouldAcceptPreviewAudio,
   segmentAssistantText,
-  shouldCommitUtterance,
-  shouldStopListeningForNoSpeech,
 } from "./call-state.ts";
 
-test("shouldCommitUtterance commits only after configured transcript silence", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(shouldCommitUtterance({ ...state, now: 4999, silenceMs: 4000 }), false);
-  assert.equal(shouldCommitUtterance({ ...state, now: 5000, silenceMs: 4000 }), true);
-});
-
-test("shouldCommitUtterance uses three seconds of silence by default", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(shouldCommitUtterance({ ...state, now: 3999 }), false);
-  assert.equal(shouldCommitUtterance({ ...state, now: 4000 }), true);
-});
-
-test("shouldStopListeningForNoSpeech stops only after silent listening timeout", () => {
-  assert.equal(
-    shouldStopListeningForNoSpeech({
-      listening: true,
-      transcript: "",
-      listeningStartedAt: 1000,
-      now: 3999,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldStopListeningForNoSpeech({
-      listening: true,
-      transcript: "",
-      listeningStartedAt: 1000,
-      now: 4000,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldStopListeningForNoSpeech({
-      listening: true,
-      transcript: "你好",
-      listeningStartedAt: 1000,
-      now: 5000,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldStopListeningForNoSpeech({
-      listening: false,
-      transcript: "",
-      listeningStartedAt: 1000,
-      now: 5000,
-    }),
-    false,
-  );
-});
-
-test("appendTranscript refreshes timestamp only when normalized text changes", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(appendTranscript(state, " 你好 ", 2000), state);
-  assert.deepEqual(appendTranscript(state, " 你好啊 ", 2000), {
-    transcript: "你好啊",
-    lastTranscriptAt: 2000,
-  });
-});
-
-test("appendTranscript ignores blank interim transcript", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(appendTranscript(state, "   ", 2000), state);
-  assert.equal(appendTranscript(state, "", 3000), state);
+test("normalizeRecordedTranscript returns text only when recognition produced content", () => {
+  assert.equal(normalizeRecordedTranscript(" 你好 "), "你好");
+  assert.equal(normalizeRecordedTranscript("   "), null);
 });
 
 test("segmentAssistantText emits complete Chinese sentence and preserves remainder", () => {

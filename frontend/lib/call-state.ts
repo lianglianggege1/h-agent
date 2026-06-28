@@ -1,52 +1,6 @@
-export type TranscriptState = {
-  transcript: string;
-  lastTranscriptAt: number;
-};
-
-export function appendTranscript(
-  state: TranscriptState,
-  nextTranscript: string,
-  now: number,
-): TranscriptState {
-  const normalized = nextTranscript.trim();
-
-  if (normalized.length === 0) {
-    return state;
-  }
-
-  if (normalized === state.transcript) {
-    return state;
-  }
-
-  return {
-    transcript: normalized,
-    lastTranscriptAt: now,
-  };
-}
-
-export function shouldCommitUtterance({
-  transcript,
-  lastTranscriptAt,
-  now,
-  silenceMs = 3000,
-}: TranscriptState & { now: number; silenceMs?: number }): boolean {
-  return transcript.trim().length > 0 && now - lastTranscriptAt >= silenceMs;
-}
-
-export function shouldStopListeningForNoSpeech({
-  listening,
-  transcript,
-  listeningStartedAt,
-  now,
-  silenceMs = 3000,
-}: {
-  listening: boolean;
-  transcript: string;
-  listeningStartedAt: number;
-  now: number;
-  silenceMs?: number;
-}): boolean {
-  return listening && transcript.trim().length === 0 && now - listeningStartedAt >= silenceMs;
+export function normalizeRecordedTranscript(transcript: string): string | null {
+  const normalized = transcript.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 export function segmentAssistantText(
