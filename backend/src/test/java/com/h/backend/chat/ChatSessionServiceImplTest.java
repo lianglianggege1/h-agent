@@ -239,6 +239,34 @@ class ChatSessionServiceImplTest {
     }
 
     @Test
+    void assertActiveAgentSessionAllowsStandardChatPromptMismatch() {
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setUserId(1L);
+        session.setSessionId("s1");
+        session.setPromptId(22L);
+        session.setAgentId(ChatAgentIds.STANDARD_CHAT);
+        session.setStatus("ACTIVE");
+
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        when(sessionMapper.selectBySessionId("s1")).thenReturn(session);
+        SystemPromptService promptService = mock(SystemPromptService.class);
+        when(promptService.resolvePromptId(1L, null)).thenReturn(99L);
+
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                mock(ChatSessionMessageMapper.class),
+                mock(ChatMemorySnapshotService.class),
+                promptService,
+                new ObjectMapper(),
+                testAgentRegistry()
+        );
+
+        service.assertActiveAgentSession(1L, "s1", ChatAgentIds.STANDARD_CHAT);
+
+        verify(promptService, never()).resolvePromptId(any(), any());
+    }
+
+    @Test
     void shouldMapImageMessageWithResourceMetadata() throws Exception {
         ChatSessionMapper chatSessionMapper = mock(ChatSessionMapper.class);
         ChatSessionMessageMapper chatSessionMessageMapper = mock(ChatSessionMessageMapper.class);

@@ -5,9 +5,11 @@ import {
   buildCallHref,
   buildChatHrefFromCall,
   createAudioQueue,
+  preferredRecordingMimeType,
   shouldAcceptPreviewAudio,
   segmentAssistantText,
   shouldCommitUtterance,
+  shouldStopListeningForNoSpeech,
 } from "./call-state.ts";
 
 test("shouldCommitUtterance commits only after configured transcript silence", () => {
@@ -22,6 +24,45 @@ test("shouldCommitUtterance uses three seconds of silence by default", () => {
 
   assert.equal(shouldCommitUtterance({ ...state, now: 3999 }), false);
   assert.equal(shouldCommitUtterance({ ...state, now: 4000 }), true);
+});
+
+test("shouldStopListeningForNoSpeech stops only after silent listening timeout", () => {
+  assert.equal(
+    shouldStopListeningForNoSpeech({
+      listening: true,
+      transcript: "",
+      listeningStartedAt: 1000,
+      now: 3999,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStopListeningForNoSpeech({
+      listening: true,
+      transcript: "",
+      listeningStartedAt: 1000,
+      now: 4000,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldStopListeningForNoSpeech({
+      listening: true,
+      transcript: "你好",
+      listeningStartedAt: 1000,
+      now: 5000,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStopListeningForNoSpeech({
+      listening: false,
+      transcript: "",
+      listeningStartedAt: 1000,
+      now: 5000,
+    }),
+    false,
+  );
 });
 
 test("appendTranscript refreshes timestamp only when normalized text changes", () => {
@@ -118,5 +159,19 @@ test("buildCallHref and buildChatHrefFromCall preserve agent and session ids", (
   const sessionId = "session 1";
 
   assert.equal(buildCallHref(agentId, sessionId), "/call?agentId=agent%2F1&sessionId=session+1");
+  assert.equal(buildCallHref(agentId, sessionId, 42), "/call?agentId=agent%2F1&sessionId=session+1&promptId=42");
   assert.equal(buildChatHrefFromCall(agentId, sessionId), "/chat?agentId=agent%2F1&sessionId=session+1");
+});
+
+test("preferredRecordingMimeType chooses supported webm codec without forcing unsupported mime", () => {
+  assert.equal(
+    preferredRecordingMimeType((mimeType) => mimeType === "audio/webm;codecs=opus"),
+    "audio/webm;codecs=opus",
+  );
+  assert.equal(
+    preferredRecordingMimeType((mimeType) => mimeType === "audio/webm"),
+    "audio/webm",
+  );
+  assert.equal(preferredRecordingMimeType(() => false), undefined);
+  assert.equal(preferredRecordingMimeType(undefined), undefined);
 });

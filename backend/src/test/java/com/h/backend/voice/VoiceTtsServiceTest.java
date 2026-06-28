@@ -45,6 +45,7 @@ class VoiceTtsServiceTest {
 
         assertArrayEquals(new byte[]{1, 2, 3}, audio.audioBytes());
         assertEquals("audio/mpeg", audio.mimeType());
+        verify(chatSessionService).assertActiveAgentSession(1L, "session-1", "standard-chat");
         verify(storage, never()).save(any(ResourceSaveCommand.class));
     }
 
@@ -55,7 +56,7 @@ class VoiceTtsServiceTest {
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
         doThrow(new BusinessException(40404, "会话不存在")).when(chatSessionService)
-                .assertActiveSession(1L, "session-1", null, "standard-chat");
+                .assertActiveAgentSession(1L, "session-1", "standard-chat");
 
         BusinessException error = assertThrows(
                 BusinessException.class,
@@ -63,7 +64,7 @@ class VoiceTtsServiceTest {
         );
 
         assertEquals(40404, error.getCode());
-        verify(chatSessionService).assertActiveSession(1L, "session-1", null, "standard-chat");
+        verify(chatSessionService).assertActiveAgentSession(1L, "session-1", "standard-chat");
         verify(client, never()).synthesize(any(MiniMaxTtsRequest.class));
     }
 

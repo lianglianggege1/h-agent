@@ -52,7 +52,7 @@ public class CallTurnService {
             throw new BusinessException(40000, "会话不能为空");
         }
         String resolvedAgentId = normalizeAgentId(agentId);
-        chatSessionService.assertActiveSession(userId, sessionId, null, resolvedAgentId);
+        chatSessionService.assertActiveAgentSession(userId, sessionId, resolvedAgentId);
         String turnId = UUID.randomUUID().toString();
         Path dir = turnDir(userId, turnId);
         try {
@@ -71,7 +71,7 @@ public class CallTurnService {
         if (chunk == null || chunk.isEmpty()) {
             throw new BusinessException(40000, "音频分片不能为空");
         }
-        if (mimeType != null && !mimeType.isBlank() && !"audio/webm".equalsIgnoreCase(mimeType)) {
+        if (!isSupportedChunkMimeType(mimeType)) {
             throw new BusinessException(40000, "不支持的音频格式");
         }
         Path dir = existingTurnDir(userId, turnId);
@@ -104,7 +104,7 @@ public class CallTurnService {
         if (!metadata.sessionId().equals(sessionId) || !metadata.agentId().equals(resolvedAgentId)) {
             throw new BusinessException(40000, "通话片段与会话不匹配");
         }
-        chatSessionService.assertActiveSession(userId, sessionId, null, resolvedAgentId);
+        chatSessionService.assertActiveAgentSession(userId, sessionId, resolvedAgentId);
         byte[] audio = mergeChunks(dir);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
@@ -181,6 +181,14 @@ public class CallTurnService {
 
     private String normalizeAgentId(String agentId) {
         return agentId == null || agentId.isBlank() ? AgentRegistry.STANDARD_CHAT_AGENT_ID : agentId;
+    }
+
+    private boolean isSupportedChunkMimeType(String mimeType) {
+        if (mimeType == null || mimeType.isBlank()) {
+            return true;
+        }
+        String mediaType = mimeType.split(";", 2)[0].trim();
+        return "audio/webm".equalsIgnoreCase(mediaType);
     }
 
     private Path turnDir(Long userId, String turnId) {

@@ -33,6 +33,22 @@ export function shouldCommitUtterance({
   return transcript.trim().length > 0 && now - lastTranscriptAt >= silenceMs;
 }
 
+export function shouldStopListeningForNoSpeech({
+  listening,
+  transcript,
+  listeningStartedAt,
+  now,
+  silenceMs = 3000,
+}: {
+  listening: boolean;
+  transcript: string;
+  listeningStartedAt: number;
+  now: number;
+  silenceMs?: number;
+}): boolean {
+  return listening && transcript.trim().length === 0 && now - listeningStartedAt >= silenceMs;
+}
+
 export function segmentAssistantText(
   text: string,
   previousRemainder: string,
@@ -122,16 +138,31 @@ export function shouldAcceptPreviewAudio({
   );
 }
 
-export function buildCallHref(agentId: string, sessionId: string): string {
-  return buildHref("/call", agentId, sessionId);
+export function preferredRecordingMimeType(isTypeSupported?: (mimeType: string) => boolean): string | undefined {
+  if (!isTypeSupported) {
+    return undefined;
+  }
+  for (const mimeType of ["audio/webm;codecs=opus", "audio/webm"]) {
+    if (isTypeSupported(mimeType)) {
+      return mimeType;
+    }
+  }
+  return undefined;
+}
+
+export function buildCallHref(agentId: string, sessionId: string, promptId?: number | null): string {
+  return buildHref("/call", agentId, sessionId, promptId);
 }
 
 export function buildChatHrefFromCall(agentId: string, sessionId: string): string {
   return buildHref("/chat", agentId, sessionId);
 }
 
-function buildHref(pathname: string, agentId: string, sessionId: string): string {
+function buildHref(pathname: string, agentId: string, sessionId: string, promptId?: number | null): string {
   const params = new URLSearchParams({ agentId, sessionId });
+  if (promptId != null) {
+    params.set("promptId", String(promptId));
+  }
 
   return `${pathname}?${params.toString()}`;
 }

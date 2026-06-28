@@ -3,7 +3,13 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
-import { buildChatHrefFromCall, segmentAssistantText, shouldAcceptPreviewAudio } from "@/lib/call-state";
+import {
+  buildChatHrefFromCall,
+  preferredRecordingMimeType,
+  segmentAssistantText,
+  shouldAcceptPreviewAudio,
+  shouldStopListeningForNoSpeech,
+} from "@/lib/call-state";
 import { buildChatSendPayload, buildNewSessionPayload, STANDARD_AGENT_ID } from "@/lib/chat-agent-mode";
 import { createChatSession, getChatSession } from "@/lib/chat-sessions";
 import { apiStream } from "@/lib/http";
@@ -74,6 +80,7 @@ type RecordedTurn = {
 
 const silenceMs = 3000;
 const recordingSaveError = "本轮录音保存失败，文字对话已保留。";
+const recordingStartError = "录音启动失败，请检查麦克风权限或浏览器录音支持。";
 const assistantVoiceSaveError = "回复语音保存失败，文字对话已保留。";
 const callReturnRefreshKey = "h-agent:call-return-refresh";
 
@@ -117,12 +124,21 @@ function createRecordedTurn(turnId: string, uploadPromises: Promise<void>[], rec
   };
 }
 
+function parsePromptId(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function CallPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryString = searchParams.toString();
   const requestedAgentId = searchParams.get("agentId") || STANDARD_AGENT_ID;
   const requestedSessionId = searchParams.get("sessionId");
+  const requestedPromptId = parsePromptId(searchParams.get("promptId"));
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(requestedSessionId);
   const [agentName, setAgentName] = useState("普通聊天");
@@ -137,8 +153,11 @@ function CallPageContent() {
   const mountedRef = useRef(false);
   const latestSessionIdRef = useRef<string | null>(requestedSessionId);
   const latestAgentIdRef = useRef(requestedAgentId);
+  const latestPromptIdRef = useRef<number | null>(requestedPromptId);
   const speechRecognitionRef = useRef<CallSpeechRecognition | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listeningStartedAtRef = useRef(0);
   const listeningRef = useRef(false);
   const transcriptRef = useRef("");
   const recognitionTranscriptRef = useRef("");
@@ -180,6 +199,13 @@ function CallPageContent() {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const clearNoSpeechTimer = useCallback(() => {
+    if (noSpeechTimerRef.current) {
+      clearTimeout(noSpeechTimerRef.current);
+      noSpeechTimerRef.current = null;
     }
   }, []);
 
@@ -305,7 +331,8 @@ function CallPageContent() {
         return;
       }
       currentTurnIdRef.current = turn.turnId;
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const recordingMimeType = preferredRecordingMimeType(MediaRecorder.isTypeSupported?.bind(MediaRecorder));
+      const recorder = new MediaRecorder(stream, recordingMimeType ? { mimeType: recordingMimeType } : undefined);
       mediaRecorderRef.current = recorder;
       recordingStoppedPromiseRef.current = new Promise((resolve) => {
         resolveRecordingStoppedRef.current = resolve;
@@ -444,6 +471,7 @@ function CallPageContent() {
       const text = textInput.trim();
       const activeSessionId = latestSessionIdRef.current;
       const activeAgentId = latestAgentIdRef.current;
+      const activePromptId = latestPromptIdRef.current;
       if (!text || !activeSessionId || callEndingRef.current) {
         return;
       }
@@ -516,7 +544,7 @@ function CallPageContent() {
               buildChatSendPayload({
                 message: text,
                 sessionId: activeSessionId,
-                promptId: null,
+                promptId: activePromptId,
                 agentId: activeAgentId,
               }),
             ),
@@ -681,6 +709,7 @@ function CallPageContent() {
     (updateState = true) => {
       listeningRef.current = false;
       clearSilenceTimer();
+      clearNoSpeechTimer();
       const recognition = speechRecognitionRef.current;
       if (recognition) {
         recognition.onresult = null;
@@ -697,12 +726,43 @@ function CallPageContent() {
         setListening(false);
       }
     },
-    [clearSilenceTimer],
+    [clearNoSpeechTimer, clearSilenceTimer],
   );
+
+  const stopListening = useCallback(async () => {
+    stopListeningControls();
+    await stopRecordingTurn();
+    await cancelOpenTurns();
+    stopPlayback();
+    transcriptRef.current = "";
+    recognitionTranscriptRef.current = "";
+    committedRecognitionTranscriptRef.current = "";
+    if (mountedRef.current) {
+      setUserTranscript("已暂停收音");
+      setStatus("已暂停");
+    }
+  }, [cancelOpenTurns, stopListeningControls, stopPlayback, stopRecordingTurn]);
+
+  const scheduleNoSpeechStop = useCallback(() => {
+    clearNoSpeechTimer();
+    listeningStartedAtRef.current = Date.now();
+    noSpeechTimerRef.current = setTimeout(() => {
+      if (!shouldStopListeningForNoSpeech({
+        listening: listeningRef.current,
+        transcript: transcriptRef.current,
+        listeningStartedAt: listeningStartedAtRef.current,
+        now: Date.now(),
+        silenceMs,
+      })) {
+        return;
+      }
+      void stopListening();
+    }, silenceMs);
+  }, [clearNoSpeechTimer, stopListening]);
 
   const startListening = useCallback(() => {
     if (listeningRef.current) {
-      setStatusIfMounted("正在听你说");
+      void stopListening();
       return;
     }
     callGenerationRef.current += 1;
@@ -723,6 +783,7 @@ function CallPageContent() {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.onresult = (event) => {
+        clearNoSpeechTimer();
         stopPlayback();
         const fullTranscript = resultListToTranscript(event.results);
         recognitionTranscriptRef.current = fullTranscript;
@@ -760,8 +821,11 @@ function CallPageContent() {
         setStatus("正在听你说");
       }
       recognition.start();
+      scheduleNoSpeechStop();
       void startRecordingTurn().catch(() => {
-        setErrorIfMounted(recordingSaveError);
+        stopListeningControls();
+        void stopRecordingTurn().then(cancelOpenTurns);
+        setErrorIfMounted(recordingStartError);
       });
     } catch (recognitionError) {
       listeningRef.current = false;
@@ -775,10 +839,12 @@ function CallPageContent() {
     }
   }, [
     cancelOpenTurns,
+    clearNoSpeechTimer,
     scheduleSilenceCommit,
+    scheduleNoSpeechStop,
     setErrorIfMounted,
-    setStatusIfMounted,
     startRecordingTurn,
+    stopListening,
     stopListeningControls,
     stopPlayback,
     stopRecordingTurn,
@@ -835,6 +901,7 @@ function CallPageContent() {
             const hydratedAgentId = session.agentId || requestedAgentId;
             latestSessionIdRef.current = session.sessionId;
             latestAgentIdRef.current = hydratedAgentId;
+            latestPromptIdRef.current = session.promptId;
             setSessionId(session.sessionId);
             setAgentName(session.agentDisplayName || "普通聊天");
             setStatus("准备就绪");
@@ -845,7 +912,7 @@ function CallPageContent() {
             buildNewSessionPayload({
               currentSessionId: null,
               targetAgentId: requestedAgentId,
-              promptId: null,
+              promptId: requestedPromptId,
             }),
           );
           if (cancelled) {
@@ -854,6 +921,7 @@ function CallPageContent() {
           const hydratedAgentId = created.session.agentId || requestedAgentId;
           latestSessionIdRef.current = created.session.sessionId;
           latestAgentIdRef.current = hydratedAgentId;
+          latestPromptIdRef.current = created.session.promptId;
           setSessionId(created.session.sessionId);
           setAgentName(created.session.agentDisplayName || "普通聊天");
           setStatus("准备就绪");
@@ -881,7 +949,7 @@ function CallPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [queryString, requestedAgentId, requestedSessionId, router]);
+  }, [queryString, requestedAgentId, requestedPromptId, requestedSessionId, router]);
 
   if (authenticated !== true) {
     return <main className="min-h-screen bg-stone-950" />;
@@ -922,10 +990,10 @@ function CallPageContent() {
           <button
             className="h-12 rounded-full bg-white text-sm font-semibold text-stone-950 transition hover:bg-stone-200 disabled:cursor-not-allowed disabled:bg-stone-500"
             type="button"
-            disabled={hydrating || !sessionId || streaming}
+            disabled={hydrating || !sessionId || (!listening && streaming)}
             onClick={startListening}
           >
-            {listening ? "听取中" : "开始"}
+            {listening ? "暂停" : "开始"}
           </button>
           <button
             className="h-12 rounded-full bg-red-500 text-sm font-semibold text-white transition hover:bg-red-400"
