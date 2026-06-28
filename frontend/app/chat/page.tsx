@@ -8,6 +8,7 @@ import {
   applyAssistantChunk,
   applyBlockedState,
   applyImageMessage,
+  applyPersistedMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
   removeEmptyAssistantPlaceholders,
@@ -22,6 +23,7 @@ import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
+import { buildCallHref } from "@/lib/call-state";
 import {
   agentChatHref,
   buildNewSessionPayload,
@@ -57,6 +59,7 @@ type MessageSegment =
     };
 
 const starterPrompts = ["主人，你今天工作怎么样呢？", "主人，和我聊聊天吧!", "主人，有什么难题尽管问我哦!"];
+const callReturnRefreshKey = "h-agent:call-return-refresh";
 
 function parseMessageSegments(content: string): MessageSegment[] {
   if (!content) return [];
@@ -266,6 +269,7 @@ function ChatPageContent() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [hydratedRouteKey, setHydratedRouteKey] = useState("");
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [resolvingChoice, setResolvingChoice] = useState(false);
@@ -295,6 +299,9 @@ function ChatPageContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const requestedAgentId = searchParams.get("agentId");
+  const requestedSessionId = searchParams.get("sessionId");
+  const routeRequestKey = `${requestedAgentId ?? ""}:${requestedSessionId ?? ""}`;
+  const routeBootstrapping = bootstrapping || hydratedRouteKey !== routeRequestKey;
 
   const generatedImages = useMemo(() => {
     return messages
@@ -320,22 +327,49 @@ function ChatPageContent() {
   }, [showAttachmentMenu]);
 
   useEffect(() => {
+    let cancelled = false;
+    let requestedSessionError = "";
+
+    async function activateRequestedSession(currentSessionId: string | null) {
+      if (!requestedSessionId) {
+        return null;
+      }
+      try {
+        return await activateHistorySession(requestedSessionId, currentSessionId);
+      } catch (sessionError) {
+        requestedSessionError = sessionError instanceof Error ? sessionError.message : "加载会话失败";
+        return null;
+      }
+    }
+
     getCurrentUser()
       .then(async () => {
         const [list, bootstrap, agents] = await Promise.all([listSystemPrompts(), bootstrapChatSession(), listAgents()]);
+        if (cancelled) return;
         setAuthenticated(true);
         setPrompts(list);
         setAgentOptions(agents.filter((agent) => !isStandardAgent(agent.agentId)));
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
         if (bootstrap.resolution === "choose") {
+          if (requestedSessionId) {
+            const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
+            const requested = await activateRequestedSession(currentSessionId);
+            if (cancelled) return;
+            if (requested) {
+              hydrateSession(requested, defaultPrompt?.id ?? null);
+              return;
+            }
+          }
           if (requestedAgentId) {
             const currentSessionId = bootstrap.candidates[0]?.sessionId ?? null;
             const resolved = currentSessionId ? await resolveChatSession(currentSessionId) : null;
+            if (cancelled) return;
             const requestedSession = await createChatSession({
               currentSessionId: resolved?.session.sessionId ?? currentSessionId,
               promptId: null,
               agentId: requestedAgentId,
             });
+            if (cancelled) return;
             hydrateSession(requestedSession, defaultPrompt?.id ?? null);
             return;
           }
@@ -343,9 +377,21 @@ function ChatPageContent() {
           setSessionCandidates(bootstrap.candidates);
           setShowSessionChooser(true);
           setMessages([]);
+          if (requestedSessionError) {
+            setError(requestedSessionError);
+          }
           return;
         }
         const open = bootstrap.session;
+        if (requestedSessionId) {
+          const currentSessionId = open?.session.sessionId ?? bootstrap.candidates[0]?.sessionId ?? null;
+          const requested = await activateRequestedSession(currentSessionId);
+          if (cancelled) return;
+          if (requested) {
+            hydrateSession(requested, defaultPrompt?.id ?? null);
+            return;
+          }
+        }
         if (
           shouldCreateSessionForRequestedAgent({
             requestedAgentId,
@@ -358,26 +404,40 @@ function ChatPageContent() {
             promptId: null,
             agentId: requestedAgentId,
           });
+          if (cancelled) return;
           hydrateSession(requestedSession, defaultPrompt?.id ?? null);
           return;
         }
         hydrateSession(open, defaultPrompt?.id ?? null);
+        if (requestedSessionError) {
+          setError(requestedSessionError);
+        }
       })
       .catch(() => {
+        if (cancelled) return;
         setAuthenticated(false);
         savePostLoginRedirect("/chat");
         router.replace("/auth/login");
       })
-      .finally(() => setBootstrapping(false));
-  }, [requestedAgentId, router]);
+      .finally(() => {
+        if (!cancelled) {
+          setBootstrapping(false);
+          setHydratedRouteKey(routeRequestKey);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedAgentId, requestedSessionId, routeRequestKey, router]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const canSubmit = useMemo(
-    () => input.trim().length > 0 && !streaming && !bootstrapping && !showSessionChooser && !!sessionId,
-    [bootstrapping, input, sessionId, showSessionChooser, streaming],
+    () => input.trim().length > 0 && !streaming && !routeBootstrapping && !showSessionChooser && !!sessionId,
+    [input, routeBootstrapping, sessionId, showSessionChooser, streaming],
   );
   const usingStandardAgent = isStandardAgent(currentAgentId);
 
@@ -406,6 +466,59 @@ function ChatPageContent() {
     setHistoryLoadedForSession(null);
     setError("");
   }
+
+  async function refreshCurrentMessages(targetSessionId: string) {
+    const detail = await getChatSessionMessages(targetSessionId, 20);
+    setMessages(detail.messages.map(toUiChatMessage));
+    setHasOlderMessages(detail.hasMore);
+    setNextBeforeSeq(detail.nextBeforeSeq);
+  }
+
+  useEffect(() => {
+    if (!sessionId || routeBootstrapping) {
+      return;
+    }
+    const raw = sessionStorage.getItem(callReturnRefreshKey);
+    if (!raw) {
+      return;
+    }
+
+    let parsed: { sessionId?: string; at?: number };
+    try {
+      parsed = JSON.parse(raw) as { sessionId?: string; at?: number };
+    } catch {
+      sessionStorage.removeItem(callReturnRefreshKey);
+      return;
+    }
+    if (parsed.sessionId !== sessionId || !parsed.at || Date.now() - parsed.at > 30_000) {
+      sessionStorage.removeItem(callReturnRefreshKey);
+      return;
+    }
+
+    let cancelled = false;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    const scheduleRefresh = (delayMs: number) => {
+      const timeout = setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        void refreshCurrentMessages(sessionId).catch(() => undefined);
+      }, delayMs);
+      timeouts.push(timeout);
+    };
+
+    scheduleRefresh(400);
+    scheduleRefresh(1600);
+    scheduleRefresh(3500);
+    sessionStorage.removeItem(callReturnRefreshKey);
+
+    return () => {
+      cancelled = true;
+      for (const timeout of timeouts) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [routeBootstrapping, sessionId]);
 
   async function loadHistory(reset: boolean) {
     if (!sessionId) return;
@@ -510,6 +623,11 @@ function ChatPageContent() {
     }
   }
 
+  function handleOpenCall() {
+    if (!sessionId || streaming || routeBootstrapping) return;
+    router.push(buildCallHref(currentAgentId, sessionId));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = input.trim();
@@ -560,6 +678,9 @@ function ChatPageContent() {
           })),
         },
         {
+          onUserMessage(message) {
+            setMessages((current) => applyPersistedMessage(current, userMessage.id, message));
+          },
           onReasoning(chunk) {
             setMessages((current) => applyReasoningChunk(current, reasoningMessage.id, chunk));
           },
@@ -575,8 +696,13 @@ function ChatPageContent() {
           onAgentStep(step) {
             setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
-          onDone() {
-            setMessages((current) => removeEmptyAssistantPlaceholders(current));
+          onDone(_content, message) {
+            setMessages((current) => {
+              const withPersistedMessage = message
+                ? applyPersistedMessage(current, assistantMessage.id, message)
+                : current;
+              return removeEmptyAssistantPlaceholders(withPersistedMessage);
+            });
             setCurrentSessionTitle((current) => (current === "新会话" ? content.slice(0, 20) || current : current));
           },
           onError(message) {
@@ -806,10 +932,18 @@ function ChatPageContent() {
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
               <span className="h-0.5 w-5 rounded-full bg-stone-800" />
             </button>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
-              <h1 className="mt-2 text-xl font-semibold">{currentSessionTitle}</h1>
+              <h1 className="mt-2 truncate text-xl font-semibold">{currentSessionTitle}</h1>
             </div>
+            <button
+              className="shrink-0 rounded-full border border-stone-300 bg-white/80 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={!sessionId || streaming || routeBootstrapping}
+              onClick={handleOpenCall}
+            >
+              电话
+            </button>
           </div>
         </header>
 
@@ -928,14 +1062,24 @@ function ChatPageContent() {
                       <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
                       <BlockedMessageContent content={turn.blocked} />
+                      {turn.resources && turn.resources.length > 0 ? (
+                        <div className="mt-3">
+                          <MediaContent content={turn.answer} resources={turn.resources} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : turn.kind === "image" ? (
                     <MediaContent content={turn.content} resources={turn.resources} />
-                  ) : turn.answer ? (
+                  ) : turn.answer || turn.resources.length > 0 ? (
                     <div className="space-y-3">
                       <AgentStepDetails steps={turn.agentSteps} />
                       {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
-                      <AssistantMessageContent content={turn.answer} />
+                      {turn.answer ? <AssistantMessageContent content={turn.answer} /> : null}
+                      {turn.resources && turn.resources.length > 0 ? (
+                        <div className="mt-3">
+                          <MediaContent content={turn.answer} resources={turn.resources} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : turn.reasoning ? (
                     <div className="space-y-3">

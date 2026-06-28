@@ -3,6 +3,7 @@ package com.h.backend.chat.agent;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
 import com.h.backend.chat.dto.AgentStepPayloadDto;
+import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
 import com.h.backend.chat.service.AgentRunService;
 import com.h.backend.chat.service.AgentRunTelemetryService;
@@ -57,9 +58,14 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                     command.sessionId(),
                     reply
             );
+            ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
+                    command.userId(),
+                    command.sessionId(),
+                    assistantMessageId
+            );
             agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
             agentRunTelemetryService.markSuccess(command.telemetryRun());
-            emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", ""));
+            emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
         } catch (Exception ex) {
             log.error("Error executing agentic chat", ex);
             agentRunService.failRun(command.runHandle().id(), ex.getMessage() == null

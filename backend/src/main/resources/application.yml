@@ -80,3 +80,17 @@ image-generation:
   storage:
     base-dir: /tmp/h-agent
     public-base-url: ""
+
+voice:
+  tts:
+    preview-max-text-length: 240
+    message-max-text-length: 5000
+    minimax:
+      base-url: https://api.minimaxi.com
+      api-key: ""
+      model: speech-2.8-turbo
+      voice-id: male-qn-qingse
+      format: mp3
+      sample-rate: 32000
+      bitrate: 128000
+      request-timeout-seconds: 60

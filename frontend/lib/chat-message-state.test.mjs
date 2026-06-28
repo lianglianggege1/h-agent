@@ -6,6 +6,7 @@ import {
   applyBlockedState,
   applyImageMessage,
   applyReasoningChunk,
+  applyPersistedMessage,
   buildPendingAssistantTurn,
   removeEmptyAssistantPlaceholders,
   toRenderableTurns,
@@ -37,6 +38,79 @@ test("applyAssistantChunk appends only assistant content", () => {
 
   assert.equal(next[0].content, "");
   assert.equal(next[1].content, "最终答案");
+});
+
+test("applyPersistedMessage replaces local user placeholder and keeps audio resources", () => {
+  const { userMessage, reasoningMessage, assistantMessage } = buildPendingAssistantTurn("你好", 100);
+  const persistedUser = {
+    id: "101",
+    role: "user",
+    messageType: "USER",
+    content: "你好",
+    resources: [
+      {
+        id: "audio-1",
+        type: "AUDIO",
+        role: "ATTACHMENT",
+        viewUrl: "/api/chat/resources/audio-1/content",
+        downloadUrl: "/api/chat/resources/audio-1/download",
+        fileName: "call.webm",
+        mimeType: "audio/webm",
+        fileSize: 3,
+        width: null,
+        height: null,
+      },
+    ],
+    createdAt: "2026-06-27T10:00:00",
+  };
+
+  const next = applyPersistedMessage([userMessage, reasoningMessage, assistantMessage], userMessage.id, persistedUser);
+
+  assert.equal(next[0].id, "101");
+  assert.equal(next[0].resources.length, 1);
+  assert.equal(next[1].id, reasoningMessage.id);
+  assert.equal(next[2].id, assistantMessage.id);
+});
+
+test("applyPersistedMessage replaces assistant placeholder without losing streamed agent steps", () => {
+  const { reasoningMessage, assistantMessage } = buildPendingAssistantTurn("你好", 100);
+  const withStep = applyAgentStep([reasoningMessage, assistantMessage], assistantMessage.id, {
+    invocationId: "i1",
+    nodeId: "n1",
+    nodeName: "查询",
+    topology: "AI_AGENT",
+    status: "completed",
+    depth: 1,
+    sequence: 1,
+  });
+  const persistedAssistant = {
+    id: "202",
+    role: "assistant",
+    messageType: "AI",
+    content: "最终答案",
+    resources: [
+      {
+        id: "audio-2",
+        type: "AUDIO",
+        role: "GENERATED",
+        viewUrl: "/api/chat/resources/audio-2/content",
+        downloadUrl: "/api/chat/resources/audio-2/download",
+        fileName: "answer.mp3",
+        mimeType: "audio/mpeg",
+        fileSize: 9,
+        width: null,
+        height: null,
+      },
+    ],
+    createdAt: "2026-06-27T10:01:00",
+  };
+
+  const next = applyPersistedMessage(withStep, assistantMessage.id, persistedAssistant);
+
+  assert.equal(next[1].id, "202");
+  assert.equal(next[1].content, "最终答案");
+  assert.equal(next[1].resources.length, 1);
+  assert.equal(next[1].agentSteps.length, 1);
 });
 
 test("applyAgentStep upserts parallel steps on assistant message", () => {
@@ -116,6 +190,7 @@ test("toRenderableTurns groups reasoning before blocked message", () => {
       blocked: "命中安全规则",
       id: "2",
       agentSteps: [],
+      resources: [],
     },
   ]);
 });
@@ -134,8 +209,39 @@ test("toRenderableTurns groups reasoning before assistant reply", () => {
       blocked: null,
       id: "2",
       agentSteps: [],
+      resources: [],
     },
   ]);
+});
+
+test("toRenderableTurns keeps assistant audio resources with assistant answer", () => {
+  const turns = toRenderableTurns([
+    {
+      id: "audio-answer-1",
+      role: "assistant",
+      messageType: "AI",
+      content: "这是语音回复",
+      resources: [
+        {
+          id: "audio-resource-1",
+          type: "AUDIO",
+          role: "GENERATED",
+          viewUrl: "/api/chat/resources/audio-resource-1/content",
+          downloadUrl: "/api/chat/resources/audio-resource-1/download",
+          fileName: "answer.mp3",
+          mimeType: "audio/mpeg",
+          fileSize: 128,
+          width: null,
+          height: null,
+        },
+      ],
+      createdAt: "",
+    },
+  ]);
+
+  assert.equal(turns[0].kind, "assistant");
+  assert.equal(turns[0].resources.length, 1);
+  assert.equal(turns[0].resources[0].mimeType, "audio/mpeg");
 });
 
 test("toRenderableTurns exposes image messages as image turns", () => {
