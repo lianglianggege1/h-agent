@@ -3,21 +3,12 @@ package com.h.backend.chat.ai;
 import com.h.backend.chat.ai.carrentalassistant.domain.StoryInfo;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.Agent;
-import dev.langchain4j.agentic.agent.ErrorContext;
-import dev.langchain4j.agentic.agent.ErrorRecoveryResult;
-import dev.langchain4j.agentic.agent.MissingArgumentException;
-import dev.langchain4j.agentic.declarative.*;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.apache.commons.lang3.StringUtils.isBlank;
 
 public class Agents {
 
@@ -137,54 +128,6 @@ public class Agents {
     }
 
 
-    public interface StyleReviewLoopAgent {
-
-        @LoopAgent(
-                name = "故事审核",
-                description = "审核并评分给定故事以确保其与指定风格一致",
-                outputKey = "story",
-                maxIterations = 5,
-                subAgents = {StyleScorer.class, StyleEditor.class})
-        String reviewAndScore(@V("story") String story);
-
-        @ExitCondition
-        static boolean exit(@V("score") double score) {
-            return score >= 0.8;
-        }
-    }
-
-
-    public interface StoryCreator {
-
-        @SequenceAgent(
-                name = "故事创作",
-                description = "根据主题、风格和受众创作故事",
-                outputKey = "story",
-                subAgents = {CreativeWriter.class, AudienceEditor.class, StyleEditor.class})
-        String write(@V("topic") String topic, @V("style") String style, @V("audience") String audience);
-
-        @ErrorHandler
-        static ErrorRecoveryResult errorHandler(ErrorContext errorContext) {
-            if (errorContext.agentName().equals("generateStory")
-                    && errorContext.exception() instanceof MissingArgumentException mEx
-                    && mEx.argumentName().equals("topic")) {
-                return ErrorRecoveryResult.retry();
-            }
-            return ErrorRecoveryResult.throwException();
-        }
-    }
-
-    public interface StoryCreatorWithReview {
-
-        @SequenceAgent(
-                name = "审核后的故事创作",
-                description = "根据主题、风格和受众创作故事并进行审核",
-                outputKey = "story",
-                subAgents = {StoryCreator.class, StyleReviewLoopAgent.class})
-        String write(@V("topic") String topic, @V("style") String style, @V("audience") String audience);
-
-    }
-
     public interface StoryInfoAgent {
         @SystemMessage("""
                 你是提取创作故事所需的相关信息助手，分析用户聊天信息并提取一下信息
@@ -214,98 +157,12 @@ public class Agents {
         }
     }
 
-    public interface StoryInfoClarifier {
-
-        @HumanInTheLoop(
-                name = "故事信息补全追问",
-                description = "向用户追问缺失的故事创作信息",
-                outputKey = "response"
-        )
-        static String clarify(@V("storyInfo") StoryInfo storyInfo) {
-            return storyInfoClarification(storyInfo);
-        }
-    }
-
-    public interface StoryCreationFlow {
-
-        @SequenceAgent(
-                name = "故事创作流程",
-                description = "映射故事信息并执行故事创作审核",
-                outputKey = "story",
-                subAgents = {
-                        StoryInfoMapper.class,
-                        StoryCreatorWithReview.class
-                }
-        )
-        String create(@V("storyInfo") StoryInfo storyInfo);
-    }
-
-
-    public interface StoryInfoGate {
-
-        @ConditionalAgent(
-                name = "故事信息完整性网关",
-                description = "故事信息完整则进入创作流程，否则向用户追问缺失信息",
-                outputKey = "response",
-                subAgents = {
-                        StoryInfoClarifier.class,
-                        StoryCreationFlow.class
-                }
-        )
-        String route(@V("storyInfo") StoryInfo storyInfo);
-
-        @ActivationCondition(
-                value = StoryInfoClarifier.class,
-                description = "故事创作信息不完整"
-        )
-        static boolean needsClarification(@V("storyInfo") StoryInfo storyInfo) {
-            return !hasCompleteStoryInfo(storyInfo);
-        }
-
-        @ActivationCondition(
-                value = StoryCreationFlow.class,
-                description = "故事创作信息完整"
-        )
-        static boolean readyToCreate(@V("storyInfo") StoryInfo storyInfo) {
-            return hasCompleteStoryInfo(storyInfo);
-        }
-    }
-
-
     public interface StoryChatAgent {
 
-        @SequenceAgent(
-                name = "故事创作代理",
-                description = "根据主题、风格和受众创作故事并进行审核",
-                outputKey = "response",
-                subAgents = {StoryInfoAgent.class, StoryInfoGate.class})
         ResultWithAgenticScope<String> chat(
                 @MemoryId String memoryId,
                 @V("message") String message
         );
-    }
-
-    private static boolean hasCompleteStoryInfo(StoryInfo storyInfo) {
-        return storyInfo != null
-                && !isBlank(storyInfo.getTopic())
-                && !isBlank(storyInfo.getStyle())
-                && !isBlank(storyInfo.getAudience());
-    }
-
-    private static String storyInfoClarification(StoryInfo storyInfo) {
-        List<String> missingFields = new ArrayList<>();
-
-        if (storyInfo == null || isBlank(storyInfo.getTopic())) {
-            missingFields.add("故事主题");
-        }
-        if (storyInfo == null || isBlank(storyInfo.getStyle())) {
-            missingFields.add("故事风格");
-        }
-        if (storyInfo == null || isBlank(storyInfo.getAudience())) {
-            missingFields.add("目标受众");
-        }
-
-        return "为了继续创作故事，请补充：" + String.join("、", missingFields) + "。";
     }
 
 }

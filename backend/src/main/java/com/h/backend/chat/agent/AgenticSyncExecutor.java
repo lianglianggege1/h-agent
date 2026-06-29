@@ -1,5 +1,6 @@
 package com.h.backend.chat.agent;
 
+import com.h.backend.chat.ai.Agents;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
 import com.h.backend.chat.dto.AgentStepPayloadDto;
@@ -85,6 +86,8 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
             return assistant.chat(command.memoryId(), command.userMessage());
         } else if (agentBean instanceof ExportAssistant assistant) {
             return assistant.chat(command.memoryId(), command.userMessage());
+        } else if (agentBean instanceof Agents.StoryChatAgent storyChatAgent) {
+            return storyChatAgent.chat(command.memoryId(), command.userMessage());
         }
         throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "
                 + (agentBean == null ? "null" : agentBean.getClass().getName()));
