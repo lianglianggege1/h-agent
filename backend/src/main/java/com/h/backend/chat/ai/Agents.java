@@ -14,6 +14,11 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.apache.commons.lang3.StringUtils.isBlank;
+
 public class Agents {
 
     public enum RequestCategory {
@@ -163,7 +168,6 @@ public class Agents {
             if (errorContext.agentName().equals("generateStory")
                     && errorContext.exception() instanceof MissingArgumentException mEx
                     && mEx.argumentName().equals("topic")) {
-                errorContext.agenticScope().writeState("topic", "dragons and wizards");
                 return ErrorRecoveryResult.retry();
             }
             return ErrorRecoveryResult.throwException();
@@ -197,7 +201,7 @@ public class Agents {
         StoryInfo extractStoryInfo(@MemoryId String memoryId, @V("message") String message);
     }
 
-    public interface StoryInfoMapper {
+    public static class StoryInfoMapper {
 
         @Agent(name = "故事信息映射器", outputKey = "storyInfo")
         static StoryInfo map(@V("storyInfo") StoryInfo storyInfo, AgenticScope scope) {
@@ -210,17 +214,98 @@ public class Agents {
         }
     }
 
+    public interface StoryInfoClarifier {
+
+        @HumanInTheLoop(
+                name = "故事信息补全追问",
+                description = "向用户追问缺失的故事创作信息",
+                outputKey = "response"
+        )
+        static String clarify(@V("storyInfo") StoryInfo storyInfo) {
+            return storyInfoClarification(storyInfo);
+        }
+    }
+
+    public interface StoryCreationFlow {
+
+        @SequenceAgent(
+                name = "故事创作流程",
+                description = "映射故事信息并执行故事创作审核",
+                outputKey = "story",
+                subAgents = {
+                        StoryInfoMapper.class,
+                        StoryCreatorWithReview.class
+                }
+        )
+        String create(@V("storyInfo") StoryInfo storyInfo);
+    }
+
+
+    public interface StoryInfoGate {
+
+        @ConditionalAgent(
+                name = "故事信息完整性网关",
+                description = "故事信息完整则进入创作流程，否则向用户追问缺失信息",
+                outputKey = "response",
+                subAgents = {
+                        StoryInfoClarifier.class,
+                        StoryCreationFlow.class
+                }
+        )
+        String route(@V("storyInfo") StoryInfo storyInfo);
+
+        @ActivationCondition(
+                value = StoryInfoClarifier.class,
+                description = "故事创作信息不完整"
+        )
+        static boolean needsClarification(@V("storyInfo") StoryInfo storyInfo) {
+            return !hasCompleteStoryInfo(storyInfo);
+        }
+
+        @ActivationCondition(
+                value = StoryCreationFlow.class,
+                description = "故事创作信息完整"
+        )
+        static boolean readyToCreate(@V("storyInfo") StoryInfo storyInfo) {
+            return hasCompleteStoryInfo(storyInfo);
+        }
+    }
+
+
     public interface StoryChatAgent {
 
         @SequenceAgent(
                 name = "故事创作代理",
                 description = "根据主题、风格和受众创作故事并进行审核",
                 outputKey = "response",
-                subAgents = {})
+                subAgents = {StoryInfoAgent.class, StoryInfoGate.class})
         ResultWithAgenticScope<String> chat(
                 @MemoryId String memoryId,
                 @V("message") String message
         );
+    }
+
+    private static boolean hasCompleteStoryInfo(StoryInfo storyInfo) {
+        return storyInfo != null
+                && !isBlank(storyInfo.getTopic())
+                && !isBlank(storyInfo.getStyle())
+                && !isBlank(storyInfo.getAudience());
+    }
+
+    private static String storyInfoClarification(StoryInfo storyInfo) {
+        List<String> missingFields = new ArrayList<>();
+
+        if (storyInfo == null || isBlank(storyInfo.getTopic())) {
+            missingFields.add("故事主题");
+        }
+        if (storyInfo == null || isBlank(storyInfo.getStyle())) {
+            missingFields.add("故事风格");
+        }
+        if (storyInfo == null || isBlank(storyInfo.getAudience())) {
+            missingFields.add("目标受众");
+        }
+
+        return "为了继续创作故事，请补充：" + String.join("、", missingFields) + "。";
     }
 
 }
