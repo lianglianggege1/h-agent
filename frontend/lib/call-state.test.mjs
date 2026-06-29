@@ -4,6 +4,7 @@ import {
   buildCallHref,
   buildChatHrefFromCall,
   createAudioQueue,
+  isRecoverableRecognitionError,
   normalizeRecordedTranscript,
   preferredRecordingMimeType,
   shouldAcceptPreviewAudio,
@@ -13,6 +14,14 @@ import {
 test("normalizeRecordedTranscript returns text only when recognition produced content", () => {
   assert.equal(normalizeRecordedTranscript(" 你好 "), "你好");
   assert.equal(normalizeRecordedTranscript("   "), null);
+});
+
+test("isRecoverableRecognitionError keeps recording alive for transient recognition errors", () => {
+  assert.equal(isRecoverableRecognitionError("no-speech"), true);
+  assert.equal(isRecoverableRecognitionError("aborted"), true);
+  assert.equal(isRecoverableRecognitionError("not-allowed"), false);
+  assert.equal(isRecoverableRecognitionError("audio-capture"), false);
+  assert.equal(isRecoverableRecognitionError(undefined), false);
 });
 
 test("segmentAssistantText emits complete Chinese sentence and preserves remainder", () => {

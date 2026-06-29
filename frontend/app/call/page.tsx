@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import {
   buildChatHrefFromCall,
+  isRecoverableRecognitionError,
   normalizeRecordedTranscript,
   preferredRecordingMimeType,
   segmentAssistantText,
@@ -329,6 +330,11 @@ function CallPageContent() {
         resolveRecordingStoppedRef.current?.();
       };
       recorder.start();
+      if (!listeningRef.current || callEndingRef.current || callGenerationRef.current !== recordingGeneration) {
+        recorder.stop();
+        currentTurnIdRef.current = null;
+        await cancelCallTurn(turn.turnId).catch(() => undefined);
+      }
     } catch (recordingError) {
       stream.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -661,11 +667,44 @@ function CallPageContent() {
     [],
   );
 
+  const stopRecognitionForSubmit = useCallback(async () => {
+    listeningRef.current = false;
+    const recognition = speechRecognitionRef.current;
+    if (!recognition) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeoutId);
+        recognition.onerror = null;
+        recognition.onend = null;
+        if (speechRecognitionRef.current === recognition) {
+          speechRecognitionRef.current = null;
+        }
+        resolve();
+      };
+      const timeoutId = window.setTimeout(settle, 1200);
+      recognition.onerror = settle;
+      recognition.onend = settle;
+      try {
+        recognition.stop();
+      } catch {
+        settle();
+      }
+    });
+  }, []);
+
   const finishRecordingAndSubmit = useCallback(async () => {
     if (!listeningRef.current) {
       return;
     }
-    stopListeningControls(false);
+    await stopRecognitionForSubmit();
     await recordingStartupPromiseRef.current?.catch(() => undefined);
     const turnId = currentTurnIdRef.current;
     await stopRecordingTurn();
@@ -718,7 +757,7 @@ function CallPageContent() {
   }, [
     cancelRecordedTurn,
     setErrorIfMounted,
-    stopListeningControls,
+    stopRecognitionForSubmit,
     stopPlayback,
     stopRecordingTurn,
     submitUtterance,
@@ -759,6 +798,14 @@ function CallPageContent() {
         }
       };
       recognition.onerror = (event) => {
+        if (isRecoverableRecognitionError(event.error)) {
+          if (mountedRef.current) {
+            setStatus("录音中");
+            setUserTranscript(transcriptRef.current || "正在录音，继续说话");
+            setError("");
+          }
+          return;
+        }
         const reason = event.error ? `：${event.error}` : "";
         setErrorIfMounted(`语音识别失败${reason}`);
         stopListeningControls();

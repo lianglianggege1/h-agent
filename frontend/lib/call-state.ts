@@ -3,6 +3,10 @@ export function normalizeRecordedTranscript(transcript: string): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+export function isRecoverableRecognitionError(error?: string): boolean {
+  return error === "no-speech" || error === "aborted";
+}
+
 export function segmentAssistantText(
   text: string,
   previousRemainder: string,
