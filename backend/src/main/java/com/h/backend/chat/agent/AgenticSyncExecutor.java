@@ -1,8 +1,5 @@
 package com.h.backend.chat.agent;
 
-import com.h.backend.chat.ai.Agents;
-import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
-import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
 import com.h.backend.chat.dto.AgentStepPayloadDto;
 import com.h.backend.chat.dto.ChatSessionMessageDto;
 import com.h.backend.chat.dto.ChatStreamEvent;
@@ -14,9 +11,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.FluxSink;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 @Slf4j
 @Component
 public class AgenticSyncExecutor implements ChatAgentExecutor {
+
+    private static final String AGENT_CHAT_METHOD = "chat";
 
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
@@ -82,15 +84,50 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     private ResultWithAgenticScope<String> executeSelectedAgent(ChatAgentExecutionCommand command) {
         Object agentBean = command.agent().agentBean();
-        if (agentBean instanceof CarRentalAssistant assistant) {
-            return assistant.chat(command.memoryId(), command.userMessage());
-        } else if (agentBean instanceof ExportAssistant assistant) {
-            return assistant.chat(command.memoryId(), command.userMessage());
-        } else if (agentBean instanceof Agents.StoryChatAgent storyChatAgent) {
-            return storyChatAgent.chat(command.memoryId(), command.userMessage());
+        Method chatMethod = findAgentChatMethod(agentBean);
+        try {
+            Object result = chatMethod.invoke(agentBean, command.memoryId(), command.userMessage());
+            if (result == null) {
+                return null;
+            }
+            if (result instanceof ResultWithAgenticScope<?> scopedResult) {
+                @SuppressWarnings("unchecked")
+                ResultWithAgenticScope<String> typedResult = (ResultWithAgenticScope<String>) scopedResult;
+                return typedResult;
+            }
+            throw new IllegalStateException("AGENTIC_SYNC agent chat method returned unsupported type: "
+                    + result.getClass().getName());
+        } catch (IllegalAccessException ex) {
+            throw new IllegalStateException("Unable to access AGENTIC_SYNC agent chat method: "
+                    + agentBean.getClass().getName(), ex);
+        } catch (InvocationTargetException ex) {
+            Throwable target = ex.getTargetException();
+            if (target instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (target instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("AGENTIC_SYNC agent chat method failed", target);
         }
-        throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "
-                + (agentBean == null ? "null" : agentBean.getClass().getName()));
+    }
+
+    private Method findAgentChatMethod(Object agentBean) {
+        if (agentBean == null) {
+            throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: null");
+        }
+        try {
+            Method method = agentBean.getClass().getMethod(AGENT_CHAT_METHOD, String.class, String.class);
+            if (!ResultWithAgenticScope.class.isAssignableFrom(method.getReturnType())) {
+                throw new IllegalStateException("AGENTIC_SYNC agent chat method must return ResultWithAgenticScope: "
+                        + agentBean.getClass().getName());
+            }
+            return method;
+        } catch (NoSuchMethodException ex) {
+            throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "
+                    + agentBean.getClass().getName()
+                    + ". Expected method chat(String memoryId, String message)", ex);
+        }
     }
 
     private static Integer stateLength(Object state) {

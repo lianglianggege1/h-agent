@@ -155,6 +155,61 @@ class AgenticSyncExecutorTest {
     }
 
     @Test
+    void shouldInvokeAnyAgentBeanWithCompatibleChatMethod() {
+        DynamicAgent assistant = mock(DynamicAgent.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgenticSyncExecutor executor = new AgenticSyncExecutor(
+                chatSessionService,
+                agentRunService,
+                telemetryService,
+                new AgentStepEventBridge()
+        );
+        AgentDefinition agent = new AgentDefinition(
+                "dynamic-agent",
+                "动态 Agent",
+                "测试",
+                List.of("dynamic"),
+                "新增 agent 不需要修改执行器",
+                assistant,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+        AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-agentic");
+
+        when(assistant.chat("1:agent:dynamic-agent:session-dynamic", "hello"))
+                .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "动态回复"));
+        when(chatSessionService.appendAssistantMessage(1L, "session-dynamic", "动态回复")).thenReturn(202L);
+
+        List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
+                        new ChatAgentExecutionCommand(
+                                sink,
+                                1L,
+                                null,
+                                "session-dynamic",
+                                "hello",
+                                null,
+                                "1:agent:dynamic-agent:session-dynamic",
+                                agent,
+                                runHandle,
+                                telemetryRun,
+                                () -> {
+                                }
+                        )
+                ))
+                .collectList()
+                .block();
+
+        assertEquals("chunk", events.get(0).type());
+        assertEquals("动态回复", events.get(0).content());
+        verify(assistant).chat("1:agent:dynamic-agent:session-dynamic", "hello");
+        verify(agentRunService).completeRun(77L, 202L);
+    }
+
+    @Test
     void shouldFailRunWhenAgenticReplyIsBlank() {
         CarRentalAssistant assistant = mock(CarRentalAssistant.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -214,5 +269,9 @@ class AgenticSyncExecutorTest {
                 org.mockito.Mockito.any()
         );
         verify(agentRunService, never()).completeRun(org.mockito.Mockito.any(), org.mockito.Mockito.any());
+    }
+
+    interface DynamicAgent {
+        ResultWithAgenticScope<String> chat(String memoryId, String message);
     }
 }
