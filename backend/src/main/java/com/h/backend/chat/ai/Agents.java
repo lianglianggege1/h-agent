@@ -1,17 +1,16 @@
 package com.h.backend.chat.ai;
 
+import com.h.backend.chat.ai.carrentalassistant.domain.StoryInfo;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.agentic.agent.ErrorContext;
 import dev.langchain4j.agentic.agent.ErrorRecoveryResult;
 import dev.langchain4j.agentic.agent.MissingArgumentException;
 import dev.langchain4j.agentic.declarative.*;
+import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
-import dev.langchain4j.agentic.supervisor.SupervisorResponseStrategy;
-import dev.langchain4j.memory.ChatMemory;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
@@ -128,30 +127,33 @@ public class Agents {
                 仅返回分数，不输出其他任何内容。
                 故事原文："{{story}}"
                 """)
-        @Agent(description = "依据故事与指定风格的契合度进行打分", outputKey = "score")
+        @Agent(name = "风格评分器", description = "依据故事与指定风格的契合度进行打分", outputKey = "score")
         double scoreStyle(@V("story") String story, @V("style") String style);
     }
 
-    public interface StyleReviewLoop {
 
-        @Agent(name = "风格评审循环", description = "评审指定故事，确保其符合要求文风")
-        String scoreAndReview(@V("story") String story, @V("style") String style);
+    public interface StyleReviewLoopAgent {
 
-    }
-
-    public interface StyleReviewLoopWithExitCondition extends StyleReviewLoop {
+        @LoopAgent(
+                name = "故事审核",
+                description = "审核并评分给定故事以确保其与指定风格一致",
+                outputKey = "story",
+                maxIterations = 5,
+                subAgents = {StyleScorer.class, StyleEditor.class})
+        String reviewAndScore(@V("story") String story);
 
         @ExitCondition
-        static boolean exitCondition(@V("score") double score) {
+        static boolean exit(@V("score") double score) {
             return score >= 0.8;
         }
-
     }
 
 
     public interface StoryCreator {
 
         @SequenceAgent(
+                name = "故事创作",
+                description = "根据主题、风格和受众创作故事",
                 outputKey = "story",
                 subAgents = {CreativeWriter.class, AudienceEditor.class, StyleEditor.class})
         String write(@V("topic") String topic, @V("style") String style, @V("audience") String audience);
@@ -168,51 +170,57 @@ public class Agents {
         }
     }
 
-    public interface StyleReviewLoopAgent {
-
-        @LoopAgent(
-                description = "Review and score the given story to ensure it aligns with the specified style",
-                outputKey = "story",
-                maxIterations = 5,
-                subAgents = {StyleScorer.class, StyleEditor.class})
-        String reviewAndScore(@V("story") String story);
-
-        @ExitCondition
-        static boolean exit(@V("score") double score) {
-            return score >= 0.8;
-        }
-    }
-
     public interface StoryCreatorWithReview {
 
         @SequenceAgent(
+                name = "审核后的故事创作",
+                description = "根据主题、风格和受众创作故事并进行审核",
                 outputKey = "story",
                 subAgents = {StoryCreator.class, StyleReviewLoopAgent.class})
-        ResultWithAgenticScope<String> write(@V("topic") String topic, @V("style") String style);
+        String write(@V("topic") String topic, @V("style") String style, @V("audience") String audience);
+
     }
 
-    public interface SupervisorStoryCreator {
+    public interface StoryInfoAgent {
+        @SystemMessage("""
+                你是提取创作故事所需的相关信息助手，分析用户聊天信息并提取一下信息
+                - 故事创造主题
+                - 故事创造风格
+                - 故事创造受众
+                
+                仅提取原文明确写明的内容，不得脑补推断，无对应信息则该项填null
+                """)
+        @UserMessage("""
+                {{message}}
+                """)
+        @Agent(name = "故事信息提取器", description = "从客户聊天信息中提取创作故事所需的相关信息", outputKey = "storyInfo")
+        StoryInfo extractStoryInfo(@MemoryId String memoryId, @V("message") String message);
+    }
 
-        @SupervisorAgent(
-                outputKey = "story",
-                responseStrategy = SupervisorResponseStrategy.LAST,
-                subAgents = {CreativeWriter.class, StyleReviewLoopAgent.class})
-        ResultWithAgenticScope<String> write(@V("topic") String topic, @V("style") String style);
+    public interface StoryInfoMapper {
 
-        @SupervisorRequest
-        static String request(@V("topic") String topic, @V("style") String style) {
-            return "Write a story about " + topic + " in " + style + " style";
+        @Agent(name = "故事信息映射器", outputKey = "storyInfo")
+        static StoryInfo map(@V("storyInfo") StoryInfo storyInfo, AgenticScope scope) {
+            if (storyInfo != null) {
+                scope.writeState("topic", storyInfo.getTopic());
+                scope.writeState("style", storyInfo.getStyle());
+                scope.writeState("audience", storyInfo.getAudience());
+            }
+            return storyInfo;
         }
+    }
 
-        @ChatModelSupplier
-        static ChatModel chatModel() {
-            return plannerModel();
-        }
+    public interface StoryChatAgent {
 
-        @ChatMemoryProviderSupplier
-        static ChatMemory chatMemory(Object memoryId) {
-            return MessageWindowChatMemory.withMaxMessages(10);
-        }
+        @SequenceAgent(
+                name = "故事创作代理",
+                description = "根据主题、风格和受众创作故事并进行审核",
+                outputKey = "response",
+                subAgents = {})
+        ResultWithAgenticScope<String> chat(
+                @MemoryId String memoryId,
+                @V("message") String message
+        );
     }
 
 }

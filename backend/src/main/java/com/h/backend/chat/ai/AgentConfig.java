@@ -2,6 +2,7 @@ package com.h.backend.chat.ai;
 
 import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.ai.carrentalassistant.domain.Emergencies;
+import com.h.backend.chat.ai.carrentalassistant.domain.StoryInfo;
 import com.h.backend.chat.ai.carrentalassistant.services.*;
 import com.h.backend.chat.agent.AgentStepListener;
 import com.h.backend.chat.memory.ChatMemoryIdFactory;
@@ -254,6 +255,86 @@ public class AgentConfig {
         } else {
             agenticScope.writeState(type + "Emergency", emergency);
         }
+    }
+
+    @Bean
+    public Agents.StoryChatAgent storyChat() {
+        Agents.StoryInfoAgent storyInfoAgent = AgenticServices.agentBuilder(Agents.StoryInfoAgent.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .chatMemoryProvider(scopedMemoryProvider("storyInfo"))
+                .outputKey("storyInfo")
+                .build();
+
+        Agents.StoryInfoMapper storyInfoMapper = AgenticServices.agentBuilder(Agents.StoryInfoMapper.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("storyInfo")
+                .build();
+
+        Agents.StoryCreatorWithReview storyCreatorWithReview = AgenticServices.sequenceBuilder(Agents.StoryCreatorWithReview.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("story")
+                .build();
+
+
+        HumanInTheLoop storyInfoClarifier = AgenticServices.humanInTheLoopBuilder()
+                .description("向用户追问缺失的故事创作信息")
+                .listener(agentStepListener)
+                .outputKey("response")
+                .responseProvider(scope -> storyInfoClarification((StoryInfo) scope.readState("storyInfo")))
+                .build();
+        UntypedAgent storyCreationFlow = AgenticServices.sequenceBuilder()
+                .listener(agentStepListener)
+                .subAgents(
+                        storyInfoMapper,
+                        storyCreatorWithReview
+                )
+                .outputKey("story")
+                .build();
+        UntypedAgent storyInfoGate = AgenticServices.conditionalBuilder()
+                .listener(agentStepListener)
+                .subAgents(
+                        "story info is incomplete",
+                        scope -> !hasCompleteStoryInfo(scope),
+                        storyInfoClarifier
+                )
+                .subAgents(
+                        "story info is complete",
+                        AgentConfig::hasCompleteStoryInfo,
+                        storyCreationFlow
+                )
+                .outputKey("response")
+                .build();
+        return AgenticServices.sequenceBuilder(Agents.StoryChatAgent.class)
+                .listener(agentStepListener)
+                .subAgents(storyInfoAgent, storyInfoGate)
+                .outputKey("response")
+                .build();
+
+    }
+
+    private static boolean hasCompleteStoryInfo(AgenticScope scope) {
+        StoryInfo storyInfo = (StoryInfo) scope.readState("storyInfo");
+        return storyInfo != null
+                && !isBlank(storyInfo.getTopic())
+                && !isBlank(storyInfo.getStyle())
+                && !isBlank(storyInfo.getAudience());
+    }
+
+    private static String storyInfoClarification(StoryInfo storyInfo) {
+        List<String> missingFields = new ArrayList<>();
+        if (storyInfo == null || isBlank(storyInfo.getTopic())) {
+            missingFields.add("故事主题");
+        }
+        if (storyInfo == null || isBlank(storyInfo.getStyle())) {
+            missingFields.add("故事风格");
+        }
+        if (storyInfo == null || isBlank(storyInfo.getAudience())) {
+            missingFields.add("目标受众");
+        }
+        return "为了继续创作故事，请补充：" + String.join("、", missingFields) + "。";
     }
 
 

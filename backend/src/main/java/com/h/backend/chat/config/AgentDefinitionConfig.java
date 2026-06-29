@@ -3,6 +3,7 @@ package com.h.backend.chat.config;
 import com.h.backend.chat.agent.AgentDefinition;
 import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
+import com.h.backend.chat.ai.Agents;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.ExportAssistant;
@@ -51,6 +52,20 @@ public class AgentDefinitionConfig {
                 List.of("专家"),
                 "法律类、医疗类、技术类专家协助",
                 exportAssistant,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+    }
+
+    @Bean
+    public AgentDefinition storyChatAgent(Agents.StoryChatAgent storyChatAgent) {
+        return new AgentDefinition(
+                "story-chat-agent",
+                "故事创作代理",
+                "创作",
+                List.of("故事创作"),
+                "故事创作",
+                storyChatAgent,
                 AgentRuntimeType.AGENTIC_SYNC,
                 true
         );
