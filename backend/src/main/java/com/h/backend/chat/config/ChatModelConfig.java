@@ -98,6 +98,7 @@ public class ChatModelConfig {
                     .apiKey(properties.getProperty("API_KEY"))
                     .baseUrl("https://api.minimaxi.com/anthropic/v1")
                     .modelName(properties.getProperty("MODEL_NAME"))
+                    .maxTokens(8192)
                     .timeout(Duration.ofSeconds(60))
                     .logRequests(true)
                     .logResponses(true)

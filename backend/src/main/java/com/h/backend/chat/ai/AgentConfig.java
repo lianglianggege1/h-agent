@@ -294,7 +294,7 @@ public class AgentConfig {
                 .name("故事创作")
                 .description("根据主题、风格和受众创作故事")
                 .listener(agentStepListener)
-                .subAgents(creativeWriter, audienceEditor, styleEditor)
+                .subAgents(creativeWriter, audienceEditor)
                 .outputKey("story")
                 .build();
 
@@ -302,7 +302,7 @@ public class AgentConfig {
                 .name("故事审核")
                 .description("审核并评分给定故事以确保其与指定风格一致")
                 .listener(agentStepListener)
-                .subAgents(styleScorer, styleEditor)
+                .subAgents(styleEditor, styleScorer)
                 .maxIterations(5)
                 .exitCondition(scope -> {
                     Double score = (Double) scope.readState("score", 0.0);
@@ -331,7 +331,8 @@ public class AgentConfig {
                 .description("映射故事信息并执行故事创作审核")
                 .listener(agentStepListener)
                 .subAgents(Agents.StoryInfoMapper.class, storyCreatorWithReview)
-                .outputKey("story")
+                .output(scope -> scope.readState("story"))
+                .outputKey("response")
                 .build();
 
         UntypedAgent storyInfoGate = AgenticServices.conditionalBuilder()
@@ -356,6 +357,7 @@ public class AgentConfig {
                 .description("根据主题、风格和受众创作故事并进行审核")
                 .listener(agentStepListener)
                 .subAgents(storyInfoAgent, storyInfoGate)
+                .output(scope -> scope.readState("response"))
                 .outputKey("response")
                 .build();
     }

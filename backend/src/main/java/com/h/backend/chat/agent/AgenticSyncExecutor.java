@@ -93,6 +93,10 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                 + (agentBean == null ? "null" : agentBean.getClass().getName()));
     }
 
+    private static Integer stateLength(Object state) {
+        return state == null ? null : String.valueOf(state).length();
+    }
+
     private void emitAgentStep(ChatAgentExecutionCommand command, AgentStepPayloadDto payload) {
         AgentStepPayloadDto enriched = new AgentStepPayloadDto(
                 String.valueOf(command.runHandle().id()),
