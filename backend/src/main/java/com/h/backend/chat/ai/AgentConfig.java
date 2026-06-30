@@ -391,16 +391,18 @@ public class AgentConfig {
 
     @Bean
     public Agents.BankerAgent bankerAgent() {
-
+        Agents.BankTool bankTool = new Agents.BankTool();
         Agents.WithdrawAgent withdrawAgent = AgenticServices.agentBuilder(Agents.WithdrawAgent.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
+                .tools(bankTool)
                 .outputKey("balance")
                 .build();
 
         Agents.CreditAgent creditAgent = AgenticServices.agentBuilder(Agents.CreditAgent.class)
                 .chatModel(chatModel)
                 .listener(agentStepListener)
+                .tools(bankTool)
                 .outputKey("balance")
                 .build();
 

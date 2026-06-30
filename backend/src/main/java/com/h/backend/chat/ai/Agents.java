@@ -179,9 +179,9 @@ public class Agents {
                         """)
         @UserMessage(
                 """
-                        {{message}}
+                        {{request}}
                         """)
-        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("message") String message);
+        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("request") String request);
     }
 
     public interface WithdrawAgent {
@@ -193,7 +193,7 @@ public class Agents {
                 """
                         从 {{withdrawUser}} 的账户取出 {{amountInUSD}} 美元，返回更新后的账户余额。
                         """)
-        @Agent("负责账户美元取款业务的柜员")
+        @Agent(name = "负责账户美元取款业务的柜员", description = "负责账户美元取款业务的柜员")
         String withdraw(@V("withdrawUser") String withdrawUser, @V("amountInUSD") Double amountInUSD);
     }
 
@@ -206,7 +206,7 @@ public class Agents {
                 """
                         为 {{creditUser}} 的账户存入 {{amountInUSD}} 美元，并返回最新余额。
                         """)
-        @Agent("负责为账户存入美元的柜员")
+        @Agent(name = "负责为账户存入美元的柜员", description = "负责为账户存入美元的柜员")
         String credit(@V("creditUser") String creditUser, @V("amountInUSD") Double amountInUSD);
     }
 
@@ -219,14 +219,16 @@ public class Agents {
             accounts.clear();
         }
 
-        void createAccount(String user, Double initialBalance) {
+        @Tool("创建指定用户账户，并设置初始余额")
+        void createAccount(@P("user name") String user, @P("amount") Double initialBalance) {
             if (accounts.containsKey(user)) {
                 throw new RuntimeException("Account for user " + user + " already exists");
             }
             accounts.put(user, initialBalance);
         }
 
-        double getBalance(String user) {
+        @Tool("获取指定用户账户余额")
+        double getBalance(@P("user name") String user) {
             Double balance = accounts.get(user);
             if (balance == null) {
                 throw new RuntimeException("No balance found for user " + user);
