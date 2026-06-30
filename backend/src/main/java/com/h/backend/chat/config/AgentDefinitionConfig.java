@@ -85,5 +85,19 @@ public class AgentDefinitionConfig {
         );
     }
 
+    @Bean
+    public AgentDefinition eveningPlanner(Agents.EveningPlannerAgent eveningPlannerAgent) {
+        return new AgentDefinition(
+                "evening-planner-agent",
+                "晚间规划代理",
+                "规划",
+                List.of("晚间规划"),
+                "晚间规划",
+                eveningPlannerAgent,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+    }
+
 
 }

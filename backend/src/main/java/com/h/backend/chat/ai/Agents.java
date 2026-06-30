@@ -4,14 +4,18 @@ import com.h.backend.chat.ai.carrentalassistant.domain.StoryInfo;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.agentic.declarative.Output;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
+import dev.langchain4j.internal.Json;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class Agents {
@@ -329,6 +333,50 @@ public class Agents {
                 throw new RuntimeException("No exchange rate found for currency " + targetCurrency);
             }
             return (amount * exchangeRate1) / exchangeRate2;
+        }
+    }
+
+    public interface FoodExpert {
+
+        @UserMessage(""" 
+                    你是专业的晚餐规划师，根据给定情绪推荐三份餐食清单。
+                    情绪参数：{{mood}}。
+                    每份餐食仅输出菜品名称，只返回包含三份餐食的列表，不输出其他内容。
+                """)
+        @Agent(name = "晚餐规划师", description = "根据给定情绪推荐三份餐食清单", outputKey = "meals")
+        List<String> findMeal(@V("mood") String mood);
+    }
+
+    public interface MovieExpert {
+
+        @UserMessage("""
+                你是资深晚间活动规划师，根据指定情绪推荐三部影片。
+                情绪值：{{mood}}。
+                仅返回包含三部影片名称的列表，不输出额外内容。
+                """)
+        @Agent(name = "晚间活动规划师", description = "根据给定情绪推荐三部影片", outputKey = "movies")
+        List<String> findMovie(@V("mood") String mood);
+    }
+
+    public record EveningPlan(String movie, String meal) {
+    }
+
+    public interface EveningPlannerAgent {
+
+        @Agent(name = "晚间活动规划师", description = "根据给定情绪推荐三部影片和三份餐食")
+        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("mood") String mood);
+    }
+
+
+    public interface EveningPlannerAgentWithOutput extends EveningPlannerAgent {
+
+        @Output
+        static String createPlans(@V("movies") List<String> movies, @V("meals") List<String> meals) {
+            List<EveningPlan> moviesAndMeals = new ArrayList<>();
+            for (int i = 0; i < Math.min(movies.size(), meals.size()); i++) {
+                moviesAndMeals.add(new EveningPlan(movies.get(i), meals.get(i)));
+            }
+            return Json.toJson(moviesAndMeals);
         }
     }
 

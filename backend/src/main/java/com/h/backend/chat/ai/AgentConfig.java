@@ -11,8 +11,10 @@ import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.supervisor.SupervisorAgent;
+import dev.langchain4j.agentic.supervisor.SupervisorContextStrategy;
 import dev.langchain4j.agentic.supervisor.SupervisorResponseStrategy;
 import dev.langchain4j.agentic.workflow.HumanInTheLoop;
+import dev.langchain4j.internal.Json;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.model.chat.ChatModel;
@@ -22,6 +24,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
 
 // agent 配置
 @Configuration
@@ -411,6 +414,7 @@ public class AgentConfig {
                 .description("负责执行用户账户美元(USD)存入或支取操作")
                 .listener(agentStepListener)
                 .chatModel(chatModel)
+                .contextGenerationStrategy(SupervisorContextStrategy.CHAT_MEMORY)
                 .responseStrategy(SupervisorResponseStrategy.SUMMARY)
                 .chatMemoryProvider(scopedMemoryProvider("banker-agent"))
                 .subAgents(withdrawAgent, creditAgent)
@@ -423,6 +427,31 @@ public class AgentConfig {
                 .listener(agentStepListener)
                 .subAgents(bankSupervisor)
                 .outputKey("balance")
+                .build();
+
+    }
+
+    @Bean
+    public Agents.EveningPlannerAgent eveningPlannerAgent() {
+        Agents.FoodExpert foodExpert = AgenticServices.agentBuilder(Agents.FoodExpert.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("meals")
+                .build();
+
+        Agents.MovieExpert movieExpert = AgenticServices.agentBuilder(Agents.MovieExpert.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("movies")
+                .build();
+        return AgenticServices.parallelBuilder(Agents.EveningPlannerAgent.class)
+                .name("晚间活动规划代理")
+                .description("根据给定情绪推荐三部影片和三份餐食")
+                .listener(agentStepListener)
+                .executor(Executors.newFixedThreadPool(2)) // Use a fixed thread pool with 2 threads
+                .subAgents(foodExpert, movieExpert)
+                .output(scope -> Agents.EveningPlannerAgentWithOutput.createPlans(scope.readState("movies", List.of()), scope.readState("meals", List.of())))
+                .outputKey("plans")
                 .build();
 
     }
