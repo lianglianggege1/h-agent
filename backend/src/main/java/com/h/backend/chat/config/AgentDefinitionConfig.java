@@ -3,6 +3,7 @@ package com.h.backend.chat.config;
 import com.h.backend.chat.agent.AgentDefinition;
 import com.h.backend.chat.agent.AgentRegistry;
 import com.h.backend.chat.agent.AgentRuntimeType;
+import com.h.backend.chat.ai.a2a.A2AStoryAssistant;
 import com.h.backend.chat.ai.Agents;
 import com.h.backend.chat.ai.HAssistant;
 import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
@@ -99,5 +100,18 @@ public class AgentDefinitionConfig {
         );
     }
 
+    @Bean
+    public AgentDefinition a2aStoryAssistantDefinition(A2AStoryAssistant a2aStoryAssistant) {
+        return new AgentDefinition(
+                "a2a-story-assistant",
+                "A2A 故事协作 Agent",
+                "跨服务协作",
+                List.of("A2A", "故事创作", "远端 Agent"),
+                "通过 backend 编排并调用 other-agents 的远端写作 Agent",
+                a2aStoryAssistant,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+    }
 
 }
