@@ -1,44 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  appendTranscript,
   buildCallHref,
   buildChatHrefFromCall,
   createAudioQueue,
+  isRecoverableRecognitionError,
+  normalizeRecordedTranscript,
+  preferredRecordingMimeType,
   shouldAcceptPreviewAudio,
   segmentAssistantText,
-  shouldCommitUtterance,
 } from "./call-state.ts";
 
-test("shouldCommitUtterance commits only after configured transcript silence", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(shouldCommitUtterance({ ...state, now: 4999, silenceMs: 4000 }), false);
-  assert.equal(shouldCommitUtterance({ ...state, now: 5000, silenceMs: 4000 }), true);
+test("normalizeRecordedTranscript returns text only when recognition produced content", () => {
+  assert.equal(normalizeRecordedTranscript(" 你好 "), "你好");
+  assert.equal(normalizeRecordedTranscript("   "), null);
 });
 
-test("shouldCommitUtterance uses three seconds of silence by default", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(shouldCommitUtterance({ ...state, now: 3999 }), false);
-  assert.equal(shouldCommitUtterance({ ...state, now: 4000 }), true);
-});
-
-test("appendTranscript refreshes timestamp only when normalized text changes", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(appendTranscript(state, " 你好 ", 2000), state);
-  assert.deepEqual(appendTranscript(state, " 你好啊 ", 2000), {
-    transcript: "你好啊",
-    lastTranscriptAt: 2000,
-  });
-});
-
-test("appendTranscript ignores blank interim transcript", () => {
-  const state = { transcript: "你好", lastTranscriptAt: 1000 };
-
-  assert.equal(appendTranscript(state, "   ", 2000), state);
-  assert.equal(appendTranscript(state, "", 3000), state);
+test("isRecoverableRecognitionError keeps recording alive for transient recognition errors", () => {
+  assert.equal(isRecoverableRecognitionError("no-speech"), true);
+  assert.equal(isRecoverableRecognitionError("aborted"), true);
+  assert.equal(isRecoverableRecognitionError("not-allowed"), false);
+  assert.equal(isRecoverableRecognitionError("audio-capture"), false);
+  assert.equal(isRecoverableRecognitionError(undefined), false);
 });
 
 test("segmentAssistantText emits complete Chinese sentence and preserves remainder", () => {
@@ -118,5 +101,19 @@ test("buildCallHref and buildChatHrefFromCall preserve agent and session ids", (
   const sessionId = "session 1";
 
   assert.equal(buildCallHref(agentId, sessionId), "/call?agentId=agent%2F1&sessionId=session+1");
+  assert.equal(buildCallHref(agentId, sessionId, 42), "/call?agentId=agent%2F1&sessionId=session+1&promptId=42");
   assert.equal(buildChatHrefFromCall(agentId, sessionId), "/chat?agentId=agent%2F1&sessionId=session+1");
+});
+
+test("preferredRecordingMimeType chooses supported webm codec without forcing unsupported mime", () => {
+  assert.equal(
+    preferredRecordingMimeType((mimeType) => mimeType === "audio/webm;codecs=opus"),
+    "audio/webm;codecs=opus",
+  );
+  assert.equal(
+    preferredRecordingMimeType((mimeType) => mimeType === "audio/webm"),
+    "audio/webm",
+  );
+  assert.equal(preferredRecordingMimeType(() => false), undefined);
+  assert.equal(preferredRecordingMimeType(undefined), undefined);
 });

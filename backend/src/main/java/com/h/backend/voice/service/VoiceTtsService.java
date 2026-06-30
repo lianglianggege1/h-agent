@@ -39,13 +39,13 @@ public class VoiceTtsService {
 
     public PreviewAudio preview(Long userId, String sessionId, String agentId, String text) {
         String normalizedText = validateText(text, properties.getPreviewMaxTextLength());
-        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
+        chatSessionService.assertActiveAgentSession(userId, sessionId, agentId);
         MiniMaxTtsResult result = ttsClient.synthesize(new MiniMaxTtsRequest(normalizedText, null));
         return new PreviewAudio(result.audioBytes(), result.mimeType());
     }
 
     public VoiceResourceResponse messageTts(Long userId, String sessionId, String agentId, Long messageId) {
-        chatSessionService.assertActiveSession(userId, sessionId, null, agentId);
+        chatSessionService.assertActiveAgentSession(userId, sessionId, agentId);
         ChatSessionMessageDto message = chatSessionService.getOwnedMessage(userId, sessionId, messageId);
         if (!"assistant".equalsIgnoreCase(message.role()) || !"AI".equalsIgnoreCase(message.messageType())) {
             throw new BusinessException(40000, "Assistant TTS 只能绑定 AI 回复消息");

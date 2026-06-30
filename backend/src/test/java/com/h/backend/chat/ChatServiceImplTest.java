@@ -1008,6 +1008,50 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void shouldExposeAttachedImageResourceIdToStandardAssistant() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("好的");
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService
+        );
+        List<ChatMessageResourceUseDto> resources = List.of(
+                new ChatMessageResourceUseDto("resource-attach-1", "ATTACHMENT", "UPLOAD")
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-edit-image"), eq("把背景色改为白色"), any()))
+                .thenReturn(121L);
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-edit-image");
+        when(agentRunTelemetryService.startRun("session-edit-image", 1L, 22L)).thenReturn(telemetryRun);
+        when(agentRunService.createRun("session-edit-image", 1L, 22L, 121L, "standard-chat", "trace-edit-image"))
+                .thenReturn(new AgentRunService.AgentRunHandle(88L));
+        when(hAssistant.streamChat(eq("1:22:session-edit-image"), argThat(message ->
+                message.contains("把背景色改为白色")
+                        && message.contains("resource-attach-1")
+                        && message.contains("generateImage")
+        ))).thenReturn(tokenStream);
+
+        chatService.streamChat(1L, 2L, "standard-chat", "session-edit-image", "把背景色改为白色", resources)
+                .collectList()
+                .block();
+
+        verify(hAssistant).streamChat(eq("1:22:session-edit-image"), argThat(message ->
+                message.contains("把背景色改为白色")
+                        && message.contains("resource-attach-1")
+                        && message.contains("generateImage")
+        ));
+    }
+
+    @Test
     void shouldEmitBlockedEventWhenGuardrailMessageIsBlank() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);

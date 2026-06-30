@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,7 +73,7 @@ class CallTurnServiceTest {
         ));
 
         String turnId = service.start(1L, "session-1", "standard-chat");
-        verify(chatSessionService).assertActiveSession(1L, "session-1", null, "standard-chat");
+        verify(chatSessionService).assertActiveAgentSession(1L, "session-1", "standard-chat");
         service.appendChunk(
                 1L,
                 turnId,
@@ -90,6 +91,7 @@ class CallTurnServiceTest {
 
         var response = service.finalizeTurn(1L, turnId, "session-1", "standard-chat", 101L, "你好");
 
+        verify(chatSessionService, times(2)).assertActiveAgentSession(1L, "session-1", "standard-chat");
         ArgumentCaptor<ResourceSaveCommand> saveCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
         verify(storage).save(saveCaptor.capture());
         ResourceSaveCommand command = saveCaptor.getValue();
@@ -271,6 +273,24 @@ class CallTurnServiceTest {
         );
 
         assertEquals(40000, ex.getCode());
+    }
+
+    @Test
+    void appendAcceptsWebmAudioFormatWithCodecParameters() {
+        ResourceStorage storage = mock(ResourceStorage.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        String turnId = service.start(1L, "session-1", "standard-chat");
+
+        service.appendChunk(
+                1L,
+                turnId,
+                new MockMultipartFile("chunk", "0.webm", "audio/webm;codecs=opus", new byte[]{1}),
+                0,
+                "audio/webm;codecs=opus "
+        );
+
+        assertTrue(Files.exists(tempDir.resolve("1").resolve(turnId).resolve("chunk-000000.webm")));
     }
 
     @Test

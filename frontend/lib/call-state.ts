@@ -1,36 +1,10 @@
-export type TranscriptState = {
-  transcript: string;
-  lastTranscriptAt: number;
-};
-
-export function appendTranscript(
-  state: TranscriptState,
-  nextTranscript: string,
-  now: number,
-): TranscriptState {
-  const normalized = nextTranscript.trim();
-
-  if (normalized.length === 0) {
-    return state;
-  }
-
-  if (normalized === state.transcript) {
-    return state;
-  }
-
-  return {
-    transcript: normalized,
-    lastTranscriptAt: now,
-  };
+export function normalizeRecordedTranscript(transcript: string): string | null {
+  const normalized = transcript.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
-export function shouldCommitUtterance({
-  transcript,
-  lastTranscriptAt,
-  now,
-  silenceMs = 3000,
-}: TranscriptState & { now: number; silenceMs?: number }): boolean {
-  return transcript.trim().length > 0 && now - lastTranscriptAt >= silenceMs;
+export function isRecoverableRecognitionError(error?: string): boolean {
+  return error === "no-speech" || error === "aborted";
 }
 
 export function segmentAssistantText(
@@ -122,16 +96,31 @@ export function shouldAcceptPreviewAudio({
   );
 }
 
-export function buildCallHref(agentId: string, sessionId: string): string {
-  return buildHref("/call", agentId, sessionId);
+export function preferredRecordingMimeType(isTypeSupported?: (mimeType: string) => boolean): string | undefined {
+  if (!isTypeSupported) {
+    return undefined;
+  }
+  for (const mimeType of ["audio/webm;codecs=opus", "audio/webm"]) {
+    if (isTypeSupported(mimeType)) {
+      return mimeType;
+    }
+  }
+  return undefined;
+}
+
+export function buildCallHref(agentId: string, sessionId: string, promptId?: number | null): string {
+  return buildHref("/call", agentId, sessionId, promptId);
 }
 
 export function buildChatHrefFromCall(agentId: string, sessionId: string): string {
   return buildHref("/chat", agentId, sessionId);
 }
 
-function buildHref(pathname: string, agentId: string, sessionId: string): string {
+function buildHref(pathname: string, agentId: string, sessionId: string, promptId?: number | null): string {
   const params = new URLSearchParams({ agentId, sessionId });
+  if (promptId != null) {
+    params.set("promptId", String(promptId));
+  }
 
   return `${pathname}?${params.toString()}`;
 }

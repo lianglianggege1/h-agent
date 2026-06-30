@@ -625,7 +625,8 @@ function ChatPageContent() {
 
   function handleOpenCall() {
     if (!sessionId || streaming || routeBootstrapping) return;
-    router.push(buildCallHref(currentAgentId, sessionId));
+    const callPromptId = isStandardAgent(currentAgentId) ? selectedPromptId : null;
+    router.push(buildCallHref(currentAgentId, sessionId, callPromptId));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

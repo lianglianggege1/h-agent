@@ -271,18 +271,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     @Override
     @Transactional
     public void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId) {
-        archiveExpiredSessionsForUser(userId);
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
-        if (!STATUS_ACTIVE.equals(session.getStatus())) {
-            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
-        }
         String requestedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
-        String sessionAgentId = StringUtils.isBlank(session.getAgentId())
-                ? ChatAgentIds.STANDARD_CHAT
-                : session.getAgentId();
-        if (!requestedAgentId.equals(sessionAgentId)) {
-            throw new BusinessException(40008, "会话不属于当前 Agent，请重新创建会话");
-        }
+        ChatSessionEntity session = requireActiveAgentSession(userId, sessionId, requestedAgentId);
         if (!ChatAgentIds.STANDARD_CHAT.equals(requestedAgentId)) {
             return;
         }
@@ -290,6 +280,13 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         if (!resolvedPromptId.equals(session.getPromptId())) {
             throw new BusinessException(40006, "会话提示词不匹配，请重新创建会话");
         }
+    }
+
+    @Override
+    @Transactional
+    public void assertActiveAgentSession(Long userId, String sessionId, String agentId) {
+        String requestedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
+        requireActiveAgentSession(userId, sessionId, requestedAgentId);
     }
 
     @Override
@@ -612,6 +609,21 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         ChatSessionEntity session = chatSessionMapper.selectBySessionId(sessionId);
         if (session == null || !userId.equals(session.getUserId())) {
             throw new BusinessException(40404, "会话不存在");
+        }
+        return session;
+    }
+
+    private ChatSessionEntity requireActiveAgentSession(Long userId, String sessionId, String requestedAgentId) {
+        archiveExpiredSessionsForUser(userId);
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+        String sessionAgentId = StringUtils.isBlank(session.getAgentId())
+                ? ChatAgentIds.STANDARD_CHAT
+                : session.getAgentId();
+        if (!requestedAgentId.equals(sessionAgentId)) {
+            throw new BusinessException(40008, "会话不属于当前 Agent，请重新创建会话");
         }
         return session;
     }

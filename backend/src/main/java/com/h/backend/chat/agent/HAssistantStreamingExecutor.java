@@ -63,8 +63,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             String referenceResourceId = firstReferenceResourceId(command);
             if (referenceResourceId != null) {
                 messageForLlm = command.userMessage()
-                        + "\n[系统：用户附带了一张参考图（资源ID: " + referenceResourceId
-                        + "），如需基于此图生成新图片，调用 generateImage 并传入该资源ID]";
+                        + "\n[系统：用户附带了一张图片资源（资源ID: " + referenceResourceId
+                        + "）。如需基于此图修改、重绘或生成新图片，调用 generateImage 并把该资源ID作为 referenceResourceId 传入；如只是解释图片，也请明确参考这个资源ID。]";
             }
             hAssistant.streamChat(command.memoryId(), messageForLlm)
                     .onPartialThinking(thinking -> {
@@ -131,7 +131,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             return null;
         }
         return command.resources().stream()
-                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role()))
+                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role())
+                        || "ATTACHMENT".equalsIgnoreCase(resource.role()))
                 .map(ChatMessageResourceUseDto::resourceId)
                 .findFirst()
                 .orElse(null);
