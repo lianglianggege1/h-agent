@@ -1,12 +1,14 @@
 package com.h.backend.chat.agent;
 
 import com.h.backend.chat.dto.AgentTopologyDto;
+import com.h.backend.chat.dto.AgentTopologyNodeDto;
 import dev.langchain4j.agentic.planner.AgentArgument;
 import dev.langchain4j.agentic.planner.Action;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.agentic.planner.Planner;
 import dev.langchain4j.agentic.planner.PlanningContext;
+import dev.langchain4j.agentic.supervisor.SupervisorPlanner;
 import dev.langchain4j.agentic.workflow.ConditionalAgent;
 import dev.langchain4j.agentic.workflow.ConditionalAgentInstance;
 import dev.langchain4j.agentic.workflow.LoopAgentInstance;
@@ -115,6 +117,31 @@ class AgentTopologyMapperTest {
         assertNull(dto.root().children().getFirst().loop());
     }
 
+    @Test
+    void mapsSupervisorPlannerAsStarTopology() {
+        MockAgent withdraw = MockAgent.ai("withdraw", "Withdraw", "balance", List.of());
+        MockAgent credit = MockAgent.ai("credit", "Credit", "balance", List.of());
+        MockAgent supervisor = MockAgent.supervisor("banker", "银行柜员", "balance", List.of(withdraw, credit));
+        AgentDefinition definition = new AgentDefinition(
+                "banker-agent",
+                "银行代理",
+                "银行",
+                List.of("银行"),
+                "summary",
+                supervisor,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+
+        AgentTopologyDto dto = new AgentTopologyMapper().from(definition, supervisor);
+
+        assertEquals("STAR", dto.root().topology());
+        assertEquals("SupervisorPlanner", dto.root().plannerType());
+        assertEquals(List.of("AI_AGENT", "AI_AGENT"), dto.root().children().stream()
+                .map(AgentTopologyNodeDto::topology)
+                .toList());
+    }
+
     static class MockAgent implements AgentInstance {
         private final String agentId;
         private final String name;
@@ -129,6 +156,10 @@ class AgentTopologyMapperTest {
 
         static MockAgent ai(String agentId, String name, String outputKey, List<AgentArgument> arguments) {
             return new MockAgent(agentId, name, AgenticSystemTopology.AI_AGENT, outputKey, List.of(), arguments);
+        }
+
+        static MockAgent supervisor(String agentId, String name, String outputKey, List<AgentInstance> children) {
+            return new SupervisorMockAgent(agentId, name, outputKey, children);
         }
 
         MockAgent(
@@ -212,6 +243,18 @@ class AgentTopologyMapperTest {
         @Override
         public Action nextAction(PlanningContext planningContext) {
             return done();
+        }
+    }
+
+    static class SupervisorMockAgent extends MockAgent {
+
+        SupervisorMockAgent(String agentId, String name, String outputKey, List<AgentInstance> children) {
+            super(agentId, name, AgenticSystemTopology.SEQUENCE, outputKey, children, List.of());
+        }
+
+        @Override
+        public Class<? extends Planner> plannerType() {
+            return SupervisorPlanner.class;
         }
     }
 

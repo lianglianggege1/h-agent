@@ -1,6 +1,7 @@
 package com.h.backend.chat.ai;
 
 import com.h.backend.chat.ai.carrentalassistant.domain.StoryInfo;
+import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.agentic.scope.AgenticScope;
@@ -9,6 +10,9 @@ import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class Agents {
 
@@ -164,5 +168,167 @@ public class Agents {
                 @V("message") String message
         );
     }
+
+
+    public interface BankerAgent {
+
+
+        @SystemMessage(
+                """
+                        你是一名银行柜员，负责执行用户账户美元(USD)存入或支取操作。
+                        """)
+        @UserMessage(
+                """
+                        {{message}}
+                        """)
+        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("message") String message);
+    }
+
+    public interface WithdrawAgent {
+        @SystemMessage(
+                """
+                        你是一名银行柜员，仅能从用户账户支取美元（USD）。
+                        """)
+        @UserMessage(
+                """
+                        从 {{withdrawUser}} 的账户取出 {{amountInUSD}} 美元，返回更新后的账户余额。
+                        """)
+        @Agent("负责账户美元取款业务的柜员")
+        String withdraw(@V("withdrawUser") String withdrawUser, @V("amountInUSD") Double amountInUSD);
+    }
+
+    public interface CreditAgent {
+        @SystemMessage(
+                """
+                        你是一名银行柜员，仅能为用户账户存入美元（USD）。
+                        """)
+        @UserMessage(
+                """
+                        为 {{creditUser}} 的账户存入 {{amountInUSD}} 美元，并返回最新余额。
+                        """)
+        @Agent("负责为账户存入美元的柜员")
+        String credit(@V("creditUser") String creditUser, @V("amountInUSD") Double amountInUSD);
+    }
+
+
+    static class BankTool {
+
+        private final Map<String, Double> accounts = new HashMap<>();
+
+        void clearAccounts() {
+            accounts.clear();
+        }
+
+        void createAccount(String user, Double initialBalance) {
+            if (accounts.containsKey(user)) {
+                throw new RuntimeException("Account for user " + user + " already exists");
+            }
+            accounts.put(user, initialBalance);
+        }
+
+        double getBalance(String user) {
+            Double balance = accounts.get(user);
+            if (balance == null) {
+                throw new RuntimeException("No balance found for user " + user);
+            }
+            return balance;
+        }
+
+        @Tool("向指定用户账户存入对应金额，并返回最新账户余额")
+        Double credit(@P("user name") String user, @P("amount") Double amount) {
+            Double balance = accounts.get(user);
+            if (balance == null) {
+                throw new RuntimeException("No balance found for user " + user);
+            }
+            Double newBalance = balance + amount;
+            accounts.put(user, newBalance);
+            return newBalance;
+        }
+
+        @Tool("从指定用户账户支取对应金额，并返回最新账户余额")
+        Double withdraw(@P("user name") String user, @P("amount") Double amount) {
+            Double balance = accounts.get(user);
+            if (balance == null) {
+                throw new RuntimeException("No balance found for user " + user);
+            }
+            Double newBalance = balance - amount;
+            accounts.put(user, newBalance);
+            return newBalance;
+        }
+    }
+
+    public interface ExchangeAgent {
+        @UserMessage(
+                """
+                        你是一名货币兑换操作员。
+                        调用工具将 {{amount}} 单位的 {{originalCurrency}} 兑换为 {{targetCurrency}}，
+                        仅原样返回工具计算得出的最终金额，不输出其他任何内容。
+                        """)
+        @Agent(outputKey = "货币兑换智能体")
+        Double exchange(
+                @V("originalCurrency") String originalCurrency,
+                @V("amount") Double amount,
+                @V("targetCurrency") String targetCurrency);
+    }
+
+    static class ExchangeTool {
+
+        public static Map<String, Double> exchangeRatesToUSD = new HashMap<>();
+
+        static {
+            exchangeRatesToUSD.put("USD", 1.0);
+            exchangeRatesToUSD.put("EUR", 1.15);
+            exchangeRatesToUSD.put("CHF", 1.25);
+            exchangeRatesToUSD.put("CAN", 0.8);
+        }
+
+        @Tool("将指定金额的货币从原币种兑换为目标币种")
+        Double exchange(
+                @P("originalCurrency") String originalCurrency,
+                @P("amount") Double amount,
+                @P("targetCurrency") String targetCurrency) {
+            Double exchangeRate1 = exchangeRatesToUSD.get(originalCurrency);
+            if (exchangeRate1 == null) {
+                throw new RuntimeException("No exchange rate found for currency " + originalCurrency);
+            }
+            Double exchangeRate2 = exchangeRatesToUSD.get(targetCurrency);
+            if (exchangeRate2 == null) {
+                throw new RuntimeException("No exchange rate found for currency " + targetCurrency);
+            }
+            return (amount * exchangeRate1) / exchangeRate2;
+        }
+    }
+
+    public static class ExchangeOperator {
+
+        public static Map<String, Double> exchangeRatesToUSD = new HashMap<>();
+
+        static {
+            exchangeRatesToUSD.put("USD", 1.0);
+            exchangeRatesToUSD.put("EUR", 1.15);
+            exchangeRatesToUSD.put("CHF", 1.25);
+            exchangeRatesToUSD.put("CAN", 0.8);
+        }
+
+        @Agent(
+                description =
+                        "负责将指定金额货币从原币种兑换为目标币种的货币兑换员",
+                outputKey = "exchange")
+        public Double exchange(
+                @V("originalCurrency") String originalCurrency,
+                @V("amount") Double amount,
+                @V("targetCurrency") String targetCurrency) {
+            Double exchangeRate1 = exchangeRatesToUSD.get(originalCurrency);
+            if (exchangeRate1 == null) {
+                throw new RuntimeException("No exchange rate found for currency " + originalCurrency);
+            }
+            Double exchangeRate2 = exchangeRatesToUSD.get(targetCurrency);
+            if (exchangeRate2 == null) {
+                throw new RuntimeException("No exchange rate found for currency " + targetCurrency);
+            }
+            return (amount * exchangeRate1) / exchangeRate2;
+        }
+    }
+
 
 }

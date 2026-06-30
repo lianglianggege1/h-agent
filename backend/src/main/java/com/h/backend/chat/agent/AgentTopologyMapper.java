@@ -8,6 +8,8 @@ import com.h.backend.chat.dto.StateKeyDto;
 import dev.langchain4j.agentic.planner.AgentArgument;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
+import dev.langchain4j.agentic.planner.Planner;
+import dev.langchain4j.agentic.supervisor.SupervisorPlanner;
 import dev.langchain4j.agentic.workflow.ConditionalAgent;
 import dev.langchain4j.agentic.workflow.ConditionalAgentInstance;
 import dev.langchain4j.agentic.workflow.LoopAgentInstance;
@@ -138,6 +140,10 @@ public class AgentTopologyMapper {
     }
 
     private String topologyName(AgentInstance agent) {
+        Class<? extends Planner> plannerType = agent.plannerType();
+        if (plannerType != null && SupervisorPlanner.class.isAssignableFrom(plannerType)) {
+            return AgenticSystemTopology.STAR.name();
+        }
         return agent.topology() == null ? null : agent.topology().name();
     }
 

@@ -10,6 +10,8 @@ import com.h.backend.chat.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
 import dev.langchain4j.agentic.scope.AgenticScope;
+import dev.langchain4j.agentic.supervisor.SupervisorAgent;
+import dev.langchain4j.agentic.supervisor.SupervisorResponseStrategy;
 import dev.langchain4j.agentic.workflow.HumanInTheLoop;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
@@ -385,6 +387,42 @@ public class AgentConfig {
             missingFields.add("目标受众");
         }
         return "为了继续创作故事，请补充：" + String.join("、", missingFields) + "。";
+    }
+
+    @Bean
+    public Agents.BankerAgent bankerAgent() {
+
+        Agents.WithdrawAgent withdrawAgent = AgenticServices.agentBuilder(Agents.WithdrawAgent.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("balance")
+                .build();
+
+        Agents.CreditAgent creditAgent = AgenticServices.agentBuilder(Agents.CreditAgent.class)
+                .chatModel(chatModel)
+                .listener(agentStepListener)
+                .outputKey("balance")
+                .build();
+
+        SupervisorAgent bankSupervisor = AgenticServices.supervisorBuilder()
+                .name("银行柜员")
+                .description("负责执行用户账户美元(USD)存入或支取操作")
+                .listener(agentStepListener)
+                .chatModel(chatModel)
+                .responseStrategy(SupervisorResponseStrategy.SUMMARY)
+                .chatMemoryProvider(scopedMemoryProvider("banker-agent"))
+                .subAgents(withdrawAgent, creditAgent)
+                .outputKey("balance")
+                .build();
+
+        return AgenticServices.sequenceBuilder(Agents.BankerAgent.class)
+                .name("银行代理")
+                .description("负责执行用户账户美元(USD)存入或支取操作")
+                .listener(agentStepListener)
+                .subAgents(bankSupervisor)
+                .outputKey("balance")
+                .build();
+
     }
 
 }

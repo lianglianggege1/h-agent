@@ -71,5 +71,19 @@ public class AgentDefinitionConfig {
         );
     }
 
+    @Bean
+    public AgentDefinition bankAgent(Agents.BankerAgent bankerAgent) {
+        return new AgentDefinition(
+                "banker-agent",
+                "银行代理",
+                "银行",
+                List.of("银行"),
+                "银行",
+                bankerAgent,
+                AgentRuntimeType.AGENTIC_SYNC,
+                true
+        );
+    }
+
 
 }
