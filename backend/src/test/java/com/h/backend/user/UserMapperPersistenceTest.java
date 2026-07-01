@@ -1,9 +1,9 @@
 package com.h.backend.user;
 
-import com.h.backend.user.entity.UserEntity;
-import com.h.backend.user.entity.UserRoleEntity;
-import com.h.backend.user.mapper.UserMapper;
-import com.h.backend.user.mapper.UserRoleMapper;
+import com.h.backend.user.infrastructure.persistence.entity.UserEntity;
+import com.h.backend.user.infrastructure.persistence.entity.UserRoleEntity;
+import com.h.backend.user.infrastructure.persistence.mapper.UserMapper;
+import com.h.backend.user.infrastructure.persistence.mapper.UserRoleMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

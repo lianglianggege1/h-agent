@@ -1,7 +1,7 @@
-package com.h.backend.chat.image;
+package com.h.backend.chat.infrastructure.image;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.chat.config.ImageGenerationProperties;
+import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

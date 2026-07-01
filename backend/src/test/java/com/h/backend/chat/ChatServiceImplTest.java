@@ -1,24 +1,24 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.ai.HAssistant;
-import com.h.backend.chat.agent.AgentDefinition;
-import com.h.backend.chat.agent.AgentRegistry;
-import com.h.backend.chat.agent.AgentRuntimeType;
-import com.h.backend.chat.agent.ChatAgentExecutionCommand;
-import com.h.backend.chat.agent.ChatAgentExecutor;
-import com.h.backend.chat.agent.HAssistantStreamingExecutor;
-import com.h.backend.chat.dto.ChatMessageResourceDto;
-import com.h.backend.chat.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.dto.ChatSessionMessageDto;
-import com.h.backend.chat.dto.ChatStreamEvent;
-import com.h.backend.chat.service.AgentRunService;
-import com.h.backend.chat.service.AgentRunTelemetryService;
-import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
-import com.h.backend.chat.service.ChatStreamEventBridge;
-import com.h.backend.chat.service.ChatSessionService;
-import com.h.backend.chat.service.ImageGenerationService;
-import com.h.backend.chat.service.SystemPromptService;
-import com.h.backend.chat.service.impl.ChatServiceImpl;
+import com.h.backend.chat.infrastructure.ai.HAssistant;
+import com.h.backend.chat.domain.agent.AgentDefinition;
+import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
+import com.h.backend.chat.domain.agent.ChatAgentExecutor;
+import com.h.backend.chat.domain.agent.HAssistantStreamingExecutor;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.application.AgentRunTelemetryService;
+import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
+import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ImageGenerationService;
+import com.h.backend.chat.application.SystemPromptService;
+import com.h.backend.chat.application.impl.ChatServiceImpl;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -1101,7 +1101,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
-                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+                "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
         ChatServiceImpl chatService = createChatService(
@@ -1145,7 +1145,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
-                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+                "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
@@ -1188,7 +1188,7 @@ class ChatServiceImplTest {
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
-                "The guardrail com.h.backend.chat.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
+                "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
         FakeTokenStream tokenStream = new FakeTokenStream().emitStartError(guardrailException);
         ChatServiceImpl chatService = createChatService(
@@ -1684,7 +1684,7 @@ class ChatServiceImplTest {
                     .result("ok")
                     .invocationContext(InvocationContext.builder()
                             .invocationId(UUID.randomUUID())
-                            .interfaceName("com.h.backend.chat.ai.HAssistant")
+                            .interfaceName("com.h.backend.chat.infrastructure.ai.HAssistant")
                             .methodName("streamChat")
                             .methodArguments(List.of("hello"))
                             .chatMemoryId("memory-1")

@@ -1,4 +1,4 @@
-package com.h.backend.chat.config;
+package com.h.backend.chat.infrastructure.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;

@@ -1,8 +1,8 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.config.KnowledgeProperties;
-import com.h.backend.knowledge.service.KnowledgeDocumentService;
-import com.h.backend.knowledge.service.impl.KnowledgeIngestServiceImpl;
+import com.h.backend.knowledge.infrastructure.config.KnowledgeProperties;
+import com.h.backend.knowledge.application.KnowledgeDocumentService;
+import com.h.backend.knowledge.application.impl.KnowledgeIngestServiceImpl;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;

@@ -1,6 +1,6 @@
-package com.h.backend.chat.agent;
+package com.h.backend.chat.domain.agent;
 
-import com.h.backend.chat.dto.AgentStepPayloadDto;
+import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
 import dev.langchain4j.agentic.observability.AgentInvocationError;
 import dev.langchain4j.agentic.observability.AgentRequest;
 import dev.langchain4j.agentic.observability.AgentResponse;

@@ -1,17 +1,17 @@
 package com.h.backend.voice;
 
-import com.h.backend.chat.dto.ChatMessageResourceDto;
-import com.h.backend.chat.dto.ChatSessionMessageDto;
-import com.h.backend.chat.service.ChatSessionService;
-import com.h.backend.chat.storage.ResourceSaveCommand;
-import com.h.backend.chat.storage.ResourceStorage;
-import com.h.backend.chat.storage.StoredResource;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
-import com.h.backend.voice.config.VoiceTtsProperties;
-import com.h.backend.voice.service.VoiceTtsService;
-import com.h.backend.voice.tts.MiniMaxTtsClient;
-import com.h.backend.voice.tts.MiniMaxTtsRequest;
-import com.h.backend.voice.tts.MiniMaxTtsResult;
+import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
+import com.h.backend.voice.application.VoiceTtsService;
+import com.h.backend.voice.infrastructure.tts.MiniMaxTtsClient;
+import com.h.backend.voice.infrastructure.tts.MiniMaxTtsRequest;
+import com.h.backend.voice.infrastructure.tts.MiniMaxTtsResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 

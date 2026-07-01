@@ -1,12 +1,12 @@
 package com.h.backend.auth;
 
-import com.h.backend.auth.dto.AuthUserResponse;
-import com.h.backend.auth.dto.LoginRequest;
-import com.h.backend.auth.dto.LoginResponse;
-import com.h.backend.auth.dto.RegisterRequest;
-import com.h.backend.auth.service.AuthService;
+import com.h.backend.auth.interfaces.dto.AuthUserResponse;
+import com.h.backend.auth.interfaces.dto.LoginRequest;
+import com.h.backend.auth.interfaces.dto.LoginResponse;
+import com.h.backend.auth.interfaces.dto.RegisterRequest;
+import com.h.backend.auth.application.AuthService;
 import com.h.backend.common.exception.BusinessException;
-import com.h.backend.security.JwtTokenProvider;
+import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

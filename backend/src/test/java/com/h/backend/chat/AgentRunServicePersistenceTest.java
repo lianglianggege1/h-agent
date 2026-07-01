@@ -2,10 +2,10 @@ package com.h.backend.chat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.chat.entity.AgentRunEntity;
-import com.h.backend.chat.mapper.AgentRunMapper;
-import com.h.backend.chat.service.AgentRunService;
-import com.h.backend.chat.service.impl.AgentRunServiceImpl;
+import com.h.backend.chat.infrastructure.persistence.entity.AgentRunEntity;
+import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.application.impl.AgentRunServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;

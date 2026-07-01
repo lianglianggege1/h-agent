@@ -1,13 +1,13 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.entity.ChatMemorySnapshotEntity;
-import com.h.backend.chat.entity.ChatSessionEntity;
-import com.h.backend.chat.mapper.ChatMemorySnapshotMapper;
-import com.h.backend.chat.mapper.ChatSessionMapper;
-import com.h.backend.chat.memory.ChatMemoryContext;
-import com.h.backend.chat.service.impl.ChatMemorySnapshotServiceImpl;
-import com.h.backend.utils.RedisUtil;
-import com.h.backend.utils.RedissonUtil;
+import com.h.backend.chat.infrastructure.persistence.entity.ChatMemorySnapshotEntity;
+import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
+import com.h.backend.chat.infrastructure.persistence.mapper.ChatMemorySnapshotMapper;
+import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
+import com.h.backend.chat.domain.memory.ChatMemoryContext;
+import com.h.backend.chat.application.impl.ChatMemorySnapshotServiceImpl;
+import com.h.backend.shared.infrastructure.utils.RedisUtil;
+import com.h.backend.shared.infrastructure.utils.RedissonUtil;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

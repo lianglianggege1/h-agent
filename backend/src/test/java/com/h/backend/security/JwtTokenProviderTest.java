@@ -1,4 +1,4 @@
-package com.h.backend.security;
+package com.h.backend.shared.infrastructure.security;
 
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;

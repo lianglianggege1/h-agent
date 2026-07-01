@@ -1,4 +1,4 @@
-package com.h.backend.chat.ai;
+package com.h.backend.chat.infrastructure.ai;
 
 import dev.langchain4j.service.V;
 import org.junit.jupiter.api.Test;

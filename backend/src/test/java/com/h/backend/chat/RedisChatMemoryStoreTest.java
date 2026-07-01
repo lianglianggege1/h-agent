@@ -1,9 +1,9 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.memory.ChatMemoryContext;
-import com.h.backend.chat.memory.ChatMemoryIdFactory;
-import com.h.backend.chat.memory.RedisChatMemoryStore;
-import com.h.backend.chat.service.ChatMemorySnapshotService;
+import com.h.backend.chat.domain.memory.ChatMemoryContext;
+import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
+import com.h.backend.chat.application.ChatMemorySnapshotService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;

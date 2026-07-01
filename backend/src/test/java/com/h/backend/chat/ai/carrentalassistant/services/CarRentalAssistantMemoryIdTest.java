@@ -1,4 +1,4 @@
-package com.h.backend.chat.ai.carrentalassistant.services;
+package com.h.backend.chat.infrastructure.ai.carrentalassistant.services;
 
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.service.MemoryId;

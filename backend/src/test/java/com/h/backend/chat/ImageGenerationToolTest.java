@@ -1,9 +1,9 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.dto.ChatSessionMessageDto;
-import com.h.backend.chat.service.ChatStreamEventBridge;
-import com.h.backend.chat.service.ImageSubAgentService;
-import com.h.backend.chat.tools.ImageGenerationTool;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.ImageSubAgentService;
+import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;

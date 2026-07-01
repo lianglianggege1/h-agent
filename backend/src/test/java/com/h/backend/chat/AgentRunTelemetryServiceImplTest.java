@@ -1,6 +1,6 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.service.impl.AgentRunTelemetryServiceImpl;
+import com.h.backend.chat.application.impl.AgentRunTelemetryServiceImpl;
 import io.opentelemetry.api.OpenTelemetry;
 import org.junit.jupiter.api.Test;
 

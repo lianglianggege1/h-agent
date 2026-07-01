@@ -1,6 +1,6 @@
 package com.h.backend;
 
-import com.h.backend.voice.config.VoiceTtsProperties;
+import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -8,9 +8,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @MapperScan({
-        "com.h.backend.user.mapper",
-        "com.h.backend.chat.mapper",
-        "com.h.backend.knowledge.mapper"
+        "com.h.backend.user.infrastructure.persistence.mapper",
+        "com.h.backend.chat.infrastructure.persistence.mapper",
+        "com.h.backend.knowledge.infrastructure.persistence.mapper"
 })
 @SpringBootApplication
 @EnableScheduling

@@ -1,6 +1,6 @@
-package com.h.backend.chat.agent;
+package com.h.backend.chat.domain.agent;
 
-import com.h.backend.chat.dto.AgentStepPayloadDto;
+import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

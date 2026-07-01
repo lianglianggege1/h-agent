@@ -1,9 +1,9 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.entity.ChatSessionEntity;
-import com.h.backend.chat.mapper.ChatSessionMapper;
-import com.h.backend.user.entity.UserEntity;
-import com.h.backend.user.mapper.UserMapper;
+import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
+import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
+import com.h.backend.user.infrastructure.persistence.entity.UserEntity;
+import com.h.backend.user.infrastructure.persistence.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

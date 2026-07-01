@@ -1,7 +1,7 @@
-package com.h.backend.chat.agent;
+package com.h.backend.chat.domain.agent;
 
-import com.h.backend.chat.dto.AgentTopologyDto;
-import com.h.backend.chat.dto.AgentTopologyNodeDto;
+import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
+import com.h.backend.chat.interfaces.dto.AgentTopologyNodeDto;
 import dev.langchain4j.agentic.planner.AgentArgument;
 import dev.langchain4j.agentic.planner.Action;
 import dev.langchain4j.agentic.planner.AgentInstance;

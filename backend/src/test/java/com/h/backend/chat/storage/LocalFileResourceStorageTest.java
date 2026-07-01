@@ -1,6 +1,6 @@
-package com.h.backend.chat.storage;
+package com.h.backend.chat.infrastructure.storage;
 
-import com.h.backend.chat.config.ImageGenerationProperties;
+import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

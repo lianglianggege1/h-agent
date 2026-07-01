@@ -1,12 +1,12 @@
 package com.h.backend.voice;
 
-import com.h.backend.chat.dto.ChatMessageResourceDto;
-import com.h.backend.chat.service.ChatSessionService;
-import com.h.backend.chat.storage.ResourceSaveCommand;
-import com.h.backend.chat.storage.ResourceStorage;
-import com.h.backend.chat.storage.StoredResource;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
-import com.h.backend.voice.service.CallTurnService;
+import com.h.backend.voice.application.CallTurnService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;

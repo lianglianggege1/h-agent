@@ -1,8 +1,8 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.config.ChatStreamProperties;
-import com.h.backend.chat.service.ChatStreamConcurrencyGuard;
-import com.h.backend.chat.service.impl.RedisChatStreamConcurrencyGuard;
+import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
+import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
+import com.h.backend.chat.application.impl.RedisChatStreamConcurrencyGuard;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

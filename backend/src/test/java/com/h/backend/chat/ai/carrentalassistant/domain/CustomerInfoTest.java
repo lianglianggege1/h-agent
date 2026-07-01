@@ -1,4 +1,4 @@
-package com.h.backend.chat.ai.carrentalassistant.domain;
+package com.h.backend.chat.infrastructure.ai.carrentalassistant.domain;
 
 import org.junit.jupiter.api.Test;
 

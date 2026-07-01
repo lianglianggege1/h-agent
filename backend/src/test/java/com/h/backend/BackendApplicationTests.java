@@ -1,6 +1,6 @@
 package com.h.backend;
 
-import com.h.backend.security.JwtTokenProvider;
+import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

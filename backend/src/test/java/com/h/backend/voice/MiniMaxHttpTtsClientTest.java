@@ -1,9 +1,9 @@
 package com.h.backend.voice;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.voice.config.VoiceTtsProperties;
-import com.h.backend.voice.tts.MiniMaxHttpTtsClient;
-import com.h.backend.voice.tts.MiniMaxTtsRequest;
+import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
+import com.h.backend.voice.infrastructure.tts.MiniMaxHttpTtsClient;
+import com.h.backend.voice.infrastructure.tts.MiniMaxTtsRequest;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

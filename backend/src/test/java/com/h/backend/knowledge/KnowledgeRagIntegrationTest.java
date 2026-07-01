@@ -1,6 +1,6 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.service.KnowledgeIngestService;
+import com.h.backend.knowledge.application.KnowledgeIngestService;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;

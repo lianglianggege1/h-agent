@@ -1,11 +1,11 @@
-package com.h.backend.chat.agent;
+package com.h.backend.chat.domain.agent;
 
-import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
-import com.h.backend.chat.dto.AgentStepPayloadDto;
-import com.h.backend.chat.dto.ChatStreamEvent;
-import com.h.backend.chat.service.AgentRunService;
-import com.h.backend.chat.service.AgentRunTelemetryService;
-import com.h.backend.chat.service.ChatSessionService;
+import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRentalAssistant;
+import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.application.AgentRunTelemetryService;
+import com.h.backend.chat.application.ChatSessionService;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import org.junit.jupiter.api.Test;

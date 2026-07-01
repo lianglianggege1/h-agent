@@ -1,15 +1,15 @@
 package com.h.backend.voice;
 
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.security.AuthUserPrincipal;
-import com.h.backend.voice.controller.VoiceController;
-import com.h.backend.voice.dto.CallTurnFinalizeRequest;
-import com.h.backend.voice.dto.CallTurnStartRequest;
-import com.h.backend.voice.dto.CallTurnStartResponse;
-import com.h.backend.voice.dto.TtsPreviewRequest;
-import com.h.backend.voice.dto.VoiceResourceResponse;
-import com.h.backend.voice.service.CallTurnService;
-import com.h.backend.voice.service.VoiceTtsService;
+import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
+import com.h.backend.voice.interfaces.web.VoiceController;
+import com.h.backend.voice.interfaces.dto.CallTurnFinalizeRequest;
+import com.h.backend.voice.interfaces.dto.CallTurnStartRequest;
+import com.h.backend.voice.interfaces.dto.CallTurnStartResponse;
+import com.h.backend.voice.interfaces.dto.TtsPreviewRequest;
+import com.h.backend.voice.interfaces.dto.VoiceResourceResponse;
+import com.h.backend.voice.application.CallTurnService;
+import com.h.backend.voice.application.VoiceTtsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;

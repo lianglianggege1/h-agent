@@ -1,10 +1,10 @@
-package com.h.backend.chat.controller;
+package com.h.backend.chat.interfaces.web;
 
-import com.h.backend.chat.agent.AgentDefinition;
-import com.h.backend.chat.agent.AgentRegistry;
-import com.h.backend.chat.agent.AgentRuntimeType;
-import com.h.backend.chat.agent.AgentTopologyMapper;
-import com.h.backend.chat.dto.AgentTopologyDto;
+import com.h.backend.chat.domain.agent.AgentDefinition;
+import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.agent.AgentTopologyMapper;
+import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.common.api.ApiResponse;
 import com.h.backend.common.exception.BusinessException;
 import dev.langchain4j.agentic.planner.AgentInstance;

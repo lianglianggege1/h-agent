@@ -1,4 +1,4 @@
-package com.h.backend.chat.agent;
+package com.h.backend.chat.domain.agent;
 
 import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;

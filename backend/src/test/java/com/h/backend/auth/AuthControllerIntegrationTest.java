@@ -2,8 +2,8 @@ package com.h.backend.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.auth.dto.LoginRequest;
-import com.h.backend.auth.dto.RegisterRequest;
+import com.h.backend.auth.interfaces.dto.LoginRequest;
+import com.h.backend.auth.interfaces.dto.RegisterRequest;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

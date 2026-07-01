@@ -1,19 +1,19 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.config.ImageGenerationProperties;
-import com.h.backend.chat.dto.ChatMessageResourceDto;
-import com.h.backend.chat.dto.ChatSessionMessageDto;
-import com.h.backend.chat.image.MiniMaxImageClient;
-import com.h.backend.chat.image.MiniMaxImageGenerationResult;
-import com.h.backend.chat.entity.ChatMessageResourceEntity;
-import com.h.backend.chat.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.service.ChatSessionService;
-import com.h.backend.chat.service.ImageGenerationService;
-import com.h.backend.chat.service.impl.ImageGenerationServiceImpl;
-import com.h.backend.chat.storage.ResourceContent;
-import com.h.backend.chat.storage.ResourceSaveCommand;
-import com.h.backend.chat.storage.ResourceStorage;
-import com.h.backend.chat.storage.StoredResource;
+import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.chat.infrastructure.image.MiniMaxImageClient;
+import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
+import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
+import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ImageGenerationService;
+import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
+import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.StoredResource;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -186,8 +186,8 @@ class ImageGenerationServiceImplTest {
                 "EDIT_PROMPT"
         ));
 
-        ArgumentCaptor<com.h.backend.chat.model.ChatMessagePayload> payloadCaptor =
-                ArgumentCaptor.forClass(com.h.backend.chat.model.ChatMessagePayload.class);
+        ArgumentCaptor<com.h.backend.chat.domain.model.ChatMessagePayload> payloadCaptor =
+                ArgumentCaptor.forClass(com.h.backend.chat.domain.model.ChatMessagePayload.class);
         verify(chatSessionService).appendImageMessage(
                 eq(1L),
                 eq("session-1"),

@@ -1,9 +1,9 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.controller.KnowledgeDocumentController;
-import com.h.backend.knowledge.service.KnowledgeDocumentService;
-import com.h.backend.knowledge.service.KnowledgeIngestService;
-import com.h.backend.knowledge.mapper.KnowledgeSegmentMapper;
+import com.h.backend.knowledge.interfaces.web.KnowledgeDocumentController;
+import com.h.backend.knowledge.application.KnowledgeDocumentService;
+import com.h.backend.knowledge.application.KnowledgeIngestService;
+import com.h.backend.knowledge.infrastructure.persistence.mapper.KnowledgeSegmentMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -21,8 +21,8 @@ class KnowledgeDocumentControllerTest {
 
     @Test
     void deleteShouldCheckOwnershipThenRemoveVectorsAndMetadata() {
-        var principal = new com.h.backend.security.AuthUserPrincipal(1L, "a@b.com", "USER");
-        var doc = new com.h.backend.knowledge.entity.KnowledgeDocumentEntity();
+        var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
+        var doc = new com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity();
         doc.setId(5L);
         doc.setUserId(1L);
         Mockito.when(documentService.requireOwned(1L, 5L)).thenReturn(doc);
@@ -37,10 +37,10 @@ class KnowledgeDocumentControllerTest {
 
     @Test
     void manualShouldDelegateToIngestService() {
-        var principal = new com.h.backend.security.AuthUserPrincipal(1L, "a@b.com", "USER");
+        var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
         Mockito.when(ingestService.ingestManual(1L, 2L, "标题", "内容")).thenReturn(7L);
 
-        var req = new com.h.backend.knowledge.dto.ManualInputRequest(2L, "标题", "内容");
+        var req = new com.h.backend.knowledge.interfaces.dto.ManualInputRequest(2L, "标题", "内容");
         var resp = controller.manual(principal, req);
 
         assertEquals(0, resp.code());

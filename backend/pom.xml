@@ -16,6 +16,7 @@
     <properties>
         <java.version>23</java.version>
         <langchain4j.version>1.15.0</langchain4j.version>
+        <lombok.version>1.18.36</lombok.version>
     </properties>
 
     <repositories>
@@ -212,6 +213,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
@@ -250,6 +252,7 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
+                                    <version>${lombok.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
@@ -265,11 +268,21 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
+                                    <version>${lombok.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <agents.a2a.other-agents.enabled>false</agents.a2a.other-agents.enabled>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>

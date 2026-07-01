@@ -1,12 +1,12 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.config.ChatStreamProperties;
-import com.h.backend.chat.controller.ChatController;
-import com.h.backend.chat.dto.ChatMessageRequest;
-import com.h.backend.chat.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.dto.ChatStreamEvent;
-import com.h.backend.chat.service.ChatService;
-import com.h.backend.security.AuthUserPrincipal;
+import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
+import com.h.backend.chat.interfaces.web.ChatController;
+import com.h.backend.chat.interfaces.dto.ChatMessageRequest;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
+import com.h.backend.chat.application.ChatService;
+import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;

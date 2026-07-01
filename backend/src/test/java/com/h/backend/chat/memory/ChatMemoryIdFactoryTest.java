@@ -1,4 +1,4 @@
-package com.h.backend.chat.memory;
+package com.h.backend.chat.domain.memory;
 
 import org.junit.jupiter.api.Test;
 

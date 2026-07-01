@@ -1,4 +1,4 @@
-package com.h.backend.chat.dto;
+package com.h.backend.chat.interfaces.dto;
 
 import org.junit.jupiter.api.Test;
 

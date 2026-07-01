@@ -1,11 +1,11 @@
-package com.h.backend.chat.config;
+package com.h.backend.chat.infrastructure.config;
 
-import com.h.backend.chat.ai.AgentConfig;
-import com.h.backend.chat.ai.carrentalassistant.domain.CustomerInfo;
-import com.h.backend.chat.ai.carrentalassistant.services.CarRentalAssistant;
-import com.h.backend.chat.agent.AgentStepListener;
-import com.h.backend.chat.memory.ChatMemoryIdFactory;
-import com.h.backend.chat.memory.RedisChatMemoryStore;
+import com.h.backend.chat.infrastructure.ai.AgentConfig;
+import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.CustomerInfo;
+import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRentalAssistant;
+import com.h.backend.chat.domain.agent.AgentStepListener;
+import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.model.chat.ChatModel;

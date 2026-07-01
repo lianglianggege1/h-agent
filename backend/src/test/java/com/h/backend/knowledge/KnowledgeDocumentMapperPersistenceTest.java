@@ -1,7 +1,7 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.entity.KnowledgeDocumentEntity;
-import com.h.backend.knowledge.mapper.KnowledgeDocumentMapper;
+import com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity;
+import com.h.backend.knowledge.infrastructure.persistence.mapper.KnowledgeDocumentMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

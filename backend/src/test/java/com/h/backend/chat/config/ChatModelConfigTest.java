@@ -1,4 +1,4 @@
-package com.h.backend.chat.config;
+package com.h.backend.chat.infrastructure.config;
 
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
