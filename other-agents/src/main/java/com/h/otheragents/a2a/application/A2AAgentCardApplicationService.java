@@ -18,12 +18,60 @@ public class A2AAgentCardApplicationService {
         this.properties = properties;
     }
 
-    public AgentCard agentCard() {
+    public AgentCard creativeWriterAgentCard() {
+        return agentCard(
+                "creative-writer",
+                "根据指定主题生成故事",
+                "/creative-wtiter/a2a",
+                "creative-writer",
+                "创意写作者",
+                "根据主题生成故事初稿",
+                List.of("story", "writing", "draft"),
+                List.of("月球救援", "赛博朋克城市")
+        );
+    }
+
+    public AgentCard audienceEditorAgentCard() {
+        return agentCard(
+                "audience-editor",
+                "修改故事适配指定受众群体",
+                "/audience-editor/a2a",
+                "audience-editor",
+                "受众编辑器",
+                "修改故事适配指定受众群体",
+                List.of("story", "audience", "editing"),
+                List.of("把故事改写给儿童读者")
+        );
+    }
+
+    public AgentCard styleEditorAgentCard() {
+        return agentCard(
+                "style-editor",
+                "调整故事适配指定文风",
+                "/style-editor/a2a",
+                "style-editor",
+                "风格编辑器",
+                "调整故事适配指定文风",
+                List.of("story", "style", "editing"),
+                List.of("把故事改成赛博朋克风格")
+        );
+    }
+
+    private AgentCard agentCard(
+            String agentName,
+            String description,
+            String endpointPath,
+            String skillId,
+            String skillName,
+            String skillDescription,
+            List<String> tags,
+            List<String> examples
+    ) {
         String baseUrl = properties.normalizedPublicUrl();
         return new AgentCard.Builder()
-                .name("remote-creative-writer")
-                .description("通过 A2A 暴露的远端创意写作者")
-                .url(baseUrl + "/a2a")
+                .name(agentName)
+                .description(description)
+                .url(baseUrl + endpointPath)
                 .provider(new AgentProvider("h-agent other-agents", baseUrl))
                 .version("0.1.0")
                 .capabilities(new AgentCapabilities.Builder()
@@ -33,35 +81,15 @@ public class A2AAgentCardApplicationService {
                         .build())
                 .defaultInputModes(List.of("text/plain"))
                 .defaultOutputModes(List.of("text/plain"))
-                .skills(List.of(
-                        new AgentSkill.Builder()
-                                .id("creative-writer")
-                                .name("创意写作者")
-                                .description("根据主题生成故事初稿")
-                                .tags(List.of("story", "writing", "draft"))
-                                .examples(List.of("月球救援", "赛博朋克城市"))
-                                .inputModes(List.of("text/plain"))
-                                .outputModes(List.of("text/plain"))
-                                .build(),
-                        new AgentSkill.Builder()
-                                .id("audience-editor")
-                                .name("受众编辑器")
-                                .description("修改故事适配指定受众群体")
-                                .tags(List.of("story", "audience", "editing"))
-                                .examples(List.of("把故事改写给儿童读者"))
-                                .inputModes(List.of("text/plain"))
-                                .outputModes(List.of("text/plain"))
-                                .build(),
-                        new AgentSkill.Builder()
-                                .id("style-editor")
-                                .name("风格编辑器")
-                                .description("调整故事适配指定文风")
-                                .tags(List.of("story", "style", "editing"))
-                                .examples(List.of("把故事改成赛博朋克风格"))
-                                .inputModes(List.of("text/plain"))
-                                .outputModes(List.of("text/plain"))
-                                .build()
-                ))
+                .skills(List.of(new AgentSkill.Builder()
+                        .id(skillId)
+                        .name(skillName)
+                        .description(skillDescription)
+                        .tags(tags)
+                        .examples(examples)
+                        .inputModes(List.of("text/plain"))
+                        .outputModes(List.of("text/plain"))
+                        .build()))
                 .build();
     }
 }

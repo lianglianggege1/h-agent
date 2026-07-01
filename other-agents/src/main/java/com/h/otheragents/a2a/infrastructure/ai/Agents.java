@@ -1,12 +1,12 @@
-package com.h.otheragents.a2a.domain.service;
+package com.h.otheragents.a2a.infrastructure.ai;
 
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
-public interface RemoteStoryAgents {
+public class Agents {
 
-    interface CreativeWriter {
+    public interface CreativeWriter {
 
         @UserMessage("""
                 你是一名创意写作者。
@@ -18,7 +18,7 @@ public interface RemoteStoryAgents {
         String generateStory(@V("topic") String topic);
     }
 
-    interface AudienceEditor {
+    public interface AudienceEditor {
 
         @UserMessage("""
                     你是专业编辑。
@@ -30,7 +30,7 @@ public interface RemoteStoryAgents {
         String editStory(@V("story") String story, @V("audience") String audience);
     }
 
-    interface StyleEditor {
+    public interface StyleEditor {
 
         @UserMessage("""
                 你是专业编辑。

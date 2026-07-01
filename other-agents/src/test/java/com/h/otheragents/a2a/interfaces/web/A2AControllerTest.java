@@ -1,11 +1,8 @@
 package com.h.otheragents.a2a.interfaces.web;
 
 import com.h.otheragents.a2a.application.A2AAgentCardApplicationService;
-import com.h.otheragents.a2a.application.A2AMessageApplicationService;
-import com.h.otheragents.a2a.application.CreativeWritingApplicationService;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
-import com.h.otheragents.a2a.domain.service.LangChain4jStoryAgentService;
-import com.h.otheragents.a2a.domain.service.RemoteStoryAgents;
+import com.h.otheragents.a2a.infrastructure.ai.Agents;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -15,42 +12,47 @@ class A2AControllerTest {
     private final WebTestClient client = WebTestClient.bindToController(controller()).build();
 
     @Test
-    void agentCardUsesConfiguredA2AEndpoint() {
+    void creativeWriterAgentCardUsesCreativeWriterEndpoint() {
         client.get()
-                .uri("/.well-known/agent-card.json")
+                .uri("/creative-wtiter/.well-known/agent-card.json")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.name").isEqualTo("remote-creative-writer")
-                .jsonPath("$.url").isEqualTo("http://localhost:8082/a2a")
-                .jsonPath("$.capabilities.streaming").isEqualTo(false)
-                .jsonPath("$.skills.length()").isEqualTo(3);
+                .jsonPath("$.name").isEqualTo("creative-writer")
+                .jsonPath("$.url").isEqualTo("http://localhost:8082/creative-wtiter/a2a")
+                .jsonPath("$.skills[0].id").isEqualTo("creative-writer");
     }
 
     @Test
-    void messageSendReturnsAgentTextMessage() {
+    void audienceEditorAgentCardUsesAudienceEditorEndpoint() {
+        client.get()
+                .uri("/audience-editor/.well-known/agent-card.json")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.name").isEqualTo("audience-editor")
+                .jsonPath("$.url").isEqualTo("http://localhost:8082/audience-editor/a2a")
+                .jsonPath("$.skills[0].id").isEqualTo("audience-editor");
+    }
+
+    @Test
+    void styleEditorAgentCardUsesStyleEditorEndpoint() {
+        client.get()
+                .uri("/style-editor/.well-known/agent-card.json")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.name").isEqualTo("style-editor")
+                .jsonPath("$.url").isEqualTo("http://localhost:8082/style-editor/a2a")
+                .jsonPath("$.skills[0].id").isEqualTo("style-editor");
+    }
+
+    @Test
+    void creativeWriterEndpointCallsCreativeWriterAgent() {
         client.post()
-                .uri("/a2a")
+                .uri("/creative-wtiter/a2a")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {
-                          "jsonrpc": "2.0",
-                          "id": "test-message",
-                          "method": "message/send",
-                          "params": {
-                            "message": {
-                              "role": "user",
-                              "parts": [
-                                {
-                                  "kind": "text",
-                                  "text": "月球救援"
-                                }
-                              ],
-                              "messageId": "user-message"
-                            }
-                          }
-                        }
-                        """)
+                .bodyValue(messageSendRequest("test-message", "月球救援"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -61,36 +63,11 @@ class A2AControllerTest {
     }
 
     @Test
-    void messageSendCanRouteToAudienceEditorByMetadata() {
+    void audienceEditorEndpointCallsAudienceEditorAgent() {
         client.post()
-                .uri("/a2a")
+                .uri("/audience-editor/a2a")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {
-                          "jsonrpc": "2.0",
-                          "id": "audience-message",
-                          "method": "message/send",
-                          "params": {
-                            "metadata": {
-                              "agent": "audience-editor"
-                            },
-                            "message": {
-                              "role": "user",
-                              "parts": [
-                                {
-                                  "kind": "text",
-                                  "text": "原故事"
-                                },
-                                {
-                                  "kind": "text",
-                                  "text": "儿童"
-                                }
-                              ],
-                              "messageId": "user-message"
-                            }
-                          }
-                        }
-                        """)
+                .bodyValue(messageSendRequest("audience-message", "原故事", "儿童"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -98,104 +75,11 @@ class A2AControllerTest {
     }
 
     @Test
-    void messageSendCanInferAudienceEditorFromCurrentBackendPayload() {
+    void styleEditorEndpointCallsStyleEditorAgent() {
         client.post()
-                .uri("/a2a")
+                .uri("/style-editor/a2a")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {
-                          "jsonrpc": "2.0",
-                          "id": "audience-message",
-                          "method": "message/send",
-                          "params": {
-                            "message": {
-                              "role": "user",
-                              "parts": [
-                                {
-                                  "kind": "text",
-                                  "text": "原故事"
-                                },
-                                {
-                                  "kind": "text",
-                                  "text": "儿童读者"
-                                }
-                              ],
-                              "messageId": "user-message"
-                            }
-                          }
-                        }
-                        """)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.result.parts[0].text").isEqualTo("audience:原故事:儿童读者");
-    }
-
-    @Test
-    void messageSendCanRouteToStyleEditorByMetadata() {
-        client.post()
-                .uri("/a2a")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {
-                          "jsonrpc": "2.0",
-                          "id": "style-message",
-                          "method": "message/send",
-                          "params": {
-                            "metadata": {
-                              "agent": "style-editor"
-                            },
-                            "message": {
-                              "role": "user",
-                              "parts": [
-                                {
-                                  "kind": "text",
-                                  "text": "原故事"
-                                },
-                                {
-                                  "kind": "text",
-                                  "text": "赛博朋克"
-                                }
-                              ],
-                              "messageId": "user-message"
-                            }
-                          }
-                        }
-                        """)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.result.parts[0].text").isEqualTo("style:原故事:赛博朋克");
-    }
-
-    @Test
-    void messageSendCanInferStyleEditorFromCurrentBackendPayload() {
-        client.post()
-                .uri("/a2a")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {
-                          "jsonrpc": "2.0",
-                          "id": "style-message",
-                          "method": "message/send",
-                          "params": {
-                            "message": {
-                              "role": "user",
-                              "parts": [
-                                {
-                                  "kind": "text",
-                                  "text": "原故事"
-                                },
-                                {
-                                  "kind": "text",
-                                  "text": "赛博朋克"
-                                }
-                              ],
-                              "messageId": "user-message"
-                            }
-                          }
-                        }
-                        """)
+                .bodyValue(messageSendRequest("style-message", "原故事", "赛博朋克"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -204,16 +88,45 @@ class A2AControllerTest {
 
     private static A2AController controller() {
         OtherAgentsA2AProperties properties = new OtherAgentsA2AProperties();
-        LangChain4jStoryAgentService storyAgentService = new LangChain4jStoryAgentService(
-                topic -> "draft:" + topic,
-                (story, audience) -> "audience:" + story + ":" + audience,
-                (story, style) -> "style:" + story + ":" + style
-        );
-        CreativeWritingApplicationService creativeWritingApplicationService =
-                new CreativeWritingApplicationService(storyAgentService);
+        Agents.CreativeWriter creativeWriter = topic -> "draft:" + topic;
+        Agents.AudienceEditor audienceEditor = (story, audience) -> "audience:" + story + ":" + audience;
+        Agents.StyleEditor styleEditor = (story, style) -> "style:" + story + ":" + style;
         return new A2AController(
                 new A2AAgentCardApplicationService(properties),
-                new A2AMessageApplicationService(creativeWritingApplicationService)
+                creativeWriter,
+                audienceEditor,
+                styleEditor
         );
+    }
+
+    private static String messageSendRequest(String id, String... texts) {
+        StringBuilder parts = new StringBuilder();
+        for (int i = 0; i < texts.length; i++) {
+            if (i > 0) {
+                parts.append(",");
+            }
+            parts.append("""
+                    {
+                      "kind": "text",
+                      "text": "%s"
+                    }
+                    """.formatted(texts[i]));
+        }
+        return """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "%s",
+                  "method": "message/send",
+                  "params": {
+                    "message": {
+                      "role": "user",
+                      "parts": [
+                        %s
+                      ],
+                      "messageId": "user-message"
+                    }
+                  }
+                }
+                """.formatted(id, parts);
     }
 }
