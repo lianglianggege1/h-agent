@@ -34,7 +34,7 @@ public class AgentConfig {
     private RedisChatMemoryStore redisChatMemoryStore;
 
     @Resource
-    ChatModel chatModel;
+    private ChatModel chatModel;
 
     @Resource
     private AgentStepListener agentStepListener;

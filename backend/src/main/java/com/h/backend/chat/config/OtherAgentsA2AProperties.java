@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 public class OtherAgentsA2AProperties {
 
     private String baseUrl = "http://localhost:8082";
-    private boolean enabled = true;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -18,11 +17,4 @@ public class OtherAgentsA2AProperties {
         this.baseUrl = baseUrl;
     }
 
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
 }
