@@ -53,18 +53,18 @@ public class A2AAgentConfig {
                 .build();
 
 
-        A2AAgents.CreativeWriter creativeWriter = AgenticServices.a2aBuilder(properties.getBaseUrl(), A2AAgents.CreativeWriter.class)
+        A2AAgents.CreativeWriter creativeWriter = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/creative-wtiter", A2AAgents.CreativeWriter.class)
                 .listener(agentStepListener)
                 .outputKey("story")
                 .build();
 
-        A2AAgents.AudienceEditor audienceEditor = AgenticServices.a2aBuilder(properties.getBaseUrl(), A2AAgents.AudienceEditor.class)
+        A2AAgents.AudienceEditor audienceEditor = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/audience-editor", A2AAgents.AudienceEditor.class)
                 .listener(agentStepListener)
                 .outputKey("story")
                 .build();
 
 
-        A2AAgents.StyleEditor styleEditor = AgenticServices.a2aBuilder(properties.getBaseUrl(), A2AAgents.StyleEditor.class)
+        A2AAgents.StyleEditor styleEditor = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/style-editor", A2AAgents.StyleEditor.class)
                 .listener(agentStepListener)
                 .outputKey("story")
                 .build();
