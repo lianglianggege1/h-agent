@@ -22,7 +22,7 @@ public class A2AAgentCardApplicationService {
         return agentCard(
                 "creative-writer",
                 "根据指定主题生成故事",
-                "/creative-wtiter/a2a",
+                "/creative-writer/a2a",
                 "creative-writer",
                 "创意写作者",
                 "根据主题生成故事初稿",

@@ -14,12 +14,12 @@ class A2AControllerTest {
     @Test
     void creativeWriterAgentCardUsesCreativeWriterEndpoint() {
         client.get()
-                .uri("/creative-wtiter/.well-known/agent-card.json")
+                .uri("/creative-writer/.well-known/agent-card.json")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.name").isEqualTo("creative-writer")
-                .jsonPath("$.url").isEqualTo("http://localhost:8082/creative-wtiter/a2a")
+                .jsonPath("$.url").isEqualTo("http://localhost:8082/creative-writer/a2a")
                 .jsonPath("$.skills[0].id").isEqualTo("creative-writer");
     }
 
@@ -50,7 +50,7 @@ class A2AControllerTest {
     @Test
     void creativeWriterEndpointCallsCreativeWriterAgent() {
         client.post()
-                .uri("/creative-wtiter/a2a")
+                .uri("/creative-writer/a2a")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(messageSendRequest("test-message", "月球救援"))
                 .exchange()

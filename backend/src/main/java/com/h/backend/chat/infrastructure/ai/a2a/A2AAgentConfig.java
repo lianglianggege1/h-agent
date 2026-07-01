@@ -41,6 +41,15 @@ public class A2AAgentConfig {
     @Resource
     private ChatMemoryIdFactory chatMemoryIdFactory;
 
+    @Resource
+    private RemoteCreativeWriterAgent creativeWriter;
+
+    @Resource
+    private RemoteAudienceEditorAgent audienceEditor;
+
+    @Resource
+    private RemoteStyleEditorAgent styleEditor;
+
 
     @Bean
     public A2AStoryAssistant a2aStoryAssistant() {
@@ -52,22 +61,6 @@ public class A2AAgentConfig {
                 .outputKey("storyInfo")
                 .build();
 
-
-        A2AAgents.CreativeWriter creativeWriter = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/creative-wtiter", A2AAgents.CreativeWriter.class)
-                .listener(agentStepListener)
-                .outputKey("story")
-                .build();
-
-        A2AAgents.AudienceEditor audienceEditor = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/audience-editor", A2AAgents.AudienceEditor.class)
-                .listener(agentStepListener)
-                .outputKey("story")
-                .build();
-
-
-        A2AAgents.StyleEditor styleEditor = AgenticServices.a2aBuilder(properties.getBaseUrl() + "/style-editor", A2AAgents.StyleEditor.class)
-                .listener(agentStepListener)
-                .outputKey("story")
-                .build();
 
         Agents.StyleScorer styleScorer = AgenticServices.agentBuilder(Agents.StyleScorer.class)
                 .chatModel(chatModel)

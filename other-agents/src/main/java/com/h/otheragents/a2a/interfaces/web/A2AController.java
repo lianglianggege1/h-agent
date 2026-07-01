@@ -39,7 +39,7 @@ public class A2AController {
         this.styleEditor = styleEditor;
     }
 
-    @GetMapping("/creative-wtiter/.well-known/agent-card.json")
+    @GetMapping("/creative-writer/.well-known/agent-card.json")
     public AgentCard creativeWriterAgentCard() {
         return agentCardApplicationService.creativeWriterAgentCard();
     }
@@ -54,8 +54,9 @@ public class A2AController {
         return agentCardApplicationService.styleEditorAgentCard();
     }
 
-    @PostMapping("/creative-wtiter/a2a")
+    @PostMapping("/creative-writer/a2a")
     public SendMessageResponse creativeWriterJsonRpc(@RequestBody JsonNode request) {
+
         return handle(request, 1, prompts -> creativeWriter.generateStory(prompts.getFirst()), "creative-writer");
     }
 
