@@ -84,6 +84,36 @@ public interface CreativeWriterAgent {
 
 如果不希望侵入已有 interface，也允许用配置绑定已有 bean/method，但这只是补充能力，不是首选体验。Controller 不应该知道 `creative-writer`、`audience-editor`、`style-editor` 这些具体 agent，只暴露统一 A2A 入口。
 
+## LangChain4j 与 AgentScope 取舍
+
+本设计不把 LangChain4j A2A 和 AgentScope A2A 看成二选一，而是分别吸收它们最适合本项目的部分。
+
+LangChain4j `langchain4j-agentic-a2a` 的优势在使用体验：
+
+- 远端 A2A agent 可以通过 `AgenticServices.a2aBuilder(url, Interface.class)` 创建。
+- 本地 agent 和远端 A2A agent 都使用 interface、`@Agent`、`@V`、`outputKey`。
+- 远端 agent 可以直接参与 `sequenceBuilder`、`loopBuilder`、`supervisorBuilder` 的 `.subAgents(...)`。
+- `@A2AContextId`、`@A2ATaskId` 已经表达了 A2A envelope 字段和普通 text part 的区别。
+- `ResultWithAgenticScope` 可以把远端返回的 `contextId/taskId` 写回 `AgenticScope`，自然支持多轮调用。
+
+因此，`backend` 作为 A2A client 时，首选 LangChain4j 的使用方式。除非确实需要补充配置、监控或测试边界，不重新发明一套 `RemoteAgentRegistry.require(...)` 风格的业务 API。
+
+AgentScope A2A 的优势在 adapter 架构完整性：
+
+- client 侧把 card resolver、message conversion、event router、memory、interrupt/cancel 分开。
+- server 侧有 `AgentScopeA2aServer` 作为 facade，组装 agent-card converter、executor、runner、request handler、transport wrapper、task store、queue manager、registry。
+- transport wrapper 与 Web 框架解耦，Controller 只负责把 HTTP 请求交给 wrapper。
+- request handler、executor、runner 的边界清晰，后续扩展 streaming、cancel、task 查询时不需要推翻结构。
+
+因此，`other-agents` 作为 A2A server 时，首选 AgentScope 的分层思路。业务入口仍然保持 LangChain4j interface/bean 风格，但内部通过 descriptor、card factory、executor、runner、request handler、transport wrapper 组织。
+
+最终取舍：
+
+```text
+使用体验：采用 LangChain4j 风格，让远端 A2A agent 像本地 agent 一样使用。
+实现结构：采用 AgentScope 风格，让 A2A adapter 有清晰的 server facade 和协议边界。
+```
+
 ## 参考模型
 
 设计参考 AgentScope 的 A2A 扩展包。
