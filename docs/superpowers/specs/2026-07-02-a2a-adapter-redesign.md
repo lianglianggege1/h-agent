@@ -38,6 +38,14 @@ A2A 出口层：只是把这些 LangChain4j agent 能力通过 A2A RPC 规范暴
 
 ## 为什么这样设计
 
+参考资料和代码库：
+
+- AgentScope A2A 文档：[A2A (Agent2Agent)](https://java.agentscope.io/v1/zh/docs/task/a2a.html)
+- AgentScope A2A 本地源码：`/Users/huajiang/Desktop/ai_learn/agentscope-java/agentscope-extensions/agentscope-extensions-a2a`
+- LangChain4j A2A 本地源码：`/Users/huajiang/Desktop/ai_learn/langchain4j/langchain4j-agentic-a2a`
+- LangChain4j A2A client 关键实现：`DefaultA2AClientBuilder`
+- AgentScope A2A server 关键参考：`AgentScopeA2aServer`、`AgentScopeAgentExecutor`、`AgentRequestOptions`、`JsonRpcTransportWrapper`
+
 LangChain4j `langchain4j-agentic-a2a` 已经提供 client 集成：
 
 - `AgenticServices.a2aBuilder(url, Interface.class)`
@@ -112,6 +120,21 @@ public interface A2AEchoAgent {
 ```
 
 `contextId` 和 `taskId` 不作为 text part 发送，而是进入 A2A message envelope。远端返回新值后，LangChain4j client 写回 `AgenticScope`。
+
+如果需要把 backend 的本地 `@MemoryId` 和远端 A2A 会话绑定，workflow 前置一个本地初始化步骤，把本地 memory id 写入 `AgenticScope` 中的 A2A context key：
+
+```java
+public interface A2ACreativeWriter {
+
+    @Agent
+    String generateStory(
+            @V("topic") String topic,
+            @A2AContextId @V("a2aContextId") String contextId,
+            @A2ATaskId @V("creativeWriterTaskId") String taskId);
+}
+```
+
+第一轮可由本地代码把 `a2aContextId` 初始化为当前 `@MemoryId` 或其派生值。这样即使默认 LangChain4j A2A client 不发送 `memoryId` metadata，远端也能通过 A2A `contextId` 获得稳定的跨进程会话 key。
 
 ### Other-Agents 提供并暴露本地 agent
 
@@ -347,27 +370,61 @@ HTTP POST /a2a/agents/{agentId}
 - `capabilities.streaming`：第一版为 `false`
 - `defaultInputModes`：`text/plain`
 - `defaultOutputModes`：`text/plain`
-- `skills`：从 exposed method 生成一个 skill
+- `skills`：从 exported method 生成一个 skill
 
 ### Task、Context 和 Memory
+
+跨进程身份和会话信息分成两层：
+
+```text
+A2A envelope:
+  contextId  -> 跨进程会话/上下文主 key
+  taskId     -> A2A task key
+
+A2A message metadata:
+  userId     -> 可选，调用方用户标识
+  sessionId  -> 可选，调用方业务会话标识
+  memoryId   -> 可选，调用方记忆标识
+```
+
+LangChain4j A2A client 当前已经兼容 `contextId/taskId`：
+
+- 通过 `@A2AContextId`、`@A2ATaskId` 写入 outgoing message envelope。
+- 从远端 `MessageEvent` 或 `TaskEvent` 捕获返回的 `contextId/taskId`。
+- 当参数带有 `@V` 名称时，把返回值写回 `AgenticScope`。
+
+LangChain4j A2A client 当前没有在默认 builder 中暴露通用 metadata 注入点。因此第一版不依赖 backend 自动发送 `userId/sessionId/memoryId` metadata。server 端必须兼容 metadata 缺失的情况。
 
 服务端入站规则：
 
 - `Message.contextId` 作为 A2A 会话上下文。
 - `Message.taskId` 存在时表示继续已有 task。
 - `Message.taskId` 不存在时创建新 task。
+- `Message.metadata.userId`、`Message.metadata.sessionId`、`Message.metadata.memoryId` 如果存在则读取并保存到本次 invocation context。
 - 第一版使用 in-memory `A2ATaskStore` 保存 task id、context id、状态和最近一次响应。
 
 调用 LangChain4j agent bean 时：
 
-- 如果目标方法有 `@MemoryId` 参数，传入 `contextId`；没有 `contextId` 时使用新建 task 的 context id。
+- 如果目标方法有 `@MemoryId` 参数，按以下顺序选择 memory key：
+  1. `metadata.memoryId`
+  2. `metadata.sessionId`
+  3. `Message.contextId`
+  4. 新建 task 时生成的 context id
 - 普通 `@V` 参数按 `A2AAgentExport` 的 `inputKeys` 从 text parts 映射。
 - 第一版仅支持 text part。
+
+推荐的 v1 约定：
+
+- `contextId` 是跨进程会话/记忆的主通道。
+- `taskId` 是 A2A task 的主通道，不强制等同于业务 session 或 memory。
+- `userId/sessionId/memoryId` metadata 是增强信息；server 读取并使用，但 backend 默认 client 不强依赖它们。
+- 如果后续必须从 backend 发送这些 metadata，需要新增一个兼容 LangChain4j 的 client 扩展点，例如 `A2AClientMetadataCustomizer` 或 A2A SDK `ClientCallContext` wrapper；这不是第一版的基础路径。
 
 响应规则：
 
 - 返回 A2A `Task`，保证包含 `id` 和 `contextId`。
 - task 完成时包含 text artifact。
+- 响应 message/task 需要带回 `contextId/taskId`，保证 LangChain4j client 能写回 `AgenticScope`。
 - 执行失败时 task 状态为 failed，并在 status message 中写入错误摘要。
 - 如果 LangChain4j agent 返回 `ResultWithAgenticScope`，第一版只取 `result()` 作为输出；scope 中的额外状态不进入 A2A 响应。
 
@@ -410,6 +467,7 @@ Backend 测试：
 - `A2AAgentConfig`：通过 `AgenticServices.a2aBuilder(url, Interface.class)` 创建远端 agent。
 - A2A story workflow：远端 agent proxy 可以参与 `.subAgents(...)`。
 - context/task 多轮：使用测试用 A2A echo server 或本项目 A2A 出口层测试，验证 `@A2AContextId`、`@A2ATaskId` 能写回并复用。
+- memory id 桥接：本地 workflow 把当前 memory id 写入 `a2aContextId` 后，远端收到同一个 `contextId`。
 
 Other-agents 测试：
 
@@ -420,7 +478,8 @@ Other-agents 测试：
 - request handler：处理 blocking `message/send` 和 unsupported method。
 - executor：创建/继续 task，保留 context id。
 - method invoker：按 `@V` 参数顺序映射 text parts 并调用已有 agent bean。
-- memory：当目标方法有 `@MemoryId` 时传入 context id。
+- metadata：读取 `metadata.userId/sessionId/memoryId`，缺失时不报错。
+- memory：当目标方法有 `@MemoryId` 时按 `memoryId -> sessionId -> contextId -> generated contextId` 顺序选择 key。
 - controller：`GET card` 和 `POST message/send`。
 - 旧 endpoint：删除或改为 404。
 
@@ -475,5 +534,7 @@ Other-agents 测试：
 - 新 URL `/a2a/agents/{agentId}` 可完成 blocking `message/send`。
 - agent-card 使用 `/a2a/agents/{agentId}/.well-known/agent-card.json`。
 - `contextId/taskId` 能从 backend 传到 other-agents，并由服务端返回后被 LangChain4j client 写回 `AgenticScope`。
+- `userId/sessionId/memoryId` metadata 缺失时，服务端仍能用 `contextId` 维持跨进程会话和记忆 key。
+- 如果请求提供 `metadata.memoryId/sessionId/userId`，服务端 invocation context 能读取并按约定用于 `@MemoryId` 映射。
 - 新增远端能力时，服务端只需复用或新增 LangChain4j agent bean，并在 Java 配置类中声明 A2A export；客户端只需新增本地 interface 并通过 LangChain4j A2A builder 创建。
 - 对使用方而言，远端 A2A agent 可以像本地 workflow sub-agent 一样参与 `.subAgents(...)`。
