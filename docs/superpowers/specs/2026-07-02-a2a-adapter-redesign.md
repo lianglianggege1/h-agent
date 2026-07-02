@@ -22,18 +22,18 @@
 
 ## 核心原则
 
-1. A2A 是协议适配层，不是新的 agent 框架。
+1. A2A 是一套面向 agent 的 RPC/协议出口规范，不是新的 agent 框架。
 2. client 端优先直接使用 LangChain4j A2A client 的现有能力。
 3. server 端业务 agent 必须仍然是标准 LangChain4j agent。
-4. server adapter 可以参考 AgentScope 的分层，但 descriptor、runner、executor 都是内部结构，不成为业务开发 API。
+4. A2A 出口层可以参考 AgentScope 的分层，但 descriptor、runner、executor 都是内部结构，不成为业务开发 API。
 5. 新增一个远端能力时，业务侧应该只新增或复用一个 LangChain4j agent interface/bean，再选择把它暴露为 A2A。
 
 最终取舍：
 
 ```text
-Client 使用与实现：采用 LangChain4j A2A client。
-Server 业务模型：采用 LangChain4j agent interface/bean。
-Server 协议适配：参考 AgentScope 的 server facade、transport wrapper、request handler、executor 分层。
+Backend 主流程：继续作为 LangChain4j workflow 编排方，在代码/配置类中创建远端 A2A agent proxy。
+Other-agents 主流程：继续作为 LangChain4j agent 能力提供方，定义和创建各种本地 agent bean。
+A2A 出口层：只是把这些 LangChain4j agent 能力通过 A2A RPC 规范暴露出去，内部参考 AgentScope 的 server facade、transport wrapper、request handler、executor 分层。
 ```
 
 ## 为什么这样设计
@@ -50,11 +50,11 @@ LangChain4j `langchain4j-agentic-a2a` 已经提供 client 集成：
 - `ResultWithAgenticScope` 写回远端返回的 `contextId/taskId`
 - 与 `sequenceBuilder`、`loopBuilder`、`supervisorBuilder` 的 `.subAgents(...)` 混用
 
-因此 `backend` 不再设计一套 `RemoteAgentRegistry.require(...)` 或手写 JSON-RPC client。它只负责用 Spring 配置集中创建 LangChain4j A2A client agent。
+因此 `backend` 不再设计一套 `RemoteAgentRegistry.require(...)` 或手写 JSON-RPC client。远端 A2A agent proxy 可以直接写在 Java 代码或 Spring 配置类里，配置文件只保留少量环境信息，例如 `other-agents` 的 base URL。
 
 LangChain4j 当前没有提供对应的 A2A server adapter。`langchain4j-agentic-a2a` 的依赖集中在 `a2a-java-sdk-client` 和 JSON-RPC client transport，没有 server request handler、task store、transport wrapper、executor 等服务端结构。
 
-因此 `other-agents` 需要自建 server adapter。该 adapter 借鉴 AgentScope 的架构分层：
+因此 `other-agents` 需要自建 A2A 出口层。它的主流程仍然是创建和提供 LangChain4j agent 能力；A2A 只是这些能力的一种 RPC/协议出口。该出口层借鉴 AgentScope 的架构分层：
 
 - server facade
 - agent-card factory
@@ -64,7 +64,7 @@ LangChain4j 当前没有提供对应的 A2A server adapter。`langchain4j-agenti
 - transport wrapper
 - task store
 
-但这只是内部协议适配结构。业务 agent 不写 `A2AAgentDescriptor`，不写 `A2AAgentRunner`，不继承 A2A 专用接口。
+但这只是内部协议封装结构。业务 agent 不写 `A2AAgentDescriptor`，不写 `A2AAgentRunner`，不继承 A2A 专用接口。
 
 ## 使用体验
 
@@ -113,7 +113,9 @@ public interface A2AEchoAgent {
 
 `contextId` 和 `taskId` 不作为 text part 发送，而是进入 A2A message envelope。远端返回新值后，LangChain4j client 写回 `AgenticScope`。
 
-### Other-Agents 暴露本地 agent
+### Other-Agents 提供并暴露本地 agent
+
+`other-agents` 的主流程和 `backend` 一样，都是用 LangChain4j 的方式定义、构建和组合 agent。区别只在于 `other-agents` 会把部分 agent 能力通过 A2A 这个 RPC/协议出口提供给外部调用方。
 
 服务端 agent 仍然按 LangChain4j 标准写法定义：
 
@@ -131,7 +133,7 @@ public interface CreativeWriterAgent {
 }
 ```
 
-A2A 暴露只绑定已有 LangChain4j agent bean：
+agent bean 仍然在普通 Java 配置类里创建：
 
 ```java
 @Bean
@@ -141,31 +143,32 @@ CreativeWriterAgent creativeWriterAgent(ChatModel chatModel) {
             .build();
 }
 ```
+
+A2A 暴露也优先在 Java 配置类中声明，避免把配置文件做成沉重的 agent 注册中心：
+
+```java
+@Bean
+A2AAgentExports a2aAgentExports(
+        CreativeWriterAgent creativeWriter,
+        AudienceEditorAgent audienceEditor,
+        StyleEditorAgent styleEditor) {
+    return A2AAgentExports.builder()
+            .export("creative-writer", creativeWriter, CreativeWriterAgent.class, "generateStory")
+            .export("audience-editor", audienceEditor, AudienceEditorAgent.class, "editStory")
+            .export("style-editor", styleEditor, StyleEditorAgent.class, "editStory")
+            .build();
+}
+```
+
+配置文件只保留运行环境相关信息：
 
 ```yaml
-agents:
+other-agents:
   a2a:
-    exposed:
-      - id: creative-writer
-        bean-name: creativeWriterAgent
-        method: generateStory
-        public-name: 创意写作者
-        public-description: 根据主题生成故事初稿
+    public-url: http://localhost:8082
 ```
 
-也可以提供轻量标注来减少配置，但标注对象是“暴露已有 bean”，不是定义新的 A2A agent：
-
-```java
-@A2AExpose(id = "creative-writer")
-@Bean
-CreativeWriterAgent creativeWriterAgent(ChatModel chatModel) {
-    return AgenticServices.agentBuilder(CreativeWriterAgent.class)
-            .chatModel(chatModel)
-            .build();
-}
-```
-
-第一版优先支持配置暴露方式，避免在 agent interface 上引入 A2A 专用语义。
+如果后续需要减少 Java 注册样板，可以提供轻量 `@A2AExpose` 标注，但标注对象仍然是“暴露已有 bean”，不是定义新的 A2A agent。第一版优先支持 Java 配置类注册。
 
 ## 公开端点
 
@@ -197,18 +200,19 @@ backend
     AgenticServices.a2aBuilder(...)
     @A2AContextId / @A2ATaskId
     ResultWithAgenticScope
-  Spring config
+  Java/Spring config
     OtherAgentsA2AProperties
-    A2A client bean creation
+    A2A client proxy bean creation
 
 other-agents
-  Standard LangChain4j agents
+  LangChain4j agent capability provider
     CreativeWriterAgent
     AudienceEditorAgent
     StyleEditorAgent
-  A2A server adapter
-    A2AExposedAgentDefinition
-    A2AExposedAgentRegistry
+    A2AAgentExports
+  A2A RPC/export layer
+    A2AAgentExport
+    A2AAgentExportRegistry
     A2AAgentCardFactory
     A2AAgentServer
     A2ARequestHandler
@@ -224,8 +228,9 @@ other-agents
 
 - `backend` 不再保留自研 `OtherAgentsA2AClient` 和 `A2ARemoteAgentInvoker`。
 - `backend` 的 A2A client 结构跟随 LangChain4j，不再复制 AgentScope client 分层。
-- `other-agents` 的业务 agent 不感知 A2A。
-- `other-agents` 的 A2A adapter 只负责协议、路由、task/context、agent-card、错误封装。
+- `backend` 的远端 agent proxy 可以写在代码或 Spring 配置类里，配置文件不承担复杂注册。
+- `other-agents` 的主流程是 LangChain4j agent 能力提供，不是 A2A server 专用流程。
+- `other-agents` 的业务 agent 不感知 A2A；A2A RPC/export layer 只负责协议、路由、task/context、agent-card、错误封装。
 - Spring Controller 只做 HTTP 接入，JSON-RPC/A2A 语义由 transport wrapper 和 request handler 处理。
 
 ## Backend Client 设计
@@ -259,29 +264,30 @@ A2ACreativeWriter creativeWriter = AgenticServices
         .build();
 ```
 
-配置只保存远端 A2A endpoint：
+配置可以只保存远端服务的 base URL，具体 agent endpoint 在代码中按约定拼出：
 
 ```yaml
 agents:
   a2a:
     other-agents:
-      creative-writer-url: http://localhost:8082/a2a/agents/creative-writer
-      audience-editor-url: http://localhost:8082/a2a/agents/audience-editor
-      style-editor-url: http://localhost:8082/a2a/agents/style-editor
+      base-url: http://localhost:8082
 ```
+
+如果后续部署需要覆盖某个 agent 的 endpoint，可以再增加可选配置；第一版不要求把每个 agent 都写进配置文件。
 
 第一版不扩展 LangChain4j client。尤其不承诺自定义 outbound metadata，除非后续确认 LangChain4j A2A client 提供可插拔 hook 或我们明确实现一个兼容 wrapper。
 
-## Other-Agents Server 设计
+## Other-Agents A2A 出口层设计
 
 ### 暴露定义
 
-`A2AExposedAgentDefinition` 是 adapter 内部结构，由配置或 `@A2AExpose` 从已有 LangChain4j agent bean 生成：
+`A2AAgentExport` 是 A2A 暴露通道的内部定义，由 Java 配置类注册已有 LangChain4j agent bean 生成：
 
 ```text
-A2AExposedAgentDefinition
+A2AAgentExport
   id
-  beanName
+  agentBean
+  agentInterface
   method
   publicName
   publicDescription
@@ -289,7 +295,7 @@ A2AExposedAgentDefinition
   outputKey
 ```
 
-`inputKeys` 从目标方法参数上的 `@V` 读取。`outputKey` 优先从 `@Agent(outputKey = "...")` 读取，配置可覆盖。`publicName/publicDescription` 用于生成 agent-card，优先来自配置，其次来自 `@Agent(description = "...")` 或方法名。
+`inputKeys` 从目标方法参数上的 `@V` 读取。`outputKey` 优先从 `@Agent(outputKey = "...")` 读取。`publicName/publicDescription` 优先来自 `@Agent(name = "...", description = "...")`，Java 注册 API 可覆盖。
 
 ### Server Facade
 
@@ -297,7 +303,7 @@ A2AExposedAgentDefinition
 
 它不监听端口，负责组装：
 
-- exposed agent registry
+- exported agent registry
 - agent-card factory
 - request handler
 - agent executor
@@ -313,7 +319,7 @@ HTTP POST /a2a/agents/{agentId}
   -> JsonRpcA2AController
   -> JsonRpcA2ATransportWrapper
   -> A2ARequestHandler
-  -> A2AExposedAgentRegistry
+  -> A2AAgentExportRegistry
   -> A2AAgentExecutor
   -> LangChain4jAgentMethodInvoker
   -> existing LangChain4j agent bean method
@@ -331,7 +337,7 @@ HTTP POST /a2a/agents/{agentId}
 
 ### Agent Card
 
-`A2AAgentCardFactory` 根据 exposed definition 生成 agent-card：
+`A2AAgentCardFactory` 根据 `A2AAgentExport` 生成 agent-card：
 
 - `name`：`publicName` 或 `id`
 - `description`：`publicDescription`
@@ -355,7 +361,7 @@ HTTP POST /a2a/agents/{agentId}
 调用 LangChain4j agent bean 时：
 
 - 如果目标方法有 `@MemoryId` 参数，传入 `contextId`；没有 `contextId` 时使用新建 task 的 context id。
-- 普通 `@V` 参数按 exposed definition 的 `inputKeys` 从 text parts 映射。
+- 普通 `@V` 参数按 `A2AAgentExport` 的 `inputKeys` 从 text parts 映射。
 - 第一版仅支持 text part。
 
 响应规则：
@@ -400,15 +406,15 @@ Other-agents server 侧：
 
 Backend 测试：
 
-- 配置绑定：三个远端 A2A endpoint URL。
+- 配置绑定：远端 `other-agents` base URL。
 - `A2AAgentConfig`：通过 `AgenticServices.a2aBuilder(url, Interface.class)` 创建远端 agent。
 - A2A story workflow：远端 agent proxy 可以参与 `.subAgents(...)`。
-- context/task 多轮：使用测试用 A2A echo server 或 server adapter 测试，验证 `@A2AContextId`、`@A2ATaskId` 能写回并复用。
+- context/task 多轮：使用测试用 A2A echo server 或本项目 A2A 出口层测试，验证 `@A2AContextId`、`@A2ATaskId` 能写回并复用。
 
 Other-agents 测试：
 
-- exposed definition：从配置绑定已有 LangChain4j agent bean/method。
-- registry：按 agent id 查询 exposed definition，未知 id 行为正确。
+- agent exports：在 Java 配置类中注册已有 LangChain4j agent bean/method。
+- registry：按 agent id 查询 `A2AAgentExport`，未知 id 行为正确。
 - agent-card factory：生成 `/a2a/agents/{agentId}` URL 和基础 skill 信息。
 - transport wrapper：保留 JSON-RPC id，分发 `message/send`。
 - request handler：处理 blocking `message/send` 和 unsupported method。
@@ -421,7 +427,7 @@ Other-agents 测试：
 端到端测试：
 
 - `backend` 使用 LangChain4j A2A client 调用 `other-agents` 暴露的 creative-writer。
-- `audience-editor` 和 `style-editor` 使用同一套 server adapter 暴露。
+- `audience-editor` 和 `style-editor` 使用同一套 A2A 出口层暴露。
 - A2A story flow 完整返回最终 story。
 
 ## 迁移策略
@@ -446,7 +452,7 @@ Other-agents 测试：
 - 本地故事信息提取
 - 本地风格评分
 
-替换范围聚焦 A2A client 装配和 other-agents 的 A2A server adapter。
+替换范围聚焦 A2A client 装配和 other-agents 的 A2A 出口层。
 
 ## 不在本次范围
 
@@ -469,5 +475,5 @@ Other-agents 测试：
 - 新 URL `/a2a/agents/{agentId}` 可完成 blocking `message/send`。
 - agent-card 使用 `/a2a/agents/{agentId}/.well-known/agent-card.json`。
 - `contextId/taskId` 能从 backend 传到 other-agents，并由服务端返回后被 LangChain4j client 写回 `AgenticScope`。
-- 新增远端能力时，服务端只需复用或新增 LangChain4j agent bean 并配置暴露；客户端只需新增本地 interface 并通过 LangChain4j A2A builder 创建。
+- 新增远端能力时，服务端只需复用或新增 LangChain4j agent bean，并在 Java 配置类中声明 A2A export；客户端只需新增本地 interface 并通过 LangChain4j A2A builder 创建。
 - 对使用方而言，远端 A2A agent 可以像本地 workflow sub-agent 一样参与 `.subAgents(...)`。
