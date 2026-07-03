@@ -38,17 +38,17 @@ class A2AAgentExecutorTest {
                 {
                   "role": "user",
                   "contextId": "context-1",
-                  "parts": [{"kind": "text", "text": "月球救援"}],
+                  "parts": [{"text": "月球救援"}],
                   "metadata": {"userId": "u1"}
                 }
                 """);
 
-        JsonNode task = executor.execute("creative-writer", message);
+        JsonNode result = executor.execute("creative-writer", message);
+        JsonNode task = result.path("task");
 
-        assertEquals("task", task.path("kind").asText());
         assertFalse(task.path("id").asText().isBlank());
         assertEquals("context-1", task.path("contextId").asText());
-        assertEquals("completed", task.path("status").path("state").asText());
+        assertEquals("TASK_STATE_COMPLETED", task.path("status").path("state").asText());
         assertEquals("draft:月球救援", task.path("artifacts").get(0).path("parts").get(0).path("text").asText());
     }
 
@@ -70,11 +70,12 @@ class A2AAgentExecutorTest {
                   "role": "user",
                   "contextId": "context-existing",
                   "taskId": "task-existing",
-                  "parts": [{"kind": "text", "text": "月球救援"}]
+                  "parts": [{"text": "月球救援"}]
                 }
                 """);
 
-        JsonNode task = executor.execute("creative-writer", message);
+        JsonNode result = executor.execute("creative-writer", message);
+        JsonNode task = result.path("task");
 
         assertEquals("task-existing", task.path("id").asText());
         assertEquals("context-existing", task.path("contextId").asText());
@@ -96,13 +97,14 @@ class A2AAgentExecutorTest {
         JsonNode message = objectMapper.readTree("""
                 {
                   "role": "user",
-                  "parts": [{"kind": "text", "text": "月球救援"}]
+                  "parts": [{"text": "月球救援"}]
                 }
                 """);
 
-        JsonNode task = executor.execute("creative-writer", message);
+        JsonNode result = executor.execute("creative-writer", message);
+        JsonNode task = result.path("task");
 
-        assertEquals("completed", task.path("status").path("state").asText());
+        assertEquals("TASK_STATE_COMPLETED", task.path("status").path("state").asText());
         assertFalse(task.path("contextId").asText().isBlank());
         assertFalse(task.path("id").asText().isBlank());
     }

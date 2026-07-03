@@ -45,9 +45,9 @@ class A2AControllerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("rpc-1")
-                .jsonPath("$.result.kind").isEqualTo("task")
-                .jsonPath("$.result.status.state").isEqualTo("completed")
-                .jsonPath("$.result.artifacts[0].parts[0].text").isEqualTo("draft:月球救援");
+                .jsonPath("$.result.task.id").isNotEmpty()
+                .jsonPath("$.result.task.status.state").isEqualTo("TASK_STATE_COMPLETED")
+                .jsonPath("$.result.task.artifacts[0].parts[0].text").isEqualTo("draft:月球救援");
     }
 
     @Test
@@ -85,7 +85,6 @@ class A2AControllerTest {
                       "role": "user",
                       "parts": [
                         {
-                          "kind": "text",
                           "text": "%s"
                         }
                       ],
