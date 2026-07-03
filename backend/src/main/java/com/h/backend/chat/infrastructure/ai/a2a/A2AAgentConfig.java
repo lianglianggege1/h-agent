@@ -1,10 +1,8 @@
 package com.h.backend.chat.infrastructure.ai.a2a;
 
 import com.h.backend.chat.domain.agent.AgentStepListener;
-import com.h.backend.chat.infrastructure.ai.AgentConfig;
 import com.h.backend.chat.infrastructure.ai.Agents;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
-import com.h.backend.chat.infrastructure.config.OtherAgentsA2AProperties;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
@@ -36,23 +34,31 @@ public class A2AAgentConfig {
     private AgentStepListener agentStepListener;
 
     @Resource
-    private OtherAgentsA2AProperties properties;
-
-    @Resource
     private ChatMemoryIdFactory chatMemoryIdFactory;
 
     @Resource
-    private RemoteCreativeWriterAgent creativeWriter;
-
-    @Resource
-    private RemoteAudienceEditorAgent audienceEditor;
-
-    @Resource
-    private RemoteStyleEditorAgent styleEditor;
+    private com.h.backend.chat.infrastructure.config.OtherAgentsA2AProperties otherAgentsA2AProperties;
 
 
     @Bean
     public A2AStoryAssistant a2aStoryAssistant() {
+        A2ARemoteAgents.CreativeWriter creativeWriter = AgenticServices
+                .a2aBuilder(otherAgentsA2AProperties.agentUrl("creative-writer"), A2ARemoteAgents.CreativeWriter.class)
+                .listener(agentStepListener)
+                .outputKey("story")
+                .build();
+
+        A2ARemoteAgents.AudienceEditor audienceEditor = AgenticServices
+                .a2aBuilder(otherAgentsA2AProperties.agentUrl("audience-editor"), A2ARemoteAgents.AudienceEditor.class)
+                .listener(agentStepListener)
+                .outputKey("story")
+                .build();
+
+        A2ARemoteAgents.StyleEditor styleEditor = AgenticServices
+                .a2aBuilder(otherAgentsA2AProperties.agentUrl("style-editor"), A2ARemoteAgents.StyleEditor.class)
+                .listener(agentStepListener)
+                .outputKey("story")
+                .build();
 
         Agents.StoryInfoAgent storyInfoAgent = AgenticServices.agentBuilder(Agents.StoryInfoAgent.class)
                 .chatModel(chatModel)
