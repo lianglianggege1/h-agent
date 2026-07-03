@@ -51,4 +51,59 @@ class A2AAgentExecutorTest {
         assertEquals("completed", task.path("status").path("state").asText());
         assertEquals("draft:月球救援", task.path("artifacts").get(0).path("parts").get(0).path("text").asText());
     }
+
+    @Test
+    void reusesIncomingTaskIdAndContextId() throws Exception {
+        DraftAgent bean = topic -> "draft:" + topic;
+        A2AAgentExportRegistry registry = new A2AAgentExportRegistry(A2AAgentExports.builder()
+                .export("creative-writer", bean, DraftAgent.class, "generate")
+                .build());
+        A2AAgentExecutor executor = new A2AAgentExecutor(
+                registry,
+                new LangChain4jAgentMethodInvoker(),
+                new A2AMessageMapper(),
+                new InMemoryA2ATaskStore()
+        );
+
+        JsonNode message = objectMapper.readTree("""
+                {
+                  "role": "user",
+                  "contextId": "context-existing",
+                  "taskId": "task-existing",
+                  "parts": [{"kind": "text", "text": "月球救援"}]
+                }
+                """);
+
+        JsonNode task = executor.execute("creative-writer", message);
+
+        assertEquals("task-existing", task.path("id").asText());
+        assertEquals("context-existing", task.path("contextId").asText());
+    }
+
+    @Test
+    void missingMetadataDoesNotBreakExecution() throws Exception {
+        DraftAgent bean = topic -> "draft:" + topic;
+        A2AAgentExportRegistry registry = new A2AAgentExportRegistry(A2AAgentExports.builder()
+                .export("creative-writer", bean, DraftAgent.class, "generate")
+                .build());
+        A2AAgentExecutor executor = new A2AAgentExecutor(
+                registry,
+                new LangChain4jAgentMethodInvoker(),
+                new A2AMessageMapper(),
+                new InMemoryA2ATaskStore()
+        );
+
+        JsonNode message = objectMapper.readTree("""
+                {
+                  "role": "user",
+                  "parts": [{"kind": "text", "text": "月球救援"}]
+                }
+                """);
+
+        JsonNode task = executor.execute("creative-writer", message);
+
+        assertEquals("completed", task.path("status").path("state").asText());
+        assertFalse(task.path("contextId").asText().isBlank());
+        assertFalse(task.path("id").asText().isBlank());
+    }
 }

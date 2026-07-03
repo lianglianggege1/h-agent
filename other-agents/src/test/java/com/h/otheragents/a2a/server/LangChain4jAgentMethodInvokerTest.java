@@ -55,4 +55,11 @@ class LangChain4jAgentMethodInvokerTest {
         assertEquals("s1", context.sessionId());
         assertEquals("m1", context.memoryId());
     }
+
+    @Test
+    void memoryKeyFallsBackFromMemoryIdToSessionIdToContextId() {
+        assertEquals("memory-1", new A2AInvocationContext("a", "context-1", "task-1", null, "session-1", "memory-1").memoryKey());
+        assertEquals("session-1", new A2AInvocationContext("a", "context-1", "task-1", null, "session-1", null).memoryKey());
+        assertEquals("context-1", new A2AInvocationContext("a", "context-1", "task-1", null, null, null).memoryKey());
+    }
 }
