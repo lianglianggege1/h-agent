@@ -1,72 +1,80 @@
 package com.h.otheragents.a2a.interfaces.web;
 
-import com.h.otheragents.a2a.infrastructure.ai.Agents;
+import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
+import com.h.otheragents.a2a.export.A2AAgentExportRegistry;
+import com.h.otheragents.a2a.export.A2AAgentExports;
+import com.h.otheragents.a2a.server.A2AAgentServer;
+import com.h.otheragents.a2a.server.A2AMessageMapper;
+import com.h.otheragents.a2a.server.InMemoryA2ATaskStore;
+import com.h.otheragents.a2a.server.LangChain4jAgentMethodInvoker;
+import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.service.V;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 class A2AControllerTest {
 
+    interface DraftAgent {
+
+        @Agent(name = "创意写作者", description = "根据主题生成故事初稿", outputKey = "story")
+        String generate(@V("topic") String topic);
+    }
+
     private final WebTestClient client = WebTestClient.bindToController(controller()).build();
 
     @Test
-    void creativeWriterEndpointCallsCreativeWriterAgent() {
-        client.post()
-                .uri("/creative-writer/a2a")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(messageSendRequest("test-message", "月球救援"))
+    void agentCardUsesUnifiedEndpoint() {
+        client.get()
+                .uri("/a2a/agents/creative-writer/.well-known/agent-card.json")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.id").isEqualTo("test-message")
-                .jsonPath("$.result.role").isEqualTo("ROLE_AGENT")
-                .jsonPath("$.result.parts[0].text").isEqualTo("draft:月球救援");
+                .jsonPath("$.name").isEqualTo("creative-writer")
+                .jsonPath("$.url").isEqualTo("http://localhost:8082/a2a/agents/creative-writer")
+                .jsonPath("$.skills[0].id").isEqualTo("creative-writer");
     }
 
     @Test
-    void audienceEditorEndpointCallsAudienceEditorAgent() {
+    void messageSendCallsExportedAgent() {
         client.post()
-                .uri("/audience-editor/a2a")
+                .uri("/a2a/agents/creative-writer")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(messageSendRequest("audience-message", "原故事", "儿童"))
+                .bodyValue(messageSendRequest("rpc-1", "月球救援"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.result.parts[0].text").isEqualTo("audience:原故事:儿童");
+                .jsonPath("$.id").isEqualTo("rpc-1")
+                .jsonPath("$.result.kind").isEqualTo("task")
+                .jsonPath("$.result.status.state").isEqualTo("completed")
+                .jsonPath("$.result.artifacts[0].parts[0].text").isEqualTo("draft:月球救援");
     }
 
     @Test
-    void styleEditorEndpointCallsStyleEditorAgent() {
-        client.post()
-                .uri("/style-editor/a2a")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(messageSendRequest("style-message", "原故事", "赛博朋克"))
+    void oldEndpointIsNotMapped() {
+        client.get()
+                .uri("/creative-writer/.well-known/agent-card.json")
                 .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.result.parts[0].text").isEqualTo("style:原故事:赛博朋克");
+                .expectStatus().isNotFound();
     }
 
     private static A2AController controller() {
-        Agents.CreativeWriter creativeWriter = topic -> "draft:" + topic;
-        Agents.AudienceEditor audienceEditor = (story, audience) -> "audience:" + story + ":" + audience;
-        Agents.StyleEditor styleEditor = (story, style) -> "style:" + story + ":" + style;
-        return new A2AController(creativeWriter, audienceEditor, styleEditor);
+        OtherAgentsA2AProperties properties = new OtherAgentsA2AProperties();
+        DraftAgent bean = topic -> "draft:" + topic;
+        A2AAgentExportRegistry registry = new A2AAgentExportRegistry(A2AAgentExports.builder()
+                .export("creative-writer", bean, DraftAgent.class, "generate")
+                .build());
+        A2AAgentServer server = A2AAgentServer.create(
+                properties,
+                registry,
+                new LangChain4jAgentMethodInvoker(),
+                new A2AMessageMapper(),
+                new InMemoryA2ATaskStore()
+        );
+        return new A2AController(server);
     }
 
-    private static String messageSendRequest(String id, String... texts) {
-        StringBuilder parts = new StringBuilder();
-        for (int i = 0; i < texts.length; i++) {
-            if (i > 0) {
-                parts.append(",");
-            }
-            parts.append("""
-                    {
-                      "kind": "text",
-                      "text": "%s"
-                    }
-                    """.formatted(texts[i]));
-        }
+    private static String messageSendRequest(String id, String text) {
         return """
                 {
                   "jsonrpc": "2.0",
@@ -76,12 +84,15 @@ class A2AControllerTest {
                     "message": {
                       "role": "user",
                       "parts": [
-                        %s
+                        {
+                          "kind": "text",
+                          "text": "%s"
+                        }
                       ],
                       "messageId": "user-message"
                     }
                   }
                 }
-                """.formatted(id, parts);
+                """.formatted(id, text);
     }
 }

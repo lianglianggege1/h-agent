@@ -3,6 +3,7 @@ package com.h.otheragents.a2a.server;
 import com.h.otheragents.a2a.export.A2AAgentExport;
 
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.List;
 
@@ -23,7 +24,9 @@ public class LangChain4jAgentMethodInvoker {
             }
         }
         try {
-            Object result = export.method().method().invoke(export.agentBean(), args);
+            Method method = export.method().method();
+            method.setAccessible(true);
+            Object result = method.invoke(export.agentBean(), args);
             return result == null ? "" : result.toString();
         } catch (IllegalAccessException e) {
             throw new IllegalStateException("A2A agent method is not accessible: " + export.id(), e);

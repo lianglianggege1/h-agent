@@ -32,4 +32,38 @@ public class A2AAgentConfig {
                 .outputKey("story")
                 .build();
     }
+
+    @Bean
+    public com.h.otheragents.a2a.export.A2AAgentExports a2aAgentExports(
+            Agents.CreativeWriter creativeWriter,
+            Agents.AudienceEditor audienceEditor,
+            Agents.StyleEditor styleEditor
+    ) {
+        return com.h.otheragents.a2a.export.A2AAgentExports.builder()
+                .export("creative-writer", creativeWriter, Agents.CreativeWriter.class, "generateStory")
+                .export("audience-editor", audienceEditor, Agents.AudienceEditor.class, "editStory")
+                .export("style-editor", styleEditor, Agents.StyleEditor.class, "editStory")
+                .build();
+    }
+
+    @Bean
+    public com.h.otheragents.a2a.export.A2AAgentExportRegistry a2aAgentExportRegistry(
+            com.h.otheragents.a2a.export.A2AAgentExports exports
+    ) {
+        return new com.h.otheragents.a2a.export.A2AAgentExportRegistry(exports);
+    }
+
+    @Bean
+    public com.h.otheragents.a2a.server.A2AAgentServer a2aAgentServer(
+            OtherAgentsA2AProperties properties,
+            com.h.otheragents.a2a.export.A2AAgentExportRegistry registry
+    ) {
+        return com.h.otheragents.a2a.server.A2AAgentServer.create(
+                properties,
+                registry,
+                new com.h.otheragents.a2a.server.LangChain4jAgentMethodInvoker(),
+                new com.h.otheragents.a2a.server.A2AMessageMapper(),
+                new com.h.otheragents.a2a.server.InMemoryA2ATaskStore()
+        );
+    }
 }
