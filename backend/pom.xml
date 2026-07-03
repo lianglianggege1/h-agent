@@ -15,7 +15,7 @@
     <description>h-agent Backend Service</description>
     <properties>
         <java.version>23</java.version>
-        <langchain4j.version>1.15.0</langchain4j.version>
+        <langchain4j.version>1.17.0</langchain4j.version>
         <lombok.version>1.18.36</lombok.version>
     </properties>
 
@@ -139,31 +139,31 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic-patterns</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-embeddings-all-minilm-l6-v2-q -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-embeddings-bge-small-zh-v15-q</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-pgvector -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-pgvector</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
             <scope>compile</scope>
         </dependency>
         <!-- 文档解析：一个 parser 通吃 md/txt/doc/docx/xls/xlsx -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-document-parser-apache-tika</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -180,7 +180,7 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic-a2a</artifactId>
-            <version>${langchain4j.version}-beta25</version>
+            <version>${langchain4j.version}-beta27</version>
         </dependency>
 
         <dependency>

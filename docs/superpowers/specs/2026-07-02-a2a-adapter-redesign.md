@@ -538,3 +538,10 @@ Other-agents 测试：
 - 如果请求提供 `metadata.memoryId/sessionId/userId`，服务端 invocation context 能读取并按约定用于 `@MemoryId` 映射。
 - 新增远端能力时，服务端只需复用或新增 LangChain4j agent bean，并在 Java 配置类中声明 A2A export；客户端只需新增本地 interface 并通过 LangChain4j A2A builder 创建。
 - 对使用方而言，远端 A2A agent 可以像本地 workflow sub-agent 一样参与 `.subAgents(...)`。
+
+## 实现状态
+
+- backend 已切换为 LangChain4j A2A client：`AgenticServices.a2aBuilder(...)`。
+- other-agents 已将标准 LangChain4j agent bean 通过 A2A RPC 出口层暴露。
+- A2A 统一 endpoint：`/a2a/agents/{agentId}`。
+- `contextId/taskId` 通过 A2A envelope 传递；`userId/sessionId/memoryId` 作为可选 metadata 由 server 兼容读取。
