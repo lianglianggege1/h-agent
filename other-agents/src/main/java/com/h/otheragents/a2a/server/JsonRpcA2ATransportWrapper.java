@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.Set;
+
 public class JsonRpcA2ATransportWrapper {
 
     public static final String MESSAGE_SEND = "message/send";
+    public static final String SEND_MESSAGE = "SendMessage";
+    private static final Set<String> SUPPORTED_METHODS = Set.of(MESSAGE_SEND, SEND_MESSAGE);
 
     private final A2ARequestHandler requestHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -18,7 +22,7 @@ public class JsonRpcA2ATransportWrapper {
     public JsonNode handle(String agentId, JsonNode request) {
         JsonNode id = request.path("id");
         String method = request.path("method").asText("");
-        if (!MESSAGE_SEND.equals(method)) {
+        if (!SUPPORTED_METHODS.contains(method)) {
             return error(id, -32601, "Method not found");
         }
         JsonNode params = request.path("params");

@@ -54,35 +54,36 @@ public class A2AAgentExecutor {
     }
 
     private JsonNode completedTask(String taskId, String contextId, String text) {
-        ObjectNode task = baseTask(taskId, contextId, "completed");
+        ObjectNode task = buildTask(taskId, contextId, "completed");
         ArrayNode artifacts = task.putArray("artifacts");
         ObjectNode artifact = artifacts.addObject();
         artifact.put("artifactId", "artifact-" + taskId);
         ArrayNode parts = artifact.putArray("parts");
         ObjectNode part = parts.addObject();
-        part.put("kind", "text");
         part.put("text", text);
-        return task;
+        ObjectNode wrapper = objectMapper.createObjectNode();
+        wrapper.set("task", task);
+        return wrapper;
     }
 
     private JsonNode failedTask(String taskId, String contextId, String message) {
-        ObjectNode task = baseTask(taskId, contextId, "failed");
+        ObjectNode task = buildTask(taskId, contextId, "failed");
         ObjectNode statusMessage = task.withObject("/status/message");
-        statusMessage.put("role", "agent");
+        statusMessage.put("role", "ROLE_AGENT");
         ArrayNode parts = statusMessage.putArray("parts");
         ObjectNode part = parts.addObject();
-        part.put("kind", "text");
         part.put("text", message == null ? "A2A agent execution failed" : message);
-        return task;
+        ObjectNode wrapper = objectMapper.createObjectNode();
+        wrapper.set("task", task);
+        return wrapper;
     }
 
-    private ObjectNode baseTask(String taskId, String contextId, String state) {
+    private ObjectNode buildTask(String taskId, String contextId, String state) {
         ObjectNode task = objectMapper.createObjectNode();
-        task.put("kind", "task");
         task.put("id", taskId);
         task.put("contextId", contextId);
         ObjectNode status = task.putObject("status");
-        status.put("state", state);
+        status.put("state", "TASK_STATE_" + state.toUpperCase());
         return task;
     }
 
