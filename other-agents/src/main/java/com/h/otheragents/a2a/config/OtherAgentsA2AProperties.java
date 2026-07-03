@@ -23,4 +23,8 @@ public class OtherAgentsA2AProperties {
         }
         return publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl;
     }
+
+    public String agentUrl(String agentId) {
+        return normalizedPublicUrl() + "/a2a/agents/" + agentId;
+    }
 }

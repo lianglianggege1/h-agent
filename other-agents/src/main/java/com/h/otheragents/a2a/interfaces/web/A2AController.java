@@ -1,16 +1,12 @@
 package com.h.otheragents.a2a.interfaces.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.h.otheragents.a2a.application.A2AAgentCardApplicationService;
 import com.h.otheragents.a2a.infrastructure.ai.Agents;
-import io.a2a.spec.AgentCard;
-import io.a2a.spec.InvalidRequestError;
-import io.a2a.spec.Message;
-import io.a2a.spec.MethodNotFoundError;
-import io.a2a.spec.SendMessageRequest;
-import io.a2a.spec.SendMessageResponse;
-import io.a2a.spec.TextPart;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.a2aproject.sdk.jsonrpc.common.wrappers.SendMessageResponse;
+import org.a2aproject.sdk.spec.InvalidRequestError;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.MethodNotFoundError;
+import org.a2aproject.sdk.spec.TextPart;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,36 +18,20 @@ import java.util.Map;
 @RestController
 public class A2AController {
 
-    private final A2AAgentCardApplicationService agentCardApplicationService;
+    private static final String SEND_MESSAGE_METHOD = "message/send";
+
     private final Agents.CreativeWriter creativeWriter;
     private final Agents.AudienceEditor audienceEditor;
     private final Agents.StyleEditor styleEditor;
 
     public A2AController(
-            A2AAgentCardApplicationService agentCardApplicationService,
             Agents.CreativeWriter creativeWriter,
             Agents.AudienceEditor audienceEditor,
             Agents.StyleEditor styleEditor
     ) {
-        this.agentCardApplicationService = agentCardApplicationService;
         this.creativeWriter = creativeWriter;
         this.audienceEditor = audienceEditor;
         this.styleEditor = styleEditor;
-    }
-
-    @GetMapping("/creative-writer/.well-known/agent-card.json")
-    public AgentCard creativeWriterAgentCard() {
-        return agentCardApplicationService.creativeWriterAgentCard();
-    }
-
-    @GetMapping("/audience-editor/.well-known/agent-card.json")
-    public AgentCard audienceEditorAgentCard() {
-        return agentCardApplicationService.audienceEditorAgentCard();
-    }
-
-    @GetMapping("/style-editor/.well-known/agent-card.json")
-    public AgentCard styleEditorAgentCard() {
-        return agentCardApplicationService.styleEditorAgentCard();
     }
 
     @PostMapping("/creative-writer/a2a")
@@ -73,7 +53,7 @@ public class A2AController {
     private SendMessageResponse handle(JsonNode request, int requiredParts, AgentCall agentCall, String agentName) {
         Object id = jsonRpcId(request.path("id"));
         String method = request.path("method").asText("");
-        if (!SendMessageRequest.METHOD.equals(method)) {
+        if (!SEND_MESSAGE_METHOD.equals(method)) {
             return new SendMessageResponse(id, new MethodNotFoundError());
         }
 
@@ -82,8 +62,8 @@ public class A2AController {
             return new SendMessageResponse(id, new InvalidRequestError("message parts must contain required text"));
         }
 
-        Message response = new Message.Builder()
-                .role(Message.Role.AGENT)
+        Message response = Message.builder()
+                .role(Message.Role.ROLE_AGENT)
                 .parts(new TextPart(agentCall.call(prompts)))
                 .metadata(Map.of("provider", "other-agents", "agent", agentName))
                 .build();
