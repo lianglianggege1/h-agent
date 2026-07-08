@@ -64,4 +64,52 @@ class LocalFileResourceStorageTest {
         assertTrue(stored.storageKey().endsWith(".webm"));
         assertTrue(stored.fileName().endsWith(".webm"));
     }
+
+    @Test
+    void savesGeneratedFilesUnderGeneratedFilesDirectory() {
+        ImageGenerationProperties properties = new ImageGenerationProperties(
+                null,
+                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
+        );
+        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE",
+                "session-1",
+                "send-file",
+                new byte[]{1, 2, 3},
+                "application/pdf",
+                "pdf",
+                null,
+                null
+        ));
+
+        assertTrue(stored.storageKey().startsWith("generated-files/"));
+        assertTrue(stored.fileName().startsWith("file-"));
+        assertTrue(stored.fileName().endsWith(".pdf"));
+    }
+
+    @Test
+    void savesGeneratedVideosUnderGeneratedVideosDirectory() {
+        ImageGenerationProperties properties = new ImageGenerationProperties(
+                null,
+                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
+        );
+        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "VIDEO",
+                "session-1",
+                "send-video",
+                new byte[]{1, 2, 3},
+                "video/mp4",
+                "mp4",
+                null,
+                null
+        ));
+
+        assertTrue(stored.storageKey().startsWith("generated-videos/"));
+        assertTrue(stored.fileName().startsWith("video-"));
+        assertTrue(stored.fileName().endsWith(".mp4"));
+    }
 }

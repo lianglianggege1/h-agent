@@ -52,12 +52,13 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
     public void execute(ChatAgentExecutionCommand command) {
         StringBuilder reasoningBuilder = new StringBuilder();
         StringBuilder replyBuilder = new StringBuilder();
-        AtomicBoolean imageEmitted = new AtomicBoolean();
-        Consumer<ChatSessionMessageDto> imagePublisher = message -> {
-            imageEmitted.set(true);
-            emitIfActive(command.sink(), new ChatStreamEvent("image", "", message));
+        AtomicBoolean resourceEmitted = new AtomicBoolean();
+        Consumer<ChatSessionMessageDto> resourcePublisher = message -> {
+            resourceEmitted.set(true);
+            String eventType = "IMAGE".equalsIgnoreCase(message.messageType()) ? "image" : "resource";
+            emitIfActive(command.sink(), new ChatStreamEvent(eventType, "", message));
         };
-        chatStreamEventBridge.registerPublisher(command.memoryId(), imagePublisher);
+        chatStreamEventBridge.registerPublisher(command.memoryId(), resourcePublisher);
         try {
             String messageForLlm = command.userMessage();
             String referenceResourceId = firstReferenceResourceId(command);
@@ -84,10 +85,10 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                     })
                     .onCompleteResponse(ignored -> {
                         try {
-                            logCompletedStream(command, reasoningBuilder, replyBuilder, imageEmitted);
-                            completeSuccessfulStream(command, reasoningBuilder, replyBuilder, imageEmitted);
+                            logCompletedStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
+                            completeSuccessfulStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
                         } finally {
-                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), imagePublisher);
+                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
                             command.onTerminal().run();
                         }
                     })
@@ -95,14 +96,14 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                         try {
                             emitFailureEvent(command.sink(), command, error);
                         } finally {
-                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), imagePublisher);
+                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
                             command.onTerminal().run();
                         }
                     })
                     .start();
         } catch (Exception ex) {
             try {
-                chatStreamEventBridge.unregisterPublisher(command.memoryId(), imagePublisher);
+                chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
                 emitFailureEvent(command.sink(), command, ex);
             } finally {
                 command.onTerminal().run();

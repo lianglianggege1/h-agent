@@ -34,10 +34,9 @@ public class LocalFileResourceStorage implements ResourceStorage {
         String resourceId = UUID.randomUUID().toString();
         String extension = normalizeExtension(command.extension(), command.mimeType());
         LocalDate today = LocalDate.now();
-        String directory = "AUDIO".equalsIgnoreCase(command.resourceType()) ? "call-audio" : "generated-images";
-        String filePrefix = "AUDIO".equalsIgnoreCase(command.resourceType()) ? "call-audio" : "generated";
+        ResourceLocation location = resourceLocation(command.resourceType());
         String relativeKey = "%s/%04d/%02d/%02d/%s.%s".formatted(
-                directory,
+                location.directory(),
                 today.getYear(),
                 today.getMonthValue(),
                 today.getDayOfMonth(),
@@ -56,8 +55,8 @@ public class LocalFileResourceStorage implements ResourceStorage {
                     resourceId,
                     STORAGE_TYPE,
                     relativeKey,
-                    command.mimeType(),
-                    "%s-%s.%s".formatted(filePrefix, resourceId, extension),
+                    storedResourceMimeType(command.mimeType()),
+                    "%s-%s.%s".formatted(location.filePrefix(), resourceId, extension),
                     (long) content.length,
                     command.width() == null ? imageSize.width() : command.width(),
                     command.height() == null ? imageSize.height() : command.height()
@@ -65,6 +64,19 @@ public class LocalFileResourceStorage implements ResourceStorage {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to save generated image", ex);
         }
+    }
+
+    private ResourceLocation resourceLocation(String resourceType) {
+        if ("AUDIO".equalsIgnoreCase(resourceType)) {
+            return new ResourceLocation("call-audio", "call-audio");
+        }
+        if ("VIDEO".equalsIgnoreCase(resourceType)) {
+            return new ResourceLocation("generated-videos", "video");
+        }
+        if ("FILE".equalsIgnoreCase(resourceType) || "DOCUMENT".equalsIgnoreCase(resourceType)) {
+            return new ResourceLocation("generated-files", "file");
+        }
+        return new ResourceLocation("generated-images", "generated");
     }
 
     @Override
@@ -126,6 +138,13 @@ public class LocalFileResourceStorage implements ResourceStorage {
             return new ImageSize(null, null);
         }
         return new ImageSize(image.getWidth(), image.getHeight());
+    }
+
+    private String storedResourceMimeType(String mimeType) {
+        return mimeType == null || mimeType.isBlank() ? "application/octet-stream" : mimeType;
+    }
+
+    private record ResourceLocation(String directory, String filePrefix) {
     }
 
     private record ImageSize(Integer width, Integer height) {

@@ -255,6 +255,64 @@ test("apiStream dispatches image events with message payload", async () => {
   }
 });
 
+test("apiStream dispatches resource events with message payload", async () => {
+  const originalFetch = globalThis.fetch;
+  const events = [];
+  const fileMessage = {
+    id: "601",
+    role: "assistant",
+    messageType: "FILE",
+    content: "已发送文件：客户方案.pptx",
+    resources: [
+      {
+        id: "resource-2",
+        type: "FILE",
+        viewUrl: "/api/chat/resources/resource-2/content",
+        downloadUrl: "/api/chat/resources/resource-2/download",
+        fileName: "客户方案.pptx",
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      },
+    ],
+    createdAt: "2026-07-07T20:00:00",
+  };
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: resource\n" +
+                `data: ${JSON.stringify({ type: "resource", content: "", message: fileMessage })}\n\n` +
+                "event: done\n" +
+                'data: {"type":"done","content":""}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onImage(message) {
+        events.push(["resource", message]);
+      },
+      onDone() {
+        events.push(["done", ""]);
+      },
+    });
+    assert.deepEqual(events, [
+      ["resource", fileMessage],
+      ["done", ""],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches user_message and done message payloads", async () => {
   const originalFetch = globalThis.fetch;
   const events = [];

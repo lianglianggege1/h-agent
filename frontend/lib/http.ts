@@ -136,7 +136,7 @@ export async function apiStream(
         handlers.onUserMessage?.(payload.message);
       } else if (eventType === "done") {
         handlers.onDone?.(payload.content, payload.message);
-      } else if (eventType === "image" && payload.message) {
+      } else if ((eventType === "image" || eventType === "resource") && payload.message) {
         handlers.onImage?.(payload.message);
       } else if (eventType === "agent_step" && payload.payload) {
         handlers.onAgentStep?.(payload.payload as AgentStepPayload);

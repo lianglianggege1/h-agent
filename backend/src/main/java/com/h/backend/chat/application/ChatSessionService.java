@@ -64,4 +64,12 @@ public interface ChatSessionService {
             ChatMessagePayload payload,
             List<ChatMessageResourceDto> resources
     );
+
+    ChatSessionMessageDto appendResourceMessage(
+            Long userId,
+            String sessionId,
+            String content,
+            String messageType,
+            List<ChatMessageResourceDto> resources
+    );
 }

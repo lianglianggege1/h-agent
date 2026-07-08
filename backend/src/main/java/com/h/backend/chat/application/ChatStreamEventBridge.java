@@ -11,30 +11,34 @@ import java.util.function.Supplier;
 @Component
 public class ChatStreamEventBridge {
 
-    private final ConcurrentMap<String, Consumer<ChatSessionMessageDto>> imagePublishers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Consumer<ChatSessionMessageDto>> messagePublishers = new ConcurrentHashMap<>();
 
-    public void registerPublisher(String memoryId, Consumer<ChatSessionMessageDto> imagePublisher) {
-        imagePublishers.put(memoryId, imagePublisher);
+    public void registerPublisher(String memoryId, Consumer<ChatSessionMessageDto> messagePublisher) {
+        messagePublishers.put(memoryId, messagePublisher);
     }
 
-    public void unregisterPublisher(String memoryId, Consumer<ChatSessionMessageDto> imagePublisher) {
-        imagePublishers.remove(memoryId, imagePublisher);
+    public void unregisterPublisher(String memoryId, Consumer<ChatSessionMessageDto> messagePublisher) {
+        messagePublishers.remove(memoryId, messagePublisher);
     }
 
-    public <T> T withPublisher(String memoryId, Consumer<ChatSessionMessageDto> imagePublisher, Supplier<T> action) {
-        registerPublisher(memoryId, imagePublisher);
+    public <T> T withPublisher(String memoryId, Consumer<ChatSessionMessageDto> messagePublisher, Supplier<T> action) {
+        registerPublisher(memoryId, messagePublisher);
         try {
             return action.get();
         } finally {
-            unregisterPublisher(memoryId, imagePublisher);
+            unregisterPublisher(memoryId, messagePublisher);
         }
     }
 
-    public void publishImage(String memoryId, ChatSessionMessageDto message) {
-        Consumer<ChatSessionMessageDto> imagePublisher = imagePublishers.get(memoryId);
-        if (imagePublisher == null) {
+    public void publishMessage(String memoryId, ChatSessionMessageDto message) {
+        Consumer<ChatSessionMessageDto> messagePublisher = messagePublishers.get(memoryId);
+        if (messagePublisher == null) {
             return;
         }
-        imagePublisher.accept(message);
+        messagePublisher.accept(message);
+    }
+
+    public void publishImage(String memoryId, ChatSessionMessageDto message) {
+        publishMessage(memoryId, message);
     }
 }

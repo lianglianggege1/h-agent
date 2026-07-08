@@ -502,6 +502,68 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         );
     }
 
+    @Override
+    @Transactional
+    public ChatSessionMessageDto appendResourceMessage(
+            Long userId,
+            String sessionId,
+            String content,
+            String messageType,
+            List<ChatMessageResourceDto> resources
+    ) {
+        if (chatMessageResourceMapper == null) {
+            throw new IllegalStateException("ChatMessageResourceMapper is required to append resource messages");
+        }
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+
+        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        LocalDateTime now = LocalDateTime.now();
+        String normalizedMessageType = requireResourceField(messageType, "messageType").trim().toUpperCase();
+        ChatSessionMessage message = buildMessage("assistant", normalizedMessageType, content, now, nextSequence);
+        Long messageId = persistMessage(session, message);
+
+        List<ChatMessageResourceDto> safeResources = resources == null ? List.of() : resources;
+        for (ChatMessageResourceDto resource : safeResources) {
+            ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+            row.setId(resource.id());
+            row.setMessageId(messageId);
+            row.setUserId(userId);
+            row.setSessionId(sessionId);
+            row.setResourceType(requireResourceField(resource.type(), "type"));
+            row.setResourceRole(requireResourceField(resource.role(), "role"));
+            row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
+            row.setStorageKey(resource.storageKey() == null ? resource.id() : resource.storageKey());
+            row.setViewUrl(resource.viewUrl());
+            row.setDownloadUrl(resource.downloadUrl());
+            row.setMimeType(resource.mimeType());
+            row.setFileName(resource.fileName());
+            row.setFileSize(resource.fileSize());
+            row.setWidth(resource.width());
+            row.setHeight(resource.height());
+            row.setMetadataJson(toMetadataJson(resource.metadata()));
+            row.setCreatedAt(now);
+            chatMessageResourceMapper.insert(row);
+        }
+
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        chatSessionMapper.updateById(session);
+
+        return new ChatSessionMessageDto(
+                String.valueOf(messageId),
+                "assistant",
+                normalizedMessageType,
+                content == null ? "" : content,
+                null,
+                safeResources,
+                now
+        );
+    }
+
     private void bindResourcesToMessage(
             Long userId,
             String sessionId,

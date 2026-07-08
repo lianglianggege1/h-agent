@@ -39,3 +39,11 @@
 
 
 a2a能力升级为真实能力，现在只是打通了链路，并没有真正走通，   看test后自己实现一个demo
+
+
+实现HarnessAgent 引入agentscope包，基于它实现
+但是在实现它之前，要补齐tool skill mcp等能力的学习
+
+
+看不懂的时候就不必再继续看了，
+直接写tool
