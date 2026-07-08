@@ -9,7 +9,6 @@ import com.h.backend.chat.infrastructure.tools.FilesystemTool;
 import com.h.backend.chat.infrastructure.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.infrastructure.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
-import com.h.backend.chat.infrastructure.tools.impl.ToolWithP;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
@@ -45,9 +44,6 @@ public class ChatModelConfig {
 
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
-
-    @Resource
-    private ToolWithP toolWithP;
 
     @Resource
     private ImageGenerationTool imageGenerationTool;
@@ -132,7 +128,7 @@ public class ChatModelConfig {
 
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
-                .tools(toolWithP, imageGenerationTool, filesystemTool, fileDeliveryTool)
+                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
