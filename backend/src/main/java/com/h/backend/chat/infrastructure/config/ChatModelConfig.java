@@ -9,6 +9,8 @@ import com.h.backend.chat.infrastructure.tools.FilesystemTool;
 import com.h.backend.chat.infrastructure.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.infrastructure.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
+import com.h.backend.chat.infrastructure.tools.ShellTool;
+import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
@@ -33,7 +35,7 @@ import java.time.Duration;
 import java.util.Properties;
 
 @Configuration
-@EnableConfigurationProperties({ImageGenerationProperties.class, AssistantFileProperties.class})
+@EnableConfigurationProperties({ImageGenerationProperties.class, AssistantFileProperties.class, ShellToolProperties.class})
 public class ChatModelConfig {
 
     private static final String LANGCHAIN4J_HTTP_REQUEST_LOGGER =
@@ -53,6 +55,9 @@ public class ChatModelConfig {
 
     @Resource
     private FileDeliveryTool fileDeliveryTool;
+
+    @Resource
+    private ShellTool shellTool;
 
     @Resource
     private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
@@ -128,7 +133,7 @@ public class ChatModelConfig {
 
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
-                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool)
+                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool, shellTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)

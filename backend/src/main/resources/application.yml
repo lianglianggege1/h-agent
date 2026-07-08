@@ -61,6 +61,12 @@ chat:
   filesystem:
     base-dir: /tmp/h-agent/assistant-files
     max-file-size-bytes: 10485760
+  shell:
+    enabled: true
+    default-timeout-seconds: 30
+    max-timeout-seconds: 120
+    max-output-bytes: 100000
+    inherit-environment: false
 
 agents:
   a2a:

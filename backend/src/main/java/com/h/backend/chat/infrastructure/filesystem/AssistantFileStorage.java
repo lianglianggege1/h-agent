@@ -172,6 +172,21 @@ public class AssistantFileStorage {
         }
     }
 
+    public Path resolveSessionDirectory(String memoryId, String path) {
+        try {
+            ResolvedFile target = resolve(memoryId, path == null || path.isBlank() ? "/" : path);
+            if (target.sessionRoot()) {
+                Files.createDirectories(target.realPath());
+            }
+            if (!Files.exists(target.realPath()) || !Files.isDirectory(target.realPath())) {
+                throw new IllegalArgumentException("Working directory does not exist: " + target.virtualPath());
+            }
+            return target.realPath();
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Failed to prepare working directory: " + ex.getMessage(), ex);
+        }
+    }
+
     public AssistantSessionFile readSessionFile(String memoryId, String path) {
         try {
             ResolvedFile target = resolve(memoryId, path);
