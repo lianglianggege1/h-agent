@@ -11,6 +11,7 @@ import com.h.backend.chat.infrastructure.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
 import com.h.backend.chat.infrastructure.tools.ShellTool;
 import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
+import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
@@ -58,6 +59,9 @@ public class ChatModelConfig {
 
     @Resource
     private ShellTool shellTool;
+
+    @Resource
+    private WebSearchTool webSearchTool;
 
     @Resource
     private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
@@ -133,7 +137,7 @@ public class ChatModelConfig {
 
                     return systemPromptService.getSystemPrompt(userId, promptId);
                 })
-                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool, shellTool)
+                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
