@@ -10,6 +10,13 @@ other-agents:
 spring:
   application:
     name: other-agents
+  ai:
+    mcp:
+      server:
+        name: other-agents-mcp
+        version: 0.0.1
+        type: async
+        protocol: streamable
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://127.0.0.1:5432/h_agent_db

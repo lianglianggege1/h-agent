@@ -19,11 +19,13 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.DisabledChatModel;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.tool.ToolProviderResult;
 import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -125,7 +127,8 @@ public class ChatModelConfig {
 
     @Bean
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
-                                 RetrievalAugmentor knowledgeRetrievalAugmentor) {
+                                 RetrievalAugmentor knowledgeRetrievalAugmentor,
+                                 ObjectProvider<McpToolProvider> mcpToolProvider) {
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
 //                .retrievalAugmentor(knowledgeRetrievalAugmentor)
@@ -142,6 +145,13 @@ public class ChatModelConfig {
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
                 .executeToolsConcurrently() // 并发调用工具
+                .toolProvider(request -> {
+                    McpToolProvider provider = mcpToolProvider.getIfAvailable();
+                    if (provider == null) {
+                        return ToolProviderResult.builder().build();
+                    }
+                    return provider.provideTools(request);
+                })
                 // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)

@@ -71,8 +71,13 @@ chat:
 agents:
   a2a:
     other-agents:
-      enabled: false
+      enabled: true
       base-url: http://localhost:8082
+  mcp:
+    other-agents:
+      enabled: true
+      url: http://localhost:8082/mcp
+      tool-execution-timeout-seconds: 4
 
 knowledge:
   retriever:
