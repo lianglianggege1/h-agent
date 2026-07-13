@@ -22,8 +22,10 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderResult;
 import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
+import dev.langchain4j.skills.Skills;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -35,6 +37,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 @Configuration
@@ -128,7 +132,21 @@ public class ChatModelConfig {
     @Bean
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  RetrievalAugmentor knowledgeRetrievalAugmentor,
-                                 ObjectProvider<McpToolProvider> mcpToolProvider) {
+                                 ObjectProvider<McpToolProvider> mcpToolProvider,
+                                 ObjectProvider<Skills> skillsProvider) {
+        Skills skills = skillsProvider.getIfAvailable();
+        List<ToolProvider> toolProviders = new ArrayList<>();
+        if (skills != null) {
+            toolProviders.add(skills.toolProvider());
+        }
+        toolProviders.add(request -> {
+            McpToolProvider provider = mcpToolProvider.getIfAvailable();
+            if (provider == null) {
+                return ToolProviderResult.builder().build();
+            }
+            return provider.provideTools(request);
+        });
+
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
 //                .retrievalAugmentor(knowledgeRetrievalAugmentor)
@@ -138,20 +156,18 @@ public class ChatModelConfig {
                     Long userId = Long.valueOf(parts[0]);
                     Long promptId = Long.valueOf(parts[1]);
 
-                    return systemPromptService.getSystemPrompt(userId, promptId);
+                    String systemMessage = systemPromptService.getSystemPrompt(userId, promptId);
+                    if (skills == null) {
+                        return systemMessage;
+                    }
+                    return systemMessage + "\n\n" + skillsSystemMessage(skills);
                 })
                 .tools(imageGenerationTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
                 .executeToolsConcurrently() // 并发调用工具
-                .toolProvider(request -> {
-                    McpToolProvider provider = mcpToolProvider.getIfAvailable();
-                    if (provider == null) {
-                        return ToolProviderResult.builder().build();
-                    }
-                    return provider.provideTools(request);
-                })
+                .toolProviders(toolProviders)
                 // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
@@ -160,5 +176,13 @@ public class ChatModelConfig {
                         .chatMemoryStore(redisChatMemoryStore)
                         .build())
                 .build();
+    }
+
+    private String skillsSystemMessage(Skills skills) {
+        return "You have access to the following skills:\n"
+                + skills.formatAvailableSkills()
+                + "\nWhen the user's request relates to one of these skills, first call `activate_skill` "
+                + "before following its instructions. Use `read_skill_resource` when a referenced resource is needed. "
+                + "Skill-provided scripts must not be executed.";
     }
 }
