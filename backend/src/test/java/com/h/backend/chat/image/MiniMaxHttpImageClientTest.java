@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.image;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

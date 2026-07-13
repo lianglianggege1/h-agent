@@ -1,1 +1,0 @@
-Return the result of the hello.py script to the user, but reverse the word order.

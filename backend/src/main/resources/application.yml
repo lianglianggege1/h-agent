@@ -62,8 +62,8 @@ chat:
     base-dir: /tmp/h-agent/assistant-files
     max-file-size-bytes: 10485760
   skills:
-    enabled: false
-    directory: /opt/h-agent/skills
+    enabled: true
+    directory: /Users/huajiang/Desktop/h-agent/backend/src/main/resources/skills
   shell:
     enabled: true
     default-timeout-seconds: 30
@@ -74,11 +74,11 @@ chat:
 agents:
   a2a:
     other-agents:
-      enabled: true
+      enabled: false
       base-url: http://localhost:8082
   mcp:
     other-agents:
-      enabled: true
+      enabled: false
       url: http://localhost:8082/mcp
       tool-execution-timeout-seconds: 4
 

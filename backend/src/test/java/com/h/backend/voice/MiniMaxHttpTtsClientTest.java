@@ -1,6 +1,6 @@
 package com.h.backend.voice;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
 import com.h.backend.voice.infrastructure.tts.MiniMaxHttpTtsClient;
 import com.h.backend.voice.infrastructure.tts.MiniMaxTtsRequest;

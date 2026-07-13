@@ -2,8 +2,6 @@ package com.h.backend.chat.application.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
@@ -33,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -834,7 +834,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private String writeMessagePayload(ChatSessionMessage message) {
         try {
             return objectMapper.writeValueAsString(message);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to serialize chat session message payload", ex);
         }
     }
@@ -842,7 +842,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private String writePayload(ChatMessagePayload payload) {
         try {
             return objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to serialize chat image message payload", ex);
         }
     }
@@ -904,7 +904,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
         try {
             return objectMapper.readValue(metadataJson, Object.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return null;
         }
     }
@@ -915,7 +915,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
         try {
             return objectMapper.writeValueAsString(metadata);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return null;
         }
     }
@@ -940,7 +940,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         try {
             ChatMessagePayload payload = objectMapper.readValue(payloadJson, ChatMessagePayload.class);
             return toPayloadDto(payload);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             return null;
         }
     }

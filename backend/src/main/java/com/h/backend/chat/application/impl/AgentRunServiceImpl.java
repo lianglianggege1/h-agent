@@ -1,13 +1,13 @@
 package com.h.backend.chat.application.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentRunEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.domain.model.AgentRunSummary;
 import com.h.backend.chat.application.AgentRunService;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -112,7 +112,7 @@ public class AgentRunServiceImpl implements AgentRunService {
                     new TypeReference<LinkedHashSet<String>>() {
                     }
             );
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to parse tool names json", ex);
         }
     }
@@ -120,7 +120,7 @@ public class AgentRunServiceImpl implements AgentRunService {
     private String writeToolNames(LinkedHashSet<String> names) {
         try {
             return objectMapper.writeValueAsString(names);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to serialize tool names json", ex);
         }
     }

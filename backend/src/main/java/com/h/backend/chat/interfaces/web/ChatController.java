@@ -1,6 +1,5 @@
 package com.h.backend.chat.interfaces.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.ChatMessageRequest;
@@ -21,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.BaseSubscriber;
+import tools.jackson.databind.ObjectMapper;
 import org.reactivestreams.Subscription;
 
 import java.io.IOException;

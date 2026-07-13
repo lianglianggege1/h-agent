@@ -1,6 +1,6 @@
 package com.h.backend.chat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRegistry;
