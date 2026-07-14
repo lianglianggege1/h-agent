@@ -8,6 +8,7 @@ import {
   applyReasoningChunk,
   applyPersistedMessage,
   buildPendingAssistantTurn,
+  hasPendingVideoGeneration,
   removeEmptyAssistantPlaceholders,
   toRenderableTurns,
   toUiChatMessage,
@@ -22,6 +23,36 @@ test("buildPendingAssistantTurn creates user, reasoning, and assistant placehold
   assert.equal(assistantMessage.messageType, "AI");
   assert.equal(assistantMessage.content, "");
   assert.deepEqual(assistantMessage.agentSteps, []);
+});
+
+test("hasPendingVideoGeneration waits for a video resource instead of matching status text", () => {
+  const pending = [{
+    id: "video-message",
+    role: "assistant",
+    messageType: "VIDEO",
+    content: "视频生成中，请继续聊天。",
+    resources: [],
+  }];
+  const completed = [{
+    ...pending[0],
+    content: "视频已生成。",
+    resources: [{
+      id: "video-resource",
+      type: "VIDEO",
+      role: "GENERATED",
+      viewUrl: "/api/chat/resources/video-resource/content",
+      downloadUrl: "/api/chat/resources/video-resource/download",
+      fileName: "video.mp4",
+      mimeType: "video/mp4",
+      fileSize: 1,
+      width: null,
+      height: null,
+    }],
+  }];
+
+  assert.equal(hasPendingVideoGeneration(pending), true);
+  assert.equal(hasPendingVideoGeneration(completed), false);
+  assert.equal(hasPendingVideoGeneration([...completed, ...pending]), true);
 });
 
 test("applyReasoningChunk appends only reasoning content", () => {

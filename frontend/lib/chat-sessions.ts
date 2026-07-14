@@ -1,6 +1,6 @@
 import { apiFetch } from "./http";
 
-export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE";
+export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO";
 
 export type ChatMessagePayload = {
   prompt: string | null;

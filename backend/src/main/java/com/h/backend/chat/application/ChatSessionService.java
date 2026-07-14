@@ -72,4 +72,15 @@ public interface ChatSessionService {
             String messageType,
             List<ChatMessageResourceDto> resources
     );
+
+    ChatSessionMessageDto appendGeneratedMediaMessage(Long userId, String sessionId, String content);
+
+    void updateGeneratedMediaMessage(
+            Long userId,
+            String sessionId,
+            Long messageId,
+            String content,
+            List<ChatMessageResourceDto> resources
+    );
+
 }

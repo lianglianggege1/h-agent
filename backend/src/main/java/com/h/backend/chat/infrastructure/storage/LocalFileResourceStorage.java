@@ -8,6 +8,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -30,39 +31,38 @@ public class LocalFileResourceStorage implements ResourceStorage {
 
     @Override
     public StoredResource save(ResourceSaveCommand command) {
-        byte[] content = command.content() == null ? new byte[0] : command.content();
         String resourceId = UUID.randomUUID().toString();
         String extension = normalizeExtension(command.extension(), command.mimeType());
-        LocalDate today = LocalDate.now();
         ResourceLocation location = resourceLocation(command.resourceType());
-        String relativeKey = "%s/%04d/%02d/%02d/%s.%s".formatted(
-                location.directory(),
-                today.getYear(),
-                today.getMonthValue(),
-                today.getDayOfMonth(),
-                resourceId,
-                extension
-        );
-        Path target = baseDir.resolve(relativeKey).normalize();
-        if (!target.startsWith(baseDir)) {
-            throw new IllegalArgumentException("Invalid resource storage path");
-        }
+        Path target = targetPath(resourceId, extension, location);
+        Path temporary = target.resolveSibling(target.getFileName() + ".part");
+
         try {
             Files.createDirectories(target.getParent());
-            Files.write(target, content);
-            ImageSize imageSize = readImageSize(content);
+            long size;
+            try (InputStream contentStream = command.openContentStream()) {
+                size = copyWithLimit(contentStream, temporary, command.maxBytes());
+            }
+            Files.move(temporary, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            ImageSize imageSize = readImageSize(command.content());
             return new StoredResource(
                     resourceId,
                     STORAGE_TYPE,
-                    relativeKey,
+                    baseDir.relativize(target).toString(),
                     storedResourceMimeType(command.mimeType()),
                     "%s-%s.%s".formatted(location.filePrefix(), resourceId, extension),
-                    (long) content.length,
+                    size,
                     command.width() == null ? imageSize.width() : command.width(),
                     command.height() == null ? imageSize.height() : command.height()
             );
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to save generated image", ex);
+        } catch (IOException exception) {
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException ignored) {
+                // The original storage error is more useful to the caller.
+            }
+            throw new IllegalStateException("Failed to save generated resource", exception);
         }
     }
 
@@ -77,6 +77,34 @@ public class LocalFileResourceStorage implements ResourceStorage {
             return new ResourceLocation("generated-files", "file");
         }
         return new ResourceLocation("generated-images", "generated");
+    }
+
+    private Path targetPath(String resourceId, String extension, ResourceLocation location) {
+        LocalDate today = LocalDate.now();
+        String relativeKey = "%s/%04d/%02d/%02d/%s.%s".formatted(
+                location.directory(), today.getYear(), today.getMonthValue(), today.getDayOfMonth(), resourceId, extension
+        );
+        Path target = baseDir.resolve(relativeKey).normalize();
+        if (!target.startsWith(baseDir)) {
+            throw new IllegalArgumentException("Invalid resource storage path");
+        }
+        return target;
+    }
+
+    private long copyWithLimit(InputStream inputStream, Path target, long maxBytes) throws IOException {
+        long written = 0;
+        byte[] buffer = new byte[8192];
+        try (OutputStream outputStream = Files.newOutputStream(target)) {
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                written += read;
+                if (maxBytes > 0 && written > maxBytes) {
+                    throw new IOException("Resource exceeds configured maximum size");
+                }
+                outputStream.write(buffer, 0, read);
+            }
+        }
+        return written;
     }
 
     @Override
@@ -133,6 +161,9 @@ public class LocalFileResourceStorage implements ResourceStorage {
     }
 
     private ImageSize readImageSize(byte[] content) throws IOException {
+        if (content == null) {
+            return new ImageSize(null, null);
+        }
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(content));
         if (image == null) {
             return new ImageSize(null, null);

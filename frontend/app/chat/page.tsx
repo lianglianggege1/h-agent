@@ -11,6 +11,7 @@ import {
   applyPersistedMessage,
   applyReasoningChunk,
   buildPendingAssistantTurn,
+  hasPendingVideoGeneration,
   removeEmptyAssistantPlaceholders,
   toRenderableTurns,
   toUiChatMessage,
@@ -312,6 +313,23 @@ function ChatPageContent() {
           .map((r) => ({ ...r, messageId: m.id })),
       );
   }, [messages]);
+
+  useEffect(() => {
+    if (!sessionId || streaming || !hasPendingVideoGeneration(messages)) {
+      return;
+    }
+
+    const refreshGeneratedVideoMessages = async () => {
+      try {
+        const page = await getChatSessionMessages(sessionId, 100);
+        setMessages(page.messages.map(toUiChatMessage));
+      } catch {
+        // The next polling interval can recover from transient refresh failures.
+      }
+    };
+    const intervalId = window.setInterval(refreshGeneratedVideoMessages, 10_000);
+    return () => window.clearInterval(intervalId);
+  }, [messages, sessionId, streaming]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

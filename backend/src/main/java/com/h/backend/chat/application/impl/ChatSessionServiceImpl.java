@@ -564,6 +564,55 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         );
     }
 
+    @Override
+    @Transactional
+    public ChatSessionMessageDto appendGeneratedMediaMessage(Long userId, String sessionId, String content) {
+        return appendResourceMessage(userId, sessionId, content, "VIDEO", List.of());
+    }
+
+    @Override
+    @Transactional
+    public void updateGeneratedMediaMessage(
+            Long userId,
+            String sessionId,
+            Long messageId,
+            String content,
+            List<ChatMessageResourceDto> resources
+    ) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
+        if (message == null
+                || !session.getId().equals(message.getSessionRecordId())
+                || !userId.equals(message.getUserId())
+                || !"VIDEO".equals(message.getMessageType())) {
+            throw new BusinessException(40404, "视频生成消息不存在");
+        }
+
+        message.setContentText(content);
+        chatSessionMessageMapper.updateById(message);
+        for (ChatMessageResourceDto resource : resources == null ? List.<ChatMessageResourceDto>of() : resources) {
+            ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+            row.setId(resource.id());
+            row.setMessageId(messageId);
+            row.setUserId(userId);
+            row.setSessionId(sessionId);
+            row.setResourceType(requireResourceField(resource.type(), "type"));
+            row.setResourceRole(requireResourceField(resource.role(), "role"));
+            row.setStorageType(resource.storageType());
+            row.setStorageKey(resource.storageKey());
+            row.setViewUrl(resource.viewUrl());
+            row.setDownloadUrl(resource.downloadUrl());
+            row.setMimeType(resource.mimeType());
+            row.setFileName(resource.fileName());
+            row.setFileSize(resource.fileSize());
+            row.setWidth(resource.width());
+            row.setHeight(resource.height());
+            row.setMetadataJson(toMetadataJson(resource.metadata()));
+            row.setCreatedAt(LocalDateTime.now());
+            chatMessageResourceMapper.insert(row);
+        }
+    }
+
     private void bindResourcesToMessage(
             Long userId,
             String sessionId,

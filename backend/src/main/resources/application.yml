@@ -37,6 +37,11 @@ mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
+    # 把 MyBatis 日志桥接到当前 logback，参数化 SQL 由 StatementLogger (DEBUG) 打印
+    # 带 ? 的 PreparedStatement 与参数列表（Parameters、Updates 换行）会输出到 com.h.backend.mybatis.SqlLog logger
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
 
 jwt:
   secret: change-this-to-256-bit-secret-change-this
@@ -117,3 +122,17 @@ voice:
       sample-rate: 32000
       bitrate: 128000
       request-timeout-seconds: 60
+
+generation:
+  polling:
+    enabled: true
+    fixed-delay: 20s
+    batch-size: 20
+    queueing-delay: 10s
+    processing-delay: 15s
+    retry-delay: 30s
+  minimax:
+    base-url: https://api.minimaxi.com
+    api-key: ${MINIMAX_API_KEY:}
+  download:
+    max-file-size: 524288000

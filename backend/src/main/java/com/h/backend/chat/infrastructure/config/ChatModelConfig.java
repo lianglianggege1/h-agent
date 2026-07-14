@@ -12,6 +12,7 @@ import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
 import com.h.backend.chat.infrastructure.tools.ShellTool;
 import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
 import com.h.backend.chat.infrastructure.tools.WebSearchTool;
+import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
@@ -68,6 +69,9 @@ public class ChatModelConfig {
 
     @Resource
     private WebSearchTool webSearchTool;
+
+    @Resource
+    private TextToVideoTool textToVideoTool;
 
     @Resource
     private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
@@ -162,7 +166,7 @@ public class ChatModelConfig {
                     }
                     return systemMessage + "\n\n" + skillsSystemMessage(skills);
                 })
-                .tools(imageGenerationTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
+                .tools(imageGenerationTool, textToVideoTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)

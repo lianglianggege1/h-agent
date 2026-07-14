@@ -188,6 +188,17 @@ export function toUiChatMessage(message: ChatSessionMessage): UiChatMessage {
   };
 }
 
+export function hasPendingVideoGeneration(messages: UiChatMessage[]): boolean {
+  return messages.some((message) => {
+    if (message.messageType !== "VIDEO" || message.content.startsWith("视频生成失败")) {
+      return false;
+    }
+    return !(message.resources ?? []).some(
+      (resource) => resource.type.toUpperCase() === "VIDEO" || resource.mimeType.startsWith("video/"),
+    );
+  });
+}
+
 export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
   const turns: RenderableTurn[] = [];
 
