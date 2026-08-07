@@ -3,6 +3,7 @@ package com.h.backend.generation.application.service;
 import com.h.backend.generation.application.port.in.PollDueGenerationTasksUseCase;
 import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
 import com.h.backend.generation.application.port.out.ProviderTaskQueryPort;
+import com.h.backend.generation.application.port.out.ProviderTaskRejectedException;
 import com.h.backend.generation.domain.model.GenerationStatus;
 import com.h.backend.generation.domain.model.GenerationTask;
 import com.h.backend.generation.application.port.out.GenerationTaskRepository;
@@ -81,6 +82,11 @@ public class PollDueGenerationTasksService implements PollDueGenerationTasksUseC
             if (task.status() == GenerationStatus.IN_PROGRESS || task.status() == GenerationStatus.RETRY_WAIT) {
                 processProviderStatus(task, now);
             }
+        } catch (ProviderTaskRejectedException ex) {
+            task.fail(safeMessage(ex), now);
+            taskRepository.save(task);
+            chatProjectionPort.updateMessage(task);
+            log.warn("Generation task {} rejected by provider: {}", task.id(), ex.getMessage());
         } catch (RuntimeException ex) {
             task.retry(safeMessage(ex), nextRetryAt(task, now), now);
             taskRepository.save(task);

@@ -1,6 +1,7 @@
 package com.h.backend.generation.infrastructure.provider.minimax;
 
 import com.h.backend.generation.application.port.out.ProviderFilePort;
+import com.h.backend.generation.application.port.out.ProviderTaskRejectedException;
 import com.h.backend.generation.application.port.out.ProviderTaskQueryPort;
 import com.h.backend.generation.application.port.out.TextToVideoSubmissionPort;
 import com.h.backend.generation.application.port.out.ImageToVideoSubmissionPort;
@@ -26,6 +27,8 @@ import java.util.Map;
 
 @Component
 public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVideoSubmissionPort, ProviderTaskQueryPort, ProviderFilePort {
+    private static final int SENSITIVE_CONTENT_STATUS_CODE = 1026;
+
     private final GenerationProperties properties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
@@ -169,7 +172,11 @@ public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVid
     private void requireProviderSuccess(JsonNode response) {
         int code = response.path("base_resp").path("status_code").asInt(0);
         if (code != 0) {
-            throw new IllegalStateException("MiniMax error " + code + ": " + text(response.path("base_resp"), "status_msg"));
+            String message = "MiniMax error " + code + ": " + text(response.path("base_resp"), "status_msg");
+            if (code == SENSITIVE_CONTENT_STATUS_CODE) {
+                throw new ProviderTaskRejectedException(code, message);
+            }
+            throw new IllegalStateException(message);
         }
     }
 
