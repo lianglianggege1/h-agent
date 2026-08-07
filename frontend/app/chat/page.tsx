@@ -241,7 +241,20 @@ function MediaContent({
           );
         }
         if (resourceType === "VIDEO" || resource.mimeType.startsWith("video/")) {
-          return <video key={resource.id} src={resource.viewUrl} controls className="w-full rounded-[1.2rem]" />;
+          return (
+            <div key={resource.id} className="space-y-2">
+              <video src={resource.viewUrl} controls className="w-full rounded-[1.2rem]" />
+              <div className="flex justify-end">
+                <a
+                  className="shrink-0 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-white"
+                  href={resource.downloadUrl}
+                  download={resource.fileName}
+                >
+                  下载
+                </a>
+              </div>
+            </div>
+          );
         }
         if (resourceType === "AUDIO" || resource.mimeType.startsWith("audio/")) {
           return <audio key={resource.id} src={resource.viewUrl} controls className="w-full" />;
