@@ -56,6 +56,18 @@ test("hasPendingVideoGeneration waits for a video resource instead of matching s
   assert.equal(hasPendingVideoGeneration([...completed, ...pending]), true);
 });
 
+test("hasPendingVideoGeneration stops polling after provider rejection", () => {
+  const failed = [{
+    id: "failed-video-message",
+    role: "assistant",
+    messageType: "VIDEO",
+    content: "视频生成失败：MiniMax error 1026: input new_sensitive, input first_frame_image sensitive",
+    resources: [],
+  }];
+
+  assert.equal(hasPendingVideoGeneration(failed), false);
+});
+
 test("toUiChatMessages surfaces a completed asynchronous video message after refresh", () => {
   const localMessages = [{
     id: "assistant-message",
