@@ -188,6 +188,10 @@ export function toUiChatMessage(message: ChatSessionMessage): UiChatMessage {
   };
 }
 
+export function toUiChatMessages(messages: ChatSessionMessage[]): UiChatMessage[] {
+  return messages.map(toUiChatMessage);
+}
+
 export function hasPendingVideoGeneration(messages: UiChatMessage[]): boolean {
   return messages.some((message) => {
     if (message.messageType !== "VIDEO" || message.content.startsWith("视频生成失败")) {

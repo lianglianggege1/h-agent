@@ -20,6 +20,7 @@ import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -89,6 +90,26 @@ class ChatResourceControllerTest {
         BusinessException error = assertThrows(BusinessException.class, () -> service.openPreview(1L, "resource-1"));
 
         assertEquals(40404, error.getCode());
+    }
+
+    @Test
+    void shouldReturnNotFoundBusinessErrorWhenCleanedResourceFileIsRequested() {
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatResourceService service = new ChatResourceServiceImpl(resourceMapper, resourceStorage);
+        ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+        row.setId("resource-1");
+        row.setUserId(1L);
+        row.setStorageKey("generated-videos/2026/07/14/resource-1.mp4");
+        row.setFileName("video.mp4");
+        when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
+        when(resourceStorage.open(row.getStorageKey()))
+                .thenThrow(new IllegalStateException("Failed to open generated resource", new NoSuchFileException(row.getStorageKey())));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.openPreview(1L, "resource-1"));
+
+        assertEquals(40404, error.getCode());
+        assertEquals("资源文件已被清理", error.getMessage());
     }
 
     @Test

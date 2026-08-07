@@ -15,6 +15,7 @@ import {
   removeEmptyAssistantPlaceholders,
   toRenderableTurns,
   toUiChatMessage,
+  toUiChatMessages,
   type UiAgentStep,
   type UiChatMessage,
 } from "@/lib/chat-message-state";
@@ -335,7 +336,7 @@ function ChatPageContent() {
     const refreshGeneratedVideoMessages = async () => {
       try {
         const page = await getChatSessionMessages(sessionId, 100);
-        setMessages(page.messages.map(toUiChatMessage));
+        setMessages(toUiChatMessages(page.messages));
       } catch {
         // The next polling interval can recover from transient refresh failures.
       }
@@ -742,6 +743,14 @@ function ChatPageContent() {
           },
         },
       );
+      // Video generation creates a separate chat message asynchronously. Refresh once
+      // after the stream so the local state sees that message even if its SSE event was missed.
+      try {
+        const latestPage = await getChatSessionMessages(sessionId, 100);
+        setMessages(toUiChatMessages(latestPage.messages));
+      } catch {
+        // The stream already completed; keep its successful result if this best-effort refresh fails.
+      }
     } catch (streamError) {
       const message = streamError instanceof Error ? streamError.message : "发送失败";
       setError(message);

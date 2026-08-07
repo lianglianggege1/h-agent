@@ -14,7 +14,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex) {
         HttpStatus status = ex.getCode() >= 40100 && ex.getCode() < 40200
                 ? HttpStatus.UNAUTHORIZED
-                : HttpStatus.BAD_REQUEST;
+                : ex.getCode() == 40404 ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
         return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
