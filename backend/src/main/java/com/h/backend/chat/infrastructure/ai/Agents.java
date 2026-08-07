@@ -155,7 +155,7 @@ public class Agents {
     public static class StoryInfoMapper {
 
         @Agent(name = "故事信息映射器", outputKey = "storyInfo")
-        public static StoryInfo map(@V("storyInfo") StoryInfo storyInfo, AgenticScope scope) {
+        public StoryInfo map(@V("storyInfo") StoryInfo storyInfo, AgenticScope scope) {
             if (storyInfo != null) {
                 scope.writeState("topic", storyInfo.getTopic());
                 scope.writeState("style", storyInfo.getStyle());

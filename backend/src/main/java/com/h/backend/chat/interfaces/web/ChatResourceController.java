@@ -13,6 +13,7 @@ import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
@@ -101,9 +103,10 @@ public class ChatResourceController {
     @GetMapping("/{resourceId}/content")
     public ResponseEntity<InputStreamResource> preview(
             @AuthenticationPrincipal AuthUserPrincipal principal,
-            @PathVariable String resourceId
+            @PathVariable String resourceId,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader
     ) {
-        return toResponse(chatResourceService.openPreview(principal.userId(), resourceId));
+        return toPreviewResponse(chatResourceService.openPreview(principal.userId(), resourceId), rangeHeader);
     }
 
     @GetMapping("/{resourceId}/download")
@@ -126,6 +129,60 @@ public class ChatResourceController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(new InputStreamResource(resource.content().inputStream()));
+    }
+
+    private ResponseEntity<InputStreamResource> toPreviewResponse(
+            ChatResourceService.ResourceResponse resource,
+            String rangeHeader
+    ) {
+        if (rangeHeader == null || rangeHeader.isBlank()) {
+            return toResponse(resource);
+        }
+
+        long totalSize = resource.content().fileSize();
+        ByteRange range = parseRange(rangeHeader, totalSize);
+        InputStream inputStream = resource.content().inputStream();
+        try {
+            inputStream.skipNBytes(range.start());
+        } catch (IOException exception) {
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {
+                // Preserve the original seek error.
+            }
+            throw new IllegalStateException("无法定位视频预览区间", exception);
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(resource.content().mimeType()));
+        headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
+        headers.set(HttpHeaders.CONTENT_RANGE, "bytes %d-%d/%d".formatted(range.start(), range.end(), totalSize));
+        headers.setContentLength(range.length());
+        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                .headers(headers)
+                .body(new InputStreamResource(inputStream));
+    }
+
+    private ByteRange parseRange(String rangeHeader, long totalSize) {
+        if (!rangeHeader.startsWith("bytes=") || rangeHeader.contains(",")) {
+            throw new IllegalArgumentException("不支持的视频预览区间: " + rangeHeader);
+        }
+        String[] bounds = rangeHeader.substring("bytes=".length()).split("-", -1);
+        if (bounds.length != 2) {
+            throw new IllegalArgumentException("不支持的视频预览区间: " + rangeHeader);
+        }
+        long start = bounds[0].isBlank() ? 0 : Long.parseLong(bounds[0]);
+        long end = bounds[1].isBlank() ? totalSize - 1 : Long.parseLong(bounds[1]);
+        if (start < 0 || end < start || start >= totalSize) {
+            throw new IllegalArgumentException("视频预览区间超出文件范围: " + rangeHeader);
+        }
+        return new ByteRange(start, Math.min(end, totalSize - 1));
+    }
+
+    private record ByteRange(long start, long end) {
+        private long length() {
+            return end - start + 1;
+        }
     }
 
     private String extensionForMimeType(String mimeType) {

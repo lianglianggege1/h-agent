@@ -2,7 +2,8 @@ package com.h.backend.generation.domain.model;
 
 import java.util.Set;
 
-public record TextToVideoSpec(
+public record ImageToVideoSpec(
+        String sourceResourceId,
         String originalPrompt,
         String submittedPrompt,
         String model,
@@ -12,17 +13,21 @@ public record TextToVideoSpec(
         boolean fastPretreatment,
         boolean aigcWatermark
 ) implements VideoGenerationSpec {
-    private static final Set<String> HAILUO_MODELS = Set.of("MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02");
-    private static final Set<String> LEGACY_MODELS = Set.of("T2V-01-Director", "T2V-01");
+    private static final Set<String> HAILUO_MODELS = Set.of(
+            "MiniMax-Hailuo-2.3", "MiniMax-Hailuo-2.3-Fast", "MiniMax-Hailuo-02"
+    );
+    private static final Set<String> LEGACY_MODELS = Set.of("I2V-01-Director", "I2V-01-live", "I2V-01");
 
-    public TextToVideoSpec {
+    public ImageToVideoSpec {
+        requireText(sourceResourceId, "sourceResourceId");
         validatePrompt(originalPrompt, "originalPrompt");
         validatePrompt(submittedPrompt, "submittedPrompt");
         validateModel(model);
         validateFormat(model, durationSeconds, resolution, fastPretreatment);
     }
 
-    public static TextToVideoSpec withDefaults(
+    public static ImageToVideoSpec withDefaults(
+            String sourceResourceId,
             String originalPrompt,
             String submittedPrompt,
             String model,
@@ -32,7 +37,8 @@ public record TextToVideoSpec(
             Boolean fastPretreatment,
             Boolean aigcWatermark
     ) {
-        return new TextToVideoSpec(
+        return new ImageToVideoSpec(
+                sourceResourceId,
                 originalPrompt,
                 submittedPrompt,
                 model == null || model.isBlank() ? "MiniMax-Hailuo-2.3" : model,
@@ -46,7 +52,7 @@ public record TextToVideoSpec(
 
     @Override
     public GenerationType generationType() {
-        return GenerationType.TEXT_TO_VIDEO;
+        return GenerationType.IMAGE_TO_VIDEO;
     }
 
     private static void validatePrompt(String prompt, String field) {
@@ -55,9 +61,15 @@ public record TextToVideoSpec(
         }
     }
 
+    private static void requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+    }
+
     private static void validateModel(String model) {
         if (!HAILUO_MODELS.contains(model) && !LEGACY_MODELS.contains(model)) {
-            throw new IllegalArgumentException("Unsupported MiniMax video model: " + model);
+            throw new IllegalArgumentException("Unsupported MiniMax image-to-video model: " + model);
         }
     }
 
@@ -75,7 +87,7 @@ public record TextToVideoSpec(
             throw new IllegalArgumentException("fastPretreatment is only supported by Hailuo models");
         }
         if (durationSeconds != 6 || !"720P".equals(resolution)) {
-            throw new IllegalArgumentException("Legacy models only support 6s at 720P");
+            throw new IllegalArgumentException("I2V-01 models only support 6s at 720P");
         }
     }
 }

@@ -7,7 +7,7 @@ public final class GenerationTask {
     private final String id;
     private final Long userId;
     private final String sessionId;
-    private final TextToVideoSpec spec;
+    private final VideoGenerationSpec spec;
     private final Instant createdAt;
 
     private GenerationStatus status;
@@ -22,7 +22,7 @@ public final class GenerationTask {
     private Instant updatedAt;
     private Instant completedAt;
 
-    private GenerationTask(String id, Long userId, String sessionId, TextToVideoSpec spec, Instant now) {
+    private GenerationTask(String id, Long userId, String sessionId, VideoGenerationSpec spec, Instant now) {
         this.id = requireText(id, "id");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
         this.sessionId = requireText(sessionId, "sessionId");
@@ -32,12 +32,12 @@ public final class GenerationTask {
         this.updatedAt = now;
     }
 
-    public static GenerationTask create(String id, Long userId, String sessionId, TextToVideoSpec spec, Instant now) {
+    public static GenerationTask create(String id, Long userId, String sessionId, VideoGenerationSpec spec, Instant now) {
         return new GenerationTask(id, userId, sessionId, spec, now);
     }
 
     public static GenerationTask rehydrate(
-            String id, Long userId, String sessionId, TextToVideoSpec spec, GenerationStatus status,
+            String id, Long userId, String sessionId, VideoGenerationSpec spec, GenerationStatus status,
             String providerTaskId, String providerStatus, String providerFileId, Long chatMessageId,
             GeneratedArtifact artifact, int retryCount, Instant nextPollAt, String failureMessage,
             Instant createdAt, Instant updatedAt, Instant completedAt
@@ -143,9 +143,9 @@ public final class GenerationTask {
     public String id() { return id; }
     public Long userId() { return userId; }
     public String sessionId() { return sessionId; }
-    public GenerationType generationType() { return GenerationType.TEXT_TO_VIDEO; }
+    public GenerationType generationType() { return spec.generationType(); }
     public String provider() { return "MINIMAX"; }
-    public TextToVideoSpec spec() { return spec; }
+    public VideoGenerationSpec spec() { return spec; }
     public GenerationStatus status() { return status; }
     public String providerTaskId() { return providerTaskId; }
     public String providerStatus() { return providerStatus; }

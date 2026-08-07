@@ -64,8 +64,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             String referenceResourceId = firstReferenceResourceId(command);
             if (referenceResourceId != null) {
                 messageForLlm = command.userMessage()
-                        + "\n[系统：用户附带了一张图片资源（资源ID: " + referenceResourceId
-                        + "）。如需基于此图修改、重绘或生成新图片，调用 generateImage 并把该资源ID作为 referenceResourceId 传入；如只是解释图片，也请明确参考这个资源ID。]";
+                        + "\n[系统：用户选择了一张参考图片（资源ID: " + referenceResourceId
+                        + "）。请根据用户目标选择工具：生成或修改静态图片时调用 generateImage；让图片中的主体或环境运动，或生成动画、运镜、视频时调用 image_to_video；仅分析或描述图片时不调用生成工具。调用图片或视频生成工具时，将该资源ID作为 referenceResourceId 传入。]";
             }
             hAssistant.streamChat(command.memoryId(), messageForLlm)
                     .onPartialThinking(thinking -> {

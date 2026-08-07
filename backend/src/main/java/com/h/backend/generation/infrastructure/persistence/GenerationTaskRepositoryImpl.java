@@ -5,6 +5,9 @@ import com.h.backend.generation.domain.model.GeneratedArtifact;
 import com.h.backend.generation.domain.model.GenerationStatus;
 import com.h.backend.generation.domain.model.GenerationTask;
 import com.h.backend.generation.domain.model.TextToVideoSpec;
+import com.h.backend.generation.domain.model.ImageToVideoSpec;
+import com.h.backend.generation.domain.model.VideoGenerationSpec;
+import com.h.backend.generation.domain.model.GenerationType;
 import com.h.backend.generation.infrastructure.persistence.entity.GenerationTaskEntity;
 import com.h.backend.generation.infrastructure.persistence.mapper.GenerationTaskMapper;
 import org.springframework.stereotype.Repository;
@@ -83,7 +86,7 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
 
     private GenerationTask toDomain(GenerationTaskEntity entity) {
         try {
-            TextToVideoSpec spec = objectMapper.readValue(entity.getSpecJson(), TextToVideoSpec.class);
+            VideoGenerationSpec spec = readSpec(entity);
             GeneratedArtifact artifact = entity.getArtifactId() == null ? null : new GeneratedArtifact(
                     entity.getArtifactId(), entity.getArtifactStorageType(), entity.getArtifactStorageKey(),
                     entity.getArtifactMimeType(), entity.getArtifactFileName(), entity.getArtifactSize()
@@ -99,6 +102,15 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to restore generation task " + entity.getId(), exception);
         }
+    }
+
+    private VideoGenerationSpec readSpec(GenerationTaskEntity entity) throws Exception {
+        GenerationType type = GenerationType.valueOf(entity.getGenerationType());
+        return switch (type) {
+            case TEXT_TO_VIDEO -> objectMapper.readValue(entity.getSpecJson(), TextToVideoSpec.class);
+            case IMAGE_TO_VIDEO -> objectMapper.readValue(entity.getSpecJson(), ImageToVideoSpec.class);
+            default -> throw new IllegalStateException("Unsupported video generation type: " + type);
+        };
     }
 
     private LocalDateTime toLocalDateTime(Instant instant) {

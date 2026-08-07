@@ -3,6 +3,10 @@ package com.h.backend.generation.infrastructure.provider.minimax;
 import com.h.backend.generation.application.port.out.ProviderFilePort;
 import com.h.backend.generation.application.port.out.ProviderTaskQueryPort;
 import com.h.backend.generation.application.port.out.TextToVideoSubmissionPort;
+import com.h.backend.generation.application.port.out.ImageToVideoSubmissionPort;
+import com.h.backend.chat.application.reference.ImageDataUrlEncoder;
+import com.h.backend.chat.application.reference.ResolvedReferenceImage;
+import com.h.backend.generation.domain.model.ImageToVideoSpec;
 import com.h.backend.generation.domain.model.TextToVideoSpec;
 import com.h.backend.generation.infrastructure.config.GenerationProperties;
 import org.springframework.http.MediaType;
@@ -21,7 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
-public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ProviderTaskQueryPort, ProviderFilePort {
+public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVideoSubmissionPort, ProviderTaskQueryPort, ProviderFilePort {
     private final GenerationProperties properties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
@@ -36,18 +40,46 @@ public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ProviderTa
 
     @Override
     public String submit(TextToVideoSpec spec) {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("model", spec.model());
-        request.put("prompt", spec.submittedPrompt());
-        request.put("duration", spec.durationSeconds());
-        request.put("resolution", spec.resolution());
-        request.put("prompt_optimizer", spec.promptOptimizer());
-        request.put("fast_pretreatment", spec.fastPretreatment());
-        request.put("aigc_watermark", spec.aigcWatermark());
+        return submitRequest(commonRequest(
+                spec.model(), spec.submittedPrompt(), spec.durationSeconds(), spec.resolution(), spec.promptOptimizer(),
+                spec.fastPretreatment(), spec.aigcWatermark()
+        ));
+    }
 
+    @Override
+    public String submit(ImageToVideoSpec spec, ResolvedReferenceImage image) {
+        Map<String, Object> request = commonRequest(
+                spec.model(), spec.submittedPrompt(), spec.durationSeconds(), spec.resolution(), spec.promptOptimizer(),
+                spec.fastPretreatment(), spec.aigcWatermark()
+        );
+        request.put("first_frame_image", ImageDataUrlEncoder.encode(image));
+        return submitRequest(request);
+    }
+
+    private String submitRequest(Map<String, Object> request) {
         JsonNode response = post("/v1/video_generation", request);
         requireProviderSuccess(response);
         return requiredText(response, "task_id");
+    }
+
+    private Map<String, Object> commonRequest(
+            String model,
+            String prompt,
+            int durationSeconds,
+            String resolution,
+            boolean promptOptimizer,
+            boolean fastPretreatment,
+            boolean aigcWatermark
+    ) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("model", model);
+        request.put("prompt", prompt);
+        request.put("duration", durationSeconds);
+        request.put("resolution", resolution);
+        request.put("prompt_optimizer", promptOptimizer);
+        request.put("fast_pretreatment", fastPretreatment);
+        request.put("aigc_watermark", aigcWatermark);
+        return request;
     }
 
     @Override

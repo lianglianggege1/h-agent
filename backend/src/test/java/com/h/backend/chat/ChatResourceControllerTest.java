@@ -53,7 +53,7 @@ class ChatResourceControllerTest {
                 false
         ));
 
-        var response = controller.preview(principal, "resource-1");
+        var response = controller.preview(principal, "resource-1", null);
 
         assertEquals(MediaType.IMAGE_PNG, response.getHeaders().getContentType());
         assertEquals(3L, response.getHeaders().getContentLength());

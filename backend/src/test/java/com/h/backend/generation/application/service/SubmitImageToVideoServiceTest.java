@@ -1,11 +1,14 @@
 package com.h.backend.generation.application.service;
 
-import com.h.backend.generation.application.command.SubmitTextToVideoCommand;
+import com.h.backend.chat.application.reference.ReferenceImageResolver;
+import com.h.backend.chat.application.reference.ResolvedReferenceImage;
+import com.h.backend.generation.application.command.SubmitImageToVideoCommand;
 import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
-import com.h.backend.generation.application.port.out.TextToVideoSubmissionPort;
-import com.h.backend.generation.domain.model.GenerationStatus;
-import com.h.backend.generation.domain.model.GenerationTask;
 import com.h.backend.generation.application.port.out.GenerationTaskRepository;
+import com.h.backend.generation.application.port.out.ImageToVideoSubmissionPort;
+import com.h.backend.generation.domain.model.GenerationTask;
+import com.h.backend.generation.domain.model.GenerationType;
+import com.h.backend.generation.domain.service.ImageToVideoSourceValidator;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -17,38 +20,40 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class SubmitTextToVideoServiceTest {
+class SubmitImageToVideoServiceTest {
     @Test
-    void submitsProviderTaskAndCreatesOnePendingChatMessage() {
+    void submitsAnOwnedReferenceImageAsAnImageToVideoTask() {
         InMemoryTaskRepository repository = new InMemoryTaskRepository();
-        RecordingProjection projection = new RecordingProjection();
+        ResolvedReferenceImage image = new ResolvedReferenceImage("image-1", "image/png", new byte[]{1}, 1L, 512, 512);
+        ReferenceImageResolver resolver = (userId, resourceId) -> image;
+        ImageToVideoSubmissionPort submissionPort = (spec, source) -> {
+            assertEquals("image-1", spec.sourceResourceId());
+            assertEquals(image, source);
+            return "minimax-task-1";
+        };
         GenerationTaskSubmissionCoordinator coordinator = new GenerationTaskSubmissionCoordinator(
                 repository,
-                projection,
+                new RecordingProjection(),
                 Clock.fixed(Instant.parse("2026-07-14T00:00:00Z"), ZoneOffset.UTC)
         );
-        SubmitTextToVideoService service = new SubmitTextToVideoService(spec -> "minimax-task-1", coordinator);
+        SubmitImageToVideoService service = new SubmitImageToVideoService(
+                resolver, new ImageToVideoSourceValidator(), submissionPort, coordinator
+        );
 
-        var result = service.execute(new SubmitTextToVideoCommand(
-                1L, "session-1", "原始提示词", "最终提示词", null, null, null,
+        var result = service.execute(new SubmitImageToVideoCommand(
+                1L, "session-1", "image-1", "让它动起来", "人物自然走动", null, null, null,
                 false, false, false
         ));
 
         GenerationTask task = repository.findById(result.taskId()).orElseThrow();
-        assertEquals("minimax-task-1", result.providerTaskId());
-        assertEquals(101L, result.chatMessageId());
-        assertEquals(GenerationStatus.IN_PROGRESS, task.status());
-        assertEquals(101L, task.chatMessageId());
-        assertEquals(Instant.parse("2026-07-14T00:00:05Z"), task.nextPollAt());
-        assertEquals(1, projection.created.size());
+        assertEquals(GenerationType.IMAGE_TO_VIDEO, task.generationType());
+        assertEquals("image-1", ((com.h.backend.generation.domain.model.ImageToVideoSpec) task.spec()).sourceResourceId());
+        assertEquals("minimax-task-1", task.providerTaskId());
     }
 
     private static final class RecordingProjection implements GenerationChatProjectionPort {
-        private final List<String> created = new ArrayList<>();
-
         @Override
         public Long createPendingMessage(GenerationTask task) {
-            created.add(task.id());
             return 101L;
         }
 

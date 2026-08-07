@@ -3,25 +3,22 @@ package com.h.backend.chat.application.impl;
 import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
-import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageClient;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationRequest;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
-import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ImageGenerationService;
-import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.application.reference.ImageDataUrlEncoder;
+import com.h.backend.chat.application.reference.ReferenceImageResolver;
+import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 @Service
@@ -34,7 +31,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
     private final ResourceStorage resourceStorage;
     private final ChatSessionService chatSessionService;
     private final ImageGenerationProperties properties;
-    private final ChatMessageResourceMapper chatMessageResourceMapper;
+    private final ReferenceImageResolver referenceImageResolver;
 
     @Autowired
     public ImageGenerationServiceImpl(
@@ -42,13 +39,13 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
             ResourceStorage resourceStorage,
             ChatSessionService chatSessionService,
             ImageGenerationProperties properties,
-            ChatMessageResourceMapper chatMessageResourceMapper
+            ReferenceImageResolver referenceImageResolver
     ) {
         this.miniMaxImageClient = miniMaxImageClient;
         this.resourceStorage = resourceStorage;
         this.chatSessionService = chatSessionService;
         this.properties = properties;
-        this.chatMessageResourceMapper = chatMessageResourceMapper;
+        this.referenceImageResolver = referenceImageResolver;
     }
 
     @Override
@@ -128,25 +125,8 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         if (sourceResourceId == null || sourceResourceId.isBlank()) {
             return null;
         }
-        ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(sourceResourceId);
-        if (resource == null || !userId.equals(resource.getUserId())) {
-            throw new IllegalArgumentException("参考图片资源不存在: " + sourceResourceId);
-        }
-        if (!"IMAGE".equalsIgnoreCase(resource.getResourceType())) {
-            throw new IllegalArgumentException("参考资源必须是图片: " + sourceResourceId);
-        }
-        ResourceContent content = resourceStorage.open(resource.getStorageKey());
-        try (InputStream inputStream = content.inputStream()) {
-            byte[] bytes = inputStream.readAllBytes();
-            String base64 = Base64.getEncoder().encodeToString(bytes);
-            String mimeType = content.mimeType() != null ? content.mimeType() : resource.getMimeType();
-            return new MiniMaxImageGenerationRequest.SubjectReference(
-                    "character",
-                    "data:" + mimeType + ";base64," + base64
-            );
-        } catch (IOException ex) {
-            throw new IllegalStateException("读取参考图片失败: " + sourceResourceId, ex);
-        }
+        ResolvedReferenceImage image = referenceImageResolver.resolve(userId, sourceResourceId);
+        return new MiniMaxImageGenerationRequest.SubjectReference("character", ImageDataUrlEncoder.encode(image));
     }
 
     private String extensionFor(String mimeType) {

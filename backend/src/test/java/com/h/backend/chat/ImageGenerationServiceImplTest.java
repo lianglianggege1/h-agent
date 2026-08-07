@@ -5,18 +5,16 @@ import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageClient;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
-import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
-import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ImageGenerationService;
+import com.h.backend.chat.application.reference.ReferenceImageResolver;
+import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
-import com.h.backend.chat.infrastructure.storage.ResourceContent;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import org.junit.jupiter.api.Test;
 
-import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -38,13 +36,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                chatMessageResourceMapper
+                referenceImageResolver
         );
 
         MiniMaxImageGenerationResult generationResult = new MiniMaxImageGenerationResult(
@@ -131,13 +129,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                chatMessageResourceMapper
+                referenceImageResolver
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
@@ -159,15 +157,9 @@ class ImageGenerationServiceImplTest {
                 null,
                 null
         );
-        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
-        referenceResource.setId("resource-1");
-        referenceResource.setUserId(1L);
-        referenceResource.setResourceType("IMAGE");
-        referenceResource.setStorageKey("reference-images/resource-1.png");
-        referenceResource.setMimeType("image/png");
-        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
-        when(resourceStorage.open("reference-images/resource-1.png"))
-                .thenReturn(new ResourceContent(new ByteArrayInputStream(new byte[]{7, 8, 9}), "image/png", 3L));
+        when(referenceImageResolver.resolve(1L, "resource-1")).thenReturn(new ResolvedReferenceImage(
+                "resource-1", "image/png", new byte[]{7, 8, 9}, 3L, 512, 512
+        ));
 
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
         when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
@@ -205,19 +197,16 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                chatMessageResourceMapper
+                referenceImageResolver
         );
-        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
-        referenceResource.setId("resource-1");
-        referenceResource.setUserId(2L);
-        referenceResource.setResourceType("IMAGE");
-        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
+        when(referenceImageResolver.resolve(1L, "resource-1"))
+                .thenThrow(new IllegalArgumentException("参考图片资源不存在: resource-1"));
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 service.generateImage(new ImageGenerationService.ImageGenerationCommand(
@@ -240,19 +229,16 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                chatMessageResourceMapper
+                referenceImageResolver
         );
-        ChatMessageResourceEntity referenceResource = new ChatMessageResourceEntity();
-        referenceResource.setId("resource-1");
-        referenceResource.setUserId(1L);
-        referenceResource.setResourceType("VIDEO");
-        when(chatMessageResourceMapper.selectByResourceId("resource-1")).thenReturn(referenceResource);
+        when(referenceImageResolver.resolve(1L, "resource-1"))
+                .thenThrow(new IllegalArgumentException("参考资源必须是图片: resource-1"));
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 service.generateImage(new ImageGenerationService.ImageGenerationCommand(
@@ -275,13 +261,13 @@ class ImageGenerationServiceImplTest {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                chatMessageResourceMapper
+                referenceImageResolver
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(

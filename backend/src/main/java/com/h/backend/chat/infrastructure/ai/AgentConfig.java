@@ -331,11 +331,13 @@ public class AgentConfig {
                 .responseProvider(scope -> storyInfoClarification((StoryInfo) scope.readState("storyInfo")))
                 .build();
 
+        Agents.StoryInfoMapper storyInfoMapper = new Agents.StoryInfoMapper();
+
         UntypedAgent storyCreationFlow = AgenticServices.sequenceBuilder()
                 .name("故事创作流程")
                 .description("映射故事信息并执行故事创作审核")
                 .listener(agentStepListener)
-                .subAgents(Agents.StoryInfoMapper.class, storyCreatorWithReview)
+                .subAgents(storyInfoMapper, storyCreatorWithReview)
                 .output(scope -> scope.readState("story"))
                 .outputKey("response")
                 .build();
