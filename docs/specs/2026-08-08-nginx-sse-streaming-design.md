@@ -25,15 +25,17 @@
 ## 总体架构
 
 ```text
-浏览器：http://localhost
+浏览器：http://localhost:8089 或 http://<局域网IP>:8089
         │
         ▼
-Nginx :80
+Nginx :8089
   ├── /api/* ───────► Spring Boot :8081
   └── 其他请求 ─────► Next.js :3000
 ```
 
-浏览器继续请求 `/api/chat/messages/stream`。通过 `http://localhost` 访问时，Nginx 根据路径直接选择后端，Next.js 不会收到 `/api/*` 请求。直接访问 `http://localhost:3000` 时，现有 rewrite 仍提供开发兜底。
+浏览器继续请求 `/api/chat/messages/stream`。通过 Nginx 的 8089 端口访问时，Nginx 根据路径直接选择后端，Next.js 不会收到 `/api/*` 请求。直接访问 `http://localhost:3000` 时，现有 rewrite 仍提供开发兜底。
+
+8089 端口由本项目独占，因此不增加 `/agent-dev` 路径前缀，避免引入 Next.js `basePath` 以及 API 路径重写。Nginx 绑定 `0.0.0.0:8089`；`0.0.0.0` 仅是监听地址，局域网设备使用开发机的实际局域网 IP 访问。
 
 ## Nginx 设计
 
@@ -92,8 +94,9 @@ watchdog 监听底层响应字节，而不是业务正文事件：
 
 - Spring Boot 继续监听 `8081`。
 - Next.js 继续监听 `3000`。
-- Nginx 监听 `80`。
-- 日常访问入口改为 `http://localhost`。
+- Nginx 监听 `0.0.0.0:8089`。
+- 本机日常访问入口改为 `http://localhost:8089`。
+- 局域网设备使用 `http://<开发机局域网IP>:8089`。
 - `http://localhost:3000` 仅作为绕过 Nginx 的开发兜底。
 
 生产环境沿用相同路径分流原则，并在入口层配置 HTTPS。生产 Cookie 的 `Secure` 属性属于部署安全配置，应在启用 HTTPS 时同步开启，但不纳入本次本地链路改造。
