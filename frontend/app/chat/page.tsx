@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   applyAgentStep,
   applyAssistantChunk,
@@ -36,6 +36,7 @@ import {
   STANDARD_AGENT_ID,
 } from "@/lib/chat-agent-mode";
 import { AgentSummary, listAgents } from "@/lib/agents";
+import { scrollTopAfterPrepend, type PrependScrollSnapshot } from "@/lib/chat-scroll";
 import { MarkdownContent } from "./markdown-content";
 import {
   bootstrapChatSession,
@@ -279,6 +280,7 @@ function ChatPageContent() {
   const searchParams = useSearchParams();
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const historyContainerRef = useRef<HTMLDivElement | null>(null);
+  const pendingPrependScrollRef = useRef<PrependScrollSnapshot | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -463,7 +465,17 @@ function ChatPageContent() {
     };
   }, [requestedAgentId, requestedSessionId, routeRequestKey, router]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const container = historyContainerRef.current;
+    const pendingPrependScroll = pendingPrependScrollRef.current;
+    if (container && pendingPrependScroll) {
+      container.scrollTop = scrollTopAfterPrepend({
+        ...pendingPrependScroll,
+        nextScrollHeight: container.scrollHeight,
+      });
+      pendingPrependScrollRef.current = null;
+      return;
+    }
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -644,10 +656,16 @@ function ChatPageContent() {
     try {
       const detail = await getChatSessionMessages(sessionId, 20, cursor);
       const olderMessages = detail.messages.map(toUiChatMessage);
+      const container = historyContainerRef.current;
+      pendingPrependScrollRef.current = container
+        ? {
+            previousScrollHeight: container.scrollHeight,
+            previousScrollTop: container.scrollTop,
+          }
+        : null;
       setMessages((current) => [...olderMessages, ...current]);
       setHasOlderMessages(detail.hasMore);
       setNextBeforeSeq(detail.nextBeforeSeq);
-      historyContainerRef.current?.scrollTo({ top: 40 });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "加载更多消息失败");
     } finally {
@@ -961,7 +979,7 @@ function ChatPageContent() {
         </div>
       </aside>
 
-      <section className="mx-auto flex min-h-screen w-full max-w-md flex-col">
+      <section className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden">
         <header className="sticky top-0 z-10 border-b border-stone-200/80 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
           <div className="flex items-center gap-3">
             <button
@@ -988,7 +1006,7 @@ function ChatPageContent() {
           </div>
         </header>
 
-        <div ref={historyContainerRef} className="flex-1 overflow-y-auto px-4 pb-36 pt-5">
+        <div ref={historyContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-36 pt-5">
           {usingStandardAgent ? (
             <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
@@ -1027,15 +1045,17 @@ function ChatPageContent() {
               </div>
             </div>
           ) : (
-            <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Domain Agent</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+            <div className="sticky top-0 z-[5] -mx-4 -mt-5 bg-[#f7f4ea]/95 px-4 pb-1 pt-5 backdrop-blur">
+              <div className="rounded-[1.5rem] border border-stone-200 bg-white/90 p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Domain Agent</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+                  </div>
+                  <Link className="shrink-0 text-sm font-medium text-amber-700" href={`/me/agents/${encodeURIComponent(currentAgentId)}`}>
+                    拓扑详情
+                  </Link>
                 </div>
-                <Link className="shrink-0 text-sm font-medium text-amber-700" href={`/me/agents/${encodeURIComponent(currentAgentId)}`}>
-                  拓扑详情
-                </Link>
               </div>
             </div>
           )}
