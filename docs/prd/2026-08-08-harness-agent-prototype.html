@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>harness-agent 产品 PRD 原型</title>
+  <style>
+    :root { --bg:#f3efe6; --panel:#fbfaf6; --paper:#fff; --ink:#231f1a; --muted:#81786d; --line:#ddd6c9; --soft:#ebe4d8; --accent:#b96f42; --green:#5e806c; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    button, textarea { font:inherit; }
+    button { cursor:pointer; }
+    .app { min-height:100vh; display:grid; grid-template-columns:244px minmax(540px,1fr) 320px; }
+    .sidebar { padding:22px 16px; border-right:1px solid var(--line); background:#ece6da; }
+    .brand { font-size:18px; font-weight:750; margin:0 8px 22px; }
+    .new-chat { width:100%; border:0; border-radius:8px; padding:10px 12px; background:var(--ink); color:#fff; font-weight:650; }
+    .nav { margin-top:16px; display:grid; gap:3px; }
+    .nav button, .recent button { width:100%; border:0; text-align:left; background:transparent; color:#625a50; padding:9px 10px; border-radius:8px; }
+    .nav button.active, .nav button:hover, .recent button:hover { background:rgba(255,255,255,.7); color:var(--ink); }
+    .section-label { margin:25px 8px 8px; color:#9a9082; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+    .recent { max-height:330px; overflow:auto; display:grid; gap:2px; }
+    .recent button.selected { background:#fff; border:1px solid var(--line); color:var(--ink); }
+    .main { min-width:0; display:flex; flex-direction:column; background:var(--bg); }
+    .topbar { padding:17px 24px; border-bottom:1px solid var(--line); background:rgba(251,250,246,.78); }
+    .topbar strong { font-size:16px; }
+    .chat { flex:1; min-height:0; padding:24px clamp(20px,5vw,70px); overflow:auto; display:flex; flex-direction:column; gap:14px; }
+    .bubble { max-width:78%; padding:13px 15px; border-radius:13px; border:1px solid var(--line); background:var(--paper); }
+    .bubble.user { margin-left:auto; border:0; background:#e4dccf; }
+    .bubble p { margin:0 0 8px; }
+    .bubble p:last-child { margin-bottom:0; }
+    .table { width:100%; border-collapse:collapse; margin-top:9px; font-size:13px; }
+    .table th, .table td { border:1px solid var(--line); padding:7px; text-align:left; }
+    .file-card { margin-top:10px; border:1px solid var(--line); background:#faf7f0; border-radius:9px; padding:9px 10px; display:flex; justify-content:space-between; align-items:center; }
+    .composer { margin:0 clamp(20px,5vw,70px) 22px; border:1px solid #cfc7b9; border-radius:13px; background:#fff; overflow:hidden; }
+    .composer textarea { width:100%; min-height:64px; resize:vertical; border:0; outline:0; padding:13px; color:var(--ink); }
+    .composer-bar { display:flex; align-items:center; gap:8px; padding:8px; border-top:1px solid var(--soft); color:var(--muted); }
+    .icon-button { border:1px solid var(--line); background:#fff; color:var(--muted); border-radius:7px; padding:5px 8px; }
+    .send { margin-left:auto; border:0; border-radius:7px; background:var(--ink); color:#fff; padding:7px 12px; }
+    .progress { padding:22px 18px; border-left:1px solid var(--line); background:var(--panel); }
+    .progress-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; }
+    .progress-title strong { font-size:15px; }
+    .count { color:var(--muted); }
+    .agent-list { display:grid; gap:14px; }
+    .agent-row { width:100%; display:flex; align-items:center; gap:10px; border:0; background:transparent; text-align:left; padding:5px 0; color:var(--ink); }
+    .agent-row:hover .agent-name { text-decoration:underline; }
+    .avatar { width:43px; height:43px; flex:0 0 43px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:750; }
+    .orange { background:#c98555; } .green { background:#6a8e7b; } .purple { background:#8c78a5; }
+    .agent-name { font-weight:650; }
+    .status { color:var(--muted); font-size:12px; }
+    .status.running { color:var(--accent); } .status.done { color:var(--green); }
+    .memory { display:none; min-height:100vh; grid-column:2 / 4; background:var(--bg); }
+    .memory.active { display:block; }
+    .memory-inner { max-width:1000px; margin:0 auto; padding:34px 46px; }
+    .memory-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
+    .memory-header h1 { margin:0; font-size:24px; }
+    .memory-layout { display:grid; grid-template-columns:210px 1fr; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel); }
+    .memory-nav { padding:15px; border-right:1px solid var(--line); background:#eee8dc; }
+    .memory-nav button { display:block; width:100%; border:0; background:transparent; text-align:left; padding:8px; color:#625a50; border-radius:7px; }
+    .memory-nav button.active { background:#fff; color:var(--ink); }
+    .memory-editor { padding:20px; }
+    .memory-editor textarea { width:100%; min-height:390px; border:1px solid var(--line); border-radius:8px; padding:15px; resize:vertical; background:#fff; color:var(--ink); font:13px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .memory-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+    .secondary { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:7px; padding:7px 12px; }
+    .memory-note { margin-top:12px; color:var(--muted); font-size:12px; }
+    .child { display:none; position:fixed; inset:0; background:var(--bg); z-index:5; }
+    .child.active { display:flex; flex-direction:column; }
+    .child-topbar { display:flex; align-items:center; gap:12px; padding:15px 24px; border-bottom:1px solid var(--line); background:var(--panel); }
+    .back { border:1px solid var(--line); background:#fff; border-radius:7px; padding:6px 10px; }
+    .child-chat { flex:1; max-width:900px; width:100%; margin:0 auto; padding:26px; display:flex; flex-direction:column; gap:13px; overflow:auto; }
+    @media (max-width: 960px) { .app { grid-template-columns:190px 1fr; } .progress { display:none; } .memory { grid-column:2; } }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="brand">harness-agent</div>
+      <button class="new-chat" id="newChat">新建会话</button>
+      <nav class="nav">
+        <button class="active" id="chatNav">聊天工作台</button>
+        <button id="memoryNav">用户长期记忆</button>
+      </nav>
+      <div class="section-label">最近会话</div>
+      <div class="recent">
+        <button class="selected" data-session="竞品研究">竞品研究</button>
+        <button data-session="旅行规划">旅行规划</button>
+        <button data-session="产品 PRD">产品 PRD</button>
+        <button data-session="图片生成方案">图片生成方案</button>
+        <button data-session="客户反馈整理">客户反馈整理</button>
+        <button data-session="季度复盘">季度复盘</button>
+      </div>
+    </aside>
+    <main class="main" id="chatView">
+      <header class="topbar"><strong id="sessionTitle">竞品研究</strong></header>
+      <section class="chat" aria-label="父 Agent 对话">
+        <div class="bubble"><p>我把任务拆成资料收集、功能对比和结论汇总三个委托，正在处理。</p></div>
+        <div class="bubble user"><p>请把“先看官方资料”记入我们的长期记忆。</p></div>
+        <div class="bubble"><p>好的，我会将这条偏好写入用户长期记忆。</p><div class="file-card"><span>竞品研究摘要.md</span><span class="status">Markdown</span></div></div>
+        <div class="bubble"><p>功能对比协作 Agent 已返回初步结果：</p><table class="table"><thead><tr><th>维度</th><th>产品 A</th><th>产品 B</th></tr></thead><tbody><tr><td>核心能力</td><td>完整</td><td>基础</td></tr><tr><td>协作方式</td><td>多 Agent</td><td>单 Agent</td></tr></tbody></table></div>
+      </section>
+      <form class="composer" onsubmit="return false">
+        <textarea placeholder="输入消息，支持 Markdown、文件和富文本..."></textarea>
+        <div class="composer-bar"><button class="icon-button" type="button">＋ 文件</button><span>支持拖拽上传</span><button class="send" type="submit">发送</button></div>
+      </form>
+    </main>
+    <aside class="progress" id="progressView">
+      <div class="progress-title"><strong>协作进度</strong><span class="count">3</span></div>
+      <div class="agent-list">
+        <button class="agent-row" data-agent="资料收集协作 Agent"><span class="avatar orange">研</span><span><span class="agent-name">资料收集协作 Agent</span><br><span class="status running">执行中</span></span></button>
+        <button class="agent-row" data-agent="功能对比协作 Agent"><span class="avatar green">比</span><span><span class="agent-name">功能对比协作 Agent</span><br><span class="status done">已完成</span></span></button>
+        <button class="agent-row" data-agent="结论汇总协作 Agent"><span class="avatar purple">汇</span><span><span class="agent-name">结论汇总协作 Agent</span><br><span class="status">等待输入</span></span></button>
+      </div>
+    </aside>
+    <section class="memory" id="memoryView">
+      <div class="memory-inner">
+        <div class="memory-header"><h1>用户长期记忆</h1><span class="status">与 Agent 共同维护</span></div>
+        <div class="memory-layout"><nav class="memory-nav"><button class="active">工作偏好</button><button>个人信息</button><button>项目知识</button><button>待确认内容</button></nav><div class="memory-editor"><textarea id="memoryText"># 用户长期记忆\n\n## 工作偏好\n- 先看官方资料，再输出结论\n- 默认使用中文\n- 研究结果附来源链接\n\n## 项目知识\n- 竞品研究按最近两年整理</textarea><div class="memory-actions"><button class="secondary" type="button">取消</button><button class="send" id="saveMemory" type="button">保存修改</button></div><div class="memory-note" id="memoryNote">用户可以直接编辑；Agent 也可以根据聊天指令生成修改。</div></div></div>
+      </div>
+    </section>
+  </div>
+  <section class="child" id="childView" aria-label="协作 Agent 对话">
+    <header class="child-topbar"><button class="back" id="backParent">← 返回父 Agent</button><span class="avatar orange" id="childAvatar">研</span><strong id="childTitle">资料收集协作 Agent</strong></header>
+    <div class="child-chat"><div class="bubble"><p>当前委托：收集竞品官方资料，输出来源链接和关键事实。</p></div><div class="bubble user"><p>优先检查产品定价页和更新日志。</p></div><div class="bubble"><p>收到，我会继续处理。</p></div><form class="composer" onsubmit="return false"><textarea placeholder="追加要求，支持 Markdown、文件和富文本..."></textarea><div class="composer-bar"><button class="icon-button" type="button">＋ 文件</button><span>支持拖拽上传</span><button class="send" type="submit">发送</button></div></form></div>
+  </section>
+  <script>
+    const chatView = document.getElementById('chatView');
+    const progressView = document.getElementById('progressView');
+    const memoryView = document.getElementById('memoryView');
+    const childView = document.getElementById('childView');
+    const sessionTitle = document.getElementById('sessionTitle');
+    const chatNav = document.getElementById('chatNav');
+    const memoryNav = document.getElementById('memoryNav');
+    const showChat = () => { chatView.style.display='flex'; progressView.style.display='block'; memoryView.classList.remove('active'); chatNav.classList.add('active'); memoryNav.classList.remove('active'); };
+    chatNav.onclick = showChat;
+    memoryNav.onclick = () => { chatView.style.display='none'; progressView.style.display='none'; memoryView.classList.add('active'); memoryNav.classList.add('active'); chatNav.classList.remove('active'); };
+    document.getElementById('newChat').onclick = () => { sessionTitle.textContent = '新会话'; showChat(); };
+    document.querySelectorAll('[data-session]').forEach((button) => button.onclick = () => { sessionTitle.textContent = button.dataset.session; showChat(); document.querySelectorAll('[data-session]').forEach((item) => item.classList.remove('selected')); button.classList.add('selected'); });
+    document.querySelectorAll('[data-agent]').forEach((button) => button.onclick = () => { document.getElementById('childTitle').textContent = button.dataset.agent; childView.querySelector('.avatar').textContent = button.querySelector('.avatar').textContent; childView.classList.add('active'); });
+    document.getElementById('backParent').onclick = () => childView.classList.remove('active');
+    document.getElementById('saveMemory').onclick = () => { document.getElementById('memoryNote').textContent = '已保存，后续会话中的 Agent 可以使用这份长期记忆。'; };
+  </script>
+</body>
+</html>
