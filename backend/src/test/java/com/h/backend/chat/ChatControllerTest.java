@@ -8,14 +8,12 @@ import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.ChatService;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import reactor.core.publisher.Flux;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 
@@ -45,7 +43,7 @@ class ChatControllerTest {
         when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
 
-        ResponseEntity<StreamingResponseBody> response = controller.streamMessage(principal, request);
+        ResponseEntity<Flux<ServerSentEvent<ChatStreamEvent>>> response = controller.streamMessage(principal, request);
 
         assertEquals(MediaType.TEXT_EVENT_STREAM, response.getHeaders().getContentType());
         assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
@@ -55,7 +53,7 @@ class ChatControllerTest {
     }
 
     @Test
-    void shouldExposeBlockedEventFromChatService() throws IOException {
+    void shouldExposeBlockedEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -64,14 +62,14 @@ class ChatControllerTest {
         when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
                 .thenReturn(Flux.just(new ChatStreamEvent("blocked", "平台检测到您的消息不符合使用规范，已自动拦截。")));
 
-        String body = streamBody(controller, principal, request);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        assertTrue(body.contains("event: blocked\n"));
-        assertTrue(body.contains("\"content\":\"平台检测到您的消息不符合使用规范，已自动拦截。\""));
+        assertTrue(events.stream().anyMatch(event -> "blocked".equals(event.event())
+                && "平台检测到您的消息不符合使用规范，已自动拦截。".equals(event.data().content())));
     }
 
     @Test
-    void shouldExposeReasoningEventFromChatService() throws IOException {
+    void shouldExposeReasoningEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -83,14 +81,14 @@ class ChatControllerTest {
                         new ChatStreamEvent("done", "")
                 ));
 
-        String body = streamBody(controller, principal, request);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        assertTrue(body.contains("event: reasoning\n"));
-        assertTrue(body.contains("\"content\":\"先看约束\""));
+        assertTrue(events.stream().anyMatch(event -> "reasoning".equals(event.event())
+                && "先看约束".equals(event.data().content())));
     }
 
     @Test
-    void shouldExposeErrorEventFromChatService() throws IOException {
+    void shouldExposeErrorEventFromChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -99,14 +97,14 @@ class ChatControllerTest {
         when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
                 .thenReturn(Flux.just(new ChatStreamEvent("error", "boom")));
 
-        String body = streamBody(controller, principal, request);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        assertTrue(body.contains("event: error\n"));
-        assertTrue(body.contains("\"content\":\"boom\""));
+        assertTrue(events.stream().anyMatch(event -> "error".equals(event.event())
+                && "boom".equals(event.data().content())));
     }
 
     @Test
-    void shouldMapChunkAndDoneEventsToServerSentEvents() throws IOException {
+    void shouldMapChunkAndDoneEventsToServerSentEvents() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -118,15 +116,15 @@ class ChatControllerTest {
                         new ChatStreamEvent("done", "")
                 ));
 
-        String body = streamBody(controller, principal, request);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        assertTrue(body.contains("event: chunk\n"));
-        assertTrue(body.contains("\"content\":\"he\""));
-        assertTrue(body.contains("event: done\n"));
+        assertTrue(events.stream().anyMatch(event -> "chunk".equals(event.event())
+                && "he".equals(event.data().content())));
+        assertTrue(events.stream().anyMatch(event -> "done".equals(event.event())));
     }
 
     @Test
-    void shouldTrimRequestMessageBeforeDelegatingToService() throws IOException {
+    void shouldTrimRequestMessageBeforeDelegatingToService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -134,13 +132,13 @@ class ChatControllerTest {
         when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
                 .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
 
-        streamBody(controller, principal, request("  hello  ", "session-1", 2L, "standard-chat"));
+        streamEvents(controller, principal, request("  hello  ", "session-1", 2L, "standard-chat"));
 
         verify(chatService).streamChat(1L, 2L, "standard-chat", "session-1", "hello", null);
     }
 
     @Test
-    void shouldForwardStructuredResourcesToChatService() throws IOException {
+    void shouldForwardStructuredResourcesToChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -156,13 +154,14 @@ class ChatControllerTest {
                         new ChatMessageRequest("hello", "session-1", 2L, "standard-chat", resources)
                 )
                 .getBody()
-                .writeTo(new ByteArrayOutputStream());
+                .collectList()
+                .block();
 
         verify(chatService).streamChat(1L, 2L, "standard-chat", "session-1", "hello", resources);
     }
 
     @Test
-    void shouldForwardAgentIdToChatService() throws IOException {
+    void shouldForwardAgentIdToChatService() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
@@ -175,13 +174,14 @@ class ChatControllerTest {
                         request(" need towing ", "session-car", null, "car-rental-assistant")
                 )
                 .getBody()
-                .writeTo(new ByteArrayOutputStream());
+                .collectList()
+                .block();
 
         verify(chatService).streamChat(1L, null, "car-rental-assistant", "session-car", "need towing", null);
     }
 
     @Test
-    void shouldEmitHeartbeatBeforeDelayedDoneEvent() throws IOException {
+    void shouldEmitHeartbeatBeforeDelayedDoneEvent() {
         ChatService chatService = mock(ChatService.class);
         ChatStreamProperties properties = new ChatStreamProperties();
         properties.setHeartbeatInterval(Duration.ofMillis(200));
@@ -193,57 +193,51 @@ class ChatControllerTest {
                 .thenReturn(Flux.just(new ChatStreamEvent("done", ""))
                         .delaySubscription(Duration.ofMillis(450)));
 
-        String body = streamBody(controller, principal, request);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        assertTrue(body.indexOf(":keepalive\n") < body.indexOf("event: done\n"));
+        assertEquals("keepalive", events.getFirst().comment());
+        assertTrue(events.stream().anyMatch(event -> "done".equals(event.event())));
     }
 
     @Test
-    void shouldWriteAndFlushEachServerSentEventImmediately() throws IOException {
+    void shouldEmitHeartbeatBeforeImmediateDoneEvent() {
         ChatService chatService = mock(ChatService.class);
         ChatController controller = new ChatController(chatService, defaultProperties());
-
-        FlushCountingOutputStream outputStream = new FlushCountingOutputStream();
-
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         ChatMessageRequest request = request("hello", "session-1", 2L, "standard-chat");
 
         when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
-                .thenReturn(Flux.just(
-                        new ChatStreamEvent("chunk", "he"),
-                        new ChatStreamEvent("done", "")
-                ));
+                .thenReturn(Flux.just(new ChatStreamEvent("done", "")));
 
-        controller.streamMessage(principal, request).getBody().writeTo(outputStream);
+        List<ServerSentEvent<ChatStreamEvent>> events = streamEvents(controller, principal, request);
 
-        String body = outputStream.toString();
-        assertTrue(body.contains("event: chunk\n"));
-        assertTrue(body.contains("data: {\"type\":\"chunk\",\"content\":\"he\""));
-        assertTrue(body.contains("event: done\n"));
-        assertEquals(2, outputStream.flushCount());
+        assertEquals("keepalive", events.getFirst().comment());
+        assertEquals("done", events.get(1).event());
     }
 
-    private String streamBody(
+    @Test
+    void shouldReturnFirstHeartbeatWithoutWaitingForChatCompletion() {
+        ChatService chatService = mock(ChatService.class);
+        ChatController controller = new ChatController(chatService, defaultProperties());
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        ChatMessageRequest request = request("hello", "session-1", 2L, "standard-chat");
+
+        when(chatService.streamChat(1L, 2L, "standard-chat", "session-1", "hello", null))
+                .thenReturn(Flux.just(new ChatStreamEvent("done", ""))
+                        .delaySubscription(Duration.ofSeconds(5)));
+
+        ServerSentEvent<ChatStreamEvent> firstEvent = controller.streamMessage(principal, request)
+                .getBody()
+                .blockFirst(Duration.ofSeconds(1));
+
+        assertEquals("keepalive", firstEvent.comment());
+    }
+
+    private List<ServerSentEvent<ChatStreamEvent>> streamEvents(
             ChatController controller,
             AuthUserPrincipal principal,
             ChatMessageRequest request
-    ) throws IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        controller.streamMessage(principal, request).getBody().writeTo(outputStream);
-        return outputStream.toString();
-    }
-
-    private static class FlushCountingOutputStream extends ByteArrayOutputStream {
-        private int flushCount;
-
-        @Override
-        public void flush() throws IOException {
-            flushCount++;
-            super.flush();
-        }
-
-        int flushCount() {
-            return flushCount;
-        }
+    ) {
+        return controller.streamMessage(principal, request).getBody().collectList().block();
     }
 }

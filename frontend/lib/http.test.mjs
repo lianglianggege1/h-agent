@@ -568,3 +568,195 @@ test("apiStream ignores heartbeat comment blocks", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("apiStream rejects streams that close without a terminal event", async () => {
+  const originalFetch = globalThis.fetch;
+  const interruptedMessage = "连接异常中断，请稍后重试";
+  let receivedErrorMessage;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              "event: chunk\n" +
+                'data: {"type":"chunk","content":"partial"}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await assert.rejects(
+      () =>
+        apiStream(
+          "/api/chat/messages/stream",
+          { method: "POST" },
+          {
+            onChunk() {},
+            onError(message) {
+              receivedErrorMessage = message;
+            },
+          },
+        ),
+      { message: interruptedMessage },
+    );
+    assert.equal(receivedErrorMessage, interruptedMessage);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("apiStream times out while waiting for the initial response", async () => {
+  const originalFetch = globalThis.fetch;
+  const timeoutMessage = "连接长时间无响应，请稍后重试";
+  let receivedErrorMessage;
+
+  globalThis.fetch = async (_path, init) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        resolve(
+          new Response(
+            "event: done\n" + 'data: {"type":"done","content":""}\n\n',
+            { status: 200, headers: { "Content-Type": "text/event-stream" } },
+          ),
+        );
+      }, 80);
+      init.signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    });
+
+  try {
+    await assert.rejects(
+      () =>
+        apiStream(
+          "/api/chat/messages/stream",
+          { method: "POST" },
+          {
+            onChunk() {},
+            onError(message) {
+              receivedErrorMessage = message;
+            },
+          },
+          { inactivityTimeoutMs: 20 },
+        ),
+      { message: timeoutMessage },
+    );
+    assert.equal(receivedErrorMessage, timeoutMessage);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("apiStream times out when an open response stops producing bytes", async () => {
+  const originalFetch = globalThis.fetch;
+  const timeoutMessage = "连接长时间无响应，请稍后重试";
+  let receivedErrorMessage;
+  let delayedDone;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(":keepalive\n\n"));
+          delayedDone = setTimeout(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                "event: done\n" + 'data: {"type":"done","content":""}\n\n',
+              ),
+            );
+            controller.close();
+          }, 80);
+        },
+        cancel() {
+          clearTimeout(delayedDone);
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await assert.rejects(
+      () =>
+        apiStream(
+          "/api/chat/messages/stream",
+          { method: "POST" },
+          {
+            onChunk() {},
+            onError(message) {
+              receivedErrorMessage = message;
+            },
+          },
+          { inactivityTimeoutMs: 20 },
+        ),
+      { message: timeoutMessage },
+    );
+    assert.equal(receivedErrorMessage, timeoutMessage);
+  } finally {
+    clearTimeout(delayedDone);
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("apiStream heartbeat bytes keep a silent model response alive", async () => {
+  const originalFetch = globalThis.fetch;
+  const timers = [];
+  let doneCalled = false;
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const delay of [10, 30, 50]) {
+            timers.push(
+              setTimeout(() => {
+                controller.enqueue(new TextEncoder().encode(":keepalive\n\n"));
+              }, delay),
+            );
+          }
+          timers.push(
+            setTimeout(() => {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  "event: done\n" + 'data: {"type":"done","content":""}\n\n',
+                ),
+              );
+              controller.close();
+            }, 70),
+          );
+        },
+        cancel() {
+          timers.forEach(clearTimeout);
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+
+  try {
+    await apiStream(
+      "/api/chat/messages/stream",
+      { method: "POST" },
+      {
+        onChunk() {},
+        onDone() {
+          doneCalled = true;
+        },
+      },
+      { inactivityTimeoutMs: 40 },
+    );
+    assert.equal(doneCalled, true);
+  } finally {
+    timers.forEach(clearTimeout);
+    globalThis.fetch = originalFetch;
+  }
+});
