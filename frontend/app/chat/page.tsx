@@ -804,7 +804,7 @@ function ChatPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
+    <main className="h-dvh overflow-hidden bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
       {showSessionChooser ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 px-4">
           <div className="w-full max-w-sm rounded-[2rem] bg-[#f8f5ec] p-6 shadow-[0_24px_80px_rgba(58,45,28,0.22)]">
