@@ -8,13 +8,15 @@ A full-stack project with a Spring Boot backend and a Next.js frontend.
 h-agent/
 ├── backend/          # Spring Boot backend (Java 17, Spring Boot 4.x)
 ├── frontend/        # Next.js frontend (React 19, Next.js 16)
+├── realtime-voice/  # LiveKit + LangGraph realtime voice service (Python)
 └── CLAUDE.md         # Project instructions
 ```
 
 ## Prerequisites
 
 - Java 17+
-- Node.js 18+
+- Node.js 22.15+
+- Python 3.11-3.14 and uv (for realtime voice development)
 - Maven 3.8+
 - Nginx (the development gateway listens on port 8089)
 
@@ -39,6 +41,20 @@ npm run dev
 ```
 
 The Next.js development server runs on http://localhost:3000.
+
+### Realtime Voice
+
+```bash
+cd realtime-voice
+cp .env.example .env.local
+uv sync
+uv run realtime-voice dev
+```
+
+The realtime voice module runs a FastAPI integration API on port 8090 and a
+LiveKit worker health endpoint on port 8091. See
+[`realtime-voice/README.md`](realtime-voice/README.md) for credentials, model
+configuration, and production startup.
 
 ### Development Gateway
 
