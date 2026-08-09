@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start",
+    "package": "npm run build && node scripts/package-standalone.mjs",
+    "start": "node dist/start",
     "lint": "eslint",
     "test": "node --test lib/*.test.mjs"
   },

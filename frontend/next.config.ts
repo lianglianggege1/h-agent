@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const backendApiBaseUrl = process.env.BACKEND_API_BASE_URL ?? "http://localhost:8081";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   experimental: {
     proxyTimeout: 300_000,
   },
