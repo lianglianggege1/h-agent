@@ -27,12 +27,17 @@ import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
 import { buildCallHref } from "@/lib/call-state";
 import {
-  agentChatHref,
+  agentModeFromSession,
   buildNewSessionPayload,
   buildChatSendPayload,
+  chatSessionHref,
+  domainAgentsFromCatalog,
+  filterDomainAgents,
+  HARNESS_AGENT_ID,
   isStandardAgent,
   nextSelectedPromptIdForHydratedSession,
   shouldCreateSessionForRequestedAgent,
+  STANDARD_RUNTIME_TYPE,
   STANDARD_AGENT_ID,
 } from "@/lib/chat-agent-mode";
 import { AgentSummary, listAgents } from "@/lib/agents";
@@ -297,9 +302,13 @@ function ChatPageContent() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
   const [currentAgentId, setCurrentAgentId] = useState(STANDARD_AGENT_ID);
-  const [currentAgentName, setCurrentAgentName] = useState("普通聊天");
-  const [agentOptions, setAgentOptions] = useState<AgentSummary[]>([]);
+  const [currentAgentName, setCurrentAgentName] = useState("通用助手");
+  const [currentRuntimeType, setCurrentRuntimeType] = useState(STANDARD_RUNTIME_TYPE);
+  const [agentCatalog, setAgentCatalog] = useState<AgentSummary[]>([]);
   const [showNewSessionPicker, setShowNewSessionPicker] = useState(false);
+  const [newSessionPickerStep, setNewSessionPickerStep] = useState<"types" | "domain">("types");
+  const [domainAgentSearch, setDomainAgentSearch] = useState("");
+  const [selectedAgentDomain, setSelectedAgentDomain] = useState("全部");
   const [creatingNewAgentId, setCreatingNewAgentId] = useState<string | null>(null);
   const [showSessionChooser, setShowSessionChooser] = useState(false);
   const [sessionCandidates, setSessionCandidates] = useState<ChatSessionSummary[]>([]);
@@ -329,6 +338,16 @@ function ChatPageContent() {
           .map((r) => ({ ...r, messageId: m.id })),
       );
   }, [messages]);
+
+  const domainAgents = useMemo(() => domainAgentsFromCatalog(agentCatalog), [agentCatalog]);
+  const agentDomains = useMemo(
+    () => ["全部", ...Array.from(new Set(domainAgents.map((agent) => agent.domain)))],
+    [domainAgents],
+  );
+  const filteredDomainAgents = useMemo(
+    () => filterDomainAgents(domainAgents, domainAgentSearch, selectedAgentDomain),
+    [domainAgentSearch, domainAgents, selectedAgentDomain],
+  );
 
   useEffect(() => {
     if (!sessionId || streaming || !hasPendingVideoGeneration(messages)) {
@@ -382,7 +401,7 @@ function ChatPageContent() {
         if (cancelled) return;
         setAuthenticated(true);
         setPrompts(list);
-        setAgentOptions(agents.filter((agent) => !isStandardAgent(agent.agentId)));
+        setAgentCatalog(agents);
         const defaultPrompt = list.find((prompt) => prompt.isDefault) ?? list[0] ?? null;
         if (bootstrap.resolution === "choose") {
           if (requestedSessionId) {
@@ -405,6 +424,7 @@ function ChatPageContent() {
             });
             if (cancelled) return;
             hydrateSession(requestedSession, defaultPrompt?.id ?? null);
+            router.replace(chatSessionHref(requestedSession.session.sessionId), { scroll: false });
             return;
           }
           setSelectedPromptId(defaultPrompt?.id ?? null);
@@ -440,6 +460,7 @@ function ChatPageContent() {
           });
           if (cancelled) return;
           hydrateSession(requestedSession, defaultPrompt?.id ?? null);
+          router.replace(chatSessionHref(requestedSession.session.sessionId), { scroll: false });
           return;
         }
         hydrateSession(open, defaultPrompt?.id ?? null);
@@ -483,7 +504,12 @@ function ChatPageContent() {
     () => input.trim().length > 0 && !streaming && !routeBootstrapping && !showSessionChooser && !!sessionId,
     [input, routeBootstrapping, sessionId, showSessionChooser, streaming],
   );
-  const usingStandardAgent = isStandardAgent(currentAgentId);
+  const currentAgentMode = agentModeFromSession({
+    runtimeType: currentRuntimeType,
+    agentId: currentAgentId,
+  });
+  const usingStandardAgent = currentAgentMode === "standard";
+  const usingHarnessAgent = currentAgentMode === "harness";
 
   function hydrateSession(open: ChatSessionOpen | null, fallbackPromptId: number | null) {
     if (!open) return;
@@ -493,7 +519,8 @@ function ChatPageContent() {
     setSessionId(detail.sessionId);
     setCurrentSessionTitle(detail.title || "新会话");
     setCurrentAgentId(agentId);
-    setCurrentAgentName(detail.agentDisplayName || "普通聊天");
+    setCurrentAgentName(detail.agentDisplayName || "通用助手");
+    setCurrentRuntimeType(detail.runtimeType || STANDARD_RUNTIME_TYPE);
     setSelectedPromptId((current) =>
       nextSelectedPromptIdForHydratedSession({
         hydratedAgentId: agentId,
@@ -574,6 +601,8 @@ function ChatPageContent() {
       setHistoryPage(nextPage + 1);
       setHasMoreHistory(items.length === 10);
       setHistoryLoadedForSession(sessionId);
+    } catch (historyError) {
+      setError(historyError instanceof Error ? historyError.message : "历史会话加载失败，请重试");
     } finally {
       setLoadingHistory(false);
     }
@@ -594,6 +623,7 @@ function ChatPageContent() {
       });
       hydrateSession(detail, promptId);
       setSelectedPromptId(promptId);
+      router.replace(chatSessionHref(detail.session.sessionId), { scroll: false });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "创建会话失败");
     }
@@ -605,6 +635,7 @@ function ChatPageContent() {
     try {
       const detail = await resolveChatSession(selectedSessionId);
       hydrateSession(detail, selectedPromptId);
+      router.replace(chatSessionHref(detail.session.sessionId), { scroll: false });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "恢复会话失败");
     } finally {
@@ -615,6 +646,9 @@ function ChatPageContent() {
   async function handleCreateNewSession() {
     if (streaming) return;
     setDrawerOpen(false);
+    setNewSessionPickerStep("types");
+    setDomainAgentSearch("");
+    setSelectedAgentDomain("全部");
     setShowNewSessionPicker(true);
   }
 
@@ -629,7 +663,7 @@ function ChatPageContent() {
       }));
       hydrateSession(detail, selectedPromptId);
       setShowNewSessionPicker(false);
-      router.replace(isStandardAgent(targetAgentId) ? "/chat" : agentChatHref(targetAgentId), { scroll: false });
+      router.replace(chatSessionHref(detail.session.sessionId), { scroll: false });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "新建会话失败");
     } finally {
@@ -643,6 +677,7 @@ function ChatPageContent() {
       const detail = await activateHistorySession(targetSessionId, sessionId);
       hydrateSession(detail, detail.session.promptId ?? selectedPromptId);
       setDrawerOpen(false);
+      router.replace(chatSessionHref(detail.session.sessionId), { scroll: false });
     } catch (sessionError) {
       setError(sessionError instanceof Error ? sessionError.message : "加载会话失败");
     }
@@ -844,60 +879,128 @@ function ChatPageContent() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-700">New Chat</p>
-                <h2 className="mt-1 text-xl font-semibold">选择新会话</h2>
+                <h2 className="mt-1 text-xl font-semibold">
+                  {newSessionPickerStep === "types" ? "选择新会话" : "选择领域 Agent"}
+                </h2>
               </div>
-              <button
-                className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-600"
-                type="button"
-                disabled={creatingNewAgentId !== null}
-                onClick={() => setShowNewSessionPicker(false)}
-              >
-                关闭
-              </button>
+              <div className="flex items-center gap-2">
+                {newSessionPickerStep === "domain" ? (
+                  <button
+                    className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-600"
+                    type="button"
+                    disabled={creatingNewAgentId !== null}
+                    onClick={() => setNewSessionPickerStep("types")}
+                  >
+                    返回
+                  </button>
+                ) : null}
+                <button
+                  className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-600"
+                  type="button"
+                  disabled={creatingNewAgentId !== null}
+                  onClick={() => setShowNewSessionPicker(false)}
+                >
+                  关闭
+                </button>
+              </div>
             </div>
 
-            <div className="mt-5 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-              <button
-                className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
-                type="button"
-                disabled={creatingNewAgentId !== null}
-                onClick={() => handleCreateNewSessionForAgent(STANDARD_AGENT_ID)}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-stone-900">普通聊天</p>
-                    <p className="mt-1 text-xs text-stone-500">SystemPrompt / 知识库</p>
-                  </div>
-                  {creatingNewAgentId === STANDARD_AGENT_ID ? <span className="text-xs text-amber-700">创建中...</span> : null}
-                </div>
-              </button>
-
-              {agentOptions.map((agent) => (
+            {newSessionPickerStep === "types" ? (
+              <div className="mt-5 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
                 <button
-                  key={agent.agentId}
                   className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
                   type="button"
                   disabled={creatingNewAgentId !== null}
-                  onClick={() => handleCreateNewSessionForAgent(agent.agentId)}
+                  onClick={() => handleCreateNewSessionForAgent(STANDARD_AGENT_ID)}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-stone-900">{agent.displayName}</p>
-                      <p className="mt-1 text-xs text-stone-500">{agent.domain}</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-stone-900">通用助手</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-500">自由对话，使用提示词、知识库和常用工具</p>
                     </div>
-                    {creatingNewAgentId === agent.agentId ? (
-                      <span className="shrink-0 text-xs text-amber-700">创建中...</span>
-                    ) : null}
+                    {creatingNewAgentId === STANDARD_AGENT_ID ? <span className="shrink-0 text-xs text-amber-700">创建中...</span> : null}
                   </div>
                 </button>
-              ))}
 
-              {agentOptions.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-stone-300 px-4 py-6 text-center text-sm text-stone-500">
-                  暂无领域 Agent
-                </p>
-              ) : null}
-            </div>
+                <button
+                  className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
+                  type="button"
+                  disabled={creatingNewAgentId !== null}
+                  onClick={() => setNewSessionPickerStep("domain")}
+                >
+                  <p className="text-sm font-semibold text-stone-900">领域 Agent</p>
+                  <p className="mt-1 text-xs leading-5 text-stone-500">选择专业 Agent 处理特定领域问题</p>
+                </button>
+
+                <button
+                  className="w-full rounded-2xl border border-amber-300 bg-amber-50/80 px-4 py-3 text-left transition hover:border-amber-500 disabled:opacity-60"
+                  type="button"
+                  disabled={creatingNewAgentId !== null}
+                  onClick={() => handleCreateNewSessionForAgent(HARNESS_AGENT_ID)}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-stone-900">协作 Agent</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-500">拆分复杂任务，组织多个 Agent 并行处理</p>
+                    </div>
+                    {creatingNewAgentId === HARNESS_AGENT_ID ? <span className="shrink-0 text-xs text-amber-700">创建中...</span> : null}
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <div className="mt-5">
+                <input
+                  className="h-11 w-full rounded-xl border border-stone-200 bg-white px-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  value={domainAgentSearch}
+                  onChange={(event) => setDomainAgentSearch(event.target.value)}
+                  placeholder="搜索名称、领域、说明或标签"
+                  autoFocus
+                />
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  {agentDomains.map((domain) => (
+                    <button
+                      key={domain}
+                      className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                        selectedAgentDomain === domain
+                          ? "border-stone-900 bg-stone-900 text-white"
+                          : "border-stone-200 bg-white text-stone-600"
+                      }`}
+                      type="button"
+                      onClick={() => setSelectedAgentDomain(domain)}
+                    >
+                      {domain}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+                  {filteredDomainAgents.map((agent) => (
+                    <button
+                      key={agent.agentId}
+                      className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 disabled:opacity-60"
+                      type="button"
+                      disabled={creatingNewAgentId !== null}
+                      onClick={() => handleCreateNewSessionForAgent(agent.agentId)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-stone-900">{agent.displayName}</p>
+                          <p className="mt-1 text-xs text-amber-700">{agent.domain}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-stone-500">{agent.summary}</p>
+                        </div>
+                        {creatingNewAgentId === agent.agentId ? (
+                          <span className="shrink-0 text-xs text-amber-700">创建中...</span>
+                        ) : null}
+                      </div>
+                    </button>
+                  ))}
+                  {filteredDomainAgents.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-stone-300 px-4 py-6 text-center text-sm text-stone-500">
+                      没有匹配的领域 Agent
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -917,7 +1020,7 @@ function ChatPageContent() {
         }`}
       >
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-amber-700">harness-agent</p>
           <h2 className="mt-2 text-2xl font-semibold">菜单</h2>
           <button
             className="mt-5 w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white"
@@ -1042,6 +1145,15 @@ function ChatPageContent() {
                     {prompt.isDefault ? " · 默认" : ""}
                   </button>
                 ))}
+              </div>
+            </div>
+          ) : usingHarnessAgent ? (
+            <div className="sticky top-0 z-[5] -mx-4 -mt-5 bg-[#f7f4ea]/95 px-4 pb-1 pt-5 backdrop-blur">
+              <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50/90 p-4 shadow-sm">
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">协作 Agent · 父会话</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+                </div>
               </div>
             </div>
           ) : (
