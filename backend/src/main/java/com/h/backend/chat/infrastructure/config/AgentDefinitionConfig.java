@@ -3,11 +3,13 @@ package com.h.backend.chat.infrastructure.config;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.ai.a2a.A2AStoryAssistant;
 import com.h.backend.chat.infrastructure.ai.Agents;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.ExportAssistant;
+import io.agentscope.harness.agent.HarnessAgent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +18,20 @@ import java.util.List;
 
 @Configuration
 public class AgentDefinitionConfig {
+
+    @Bean
+    public AgentDefinition harnessAgentDefinition(HarnessAgent harnessAgent) {
+        return new AgentDefinition(
+                ChatAgentIds.HARNESS,
+                "协作 Agent",
+                "协作工作台",
+                List.of("目标拆解", "协作 Agent", "长期记忆", "Skills"),
+                "面向复杂目标的父 Agent，可动态委派协作 Agent 并汇总结果",
+                harnessAgent,
+                AgentRuntimeType.HARNESS_STREAMING,
+                true
+        );
+    }
 
     @Bean
     public AgentDefinition standardChatAgent(HAssistant hAssistant) {

@@ -247,6 +247,24 @@
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/io.agentscope/agentscope-harness -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-harness</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <!-- AgentScope 使用与现有 LangChain4j 相同的 MiniMax Anthropic 兼容模型。 -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-anthropic</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-postgresql</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+
     </dependencies>
 
     <build>

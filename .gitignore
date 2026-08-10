@@ -67,3 +67,6 @@ build/
 
 .mcp.json
 .codegraph/
+.workbuddy/
+.tmp/
+.agents/

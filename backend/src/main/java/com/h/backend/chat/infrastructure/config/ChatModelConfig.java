@@ -35,13 +35,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
 @Configuration
 @EnableConfigurationProperties({ImageGenerationProperties.class, AssistantFileProperties.class, ShellToolProperties.class})
@@ -85,57 +82,43 @@ public class ChatModelConfig {
 
     @Bean
     public StreamingChatModel streamingChatModel() {
-
-        Path envPath = Path.of(".env");
-        if (!Files.exists(envPath)) {
+        var environment = ChatModelEnvironment.load(Path.of(""));
+        if (environment.isEmpty()) {
             return new DisabledStreamingChatModel();
         }
-
-        Properties properties = new Properties();
-
-        try (var reader = Files.newBufferedReader(envPath)) {
-            properties.load(reader);
-            return AnthropicStreamingChatModel.builder()
-                    .apiKey(properties.getProperty("API_KEY"))
-                    .baseUrl("https://api.minimaxi.com/anthropic/v1")
-                    .modelName(properties.getProperty("MODEL_NAME"))
-                    .thinkingBudgetTokens(8192)
-                    .maxTokens(16384)
-                    .returnThinking(true)
-                    .timeout(Duration.ofSeconds(120))
-                    .logRequests(true)
-                    .logResponses(true)
-                    .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
-                    .build();
-
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to load .env file", ex);
-        }
+        ChatModelEnvironment settings = environment.orElseThrow();
+        return AnthropicStreamingChatModel.builder()
+                .apiKey(settings.apiKey())
+                .baseUrl(settings.baseUrl())
+                .modelName(settings.modelName())
+                .thinkingBudgetTokens(8192)
+                .maxTokens(16384)
+                .returnThinking(true)
+                .timeout(Duration.ofSeconds(120))
+                .logRequests(true)
+                .logResponses(true)
+                .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
+                .build();
     }
 
     @Bean
     public ChatModel chatModel() {
-        Path envPath = Path.of(".env");
-        if (!Files.exists(envPath)) {
+        var environment = ChatModelEnvironment.load(Path.of(""));
+        if (environment.isEmpty()) {
             return new DisabledChatModel();
         }
-        Properties properties = new Properties();
-        try (var reader = Files.newBufferedReader(envPath)) {
-            properties.load(reader);
-            return AnthropicChatModel.builder()
-                    .apiKey(properties.getProperty("API_KEY"))
-                    .baseUrl("https://api.minimaxi.com/anthropic/v1")
-                    .modelName(properties.getProperty("MODEL_NAME"))
-                    .thinkingBudgetTokens(8192)
-                    .maxTokens(16384)
-                    .timeout(Duration.ofSeconds(120))
-                    .logRequests(true)
-                    .logResponses(true)
-                    .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
-                    .build();
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to load .env file", ex);
-        }
+        ChatModelEnvironment settings = environment.orElseThrow();
+        return AnthropicChatModel.builder()
+                .apiKey(settings.apiKey())
+                .baseUrl(settings.baseUrl())
+                .modelName(settings.modelName())
+                .thinkingBudgetTokens(8192)
+                .maxTokens(16384)
+                .timeout(Duration.ofSeconds(120))
+                .logRequests(true)
+                .logResponses(true)
+                .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
+                .build();
     }
 
     @Bean

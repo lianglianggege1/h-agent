@@ -54,6 +54,8 @@ langfuse:
   secret-key: ""
 
 chat:
+  harness:
+    workspace-template: /tmp/h-agent/harness-workspace
   stream:
     heartbeat-interval: 15s
     max-concurrent-per-user: 2
