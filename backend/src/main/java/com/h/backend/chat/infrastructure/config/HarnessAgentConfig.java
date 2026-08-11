@@ -215,7 +215,7 @@ public class HarnessAgentConfig {
     public MemoryConfig harnessMemoryConfig() {
         return MemoryConfig.builder()
                 .flushPrompt(DEFAULT_FLUSH_PROMPT)
-                // 每轮提取用户记忆流水；这是一次额外模型调用，但能保证新会话及时获得长期记忆。
+                // 每个用户最多每 30 分钟提取一次记忆流水，避免每轮额外模型调用拖慢收尾。
                 .flushTrigger(MemoryConfig.FlushTrigger.throttled(Duration.ofMinutes(30)))
                 // 最多每 30 分钟把流水合并、去重到用户级 MEMORY.md。
                 .consolidationMinGap(Duration.ofMinutes(30))

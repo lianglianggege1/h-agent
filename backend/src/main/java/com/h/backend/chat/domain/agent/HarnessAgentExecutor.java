@@ -7,6 +7,7 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
@@ -74,7 +75,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             Disposable subscription = harnessAgent
                     .streamEvents(command.userMessage(), runtimeContext)
                     .subscribe(execution::onEvent, execution::onError, execution::onComplete);
-            execution.subscription.set(subscription);
+            execution.attachSubscription(subscription);
             if (command.sink().isCancelled()) {
                 execution.cancel("客户端已断开");
             }
@@ -94,8 +95,10 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
 
         private final ChatAgentExecutionCommand command;
         private final AtomicLong sequence = new AtomicLong();
-        // Reactor 的完成、错误与浏览器取消可能竞争；只允许一个路径落 run 并释放 permit。
-        private final AtomicBoolean terminal = new AtomicBoolean();
+        // 用户可见响应与 Harness 后置维护是两个终态；父响应结束后仍允许记忆任务继续运行。
+        private final AtomicBoolean responseTerminal = new AtomicBoolean();
+        private final AtomicBoolean executionReleased = new AtomicBoolean();
+        private final AtomicBoolean cancelRequested = new AtomicBoolean();
         private final AtomicBoolean emittedParentText = new AtomicBoolean();
         private final AtomicReference<Msg> parentResult = new AtomicReference<>();
         private final AtomicReference<Disposable> subscription = new AtomicReference<>();
@@ -106,7 +109,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         }
 
         private void onEvent(AgentEvent event) {
-            if (terminal.get() || command.sink().isCancelled()) {
+            if (responseTerminal.get() || command.sink().isCancelled()) {
                 return;
             }
             // sequence 按原始 AgentEvent 流严格递增；每条事件都通过同一 SSE 信封向前端发送。
@@ -121,11 +124,22 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 emit(new ChatStreamEvent("reasoning", thinkingEvent.getDelta()));
             } else if (isParent(event) && event instanceof AgentResultEvent resultEvent) {
                 parentResult.set(resultEvent.getResult());
+            } else if (isParent(event) && event instanceof AgentEndEvent) {
+                completeSuccessfulResponse();
             }
         }
 
         private void onComplete() {
-            if (!terminal.compareAndSet(false, true)) {
+            // 兼容不发送 AgentEndEvent 的测试 adapter 或未来实现；正常 Harness 路径已在父
+            // AgentEndEvent 处完成用户响应，此时这里只表示后台维护也已结束。
+            if (responseTerminal.get()) {
+                return;
+            }
+            completeSuccessfulResponse();
+        }
+
+        private void completeSuccessfulResponse() {
+            if (!responseTerminal.compareAndSet(false, true)) {
                 return;
             }
             try {
@@ -160,45 +174,60 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 agentRunTelemetryService.markSuccess(command.telemetryRun());
                 log.info("[HarnessExecutor] Agent执行完成 userId={}, sessionId={}, runId={}, replyLength={}",
                         command.userId(), command.sessionId(), command.runHandle().id(), reply.length());
+                releaseExecution();
                 emit(new ChatStreamEvent("done", "", assistantMessage));
                 completeSink();
             } catch (RuntimeException ex) {
-                failAfterTerminalClaim(ex, true);
+                failAfterResponseClaim(ex, true);
             } finally {
-                command.onTerminal().run();
+                releaseExecution();
             }
         }
 
         private void onError(Throwable error) {
-            if (!terminal.compareAndSet(false, true)) {
+            if (!responseTerminal.compareAndSet(false, true)) {
+                log.warn(
+                        "[HarnessExecutor] 用户响应完成后的维护任务失败 userId={}, sessionId={}, runId={}, error={}",
+                        command.userId(), command.sessionId(), command.runHandle().id(), error.getMessage(), error
+                );
                 return;
             }
             try {
-                failAfterTerminalClaim(error, true);
+                failAfterResponseClaim(error, true);
             } finally {
-                command.onTerminal().run();
+                releaseExecution();
             }
         }
 
         private void cancel(String reason) {
+            if (!responseTerminal.compareAndSet(false, true)) {
+                // Controller 收到 done 后会取消上游 chat Flux。父响应已经提交时不能把这个
+                // 传播放大成 Harness 取消，否则会中断刚开始的记忆提取/合并。
+                return;
+            }
             log.info("[HarnessExecutor] Agent执行取消 userId={}, sessionId={}, runId={}, reason={}",
                     command.userId(), command.sessionId(), command.runHandle().id(), reason);
+            cancelRequested.set(true);
             Disposable current = subscription.get();
             if (current != null && !current.isDisposed()) {
                 current.dispose();
             }
-            if (!terminal.compareAndSet(false, true)) {
-                return;
-            }
             CancellationException error = new CancellationException(reason);
             try {
-                failAfterTerminalClaim(error, false);
+                failAfterResponseClaim(error, false);
             } finally {
-                command.onTerminal().run();
+                releaseExecution();
             }
         }
 
-        private void failAfterTerminalClaim(Throwable error, boolean emitError) {
+        private void attachSubscription(Disposable current) {
+            subscription.set(current);
+            if (cancelRequested.get() && !current.isDisposed()) {
+                current.dispose();
+            }
+        }
+
+        private void failAfterResponseClaim(Throwable error, boolean emitError) {
             log.error("[HarnessExecutor] Agent执行错误 userId={}, sessionId={}, runId={}, error={}",
                     command.userId(), command.sessionId(), command.runHandle().id(), error.getMessage(), error);
             String detail = error.getMessage() == null ? "AI 服务调用失败" : error.getMessage();
@@ -207,6 +236,12 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             if (emitError) {
                 emit(new ChatStreamEvent("error", "AI 服务调用失败"));
                 completeSink();
+            }
+        }
+
+        private void releaseExecution() {
+            if (executionReleased.compareAndSet(false, true)) {
+                command.onTerminal().run();
             }
         }
 

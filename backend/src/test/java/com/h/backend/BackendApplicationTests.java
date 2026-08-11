@@ -92,8 +92,12 @@ class BackendApplicationTests {
     void shouldExtractAndConsolidateUserMemoryExplicitly() {
         org.junit.jupiter.api.Assertions.assertAll(
                 () -> org.junit.jupiter.api.Assertions.assertEquals(
-                        MemoryConfig.FlushMode.ALWAYS,
+                        MemoryConfig.FlushMode.THROTTLED,
                         harnessMemoryConfig.flushTrigger().mode()
+                ),
+                () -> org.junit.jupiter.api.Assertions.assertEquals(
+                        java.time.Duration.ofMinutes(30),
+                        harnessMemoryConfig.flushTrigger().minGap()
                 ),
                 () -> org.junit.jupiter.api.Assertions.assertEquals(
                         java.time.Duration.ofMinutes(30),
