@@ -245,10 +245,12 @@ public class HarnessAgentConfig {
         public void applyTools(MessageCreateParams.Builder paramsBuilder, List<ToolSchema> tools) {
             super.applyTools(paramsBuilder, tools);
             // applyTools 是 build() 前最后一个 formatter 方法，此时 builder 已包含完整请求参数（含工具定义）。
+            // SDK 内部序列化的是 Body 对象（params._body()），而非 MessageCreateParams 外壳，
+            // 直接序列化 MessageCreateParams 会得到 {} 因为 ObjectMapper 禁用了字段自动检测。
             try {
                 MessageCreateParams params = paramsBuilder.build();
                 log.info("[HarnessLLM] =========== 完整请求体 ===========");
-                log.info("[HarnessLLM] {}", ObjectMappers.jsonMapper().writeValueAsString(params));
+                log.info("[HarnessLLM] {}", ObjectMappers.jsonMapper().writeValueAsString(params._body()));
                 log.info("[HarnessLLM] =========== 请求体结束 ===========");
             } catch (Exception e) {
                 log.warn("[HarnessLLM] 请求体序列化失败: {}", e.getMessage());
