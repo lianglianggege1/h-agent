@@ -11,6 +11,7 @@ import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +60,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     @Override
     public void execute(ChatAgentExecutionCommand command) {
         HarnessAgent harnessAgent = requireHarnessAgent(command);
+        log.info("[HarnessExecutor] Agent执行开始 userId={}, sessionId={}, runId={}",
+                command.userId(), command.sessionId(), command.runHandle().id());
         RuntimeContext runtimeContext = RuntimeContext.builder()
                 .userId(String.valueOf(command.userId()))
                 .sessionId(command.sessionId())
@@ -97,6 +100,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         private final AtomicBoolean emittedParentText = new AtomicBoolean();
         private final AtomicReference<Msg> parentResult = new AtomicReference<>();
         private final AtomicReference<Disposable> subscription = new AtomicReference<>();
+        private final StringBuilder parentReasoning = new StringBuilder();
 
         private Execution(ChatAgentExecutionCommand command) {
             this.command = command;
@@ -114,6 +118,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 emittedParentText.set(true);
                 emit(new ChatStreamEvent("chunk", textEvent.getDelta()));
             } else if (isParent(event) && event instanceof ThinkingBlockDeltaEvent thinkingEvent) {
+                parentReasoning.append(thinkingEvent.getDelta());
                 emit(new ChatStreamEvent("reasoning", thinkingEvent.getDelta()));
             } else if (isParent(event) && event instanceof AgentResultEvent resultEvent) {
                 parentResult.set(resultEvent.getResult());
@@ -134,6 +139,14 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 if (!emittedParentText.get()) {
                     emit(new ChatStreamEvent("chunk", reply));
                 }
+                String reasoning = parentReasoning.toString();
+                if (!reasoning.isBlank()) {
+                    chatSessionService.appendReasoningMessage(
+                            command.userId(),
+                            command.sessionId(),
+                            reasoning
+                    );
+                }
                 Long assistantMessageId = chatSessionService.appendAssistantMessage(
                         command.userId(),
                         command.sessionId(),
@@ -146,6 +159,11 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 );
                 agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
                 agentRunTelemetryService.markSuccess(command.telemetryRun());
+                log.info("[HarnessExecutor] Agent执行完成 userId={}, sessionId={}, runId={}, replyLength={}",
+                        command.userId(), command.sessionId(), command.runHandle().id(), reply.length());
+                log.info("[HarnessLLM] =========== 完整响应体 ===========");
+                log.info("[HarnessLLM] {}", JsonUtils.getJsonCodec().toJson(result));
+                log.info("[HarnessLLM] =========== 响应体结束 ===========");
                 emit(new ChatStreamEvent("done", "", assistantMessage));
                 completeSink();
             } catch (RuntimeException ex) {
@@ -167,6 +185,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         }
 
         private void cancel(String reason) {
+            log.info("[HarnessExecutor] Agent执行取消 userId={}, sessionId={}, runId={}, reason={}",
+                    command.userId(), command.sessionId(), command.runHandle().id(), reason);
             Disposable current = subscription.get();
             if (current != null && !current.isDisposed()) {
                 current.dispose();
@@ -183,7 +203,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         }
 
         private void failAfterTerminalClaim(Throwable error, boolean emitError) {
-            log.error("Error executing Harness Agent stream", error);
+            log.error("[HarnessExecutor] Agent执行错误 userId={}, sessionId={}, runId={}, error={}",
+                    command.userId(), command.sessionId(), command.runHandle().id(), error.getMessage(), error);
             String detail = error.getMessage() == null ? "AI 服务调用失败" : error.getMessage();
             agentRunService.failRun(command.runHandle().id(), detail);
             agentRunTelemetryService.markFailure(command.telemetryRun(), error);

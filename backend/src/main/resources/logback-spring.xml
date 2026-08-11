@@ -23,6 +23,12 @@
         </encoder>
     </appender>
 
+    <!-- HarnessAgent 大模型交互日志：请求入参与响应出参，默认 INFO 级别输出 -->
+    <logger name="com.h.backend.chat.infrastructure.agentscope" level="INFO"/>
+
+    <!-- HarnessAgent 执行流程日志：启动、完成、取消、错误 -->
+    <logger name="com.h.backend.chat.domain.agent.HarnessAgentExecutor" level="INFO"/>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ROLLING_FILE"/>

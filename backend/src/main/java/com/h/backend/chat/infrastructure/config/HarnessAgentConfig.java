@@ -2,10 +2,12 @@ package com.h.backend.chat.infrastructure.config;
 
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.agentscope.DisabledHarnessModel;
+import com.anthropic.core.ObjectMappers;
 import com.anthropic.models.messages.MessageCreateParams;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.model.ToolSchema;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.extensions.model.anthropic.AnthropicChatModel;
 import io.agentscope.extensions.model.anthropic.formatter.AnthropicChatFormatter;
@@ -24,9 +26,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * <p>会话工作上下文由 PostgreSQL 保存；Memory、Skills、Session log、Task 与 Plan
@@ -35,6 +41,46 @@ import java.time.Duration;
  */
 @Configuration
 public class HarnessAgentConfig {
+
+    public static final String DEFAULT_SUMMARY_PROMPT =
+            """
+            <role>
+            上下文提取助手
+            </role>
+
+            <primary_objective>
+            本次任务唯一目标：从下方对话历史中提取价值最高、关联性最强的上下文信息。
+            </primary_objective>
+
+            <objective_information>
+            当前输入token量即将达到上限，你必须从对话历史筛选核心关键信息。
+            提取出的内容将直接替换原有对话记录，因此仅保留对完成整体目标至关重要的信息。
+            </objective_information>
+
+            <instructions>
+            下方对话历史将会被你本次提炼的上下文替换。务必记录已完成操作，避免重复执行；提取内容需要围绕整体目标，聚焦关键信息。
+
+            摘要严格按照以下板块组织（无相关内容填写“无”）：
+
+            ## SESSION INTENT（会话目标）
+            用户的核心诉求与主要目标。
+
+            ## SUMMARY（内容摘要）
+            关键上下文、决策内容、推理过程、被否决的备选方案。
+
+            ## ARTIFACTS（产出物）
+            创建、修改、访问过的文件与资源（附带具体路径及变更内容）。
+
+            ## NEXT STEPS（后续任务）
+            完成会话目标仍需执行的具体事项。
+            </instructions>
+
+            完整阅读下方全部对话历史，提取最重要的上下文。**仅输出提炼后的内容，不要额外补充说明。**
+
+            <messages>
+            {messages}
+            </messages>
+            """;
 
     @Bean("harnessDistributedStore")
     public DistributedStore harnessDistributedStore(DataSource dataSource) {
@@ -72,19 +118,21 @@ public class HarnessAgentConfig {
                 .thinkingBudget(8_192)
                 .executionConfig(ExecutionConfig.builder().timeout(Duration.ofSeconds(120)).build())
                 .build();
+        MiniMaxAnthropicFormatter formatter = new MiniMaxAnthropicFormatter();
         return AnthropicChatModel.builder()
                 .apiKey(settings.apiKey())
-                .baseUrl(settings.baseUrl())
+                .baseUrl(settings.anthropicSdkBaseUrl())
                 .modelName(settings.modelName())
                 .stream(true)
                 .defaultOptions(options)
-                .formatter(new MiniMaxAnthropicFormatter())
+                .formatter(formatter)
                 .build();
     }
 
     @Bean("harnessCompactionConfig")
     public CompactionConfig harnessCompactionConfig() {
         return CompactionConfig.builder()
+                .summaryPrompt(DEFAULT_SUMMARY_PROMPT)
                 // 消息数或模型窗口减去预留 token，任一阈值先到即压缩。
                 .triggerMessages(50)
                 .triggerTokens(0)
@@ -172,8 +220,13 @@ public class HarnessAgentConfig {
         return agent;
     }
 
-    /** AgentScope 2.0.1 内置 formatter 未应用 thinkingBudget，这里补齐 MiniMax 请求参数。 */
+    /**
+     * AgentScope 2.0.1 内置 formatter 未应用 thinkingBudget，这里补齐 MiniMax 请求参数。
+     * 同时覆写 applyTools 在 build() 前打印完整请求体 JSON。
+     */
     private static final class MiniMaxAnthropicFormatter extends AnthropicChatFormatter {
+
+        private static final Logger log = LoggerFactory.getLogger(MiniMaxAnthropicFormatter.class);
 
         @Override
         public void applyOptions(
@@ -185,6 +238,20 @@ public class HarnessAgentConfig {
             GenerateOptions effective = GenerateOptions.mergeOptions(options, defaultOptions);
             if (effective.getThinkingBudget() != null && effective.getThinkingBudget() > 0) {
                 builder.enabledThinking(effective.getThinkingBudget());
+            }
+        }
+
+        @Override
+        public void applyTools(MessageCreateParams.Builder paramsBuilder, List<ToolSchema> tools) {
+            super.applyTools(paramsBuilder, tools);
+            // applyTools 是 build() 前最后一个 formatter 方法，此时 builder 已包含完整请求参数（含工具定义）。
+            try {
+                MessageCreateParams params = paramsBuilder.build();
+                log.info("[HarnessLLM] =========== 完整请求体 ===========");
+                log.info("[HarnessLLM] {}", ObjectMappers.jsonMapper().writeValueAsString(params));
+                log.info("[HarnessLLM] =========== 请求体结束 ===========");
+            } catch (Exception e) {
+                log.warn("[HarnessLLM] 请求体序列化失败: {}", e.getMessage());
             }
         }
     }

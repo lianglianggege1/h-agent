@@ -286,4 +286,4 @@ SessionTree JSONL = AgentScope兼容日志与内置搜索数据
 - child terminal 不会关闭 outer stream。
 - `done` 到达时，本轮产品消息和稳定状态已经提交。
 - JSONL 镜像失败不阻断聊天，也不影响 AgentState 恢复。
-- 不把 thinking、tool 参数碎片或潜在敏感 metadata 默认持久化。
+- 父 Agent 的 thinking 作为 `REASONING` 产品消息持久化，并在最终回答前提交；子 Agent thinking、tool 参数碎片和潜在敏感 metadata 不进入父会话历史。

@@ -16,7 +16,7 @@
     <properties>
         <java.version>23</java.version>
         <langchain4j.version>1.17.0</langchain4j.version>
-        <lombok.version>1.18.36</lombok.version>
+        <lombok.version>1.18.46</lombok.version>
     </properties>
 
     <repositories>
