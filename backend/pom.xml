@@ -14,7 +14,7 @@
     <name>h-agent-backend</name>
     <description>h-agent Backend Service</description>
     <properties>
-        <java.version>23</java.version>
+        <java.version>26</java.version>
         <langchain4j.version>1.17.0</langchain4j.version>
         <lombok.version>1.18.46</lombok.version>
     </properties>

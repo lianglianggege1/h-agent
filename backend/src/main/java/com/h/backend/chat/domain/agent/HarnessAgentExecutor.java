@@ -11,7 +11,6 @@ import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import lombok.extern.slf4j.Slf4j;
@@ -161,9 +160,6 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 agentRunTelemetryService.markSuccess(command.telemetryRun());
                 log.info("[HarnessExecutor] Agent执行完成 userId={}, sessionId={}, runId={}, replyLength={}",
                         command.userId(), command.sessionId(), command.runHandle().id(), reply.length());
-                log.info("[HarnessLLM] =========== 完整响应体 ===========");
-                log.info("[HarnessLLM] {}", JsonUtils.getJsonCodec().toJson(result));
-                log.info("[HarnessLLM] =========== 响应体结束 ===========");
                 emit(new ChatStreamEvent("done", "", assistantMessage));
                 completeSink();
             } catch (RuntimeException ex) {
