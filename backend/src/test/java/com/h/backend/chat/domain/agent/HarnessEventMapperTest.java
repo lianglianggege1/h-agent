@@ -34,7 +34,7 @@ class HarnessEventMapperTest {
         assertEquals("harness_event", mapped.type());
         HarnessAgentEventPayload payload = (HarnessAgentEventPayload) mapped.payload();
         assertEquals("harness.agent-event", payload.schema());
-        assertEquals(2, payload.schemaVersion());
+        assertEquals(3, payload.schemaVersion());
         assertEquals("2.0.1", payload.sdkVersion());
         assertEquals("55", payload.runId());
         assertEquals(7L, payload.sequence());
@@ -43,8 +43,6 @@ class HarnessEventMapperTest {
         assertEquals("MODEL_OUTPUT", payload.kind());
         assertEquals("DELTA", payload.phase());
         assertEquals("PRIMARY", payload.importance());
-        assertEquals("SUBAGENT", payload.target().kind());
-        assertEquals("source:parent-session/general-purpose", payload.target().streamKey());
         assertEquals("SUBAGENT", payload.source().scope());
         assertEquals("parent-session/general-purpose", payload.source().path());
         assertEquals("reply-1", payload.correlation().get("replyId"));
@@ -55,7 +53,27 @@ class HarnessEventMapperTest {
     }
 
     @Test
-    void shouldExposeCanonicalSubagentTargetWhenAgentBecomesAddressable() {
+    void shouldAttachResolvedProductSessionToChildDelta() {
+        HarnessEventMapper mapper = new HarnessEventMapper();
+        TextBlockDeltaEvent sourceEvent = new TextBlockDeltaEvent(
+                "event-child-delta",
+                "2026-08-14T09:39:21Z",
+                "reply-child",
+                "block-child",
+                "第一段"
+        );
+        sourceEvent.withSource("parent-session/general-purpose");
+
+        HarnessAgentEventPayload payload = (HarnessAgentEventPayload) mapper
+                .map(55L, 9L, sourceEvent, null, "child-session", null)
+                .payload();
+
+        assertEquals("child-session", payload.data().get("agentSessionId"));
+        assertEquals("第一段", payload.data().get("delta"));
+    }
+
+    @Test
+    void shouldExposeProductSessionWithoutLeakingGatewayHandle() {
         HarnessEventMapper mapper = new HarnessEventMapper();
         SubagentExposedEvent sourceEvent = new SubagentExposedEvent(
                 "subagent-7",
@@ -64,13 +82,15 @@ class HarnessEventMapperTest {
                 "资料整理"
         );
 
-        HarnessAgentEventPayload payload = (HarnessAgentEventPayload) mapper.map(55L, 8L, sourceEvent).payload();
+        HarnessAgentEventPayload payload = (HarnessAgentEventPayload) mapper
+                .map(55L, 8L, sourceEvent, "parent-agent-session")
+                .payload();
 
         assertEquals("SUBAGENT", payload.kind());
-        assertEquals("SUBAGENT", payload.target().kind());
-        assertEquals("subagent:subagent-7", payload.target().streamKey());
-        assertEquals("subagent-7", payload.target().subagentId());
-        assertEquals("资料整理", payload.target().label());
+        assertEquals("child-session-7", payload.data().get("sessionId"));
+        assertEquals(false, payload.data().containsKey("subagentId"));
+        assertEquals(false, payload.metadata().containsKey("subagentId"));
+        assertEquals("parent-agent-session", payload.data().get("parentSessionId"));
     }
 
     @Test

@@ -10,6 +10,8 @@ import com.h.backend.chat.interfaces.dto.ActivateHistorySessionRequest;
 import com.h.backend.chat.interfaces.dto.CreateChatSessionRequest;
 import com.h.backend.chat.interfaces.dto.ResolveChatSessionRequest;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.HarnessCollaborationService;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import com.h.backend.common.api.ApiResponse;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -28,9 +30,14 @@ import java.util.List;
 public class ChatSessionController {
 
     private final ChatSessionService chatSessionService;
+    private final HarnessCollaborationService harnessCollaborationService;
 
-    public ChatSessionController(ChatSessionService chatSessionService) {
+    public ChatSessionController(
+            ChatSessionService chatSessionService,
+            HarnessCollaborationService harnessCollaborationService
+    ) {
         this.chatSessionService = chatSessionService;
+        this.harnessCollaborationService = harnessCollaborationService;
     }
 
     @GetMapping("/bootstrap")
@@ -90,6 +97,14 @@ public class ChatSessionController {
             @RequestParam(required = false) Integer beforeSeq
     ) {
         return ApiResponse.ok(chatSessionService.getSessionMessages(principal.userId(), sessionId, limit, beforeSeq));
+    }
+
+    @GetMapping("/{sessionId}/subagents")
+    public ApiResponse<List<HarnessSubagentSummaryDto>> harnessSubagents(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable String sessionId
+    ) {
+        return ApiResponse.ok(harnessCollaborationService.listSubagents(principal.userId(), sessionId));
     }
 
     @GetMapping("/history")

@@ -1,12 +1,15 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
+import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
+import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
 import com.h.backend.user.infrastructure.persistence.entity.UserEntity;
 import com.h.backend.user.infrastructure.persistence.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,10 +18,14 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
+@Transactional
 class ChatSessionMapperPersistenceTest {
 
     @Autowired
     private ChatSessionMapper chatSessionMapper;
+
+    @Autowired
+    private AgentSessionMapper agentSessionMapper;
 
     @Autowired
     private UserMapper userMapper;
@@ -36,6 +43,16 @@ class ChatSessionMapperPersistenceTest {
         String sessionId = "session-" + UUID.randomUUID();
         String agentId = "car-rental-assistant";
         LocalDateTime now = LocalDateTime.now();
+
+        // chat_sessions 只保存顶级页面元数据；测试夹具也必须先登记统一 Agent Session 身份。
+        AgentSessionEntity agentSession = new AgentSessionEntity();
+        agentSession.setSessionId(sessionId);
+        agentSession.setUserId(user.getId());
+        agentSession.setAgentId(agentId);
+        agentSession.setMessageCount(1);
+        agentSession.setCreatedAt(now);
+        agentSession.setUpdatedAt(now);
+        agentSessionMapper.insert(agentSession);
 
         ChatSessionEntity session = new ChatSessionEntity();
         session.setUserId(user.getId());

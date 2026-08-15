@@ -122,7 +122,7 @@ class ChatResourceControllerTest {
         when(resourceStorage.buildDownloadUrl("r-1")).thenReturn("/api/chat/resources/r-1/download");
 
         MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[1024]);
-        var response = controller.upload(principal, file, "session-1", "REFERENCE");
+        var response = controller.upload(principal, file, "REFERENCE");
 
         assertNotNull(response.getBody());
         assertEquals("r-1", response.getBody().resourceId());
@@ -135,7 +135,6 @@ class ChatResourceControllerTest {
         assertEquals("r-1", row.getId());
         assertNull(row.getMessageId());
         assertEquals(1L, row.getUserId());
-        assertEquals("session-1", row.getSessionId());
         assertEquals("IMAGE", row.getResourceType());
         assertEquals("REFERENCE", row.getResourceRole());
         assertEquals("key1", row.getStorageKey());
@@ -147,7 +146,7 @@ class ChatResourceControllerTest {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         MockMultipartFile file = new MockMultipartFile("file", "doc.pdf", "application/pdf", new byte[100]);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "session-1", "ATTACHMENT"));
+        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "ATTACHMENT"));
         assertEquals(40000, error.getCode());
         assertTrue(error.getMessage().contains("暂不支持该文件类型"));
     }
@@ -158,7 +157,7 @@ class ChatResourceControllerTest {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         MockMultipartFile file = new MockMultipartFile("file", "big.jpg", "image/jpeg", new byte[200]);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "session-1", "ATTACHMENT"));
+        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "ATTACHMENT"));
         assertEquals(40000, error.getCode());
         assertTrue(error.getMessage().contains("文件大小不能超过"));
     }

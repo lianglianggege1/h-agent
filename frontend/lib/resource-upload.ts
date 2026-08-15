@@ -10,10 +10,9 @@ export type UploadedResource = {
   fileSize: number;
 };
 
-export function uploadChatResource(file: File, sessionId: string, role: "ATTACHMENT" | "REFERENCE" = "ATTACHMENT"): Promise<UploadedResource> {
+export function uploadChatResource(file: File, role: "ATTACHMENT" | "REFERENCE" = "ATTACHMENT"): Promise<UploadedResource> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("sessionId", sessionId);
   formData.append("role", role);
   return fetch("/api/chat/resources/upload", {
     method: "POST",

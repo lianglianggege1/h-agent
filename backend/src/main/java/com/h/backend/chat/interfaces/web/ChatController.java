@@ -53,14 +53,15 @@ public class ChatController {
             AuthUserPrincipal principal,
             ChatMessageRequest request
     ) {
-        Flux<ServerSentEvent<ChatStreamEvent>> chatEvents = chatService.streamChat(
+        Flux<ChatStreamEvent> stream = chatService.streamChat(
                 principal.userId(),
                 request.promptId(),
                 request.agentId(),
                 request.sessionId(),
                 request.message().trim(),
                 request.resources()
-        )
+        );
+        Flux<ServerSentEvent<ChatStreamEvent>> chatEvents = stream
                 .map(event -> ServerSentEvent.<ChatStreamEvent>builder()
                         .event(event.type())
                         .data(event)

@@ -1,6 +1,4 @@
-CREATE SCHEMA IF NOT EXISTS agentscope;
-
-CREATE TABLE IF NOT EXISTS agentscope.agent_state_snapshots (
+CREATE TABLE IF NOT EXISTS public.agent_state_snapshots (
     session_id VARCHAR(255) NOT NULL,
     state_key VARCHAR(255) NOT NULL,
     item_index INTEGER NOT NULL DEFAULT 0,
@@ -10,7 +8,7 @@ CREATE TABLE IF NOT EXISTS agentscope.agent_state_snapshots (
     PRIMARY KEY (session_id, state_key, item_index)
 );
 
-CREATE TABLE IF NOT EXISTS agentscope.workspace_files (
+CREATE TABLE IF NOT EXISTS public.workspace_files (
     namespace_path VARCHAR(2048) NOT NULL,
     item_key VARCHAR(255) NOT NULL,
     value_json TEXT NOT NULL,
@@ -20,4 +18,4 @@ CREATE TABLE IF NOT EXISTS agentscope.workspace_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_harness_workspace_updated_at
-    ON agentscope.workspace_files (updated_at);
+    ON public.workspace_files (updated_at);

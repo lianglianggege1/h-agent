@@ -44,7 +44,7 @@ class ChatStreamConcurrencyGuardTest {
 
         assertTrue(first.acquired());
         assertFalse(second.acquired());
-        assertEquals("当前会话正在处理中", second.message());
+        assertEquals("当前 Agent 正在处理中", second.message());
         first.release();
     }
 
@@ -131,7 +131,7 @@ class ChatStreamConcurrencyGuardTest {
     @Test
     void shouldReleaseAlreadyAcquiredPermitsWhenLaterAcquireFails() {
         FakeSemaphoreClient semaphores = new FakeSemaphoreClient();
-        semaphores.fakeSemaphore("chat:stream:{concurrency}:user:1")
+        semaphores.fakeSemaphore("chat:stream:v2:{concurrency}:user:1")
                 .failNextAcquire(new IllegalStateException("redis unavailable"));
         RedisChatStreamConcurrencyGuard guard = newGuard(2, 100, semaphores);
 
@@ -160,7 +160,7 @@ class ChatStreamConcurrencyGuardTest {
         ChatStreamConcurrencyGuard.Permit permit = guard.tryAcquire("session-1", 1L);
 
         assertTrue(permit.acquired());
-        assertEquals(180_000L, semaphores.fakeSemaphore("chat:stream:{concurrency}:session:session-1")
+        assertEquals(180_000L, semaphores.fakeSemaphore("chat:stream:v2:{concurrency}:session:session-1")
                 .lastAcquireLeaseMillis);
         permit.release();
     }
@@ -180,9 +180,9 @@ class ChatStreamConcurrencyGuardTest {
         ChatStreamConcurrencyGuard.Permit permit = guard.tryAcquire("session-1", 1L);
         scheduler.runPeriodicTask();
 
-        FakeSemaphore sessionSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:session:session-1");
-        FakeSemaphore userSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:user:1");
-        FakeSemaphore globalSemaphore = semaphores.fakeSemaphore("chat:stream:{concurrency}:global");
+        FakeSemaphore sessionSemaphore = semaphores.fakeSemaphore("chat:stream:v2:{concurrency}:session:session-1");
+        FakeSemaphore userSemaphore = semaphores.fakeSemaphore("chat:stream:v2:{concurrency}:user:1");
+        FakeSemaphore globalSemaphore = semaphores.fakeSemaphore("chat:stream:v2:{concurrency}:global");
         assertEquals(1, sessionSemaphore.renewCalls);
         assertEquals(1, userSemaphore.renewCalls);
         assertEquals(1, globalSemaphore.renewCalls);

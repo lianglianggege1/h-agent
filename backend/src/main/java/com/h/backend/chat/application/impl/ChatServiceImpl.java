@@ -19,6 +19,10 @@ import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ImageGenerationService;
+import com.h.backend.chat.application.HarnessCollaborationService;
+import com.h.backend.chat.application.HarnessExecutionSession;
+import com.h.backend.chat.application.HarnessSubagentTurnStart;
+import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +51,7 @@ public class ChatServiceImpl implements ChatService {
     private final ImageGenerationService imageGenerationService;
     private final AgentRegistry agentRegistry;
     private final ChatMemoryIdFactory chatMemoryIdFactory;
+    private final HarnessCollaborationService harnessCollaborationService;
     private final Map<AgentRuntimeType, ChatAgentExecutor> executors;
 
     @Autowired
@@ -60,6 +65,7 @@ public class ChatServiceImpl implements ChatService {
             ImageGenerationService imageGenerationService,
             AgentRegistry agentRegistry,
             ChatMemoryIdFactory chatMemoryIdFactory,
+            HarnessCollaborationService harnessCollaborationService,
             List<ChatAgentExecutor> executors
     ) {
         this.systemPromptService = systemPromptService;
@@ -71,7 +77,25 @@ public class ChatServiceImpl implements ChatService {
         this.imageGenerationService = imageGenerationService;
         this.agentRegistry = agentRegistry;
         this.chatMemoryIdFactory = chatMemoryIdFactory;
+        this.harnessCollaborationService = harnessCollaborationService;
         this.executors = toExecutorMap(executors);
+    }
+
+    public ChatServiceImpl(
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            AgentRegistry agentRegistry,
+            ChatMemoryIdFactory chatMemoryIdFactory,
+            List<ChatAgentExecutor> executors
+    ) {
+        this(systemPromptService, chatSessionService, agentRunService, agentRunTelemetryService,
+                chatStreamExecutor, concurrencyGuard, imageGenerationService, agentRegistry,
+                chatMemoryIdFactory, null, executors);
     }
 
     public ChatServiceImpl(
@@ -200,14 +224,23 @@ public class ChatServiceImpl implements ChatService {
                     }
                 });
             }
-            ChatStreamConcurrencyGuard.Permit permit = concurrencyGuard.tryAcquire(sessionId, userId);
+            final ExecutionAddress address;
+            try {
+                address = resolveExecutionAddress(userId, agentId, sessionId);
+            } catch (RuntimeException ex) {
+                String publicMessage = ex instanceof BusinessException ? ex.getMessage() : "AI 服务调用失败";
+                return Flux.just(new ChatStreamEvent("error", publicMessage));
+            }
+            // 并发互斥的粒度是实际 Agent Session：同一子 Agent 串行，父子及兄弟可并行。
+            ChatStreamConcurrencyGuard.Permit permit = concurrencyGuard.tryAcquire(address.sessionId(), userId);
             if (!permit.acquired()) {
                 return Flux.just(new ChatStreamEvent("error", permit.message()));
             }
             return Flux.create(sink -> {
                 try {
                     chatStreamExecutor.submit(() ->
-                            runChatStream(sink, permit, userId, promptId, agentId, sessionId, userMessage, resources));
+                            runChatStream(sink, permit, userId, promptId, agentId, address,
+                                    userMessage, resources));
                 } catch (RuntimeException ex) {
                     log.error("Failed to submit chat stream task", ex);
                     permit.release();
@@ -243,60 +276,104 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    /**
+     * 在工作线程中完成一次聊天流的准备工作，再将实际生成交给对应 runtime 的 executor。
+     *
+     * <p>这里的 {@code address.sessionId} 始终是本次实际执行的 Agent Session：父 Harness
+     * 请求等于顶级会话；子 Agent 请求则是子 Agent 的独立会话。因此并发锁、{@code agent_runs}、
+     * 消息顺序和流式连接都按它隔离。{@code rootSessionId} 只用于校验该会话属于用户的同一顶级
+     * Harness 会话，以及在需要时回写父会话的活跃时间。</p>
+     *
+     * <p>permit 的释放责任会移交给 executor：正常流结束、取消或 executor 内部失败时均由其回调释放。
+     * 本方法只处理 executor 尚未接管前的失败；{@code permitReleased} 防止 image 快捷路径、异常补偿
+     * 和 executor 回调竞争时重复释放同一组 Redis permit。</p>
+     */
     private void runChatStream(
             FluxSink<ChatStreamEvent> sink,
             ChatStreamConcurrencyGuard.Permit permit,
             Long userId,
             Long promptId,
             String agentId,
-            String sessionId,
+            ExecutionAddress address,
             String userMessage,
             List<ChatMessageResourceUseDto> resources
     ) {
+        // permit 由当前准备阶段或后续 executor 任一方释放，但整个请求只能释放一次。
         AtomicBoolean permitReleased = new AtomicBoolean();
         AgentRunTelemetryService.TelemetryRun telemetryRun = null;
         AgentRunService.AgentRunHandle runHandle = null;
+        boolean subagentTurnStarted = false;
+        String subagentExecutionId = null;
         try {
             AgentDefinition agent = resolveAgent(agentId);
             boolean standardChat = agent.runtimeType() == AgentRuntimeType.STANDARD_STREAMING_CHAT;
+            // Prompt 只属于标准聊天；Harness/领域 Agent 固定由其 agent 定义驱动，不能借用标准 Prompt 校验。
             Long promptIdForSessionValidation = standardChat ? promptId : null;
+            // 即使请求的是子 Agent，也必须先验证顶级产品会话的所有权和 agent 绑定。
             chatSessionService.assertActiveSession(
                     userId,
-                    sessionId,
+                    address.rootSessionId(),
                     promptIdForSessionValidation,
                     agent.agentId()
             );
 
             Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
             if (standardChat && isImageCommand(userMessage)) {
-                emitImageCommandEvents(sink, userId, resolvedPromptId, sessionId, userMessage, resources);
+                // 图片命令不会交给通用文本 executor；该分支在这里终止，故必须自行归还 permit。
+                emitImageCommandEvents(sink, userId, resolvedPromptId, address.rootSessionId(), userMessage, resources);
                 releasePermitOnce(permit, permitReleased);
                 return;
             }
 
-            Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
+            Long userMessageId;
+            if (!address.subagent()) {
+                // 顶级 Agent 的用户消息写入顶级聊天会话。
+                userMessageId = chatSessionService.appendUserMessage(
+                        userId, address.rootSessionId(), userMessage, resources
+                );
+            } else {
+                if (harnessCollaborationService == null) {
+                    throw new IllegalStateException("HarnessCollaborationService is required for subagent turns");
+                }
+                // 这是一个原子操作：写入子会话用户消息、绑定资源、将该子 Agent 改为 RUNNING。
+                // 同一子 Agent 的第二个请求会在前面的 session 级 permit 处被拒绝，不会产生并行 turn。
+                HarnessSubagentTurnStart turn = harnessCollaborationService.beginSubagentTurn(
+                        userId, address.rootSessionId(), address.sessionId(), userMessage, resources
+                );
+                subagentTurnStarted = true;
+                userMessageId = turn.userMessageId();
+                subagentExecutionId = turn.executionId();
+            }
+            // 统一回读已落库消息，确保 SSE 给前端的 id、附件和 payload 与历史查询完全一致。
             ChatSessionMessageDto persistedUserMessage =
-                    chatSessionService.getOwnedMessage(userId, sessionId, userMessageId);
+                    chatSessionService.getOwnedMessage(userId, address.rootSessionId(), userMessageId);
             emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
-            telemetryRun = agentRunTelemetryService.startRun(sessionId, userId, resolvedPromptId);
+            // run 和遥测都归属实际执行会话，不能写成 rootSessionId，否则无法区分各子 Agent 的运行记录。
+            telemetryRun = agentRunTelemetryService.startRun(address.sessionId(), userId, resolvedPromptId);
             runHandle = agentRunService.createRun(
-                    sessionId,
+                    address.sessionId(),
                     userId,
                     resolvedPromptId,
                     userMessageId,
                     agent.agentId(),
                     telemetryRun.traceId()
             );
-
+            // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
             executor.execute(new ChatAgentExecutionCommand(
                     sink,
                     userId,
                     resolvedPromptId,
-                    sessionId,
+                    address.sessionId(),
+                    address.rootSessionId(),
+                    address.gatewaySubagentId(),
+                    address.subagentAgentId(),
+                    address.subagentParentSessionId(),
+                    address.subagentAssignment(),
+                    subagentExecutionId,
                     userMessage,
                     resources,
-                    buildMemoryId(userId, resolvedPromptId, agent.agentId(), sessionId),
+                    buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId()),
                     agent,
                     runHandle,
                     telemetryRun,
@@ -305,6 +382,23 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception ex) {
             try {
                 log.error("Error preparing chat stream", ex);
+                if (subagentTurnStarted && address.subagent() && harnessCollaborationService != null) {
+                    try {
+                        // beginSubagentTurn 已将状态改为 RUNNING；executor 尚未接管就失败时必须补偿，避免永久假运行。
+                        harnessCollaborationService.failSubagent(
+                                userId,
+                                address.rootSessionId(),
+                                address.sessionId(),
+                                subagentExecutionId,
+                                HarnessSubagentFailureReason.PREPARATION_ERROR,
+                                ex.getMessage()
+                        );
+                    } catch (RuntimeException compensationError) {
+                        log.warn("Failed to mark subagent turn as failed sessionId={}",
+                                address.sessionId(), compensationError);
+                    }
+                }
+                // run 可能尚未创建成功；按已经拿到的资源分别收尾，避免错误处理掩盖原异常。
                 if (runHandle != null && telemetryRun != null) {
                     agentRunService.failRun(
                             runHandle.id(),
@@ -321,6 +415,43 @@ public class ChatServiceImpl implements ChatService {
             } finally {
                 releasePermitOnce(permit, permitReleased);
             }
+        }
+    }
+
+    private ExecutionAddress resolveExecutionAddress(
+            Long userId,
+            String agentId,
+            String sessionId
+    ) {
+        AgentDefinition agent = resolveAgent(agentId);
+        if (agent.runtimeType() != AgentRuntimeType.HARNESS_STREAMING) {
+            return new ExecutionAddress(sessionId, sessionId, null, null, null, null);
+        }
+        if (harnessCollaborationService == null) {
+            throw new IllegalStateException("HarnessCollaborationService is required for subagent turns");
+        }
+        HarnessExecutionSession resolved = harnessCollaborationService.resolveExecutionSession(userId, sessionId);
+        return new ExecutionAddress(
+                resolved.rootSessionId(),
+                resolved.sessionId(),
+                resolved.gatewaySubagentId(),
+                resolved.subagentAgentId(),
+                resolved.parentSessionId(),
+                resolved.assignment()
+        );
+    }
+
+    /** HTTP 只传实际 sessionId；根归属和 Gateway 句柄是后端派生事实。 */
+    private record ExecutionAddress(
+            String rootSessionId,
+            String sessionId,
+            String gatewaySubagentId,
+            String subagentAgentId,
+            String subagentParentSessionId,
+            String subagentAssignment
+    ) {
+        private boolean subagent() {
+            return gatewaySubagentId != null;
         }
     }
 

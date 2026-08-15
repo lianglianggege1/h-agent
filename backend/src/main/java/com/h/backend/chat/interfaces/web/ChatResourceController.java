@@ -50,7 +50,6 @@ public class ChatResourceController {
     public ResponseEntity<ResourceUploadResponse> upload(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestParam(value = "role", required = false, defaultValue = "ATTACHMENT") String role
     ) throws IOException {
         String mimeType = file.getContentType();
@@ -77,7 +76,6 @@ public class ChatResourceController {
         row.setId(stored.id());
         row.setMessageId(null);
         row.setUserId(principal.userId());
-        row.setSessionId(sessionId);
         row.setResourceType(resourceType);
         row.setResourceRole(resourceRole);
         row.setStorageType(stored.storageType());

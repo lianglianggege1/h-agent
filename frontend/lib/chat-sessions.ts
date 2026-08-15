@@ -1,4 +1,5 @@
 import { apiFetch } from "./http";
+import type { HarnessSubagentSummary } from "./harness-subagent-types";
 
 export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO";
 
@@ -31,7 +32,7 @@ export type ChatMessageResource = {
 
 export type ChatSessionMessage = {
   id: string;
-  role: "assistant" | "blocked" | "user";
+  role: "assistant" | "blocked" | "system" | "user";
   messageType: ChatSessionMessageType;
   content: string;
   payload?: ChatMessagePayload;
@@ -78,6 +79,7 @@ export type ChatSessionMessagesPage = {
 export type ChatSessionOpen = {
   session: ChatSessionMeta;
   messagePage: ChatSessionMessagesPage;
+  subagents: HarnessSubagentSummary[] | null;
 };
 
 export type ChatSessionBootstrap = {

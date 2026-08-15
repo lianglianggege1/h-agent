@@ -14,16 +14,20 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessagesPageDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionSummaryDto;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
+import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
+import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.domain.model.ChatSessionMessage;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
@@ -40,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -58,6 +63,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private final ObjectMapper objectMapper;
     private final AgentRegistry agentRegistry;
     private final ObjectProvider<AgentRegistry> agentRegistryProvider;
+    private final HarnessCollaborationService harnessCollaborationService;
+    private final AgentSessionMapper agentSessionMapper;
+    private final ChatMessageResourceBinder resourceBinder;
 
     @Autowired
     public ChatSessionServiceImpl(
@@ -67,7 +75,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ChatMemorySnapshotService chatMemorySnapshotService,
             SystemPromptService systemPromptService,
             ObjectMapper objectMapper,
-            ObjectProvider<AgentRegistry> agentRegistryProvider
+            ObjectProvider<AgentRegistry> agentRegistryProvider,
+            HarnessCollaborationService harnessCollaborationService,
+            AgentSessionMapper agentSessionMapper,
+            ChatMessageResourceBinder resourceBinder
     ) {
         this.chatSessionMapper = chatSessionMapper;
         this.chatSessionMessageMapper = chatSessionMessageMapper;
@@ -77,6 +88,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.objectMapper = objectMapper;
         this.agentRegistry = null;
         this.agentRegistryProvider = agentRegistryProvider;
+        this.harnessCollaborationService = harnessCollaborationService;
+        this.agentSessionMapper = Objects.requireNonNull(agentSessionMapper, "agentSessionMapper");
+        this.resourceBinder = resourceBinder;
     }
 
     public ChatSessionServiceImpl(
@@ -86,7 +100,54 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ChatMemorySnapshotService chatMemorySnapshotService,
             SystemPromptService systemPromptService,
             ObjectMapper objectMapper,
-            AgentRegistry agentRegistry
+            ObjectProvider<AgentRegistry> agentRegistryProvider,
+            AgentSessionMapper agentSessionMapper
+    ) {
+        this(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                chatMessageResourceMapper,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper,
+                agentRegistryProvider,
+                null,
+                agentSessionMapper,
+                new ChatMessageResourceBinder(chatMessageResourceMapper, objectMapper)
+        );
+    }
+
+    public ChatSessionServiceImpl(
+            ChatSessionMapper chatSessionMapper,
+            ChatSessionMessageMapper chatSessionMessageMapper,
+            ChatMemorySnapshotService chatMemorySnapshotService,
+            SystemPromptService systemPromptService,
+            ObjectMapper objectMapper,
+            AgentRegistry agentRegistry,
+            AgentSessionMapper agentSessionMapper
+    ) {
+        this(
+                chatSessionMapper,
+                chatSessionMessageMapper,
+                null,
+                chatMemorySnapshotService,
+                systemPromptService,
+                objectMapper,
+                agentRegistry,
+                agentSessionMapper
+        );
+    }
+
+    /** 供不启动 Spring 容器的单元测试显式提供必需依赖。 */
+    public ChatSessionServiceImpl(
+            ChatSessionMapper chatSessionMapper,
+            ChatSessionMessageMapper chatSessionMessageMapper,
+            ChatMessageResourceMapper chatMessageResourceMapper,
+            ChatMemorySnapshotService chatMemorySnapshotService,
+            SystemPromptService systemPromptService,
+            ObjectMapper objectMapper,
+            AgentRegistry agentRegistry,
+            AgentSessionMapper agentSessionMapper
     ) {
         this.chatSessionMapper = chatSessionMapper;
         this.chatSessionMessageMapper = chatSessionMessageMapper;
@@ -96,17 +157,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.objectMapper = objectMapper;
         this.agentRegistry = agentRegistry;
         this.agentRegistryProvider = null;
-    }
-
-    public ChatSessionServiceImpl(
-            ChatSessionMapper chatSessionMapper,
-            ChatSessionMessageMapper chatSessionMessageMapper,
-            ChatMemorySnapshotService chatMemorySnapshotService,
-            SystemPromptService systemPromptService,
-            ObjectMapper objectMapper,
-            AgentRegistry agentRegistry
-    ) {
-        this(chatSessionMapper, chatSessionMessageMapper, null, chatMemorySnapshotService, systemPromptService, objectMapper, agentRegistry);
+        this.harnessCollaborationService = null;
+        this.agentSessionMapper = Objects.requireNonNull(agentSessionMapper, "agentSessionMapper");
+        this.resourceBinder = new ChatMessageResourceBinder(chatMessageResourceMapper, objectMapper);
     }
 
     @Override
@@ -155,6 +208,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         entity.setLastActiveAt(now);
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
+        registerRootAgentSession(entity, now);
         chatSessionMapper.insert(entity);
         chatMemorySnapshotService.markResident(entity.getSessionId());
         return toOpen(entity, DEFAULT_MESSAGE_PAGE_SIZE, null);
@@ -226,8 +280,24 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     @Override
     public ChatSessionMessagesPageDto getSessionMessages(Long userId, String sessionId, int limit, Integer beforeSeq) {
         archiveExpiredSessionsForUser(userId);
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
-        return buildMessagesPage(session, Math.max(limit, 1), beforeSeq);
+        ChatSessionEntity root = chatSessionMapper.selectBySessionId(sessionId);
+        if (root != null) {
+            if (!userId.equals(root.getUserId())) {
+                throw new BusinessException(40404, "会话不存在");
+            }
+            return buildMessagesPage(root, Math.max(limit, 1), beforeSeq);
+        }
+        if (harnessCollaborationService == null) {
+            throw new BusinessException(40404, "会话不存在");
+        }
+        var resolved = harnessCollaborationService.resolveExecutionSession(userId, sessionId);
+        ChatSessionEntity rootSession = requireOwnedSession(userId, resolved.rootSessionId());
+        return buildAgentSessionMessagesPage(
+                rootSession,
+                resolved.sessionId(),
+                Math.max(limit, 1),
+                beforeSeq
+        );
     }
 
     @Override
@@ -236,10 +306,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
         if (message == null
                 || !session.getId().equals(message.getSessionRecordId())
-                || !sessionId.equals(message.getSessionId())
                 || !userId.equals(message.getUserId())) {
             throw new BusinessException(40404, "消息不存在");
         }
+        // sessionId 是顶级页面授权边界；实际消息可属于该页面下任意 Agent Session。
         Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(List.of(message));
         return toMessageDto(message, resourcesByMessageId.getOrDefault(messageId, List.of()));
     }
@@ -297,12 +367,12 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("user", "USER", userMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
 
-        bindResourcesToMessage(userId, sessionId, messageId, resources);
+        resourceBinder.bind(userId, messageId, resources);
 
         session.setMessageCount(nextSequence);
         session.setLastUserMessage(userMessage);
@@ -311,7 +381,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         if (session.getTitle() == null || "新会话".equals(session.getTitle())) {
             session.setTitle(buildTitle(userMessage));
         }
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, userMessage);
         return messageId;
     }
 
@@ -323,7 +393,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("blocked", "SYSTEM", blockedMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
@@ -331,7 +401,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, null);
         return messageId;
     }
 
@@ -343,7 +413,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("assistant", "REASONING", reasoningMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
@@ -351,7 +421,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, null);
         return messageId;
     }
 
@@ -369,16 +439,16 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("assistant", "AI", assistantMessage, now, nextSequence);
         Long messageId = persistMessage(session, message);
-        bindResourcesToMessage(userId, sessionId, messageId, resources);
+        resourceBinder.bind(userId, messageId, resources);
 
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, null);
         return messageId;
     }
 
@@ -422,7 +492,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         row.setId(storedResource.id());
         row.setMessageId(messageId);
         row.setUserId(userId);
-        row.setSessionId(sessionId);
         row.setResourceType("AUDIO");
         row.setResourceRole("ATTACHMENT");
         row.setStorageType(storedResource.storageType());
@@ -457,7 +526,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         ChatSessionMessage message = buildMessage("assistant", "IMAGE", imagePrompt, now, nextSequence);
         message.setPayload(payload);
@@ -469,7 +538,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setId(resource.id());
             row.setMessageId(messageId);
             row.setUserId(userId);
-            row.setSessionId(sessionId);
             row.setResourceType(requireResourceField(resource.type(), "type"));
             row.setResourceRole(requireResourceField(resource.role(), "role"));
             row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
@@ -489,7 +557,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, null);
 
         return new ChatSessionMessageDto(
                 String.valueOf(messageId),
@@ -519,7 +587,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = session.getMessageCount() == null ? 1 : session.getMessageCount() + 1;
+        int nextSequence = allocateMessageSequence(session);
         LocalDateTime now = LocalDateTime.now();
         String normalizedMessageType = requireResourceField(messageType, "messageType").trim().toUpperCase();
         ChatSessionMessage message = buildMessage("assistant", normalizedMessageType, content, now, nextSequence);
@@ -531,7 +599,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setId(resource.id());
             row.setMessageId(messageId);
             row.setUserId(userId);
-            row.setSessionId(sessionId);
             row.setResourceType(requireResourceField(resource.type(), "type"));
             row.setResourceRole(requireResourceField(resource.role(), "role"));
             row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
@@ -551,7 +618,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
-        chatSessionMapper.updateById(session);
+        persistParentActivity(session, now, null);
 
         return new ChatSessionMessageDto(
                 String.valueOf(messageId),
@@ -595,7 +662,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setId(resource.id());
             row.setMessageId(messageId);
             row.setUserId(userId);
-            row.setSessionId(sessionId);
             row.setResourceType(requireResourceField(resource.type(), "type"));
             row.setResourceRole(requireResourceField(resource.role(), "role"));
             row.setStorageType(resource.storageType());
@@ -611,74 +677,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setCreatedAt(LocalDateTime.now());
             chatMessageResourceMapper.insert(row);
         }
-    }
-
-    private void bindResourcesToMessage(
-            Long userId,
-            String sessionId,
-            Long messageId,
-            List<ChatMessageResourceUseDto> resources
-    ) {
-        if (resources == null || resources.isEmpty()) {
-            return;
-        }
-        if (chatMessageResourceMapper == null) {
-            throw new IllegalStateException("ChatMessageResourceMapper is required to append messages with resources");
-        }
-        for (ChatMessageResourceUseDto resourceUse : resources) {
-            ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(resourceUse.resourceId());
-            if (resource == null || !userId.equals(resource.getUserId()) || resource.getMessageId() != null) {
-                if (resource != null && userId.equals(resource.getUserId()) && resource.getMessageId() != null) {
-                    chatMessageResourceMapper.insert(copyResourceForMessage(resource, sessionId, messageId, resourceUse));
-                }
-                continue;
-            }
-            chatMessageResourceMapper.bindMessage(
-                    resourceUse.resourceId(),
-                    userId,
-                    messageId,
-                    normalizeResourceRole(resourceUse.role()),
-                    toMetadataJson(Map.of("source", normalizeResourceSource(resourceUse.source())))
-            );
-        }
-    }
-
-    private ChatMessageResourceEntity copyResourceForMessage(
-            ChatMessageResourceEntity original,
-            String sessionId,
-            Long messageId,
-            ChatMessageResourceUseDto resourceUse
-    ) {
-        ChatMessageResourceEntity copy = new ChatMessageResourceEntity();
-        copy.setId(UUID.randomUUID().toString());
-        copy.setMessageId(messageId);
-        copy.setUserId(original.getUserId());
-        copy.setSessionId(sessionId);
-        copy.setResourceType(original.getResourceType());
-        copy.setResourceRole(normalizeResourceRole(resourceUse.role()));
-        copy.setStorageType(original.getStorageType());
-        copy.setStorageKey(original.getStorageKey());
-        copy.setViewUrl(original.getViewUrl());
-        copy.setDownloadUrl(original.getDownloadUrl());
-        copy.setMimeType(original.getMimeType());
-        copy.setFileName(original.getFileName());
-        copy.setFileSize(original.getFileSize());
-        copy.setWidth(original.getWidth());
-        copy.setHeight(original.getHeight());
-        copy.setMetadataJson(toMetadataJson(Map.of(
-                "source", normalizeResourceSource(resourceUse.source()),
-                "sourceResourceId", original.getId()
-        )));
-        copy.setCreatedAt(LocalDateTime.now());
-        return copy;
-    }
-
-    private String normalizeResourceRole(String role) {
-        return requireResourceField(role, "role").trim().toUpperCase();
-    }
-
-    private String normalizeResourceSource(String source) {
-        return requireResourceField(source, "source").trim().toUpperCase();
     }
 
     private String normalizeAudioSource(String source) {
@@ -701,12 +699,40 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
     }
 
+    /** 分配当前实际 Agent Session 内的消息序号；数据库原子更新是唯一的分配方式。 */
+    private int allocateMessageSequence(ChatSessionEntity session) {
+        Integer sequence = agentSessionMapper.nextMessageSequence(session.getSessionId());
+        if (sequence == null) {
+            throw new IllegalStateException("Agent session does not exist: " + session.getSessionId());
+        }
+        return sequence;
+    }
+
+    private void persistParentActivity(
+            ChatSessionEntity session,
+            LocalDateTime now,
+            String lastUserMessage
+    ) {
+        if (lastUserMessage != null) {
+            chatSessionMapper.touchAfterUserMessage(
+                    session.getId(), lastUserMessage, buildTitle(lastUserMessage),
+                    session.getMessageCount(), now
+            );
+        } else {
+            chatSessionMapper.touchRootMessage(session.getId(), session.getMessageCount(), now);
+        }
+    }
+
     private void archiveOrDeleteIfEmpty(ChatSessionEntity session) {
         if ((session.getMessageCount() == null ? 0 : session.getMessageCount()) <= 0) {
             chatMemorySnapshotService.evict(session.getSessionId());
             chatMemorySnapshotService.deleteSnapshot(session.getSessionId());
             chatSessionMessageMapper.delete(new QueryWrapper<ChatSessionMessageEntity>().eq("session_record_id", session.getId()));
             chatSessionMapper.deleteById(session.getId());
+            AgentSessionEntity root = agentSessionMapper.selectBySessionId(session.getSessionId());
+            if (root != null) {
+                agentSessionMapper.deleteById(root.getId());
+            }
             return;
         }
         chatMemorySnapshotService.flushNow(session.getSessionId());
@@ -714,6 +740,21 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         session.setStatus(STATUS_ARCHIVED);
         session.setUpdatedAt(LocalDateTime.now());
         chatSessionMapper.updateById(session);
+    }
+
+    /** 将顶级聊天页面登记为统一 Agent Session 树的根节点。 */
+    private void registerRootAgentSession(ChatSessionEntity chatSession, LocalDateTime now) {
+        AgentSessionEntity root = new AgentSessionEntity();
+        root.setSessionId(chatSession.getSessionId());
+        root.setParentSessionId(null);
+        root.setUserId(chatSession.getUserId());
+        root.setAgentId(chatSession.getAgentId());
+        root.setGatewaySubagentId(null);
+        root.setDisplayOrder(null);
+        root.setMessageCount(0);
+        root.setCreatedAt(now);
+        root.setUpdatedAt(now);
+        agentSessionMapper.insert(root);
     }
 
     private ChatSessionEntity requireOwnedSession(Long userId, String sessionId) {
@@ -748,9 +789,16 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private ChatSessionOpenDto toOpen(ChatSessionEntity session, int limit, Integer beforeSeq) {
+        List<HarnessSubagentSummaryDto> subagents = null;
+        if (ChatAgentIds.HARNESS.equals(session.getAgentId())) {
+            subagents = harnessCollaborationService == null
+                    ? List.of()
+                    : harnessCollaborationService.listSubagents(session.getUserId(), session.getSessionId());
+        }
         return new ChatSessionOpenDto(
                 toMeta(session),
-                buildMessagesPage(session, limit, beforeSeq)
+                buildMessagesPage(session, limit, beforeSeq),
+                subagents
         );
     }
 
@@ -821,16 +869,50 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private ChatSessionMessagesPageDto buildMessagesPage(ChatSessionEntity session, int limit, Integer beforeSeq) {
-        List<ChatSessionMessageEntity> rows = chatSessionMessageMapper.selectPageBySessionRecordId(session.getId(), limit, beforeSeq);
+        List<ChatSessionMessageEntity> rows = chatSessionMessageMapper.selectPageBySessionRecordId(
+                session.getId(), session.getSessionId(), limit + 1, beforeSeq
+        );
+        boolean hasMore = rows.size() > limit;
+        if (hasMore) {
+            rows = new ArrayList<>(rows.subList(0, limit));
+        }
         List<ChatSessionMessageEntity> ordered = new ArrayList<>(rows);
         ordered.sort(Comparator.comparing(ChatSessionMessageEntity::getSequenceNo));
         Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(ordered);
         List<ChatSessionMessageDto> messages = ordered.stream()
                 .map(row -> toMessageDto(row, resourcesByMessageId.getOrDefault(row.getId(), List.of())))
                 .toList();
-        boolean hasMore = !ordered.isEmpty() && ordered.get(0).getSequenceNo() > 1;
         Integer nextBefore = hasMore ? ordered.get(0).getSequenceNo() : null;
         return new ChatSessionMessagesPageDto(session.getSessionId(), messages, hasMore, nextBefore);
+    }
+
+    /** 子会话与父会话共用同一历史接口，sessionId 始终表示实际消息会话。 */
+    private ChatSessionMessagesPageDto buildAgentSessionMessagesPage(
+            ChatSessionEntity root,
+            String agentSessionId,
+            int limit,
+            Integer beforeSeq
+    ) {
+        List<ChatSessionMessageEntity> rows = chatSessionMessageMapper.selectPageByAgentSessionId(
+                agentSessionId, limit + 1, beforeSeq
+        );
+        boolean hasMore = rows.size() > limit;
+        if (hasMore) {
+            rows = new ArrayList<>(rows.subList(0, limit));
+        }
+        List<ChatSessionMessageEntity> ordered = new ArrayList<>(rows);
+        ordered.sort(Comparator.comparing(ChatSessionMessageEntity::getSequenceNo));
+        for (ChatSessionMessageEntity row : ordered) {
+            if (!root.getId().equals(row.getSessionRecordId()) || !agentSessionId.equals(row.getSessionId())) {
+                throw new BusinessException(40404, "消息不存在");
+            }
+        }
+        Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(ordered);
+        List<ChatSessionMessageDto> messages = ordered.stream()
+                .map(row -> toMessageDto(row, resourcesByMessageId.getOrDefault(row.getId(), List.of())))
+                .toList();
+        Integer nextBefore = hasMore ? ordered.getFirst().getSequenceNo() : null;
+        return new ChatSessionMessagesPageDto(agentSessionId, messages, hasMore, nextBefore);
     }
 
     private ChatSessionMessage buildMessage(
@@ -1025,7 +1107,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private String normalizeRole(String roleCode) {
         return switch (roleCode) {
-            case "assistant", "tool", "custom", "system" -> "assistant";
+            case "assistant", "tool", "custom" -> "assistant";
+            case "system" -> "system";
             case "blocked" -> "blocked";
             default -> "user";
         };

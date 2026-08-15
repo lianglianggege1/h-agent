@@ -21,7 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Component
 public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGuard {
 
-    private static final String SESSION_BUSY_MESSAGE = "当前会话正在处理中";
+    // v1 曾把等待时间误当租约时间，可能遗留永久 permit；切换命名空间避免旧锁继续阻塞请求。
+    private static final String KEY_PREFIX = "chat:stream:v2:{concurrency}:";
+    private static final String SESSION_BUSY_MESSAGE = "当前 Agent 正在处理中";
     private static final String SYSTEM_BUSY_MESSAGE = "当前系统繁忙，请稍后再试";
 
     private final int maxConcurrentPerUser;
@@ -120,15 +122,15 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
     }
 
     private String sessionKey(String sessionId) {
-        return "chat:stream:{concurrency}:session:" + sessionId;
+        return KEY_PREFIX + "session:" + sessionId;
     }
 
     private String userKey(Long userId) {
-        return "chat:stream:{concurrency}:user:" + userId;
+        return KEY_PREFIX + "user:" + userId;
     }
 
     private String globalKey() {
-        return "chat:stream:{concurrency}:global";
+        return KEY_PREFIX + "global";
     }
 
     private Permit rejected(String message) {
@@ -249,7 +251,13 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         }
     }
 
-    private record RedissonExpirableSemaphore(RPermitExpirableSemaphore semaphore) implements ExpirableSemaphore {
+    /**
+     * 将应用层“立即获取并设置有限租约”的语义适配到 Redisson。
+     *
+     * <p>Redisson 的 {@code tryAcquire(long, TimeUnit)} 参数是等待时间，成功后得到永久租约；
+     * 此处必须调用三参数重载：等待时间为 0，leaseTime 才是 permit 的存活时间。</p>
+     */
+    static record RedissonExpirableSemaphore(RPermitExpirableSemaphore semaphore) implements ExpirableSemaphore {
 
         @Override
         public void trySetPermits(int permits) {
@@ -259,7 +267,7 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
         @Override
         public String tryAcquire(long leaseTime, TimeUnit unit) {
             try {
-                return semaphore.tryAcquire(leaseTime, unit);
+                return semaphore.tryAcquire(0L, leaseTime, unit);
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Interrupted while acquiring chat stream concurrency permit", ex);

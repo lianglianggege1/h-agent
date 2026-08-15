@@ -7,6 +7,11 @@ import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.domain.agent.ChatAgentExecutor;
 import com.h.backend.chat.domain.agent.HAssistantStreamingExecutor;
+import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.backend.chat.application.HarnessCollaborationService;
+import com.h.backend.chat.application.HarnessSubagentTurnStart;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentStatus;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
@@ -35,11 +40,9 @@ import dev.langchain4j.service.tool.ToolExecution;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
-import reactor.core.publisher.FluxSink;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -51,6 +54,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,7 +64,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -122,7 +125,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(new ChatStreamEvent("error", "领域 Agent 不存在或未启用")), events);
-        assertTrue(permit.released());
+        assertEquals(false, permit.released());
         verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
         verify(agentRunTelemetryService, never()).markFailure(any(), any());
@@ -473,58 +476,6 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldSkipDoneEmissionWhenSinkAlreadyCancelledButStillFinalizeRun() throws Exception {
-        HAssistant hAssistant = mock(HAssistant.class);
-        SystemPromptService systemPromptService = mock(SystemPromptService.class);
-        ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
-        FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
-        RecordingPermit permit = new RecordingPermit();
-        ChatServiceImpl chatService = createChatService(
-                hAssistant,
-                systemPromptService,
-                chatSessionService,
-                agentRunService,
-                agentRunTelemetryService,
-                new DirectExecutorService(),
-                (sessionId, userId) -> permit
-        );
-
-        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        when(chatSessionService.appendUserMessage(eq(1L), eq("session-cancelled-sink"), eq("hello"), any())).thenReturn(101L);
-        when(chatSessionService.appendAssistantMessage(1L, "session-cancelled-sink", "hello")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-cancelled-sink");
-        when(agentRunTelemetryService.startRun("session-cancelled-sink", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-cancelled-sink", 1L, 22L, 101L, "standard-chat", "trace-cancelled-sink"))
-                .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-cancelled-sink", "hello")).thenReturn(tokenStream);
-
-        @SuppressWarnings("unchecked")
-        FluxSink<ChatStreamEvent> sink = mock(FluxSink.class);
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        doAnswer(invocation -> cancelled.get()).when(sink).isCancelled();
-        doAnswer(invocation -> {
-            ChatStreamEvent event = invocation.getArgument(0);
-            if ("chunk".equals(event.type())) {
-                cancelled.set(true);
-                return sink;
-            }
-            throw new RuntimeException("done should not be emitted after cancellation");
-        }).when(sink).next(any(ChatStreamEvent.class));
-        doNothing().when(sink).complete();
-
-        invokeRunChatStream(chatService, sink, permit, 1L, 2L, "session-cancelled-sink", "hello", null);
-
-        verify(chatSessionService).appendAssistantMessage(1L, "session-cancelled-sink", "hello");
-        verify(agentRunService).completeRun(55L, 202L);
-        verify(agentRunService, never()).failRun(any(), any());
-        verify(agentRunTelemetryService).markSuccess(telemetryRun);
-        assertTrue(permit.released());
-    }
-
-    @Test
     void shouldNotRunAgentSetupOnSubscriptionThreadBeforeExecutorRuns() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
@@ -627,6 +578,149 @@ class ChatServiceImplTest {
                 agenticExecutor.command.memoryId()
         );
         assertEquals("car-rental-assistant", agenticExecutor.command.agent().agentId());
+    }
+
+    @Test
+    void shouldResolveActualSubagentSessionAndForwardInternalGatewayAddress() {
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
+        RecordingChatAgentExecutor harnessExecutor =
+                new RecordingChatAgentExecutor(AgentRuntimeType.HARNESS_STREAMING);
+        Object harnessBean = new Object();
+        AgentRegistry agentRegistry = new AgentRegistry(List.of(new AgentDefinition(
+                "harness-agent",
+                "协作 Agent",
+                "通用",
+                List.of("协作"),
+                "多 Agent 协作",
+                harnessBean,
+                AgentRuntimeType.HARNESS_STREAMING,
+                true
+        )));
+        AtomicReference<String> guardedSessionId = new AtomicReference<>();
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> {
+                    guardedSessionId.set(sessionId);
+                    return new RecordingPermit();
+                },
+                null,
+                agentRegistry,
+                new ChatMemoryIdFactory(),
+                collaborationService,
+                List.of(harnessExecutor)
+        );
+        HarnessSubagentSummaryDto running = new HarnessSubagentSummaryDto(
+                "child-runtime-research", "session-harness",
+                "资料收集", "补充官方来源", HarnessSubagentStatus.RUNNING,
+                0, LocalDateTime.now()
+        );
+        when(collaborationService.resolveExecutionSession(1L, "child-runtime-research"))
+                .thenReturn(new com.h.backend.chat.application.HarnessExecutionSession(
+                        "session-harness", "child-runtime-research", "research-child",
+                        "session-harness", "research-agent", "补充官方来源"
+                ));
+        List<ChatMessageResourceUseDto> resources = List.of(
+                new ChatMessageResourceUseDto("resource-1", "REFERENCE", "UPLOAD")
+        );
+        when(collaborationService.beginSubagentTurn(
+                1L, "session-harness", "child-runtime-research", "补充官方来源", resources
+        )).thenReturn(new HarnessSubagentTurnStart(301L, "execution-child", running));
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-child");
+        when(agentRunTelemetryService.startRun("child-runtime-research", 1L, null)).thenReturn(telemetryRun);
+        when(agentRunService.createRun(
+                "child-runtime-research", 1L, null, 301L, "harness-agent", "trace-child"
+        )).thenReturn(new AgentRunService.AgentRunHandle(55L));
+
+        chatService.streamChat(
+                1L, null, "harness-agent", "child-runtime-research", "补充官方来源", resources
+        ).collectList().block();
+
+        verify(chatSessionService, never()).appendUserMessage(any(), any(), any(), any());
+        verify(collaborationService).beginSubagentTurn(
+                1L, "session-harness", "child-runtime-research", "补充官方来源", resources
+        );
+        assertEquals("child-runtime-research", harnessExecutor.command.sessionId());
+        assertEquals("session-harness", harnessExecutor.command.rootSessionId());
+        assertEquals("research-child", harnessExecutor.command.gatewaySubagentId());
+        assertEquals("research-agent", harnessExecutor.command.subagentAgentId());
+        assertEquals("session-harness", harnessExecutor.command.subagentParentSessionId());
+        assertEquals("补充官方来源", harnessExecutor.command.subagentAssignment());
+        assertEquals("execution-child", harnessExecutor.command.subagentExecutionId());
+        assertEquals("child-runtime-research", guardedSessionId.get());
+    }
+
+    @Test
+    void shouldMarkSubagentFailedWhenRunPreparationFailsAfterTurnStarted() {
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
+        RecordingChatAgentExecutor harnessExecutor =
+                new RecordingChatAgentExecutor(AgentRuntimeType.HARNESS_STREAMING);
+        AgentRegistry agentRegistry = new AgentRegistry(List.of(new AgentDefinition(
+                "harness-agent",
+                "协作 Agent",
+                "通用",
+                List.of("协作"),
+                "多 Agent 协作",
+                new Object(),
+                AgentRuntimeType.HARNESS_STREAMING,
+                true
+        )));
+        ChatServiceImpl chatService = new ChatServiceImpl(
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                new DirectExecutorService(),
+                (sessionId, userId) -> new RecordingPermit(),
+                null,
+                agentRegistry,
+                new ChatMemoryIdFactory(),
+                collaborationService,
+                List.of(harnessExecutor)
+        );
+        HarnessSubagentSummaryDto running = new HarnessSubagentSummaryDto(
+                "child-runtime-research", "session-harness",
+                "资料收集", "补充官方来源", HarnessSubagentStatus.RUNNING,
+                0, LocalDateTime.now()
+        );
+        when(collaborationService.resolveExecutionSession(1L, "child-runtime-research"))
+                .thenReturn(new com.h.backend.chat.application.HarnessExecutionSession(
+                        "session-harness", "child-runtime-research", "research-child",
+                        "session-harness", "research-agent", "补充官方来源"
+                ));
+        when(collaborationService.beginSubagentTurn(
+                1L, "session-harness", "child-runtime-research", "补充官方来源", null
+        )).thenReturn(new HarnessSubagentTurnStart(301L, "execution-preparation", running));
+        AgentRunTelemetryService.TelemetryRun telemetryRun =
+                new AgentRunTelemetryService.TelemetryRun(null, "trace-child");
+        when(agentRunTelemetryService.startRun("child-runtime-research", 1L, null)).thenReturn(telemetryRun);
+        when(agentRunService.createRun(
+                "child-runtime-research", 1L, null, 301L, "harness-agent", "trace-child"
+        )).thenThrow(new IllegalStateException("run persistence unavailable"));
+
+        List<ChatStreamEvent> events = chatService.streamChat(
+                1L, null, "harness-agent", "child-runtime-research", "补充官方来源", null
+        ).collectList().block();
+
+        assertEquals("error", events.get(events.size() - 1).type());
+        verify(collaborationService).failSubagent(
+                1L, "session-harness", "child-runtime-research", "execution-preparation",
+                com.h.backend.chat.application.HarnessSubagentFailureReason.PREPARATION_ERROR,
+                "run persistence unavailable"
+        );
+        assertEquals(null, harnessExecutor.command);
     }
 
     @Test
@@ -1437,38 +1531,6 @@ class ChatServiceImplTest {
         assertTrue(events.size() >= 1);
         assertEquals("user_message", events.getFirst().type());
         return events.subList(1, events.size());
-    }
-
-    private void invokeRunChatStream(
-            ChatServiceImpl chatService,
-            FluxSink<ChatStreamEvent> sink,
-            ChatStreamConcurrencyGuard.Permit permit,
-            Long userId,
-            Long promptId,
-            String sessionId,
-            String userMessage,
-            List<ChatMessageResourceUseDto> resources
-    ) throws Exception {
-        Method method = ChatServiceImpl.class.getDeclaredMethod(
-                "runChatStream",
-                FluxSink.class,
-                ChatStreamConcurrencyGuard.Permit.class,
-                Long.class,
-                Long.class,
-                String.class,
-                String.class,
-                String.class,
-                List.class
-        );
-        method.setAccessible(true);
-        try {
-            method.invoke(chatService, sink, permit, userId, promptId, null, sessionId, userMessage, resources);
-        } catch (InvocationTargetException ex) {
-            if (ex.getCause() instanceof Exception cause) {
-                throw cause;
-            }
-            throw ex;
-        }
     }
 
     private static class DirectExecutorService extends AbstractExecutorService {

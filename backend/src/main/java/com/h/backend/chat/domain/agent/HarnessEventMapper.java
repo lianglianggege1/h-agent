@@ -3,6 +3,7 @@ package com.h.backend.chat.domain.agent;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.HarnessAgentEventPayload;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AgentEventType;
@@ -28,29 +29,105 @@ import java.util.Set;
 public class HarnessEventMapper {
 
     private static final String SCHEMA = "harness.agent-event";
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final String SDK_VERSION = "2.0.1";
     private static final Set<String> SAFE_METADATA_KEYS = Set.of(
-            "taskId", "subagentId", "parentSessionId", "notificationType"
+            "taskId", "parentSessionId", "notificationType"
     );
 
     /** 将一条原始事件映射为单条、时间有序的产品事件。 */
     public ChatStreamEvent map(long runId, long sequence, AgentEvent event) {
+        return map(runId, sequence, event, null, null);
+    }
+
+    /**
+     * 映射事件并补充产品层已解析出的直接父 Session。
+     * AgentScope 2.0.1 exposure 本身不携带父 Session，这个事实由执行流的 source 映射提供。
+     */
+    public ChatStreamEvent map(
+            long runId,
+            long sequence,
+            AgentEvent event,
+            String exposedParentSessionId
+    ) {
+        return map(runId, sequence, event, exposedParentSessionId, null);
+    }
+
+    public ChatStreamEvent map(
+            long runId,
+            long sequence,
+            AgentEvent event,
+            String exposedParentSessionId,
+            HarnessSubagentSummaryDto projectedSubagent
+    ) {
+        return map(runId, sequence, event, exposedParentSessionId, null, projectedSubagent);
+    }
+
+    public ChatStreamEvent map(
+            long runId,
+            long sequence,
+            AgentEvent event,
+            String exposedParentSessionId,
+            String eventAgentSessionId,
+            HarnessSubagentSummaryDto projectedSubagent
+    ) {
+        return mapInternal(
+                String.valueOf(runId), sequence, event, exposedParentSessionId,
+                eventAgentSessionId, projectedSubagent, null
+        );
+    }
+
+    /**
+     * 把可重连的子会话观察流映射成与父请求 SSE 相同的事件协议。
+     * streamId/sequence 来自子会话事件通道，复用既有 runId + sequence + eventId 游标，
+     * 不再引入第二套 eventSeq。
+     */
+    public ChatStreamEvent mapObservedSubagent(
+            String streamId,
+            long sequence,
+            AgentEvent event,
+            String agentSessionId
+    ) {
+        return mapInternal(
+                streamId,
+                sequence,
+                event,
+                null,
+                agentSessionId,
+                null,
+                "product-relay/" + agentSessionId
+        );
+    }
+
+    private ChatStreamEvent mapInternal(
+            String runId,
+            long sequence,
+            AgentEvent event,
+            String exposedParentSessionId,
+            String eventAgentSessionId,
+            HarnessSubagentSummaryDto projectedSubagent,
+            String sourceOverride
+    ) {
         EventSemantics semantics = semanticsOf(event.getType());
         Map<String, Object> serialized = serialize(event);
         Map<String, Object> correlation = extractCorrelation(serialized);
         Map<String, Object> data = normalizeData(event, serialized);
-        String sourcePath = event.getSource();
-        String subagentId = stringValue(data.get("subagentId"));
-        if (subagentId == null) {
-            subagentId = stringValue(safeMetadata(event.getMetadata()).get("subagentId"));
+        if (eventAgentSessionId != null && !eventAgentSessionId.isBlank()) {
+            // source.path 只描述 SDK 的 Agent 路径；它既不是产品授权键，也无法区分同类型
+            // Agent 的并行调用。把执行器已解析出的产品 Session 显式带给前端用于增量路由。
+            data.put("agentSessionId", eventAgentSessionId);
         }
-
+        if (event.getType() == AgentEventType.SUBAGENT_EXPOSED
+                && exposedParentSessionId != null
+                && !exposedParentSessionId.isBlank()) {
+            data.put("parentSessionId", exposedParentSessionId);
+        }
+        String sourcePath = sourceOverride == null ? event.getSource() : sourceOverride;
         HarnessAgentEventPayload payload = new HarnessAgentEventPayload(
                 SCHEMA,
                 SCHEMA_VERSION,
                 SDK_VERSION,
-                String.valueOf(runId),
+                runId,
                 sequence,
                 event.getId(),
                 event.getType().name(),
@@ -58,11 +135,13 @@ public class HarnessEventMapper {
                 semantics.phase(),
                 semantics.importance(),
                 event.getCreatedAt(),
-                targetOf(sourcePath, subagentId, stringValue(data.get("label"))),
                 new HarnessAgentEventPayload.Source(scopeOf(sourcePath), sourcePath),
                 safeMetadata(event.getMetadata()),
                 Collections.unmodifiableMap(correlation),
                 Collections.unmodifiableMap(data),
+                projectedSubagent == null
+                        ? null
+                        : new HarnessAgentEventPayload.Projection(projectedSubagent),
                 omittedFields(event.getType())
         );
         return new ChatStreamEvent("harness_event", "", null, payload);
@@ -109,7 +188,6 @@ public class HarnessEventMapper {
             case SUBAGENT_EXPOSED -> copy(
                     serialized,
                     data,
-                    "subagentId",
                     "agentId",
                     "sessionId",
                     "label"
@@ -200,21 +278,6 @@ public class HarnessEventMapper {
 
     private EventSemantics secondary(String kind, String phase) {
         return new EventSemantics(kind, phase, "SECONDARY");
-    }
-
-    private HarnessAgentEventPayload.Target targetOf(
-            String sourcePath,
-            String subagentId,
-            String label
-    ) {
-        if (subagentId != null) {
-            return new HarnessAgentEventPayload.Target("SUBAGENT", "subagent:" + subagentId, subagentId, label);
-        }
-        if (sourcePath != null && !sourcePath.isBlank()) {
-            // 2.0.1 的普通 child event 不保证携带 subagentId，source 只可作实时流聚合 fallback。
-            return new HarnessAgentEventPayload.Target("SUBAGENT", "source:" + sourcePath, null, label);
-        }
-        return new HarnessAgentEventPayload.Target("PARENT", "parent", null, label);
     }
 
     private String scopeOf(String sourcePath) {

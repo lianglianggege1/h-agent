@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collectTopologyLegend, currentAgentStepText, visibleAgentSteps, visibleTopologyStateKeys } from "./agent-ui.ts";
+import {
+  collectTopologyLegend,
+  currentAgentStepText,
+  isVisibleSubagentTurn,
+  visibleAgentSteps,
+  visibleTopologyStateKeys,
+} from "./agent-ui.ts";
 
 test("visibleAgentSteps keeps only child executable agent states", () => {
   const steps = [
@@ -93,6 +99,21 @@ test("currentAgentStepText describes the active executable agent", () => {
   ];
 
   assert.equal(currentAgentStepText(steps), "正在执行：技术专家");
+});
+
+test("isVisibleSubagentTurn hides empty assistant placeholders", () => {
+  const emptyAssistantTurn = {
+    kind: "assistant",
+    id: "empty-assistant",
+    reasoning: null,
+    answer: "",
+    blocked: null,
+    agentSteps: [],
+    resources: [],
+  };
+
+  assert.equal(isVisibleSubagentTurn(emptyAssistantTurn), false);
+  assert.equal(isVisibleSubagentTurn({ ...emptyAssistantTurn, reasoning: "正在拆解问题" }), true);
 });
 
 test("collectTopologyLegend follows topology order from the system tree", () => {

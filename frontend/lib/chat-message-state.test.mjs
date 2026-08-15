@@ -297,6 +297,20 @@ test("toRenderableTurns groups reasoning before assistant reply", () => {
   ]);
 });
 
+test("toRenderableTurns keeps a persisted system assignment as its own turn", () => {
+  const turns = toRenderableTurns([
+    { id: "assignment-1", role: "system", messageType: "SYSTEM", content: "收集官方资料并标注来源", createdAt: "" },
+    { id: "answer-1", role: "assistant", messageType: "AI", content: "已完成。", createdAt: "" },
+  ]);
+
+  assert.deepEqual(turns[0], {
+    kind: "system",
+    id: "assignment-1",
+    content: "收集官方资料并标注来源",
+  });
+  assert.equal(turns[1].kind, "assistant");
+});
+
 test("toRenderableTurns keeps assistant audio resources with assistant answer", () => {
   const turns = toRenderableTurns([
     {

@@ -3,22 +3,31 @@ package com.h.backend.chat.domain.agent;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.HarnessCollaborationService;
+import com.h.backend.chat.application.HarnessSubagentCompletion;
+import com.h.backend.chat.application.HarnessSubagentExposure;
+import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
+import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentResultEvent;
+import io.agentscope.core.event.AgentStartEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
+import io.agentscope.core.event.SubagentExposedEvent;
 import io.agentscope.core.message.Msg;
-import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
 import reactor.core.publisher.FluxSink;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,9 +36,9 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * AgentScope Harness 与现有聊天执行协议之间的适配器。
  *
- * <p>对用户有意义的 AgentEvent 会映射为 {@code harness_event}，同时只把父 Agent 的文本
- * 与思考降级映射为旧前端已支持的 {@code chunk/reasoning}。这样旧客户端仍能聊天，而
- * 子 Agent 的增量不会被错误拼进父回复。</p>
+ * <p>当前请求所属 Agent 的事件会映射为 {@code harness_event}；后代 Agent 只向该请求
+ * 发布已经提交的协作生命周期投影，其思考、正文和工具事件由后代 Session 的独立观察流承载。
+ * 当前 Agent 的文本与思考同时降级映射为旧前端支持的 {@code chunk/reasoning}。</p>
  */
 @Slf4j
 @Component
@@ -39,6 +48,25 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     private final AgentRunService agentRunService;
     private final AgentRunTelemetryService agentRunTelemetryService;
     private final HarnessEventMapper eventMapper;
+    private final HarnessRuntime harnessRuntime;
+    private final HarnessCollaborationService harnessCollaborationService;
+
+    @Autowired
+    public HarnessAgentExecutor(
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            HarnessEventMapper eventMapper,
+            HarnessRuntime harnessRuntime,
+            HarnessCollaborationService harnessCollaborationService
+    ) {
+        this.chatSessionService = chatSessionService;
+        this.agentRunService = agentRunService;
+        this.agentRunTelemetryService = agentRunTelemetryService;
+        this.eventMapper = eventMapper;
+        this.harnessRuntime = harnessRuntime;
+        this.harnessCollaborationService = harnessCollaborationService;
+    }
 
     public HarnessAgentExecutor(
             ChatSessionService chatSessionService,
@@ -46,10 +74,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper
     ) {
-        this.chatSessionService = chatSessionService;
-        this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
-        this.eventMapper = eventMapper;
+        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
+                new AgentScopeHarnessRuntime(), null);
     }
 
     @Override
@@ -59,7 +85,6 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
 
     @Override
     public void execute(ChatAgentExecutionCommand command) {
-        HarnessAgent harnessAgent = requireHarnessAgent(command);
         log.info("[HarnessExecutor] Agent执行开始 userId={}, sessionId={}, runId={}",
                 command.userId(), command.sessionId(), command.runHandle().id());
         RuntimeContext runtimeContext = RuntimeContext.builder()
@@ -72,8 +97,20 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
 
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));
         try {
-            Disposable subscription = harnessAgent
-                    .streamEvents(command.userMessage(), runtimeContext)
+            reactor.core.publisher.Flux<AgentEvent> events = command.gatewaySubagentId() == null
+                    ? harnessRuntime.streamParent(command.agent().agentBean(), command.userMessage(), runtimeContext)
+                    : harnessRuntime.streamSubagent(
+                            command.agent().agentBean(),
+                            new HarnessSubagentContext(
+                                    command.subagentAgentId(),
+                                    String.valueOf(command.userId()),
+                                    command.subagentParentSessionId(),
+                                    command.sessionId(),
+                                    command.subagentAssignment()
+                            ),
+                            command.userMessage()
+                    );
+            Disposable subscription = events
                     .subscribe(execution::onEvent, execution::onError, execution::onComplete);
             execution.attachSubscription(subscription);
             if (command.sink().isCancelled()) {
@@ -82,13 +119,6 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         } catch (RuntimeException ex) {
             execution.onError(ex);
         }
-    }
-
-    private HarnessAgent requireHarnessAgent(ChatAgentExecutionCommand command) {
-        if (command.agent().agentBean() instanceof HarnessAgent harnessAgent) {
-            return harnessAgent;
-        }
-        throw new IllegalStateException("HARNESS_STREAMING agent bean must be HarnessAgent");
     }
 
     private final class Execution {
@@ -103,19 +133,123 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         private final AtomicReference<Msg> parentResult = new AtomicReference<>();
         private final AtomicReference<Disposable> subscription = new AtomicReference<>();
         private final StringBuilder parentReasoning = new StringBuilder();
-
+        private final Map<String, String> agentSessionIdBySource = new HashMap<>();
+        // 同一个 agentId 可以被并行调用多次，source 只标识 agent 路径而不标识具体调用。
+        // replyId 才是一次调用的唯一关联键，用它把 START / RESULT / END 归入正确子会话。
+        private final Map<String, String> agentSessionIdByReply = new HashMap<>();
+        // AgentScope 保证成功执行时 AGENT_RESULT 紧邻并先于 AGENT_END；结果先暂存，END 才提交完成状态。
+        private final Map<String, String> childResultByReply = new HashMap<>();
         private Execution(ChatAgentExecutionCommand command) {
             this.command = command;
+            agentSessionIdBySource.put("", command.sessionId());
         }
 
-        private void onEvent(AgentEvent event) {
+        private synchronized void onEvent(AgentEvent event) {
             if (responseTerminal.get() || command.sink().isCancelled()) {
                 return;
             }
-            // sequence 按原始 AgentEvent 流严格递增；每条事件都通过同一 SSE 信封向前端发送。
-            emit(eventMapper.map(command.runHandle().id(), sequence.incrementAndGet(), event));
+            String eventAgentSessionId = resolveEventAgentSessionId(event);
+            String exposedParentSessionId = null;
+            HarnessSubagentSummaryDto projectedSubagent = null;
+            try {
+                if (event instanceof SubagentExposedEvent exposed
+                        && harnessCollaborationService != null) {
+                    String label = exposed.getLabel() == null || exposed.getLabel().isBlank()
+                            ? exposed.getAgentId()
+                            : exposed.getLabel();
+                    // SUBAGENT_EXPOSED 不携带 task，且相同 agentId 的工具调用可以并行，不能
+                    // 通过 FIFO 猜测归属。先用 label 建立 child session；子 Agent 的 onAgent
+                    // 生命周期随后会按精确 sessionId 投影真实委托。
+                    String assignment = label;
+                    String parentSessionId = agentSessionIdBySource.get(normalizeSource(event.getSource()));
+                    if (parentSessionId == null) {
+                        // Gateway 子流以目标子 Agent 为根；事件未提供 source 时仍能正确挂到目标节点。
+                        parentSessionId = command.sessionId();
+                    }
+                    exposedParentSessionId = parentSessionId;
+                    projectedSubagent = harnessCollaborationService.exposeSubagent(
+                            command.userId(),
+                            command.rootSessionId(),
+                            new HarnessSubagentExposure(
+                                    exposed.getSubagentId(),
+                                    exposed.getAgentId(),
+                                    parentSessionId,
+                                    exposed.getSessionId(),
+                                    label,
+                                    assignment
+                            )
+                    );
+                }
+                if (event instanceof AgentStartEvent start
+                        && !isParent(event)
+                        && harnessCollaborationService != null
+                        && hasText(start.getReplyId())
+                        && hasText(eventAgentSessionId)) {
+                    agentSessionIdBySource.put(normalizeSource(event.getSource()), eventAgentSessionId);
+                    agentSessionIdByReply.put(start.getReplyId(), eventAgentSessionId);
+                    var running = harnessCollaborationService.markRunning(
+                            command.userId(), command.rootSessionId(), eventAgentSessionId, start.getReplyId()
+                    );
+                    if (running != null) {
+                        projectedSubagent = running;
+                    }
+                }
+                if (event instanceof AgentResultEvent childResult
+                        && !isParent(event)
+                        && harnessCollaborationService != null) {
+                    Msg result = childResult.getResult();
+                    if (result != null && hasText(result.getId()) && hasText(result.getTextContent())) {
+                        childResultByReply.put(result.getId(), result.getTextContent());
+                    }
+                }
+                if (event instanceof AgentEndEvent childEnd
+                        && !isParent(event)
+                        && harnessCollaborationService != null) {
+                    String replyId = childEnd.getReplyId();
+                    String childSessionId = hasText(replyId)
+                            ? agentSessionIdByReply.remove(replyId)
+                            : null;
+                    String result = hasText(replyId) ? childResultByReply.remove(replyId) : null;
+                    if (hasText(childSessionId) && hasText(result)) {
+                        projectedSubagent = harnessCollaborationService.completeSubagent(
+                                command.userId(),
+                                command.rootSessionId(),
+                                childSessionId,
+                                replyId,
+                                result
+                        ).subagent();
+                    } else if (hasText(childSessionId)) {
+                        // SDK 的成功事件序列应包含 AGENT_RESULT；缺失结果时不能把协作者误报为已完成。
+                        projectedSubagent = harnessCollaborationService.failSubagent(
+                                command.userId(), command.rootSessionId(), childSessionId, replyId,
+                                HarnessSubagentFailureReason.PROTOCOL_INCOMPLETE,
+                                "AGENT_END arrived without AGENT_RESULT"
+                        );
+                    }
+                    // AgentSpawnTool 还会额外发送 replyId=null 的外层包装 END。它只表示
+                    // spawn 工具调用收尾，不是另一次子 Agent 失败终态。
+                }
+            } catch (RuntimeException projectionError) {
+                // 协作投影属于父执行的局部结果；单个子 Agent 状态冲突或持久化失败不能打断父回复。
+                log.warn(
+                        "[HarnessExecutor] 协作 Agent 生命周期投影失败，父执行继续 sessionId={}, eventType={}, error={}",
+                        command.sessionId(), event.getType(), projectionError.getMessage(), projectionError
+                );
+            }
+            // 当前请求流只承载当前 Agent 自身事件，以及后代 Agent 已提交的生命周期投影。
+            // 后代的思考、正文和工具增量只进入其 Session 独立观察流，不能泄漏到父 SSE。
+            if (isParent(event) || projectedSubagent != null) {
+                emit(eventMapper.map(
+                        command.runHandle().id(),
+                        sequence.incrementAndGet(),
+                        event,
+                        exposedParentSessionId,
+                        eventAgentSessionId,
+                        projectedSubagent
+                ));
+            }
 
-            // source 为空才是父 Agent。子文本仅保留在 harness_event，避免污染父气泡。
+            // source 为空才是当前请求所属 Agent；其后代文本已在上方路由到独立观察流。
             if (isParent(event) && event instanceof TextBlockDeltaEvent textEvent) {
                 emittedParentText.set(true);
                 emit(new ChatStreamEvent("chunk", textEvent.getDelta()));
@@ -127,6 +261,51 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             } else if (isParent(event) && event instanceof AgentEndEvent) {
                 completeSuccessfulResponse();
             }
+        }
+
+        private String normalizeSource(String source) {
+            return source == null ? "" : source;
+        }
+
+        private boolean hasText(String value) {
+            return value != null && !value.isBlank();
+        }
+
+        private String resolveEventAgentSessionId(AgentEvent event) {
+            if (event instanceof SubagentExposedEvent exposed) {
+                return exposed.getSessionId();
+            }
+            if (isParent(event)) {
+                return null;
+            }
+            if (event instanceof AgentStartEvent start) {
+                if (hasText(start.getSessionId())) {
+                    return start.getSessionId();
+                }
+            }
+            if (event instanceof TextBlockDeltaEvent delta) {
+                String byReply = agentSessionIdByReply.get(delta.getReplyId());
+                if (hasText(byReply)) {
+                    return byReply;
+                }
+            } else if (event instanceof ThinkingBlockDeltaEvent delta) {
+                String byReply = agentSessionIdByReply.get(delta.getReplyId());
+                if (hasText(byReply)) {
+                    return byReply;
+                }
+            } else if (event instanceof AgentResultEvent resultEvent) {
+                Msg result = resultEvent.getResult();
+                String byReply = result == null ? null : agentSessionIdByReply.get(result.getId());
+                if (hasText(byReply)) {
+                    return byReply;
+                }
+            } else if (event instanceof AgentEndEvent endEvent) {
+                String byReply = agentSessionIdByReply.get(endEvent.getReplyId());
+                if (hasText(byReply)) {
+                    return byReply;
+                }
+            }
+            return agentSessionIdBySource.get(normalizeSource(event.getSource()));
         }
 
         private void onComplete() {
@@ -153,23 +332,32 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                     emit(new ChatStreamEvent("chunk", reply));
                 }
                 String reasoning = parentReasoning.toString();
-                if (!reasoning.isBlank()) {
+                if (command.gatewaySubagentId() == null && !reasoning.isBlank()) {
                     chatSessionService.appendReasoningMessage(
                             command.userId(),
                             command.sessionId(),
                             reasoning
                     );
                 }
-                Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                        command.userId(),
-                        command.sessionId(),
-                        reply
-                );
-                ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
-                        command.userId(),
-                        command.sessionId(),
-                        assistantMessageId
-                );
+                Long assistantMessageId;
+                ChatSessionMessageDto assistantMessage = null;
+                if (command.gatewaySubagentId() == null) {
+                    assistantMessageId = chatSessionService.appendAssistantMessage(
+                            command.userId(), command.rootSessionId(), reply
+                    );
+                    assistantMessage = chatSessionService.getOwnedMessage(
+                            command.userId(), command.rootSessionId(), assistantMessageId
+                    );
+                } else {
+                    HarnessSubagentCompletion completion = harnessCollaborationService.completeSubagent(
+                            command.userId(),
+                            command.rootSessionId(),
+                            command.sessionId(),
+                            command.subagentExecutionId(),
+                            reply
+                    );
+                    assistantMessageId = completion.assistantMessageId();
+                }
                 agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
                 agentRunTelemetryService.markSuccess(command.telemetryRun());
                 log.info("[HarnessExecutor] Agent执行完成 userId={}, sessionId={}, runId={}, replyLength={}",
@@ -193,6 +381,16 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 return;
             }
             try {
+                if (command.gatewaySubagentId() != null && harnessCollaborationService != null) {
+                    harnessCollaborationService.failSubagent(
+                            command.userId(),
+                            command.rootSessionId(),
+                            command.sessionId(),
+                            command.subagentExecutionId(),
+                            HarnessSubagentFailureReason.EXECUTION_ERROR,
+                            error.getMessage()
+                    );
+                }
                 failAfterResponseClaim(error, true);
             } finally {
                 releaseExecution();
@@ -214,6 +412,15 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             }
             CancellationException error = new CancellationException(reason);
             try {
+                if (command.gatewaySubagentId() != null && harnessCollaborationService != null) {
+                    // 当前运行记录按失败收尾；同步回收产品状态，避免断流后协作者永久停在 RUNNING。
+                    harnessCollaborationService.failSubagent(
+                            command.userId(), command.rootSessionId(), command.sessionId(),
+                            command.subagentExecutionId(),
+                            HarnessSubagentFailureReason.CANCELLED,
+                            reason
+                    );
+                }
                 failAfterResponseClaim(error, false);
             } finally {
                 releaseExecution();

@@ -14,6 +14,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceE
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
+import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.chat.application.SystemPromptService;
@@ -35,6 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -81,7 +85,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                provider
+                provider,
+                mock(AgentSessionMapper.class)
         );
     }
 
@@ -99,7 +104,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         when(promptService.resolvePromptId(1L, null)).thenReturn(99L);
@@ -134,7 +140,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         LocalDateTime now = LocalDateTime.now();
@@ -198,7 +205,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         service.createSession(1L, null, "car-rental-assistant", null);
@@ -228,7 +236,8 @@ class ChatSessionServiceImplTest {
                 mock(ChatMemorySnapshotService.class),
                 mock(SystemPromptService.class),
                 new ObjectMapper(),
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         BusinessException ex = assertThrows(
@@ -258,7 +267,8 @@ class ChatSessionServiceImplTest {
                 mock(ChatMemorySnapshotService.class),
                 promptService,
                 new ObjectMapper(),
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         service.assertActiveAgentSession(1L, "s1", ChatAgentIds.STANDARD_CHAT);
@@ -281,7 +291,8 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -313,7 +324,6 @@ class ChatSessionServiceImplTest {
         resourceRow.setId("resource-701");
         resourceRow.setMessageId(501L);
         resourceRow.setUserId(1L);
-        resourceRow.setSessionId("session-1");
         resourceRow.setResourceType("IMAGE");
         resourceRow.setResourceRole("GENERATED");
         resourceRow.setStorageType("LOCAL_FILE");
@@ -329,7 +339,8 @@ class ChatSessionServiceImplTest {
 
         when(chatSessionMapper.selectList(any())).thenReturn(List.of());
         when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
-        when(chatSessionMessageMapper.selectPageBySessionRecordId(11L, 20, null)).thenReturn(List.of(imageRow));
+        when(chatSessionMessageMapper.selectPageBySessionRecordId(eq(11L), eq("session-1"), anyInt(), isNull()))
+                .thenReturn(List.of(imageRow));
         when(chatMessageResourceMapper.selectByMessageIds(List.of(501L))).thenReturn(List.of(resourceRow));
 
         var page = service.getSessionMessages(1L, "session-1", 20, null);
@@ -362,7 +373,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -386,7 +398,6 @@ class ChatSessionServiceImplTest {
         audio.setId("audio-1");
         audio.setMessageId(101L);
         audio.setUserId(1L);
-        audio.setSessionId("session-1");
         audio.setResourceType("AUDIO");
         audio.setResourceRole("ATTACHMENT");
         audio.setViewUrl("/api/chat/resources/audio-1/content");
@@ -425,7 +436,8 @@ class ChatSessionServiceImplTest {
                 snapshotService,
                 promptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -476,6 +488,8 @@ class ChatSessionServiceImplTest {
         ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = new ObjectMapper();
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        when(agentSessionMapper.nextMessageSequence("session-1")).thenReturn(2);
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 chatSessionMapper,
                 chatSessionMessageMapper,
@@ -483,7 +497,7 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(), agentSessionMapper
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -551,13 +565,15 @@ class ChatSessionServiceImplTest {
         ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = mock(ObjectMapper.class);
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        when(agentSessionMapper.nextMessageSequence("session-1")).thenReturn(2);
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 chatSessionMapper,
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(), agentSessionMapper
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -595,7 +611,7 @@ class ChatSessionServiceImplTest {
         assertNotNull(reasoningRow.getCreatedAt());
 
         assertEquals(2, session.getMessageCount());
-        verify(chatSessionMapper).updateById(session);
+        verify(chatSessionMapper).touchRootMessage(eq(11L), eq(2), any(LocalDateTime.class));
     }
 
     @Test
@@ -611,7 +627,8 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -648,7 +665,7 @@ class ChatSessionServiceImplTest {
 
         when(chatSessionMapper.selectList(any())).thenReturn(List.of());
         when(chatSessionMapper.selectBySessionId("session-1")).thenReturn(session);
-        when(chatSessionMessageMapper.selectPageBySessionRecordId(11L, 20, null))
+        when(chatSessionMessageMapper.selectPageBySessionRecordId(eq(11L), eq("session-1"), anyInt(), isNull()))
                 .thenReturn(List.of(answerRow, reasoningRow));
 
         var page = service.getSessionMessages(1L, "session-1", 20, null);
@@ -665,13 +682,15 @@ class ChatSessionServiceImplTest {
         ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = mock(ObjectMapper.class);
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        when(agentSessionMapper.nextMessageSequence("session-1")).thenReturn(1, 2);
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 chatSessionMapper,
                 chatSessionMessageMapper,
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(), agentSessionMapper
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -730,7 +749,10 @@ class ChatSessionServiceImplTest {
 
         assertEquals(2, session.getMessageCount());
         assertEquals("hello", session.getLastUserMessage());
-        verify(chatSessionMapper, times(2)).updateById(session);
+        verify(chatSessionMapper).touchAfterUserMessage(
+                eq(11L), eq("hello"), eq("hello"), eq(1), any(LocalDateTime.class)
+        );
+        verify(chatSessionMapper).touchRootMessage(eq(11L), eq(2), any(LocalDateTime.class));
     }
 
     @Test
@@ -741,6 +763,8 @@ class ChatSessionServiceImplTest {
         ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = mock(ObjectMapper.class);
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        when(agentSessionMapper.nextMessageSequence("session-1")).thenReturn(1);
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 chatSessionMapper,
                 chatSessionMessageMapper,
@@ -748,7 +772,7 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(), agentSessionMapper
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -766,7 +790,6 @@ class ChatSessionServiceImplTest {
         uploaded.setId("resource-1");
         uploaded.setMessageId(null);
         uploaded.setUserId(1L);
-        uploaded.setSessionId("session-1");
         uploaded.setResourceType("IMAGE");
         uploaded.setResourceRole("ATTACHMENT");
         uploaded.setStorageType("LOCAL_FILE");
@@ -796,7 +819,9 @@ class ChatSessionServiceImplTest {
         );
 
         assertEquals(101L, messageId);
-        verify(chatMessageResourceMapper).bindMessage("resource-1", 1L, 101L, "REFERENCE", "{\"ok\":true}");
+        verify(chatMessageResourceMapper).bindMessage(
+                "resource-1", 1L, 101L, "REFERENCE", "{\"ok\":true}"
+        );
     }
 
     @Test
@@ -807,6 +832,8 @@ class ChatSessionServiceImplTest {
         ChatMemorySnapshotService chatMemorySnapshotService = mock(ChatMemorySnapshotService.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ObjectMapper objectMapper = mock(ObjectMapper.class);
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        when(agentSessionMapper.nextMessageSequence("session-1")).thenReturn(2);
         ChatSessionServiceImpl service = new ChatSessionServiceImpl(
                 chatSessionMapper,
                 chatSessionMessageMapper,
@@ -814,7 +841,7 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(), agentSessionMapper
         );
 
         ChatSessionEntity session = new ChatSessionEntity();
@@ -832,7 +859,6 @@ class ChatSessionServiceImplTest {
         generated.setId("resource-2");
         generated.setMessageId(99L);
         generated.setUserId(1L);
-        generated.setSessionId("session-1");
         generated.setResourceType("VIDEO");
         generated.setResourceRole("GENERATED");
         generated.setStorageType("LOCAL_FILE");
@@ -880,7 +906,8 @@ class ChatSessionServiceImplTest {
                 chatMemorySnapshotService,
                 systemPromptService,
                 objectMapper,
-                testAgentRegistry()
+                testAgentRegistry(),
+                mock(AgentSessionMapper.class)
         );
 
         ChatSessionEntity currentSession = new ChatSessionEntity();

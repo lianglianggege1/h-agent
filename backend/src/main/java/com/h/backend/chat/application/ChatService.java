@@ -8,5 +8,12 @@ import java.util.List;
 
 public interface ChatService {
 
-    Flux<ChatStreamEvent> streamChat(Long userId, Long promptId, String agentId, String sessionId, String userMessage, List<ChatMessageResourceUseDto> resources);
+    Flux<ChatStreamEvent> streamChat(
+            Long userId,
+            Long promptId,
+            String agentId,
+            String sessionId,
+            String userMessage,
+            List<ChatMessageResourceUseDto> resources
+    );
 }

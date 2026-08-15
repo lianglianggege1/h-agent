@@ -58,7 +58,7 @@ chat:
     workspace-template: /tmp/h-agent/harness-workspace
   stream:
     heartbeat-interval: 15s
-    max-concurrent-per-user: 2
+    max-concurrent-per-user: 100
     max-concurrent-global: 100
     permit-ttl: 10m
   resources:

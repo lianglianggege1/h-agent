@@ -196,6 +196,56 @@ test("apiStream dispatches reasoning events without affecting chunk flow", async
   }
 });
 
+test("apiStream dispatches harness events and exposes done projection payload", async () => {
+  const originalFetch = globalThis.fetch;
+  const received = [];
+  const harnessEvent = {
+    schema: "harness.agent-event",
+    schemaVersion: 2,
+    runId: "55",
+    sequence: 1,
+    eventId: "exposed-1",
+    eventType: "SUBAGENT_EXPOSED",
+    kind: "SUBAGENT",
+    phase: "EVENT",
+    data: { sessionId: "child-session-research" },
+  };
+  const donePayload = { terminal: true };
+
+  globalThis.fetch = async () => new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          "event: harness_event\n"
+            + `data: ${JSON.stringify({ type: "harness_event", content: "", payload: harnessEvent })}\n\n`
+            + "event: done\n"
+            + `data: ${JSON.stringify({ type: "done", content: "", payload: donePayload })}\n\n`,
+        ));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onHarnessEvent(payload) {
+        received.push(["harness", payload]);
+      },
+      onDone(_content, _message, payload) {
+        received.push(["done", payload]);
+      },
+    });
+    assert.deepEqual(received, [
+      ["harness", harnessEvent],
+      ["done", donePayload],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches image events with message payload", async () => {
   const originalFetch = globalThis.fetch;
   const events = [];

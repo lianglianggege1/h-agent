@@ -12,7 +12,7 @@ export type UiAgentStep = {
 
 export type UiChatMessage = {
   id: string;
-  role: "assistant" | "blocked" | "user";
+  role: "assistant" | "blocked" | "system" | "user";
   messageType: ChatSessionMessageType;
   content: string;
   agentSteps?: UiAgentStep[];
@@ -22,6 +22,11 @@ export type UiChatMessage = {
 };
 
 export type RenderableTurn =
+  | {
+      kind: "system";
+      id: string;
+      content: string;
+    }
   | {
       kind: "user";
       id: string;
@@ -208,6 +213,10 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
 
   for (let index = 0; index < messages.length; index += 1) {
     const current = messages[index];
+    if (current.role === "system" && current.messageType === "SYSTEM") {
+      turns.push({ kind: "system", id: current.id, content: current.content });
+      continue;
+    }
     if (current.role === "user") {
       turns.push({ kind: "user", id: current.id, content: current.content, resources: current.resources ?? [] });
       continue;

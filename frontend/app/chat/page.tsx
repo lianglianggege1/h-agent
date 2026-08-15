@@ -19,7 +19,12 @@ import {
   type UiAgentStep,
   type UiChatMessage,
 } from "@/lib/chat-message-state";
-import { agentStepStatusText, currentAgentStepText, visibleAgentSteps } from "@/lib/agent-ui";
+import {
+  agentStepStatusText,
+  currentAgentStepText,
+  isVisibleSubagentTurn,
+  visibleAgentSteps,
+} from "@/lib/agent-ui";
 import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
@@ -42,6 +47,23 @@ import {
 } from "@/lib/chat-agent-mode";
 import { AgentSummary, listAgents } from "@/lib/agents";
 import { scrollTopAfterPrepend, type PrependScrollSnapshot } from "@/lib/chat-scroll";
+import {
+  applyHarnessEvent,
+  applyHarnessTranscriptEvent,
+  canSubmitSubagentStatus,
+  createHarnessUiState,
+  harnessTranscriptSessionId,
+  harnessTranscriptStreamingState,
+  mergePersistedHarnessMessages,
+  replaceHarnessSubagents,
+  orderedHarnessSubagents,
+} from "@/lib/harness-subagent-state";
+import {
+  buildSubagentMessageRequest,
+  getHarnessSubagents,
+  observeHarnessSubagentEvents,
+} from "@/lib/harness-subagent-api";
+import type { HarnessSubagentStatus } from "@/lib/harness-subagent-types";
 import { MarkdownContent } from "./markdown-content";
 import {
   bootstrapChatSession,
@@ -66,8 +88,29 @@ type MessageSegment =
       complete: boolean;
     };
 
+type SubagentTextAnimation = {
+  queue: string[];
+  timer: ReturnType<typeof setTimeout> | null;
+  receivedDelta: boolean;
+  waiters: Array<() => void>;
+};
+
 const starterPrompts = ["主人，你今天工作怎么样呢？", "主人，和我聊聊天吧!", "主人，有什么难题尽管问我哦!"];
 const callReturnRefreshKey = "h-agent:call-return-refresh";
+
+const harnessStatusLabel: Record<HarnessSubagentStatus, string> = {
+  AVAILABLE: "可对话",
+  RUNNING: "执行中",
+  COMPLETED: "已完成",
+  FAILED: "失败",
+};
+
+function harnessStatusTone(status: HarnessSubagentStatus) {
+  if (status === "COMPLETED") return "bg-emerald-500";
+  if (status === "RUNNING") return "bg-amber-500";
+  if (status === "FAILED") return "bg-red-500";
+  return "bg-sky-500";
+}
 
 function parseMessageSegments(content: string): MessageSegment[] {
   if (!content) return [];
@@ -290,6 +333,11 @@ function ChatPageContent() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [activeSubagentSessionId, setActiveSubagentSessionId] = useState<string | null>(null);
+  const [subagentInputBySession, setSubagentInputBySession] = useState<Record<string, string>>({});
+  const [subagentStreamingBySession, setSubagentStreamingBySession] = useState<Record<string, boolean>>({});
+  const [subagentErrorBySession, setSubagentErrorBySession] = useState<Record<string, string>>({});
+  const [subagentUploadingBySession, setSubagentUploadingBySession] = useState<Record<string, boolean>>({});
   const [bootstrapping, setBootstrapping] = useState(true);
   const [hydratedRouteKey, setHydratedRouteKey] = useState("");
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
@@ -299,6 +347,13 @@ function ChatPageContent() {
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
   const [messages, setMessages] = useState<UiChatMessage[]>([]);
+  const [subagentMessagesBySession, setSubagentMessagesBySession] = useState<Record<string, UiChatMessage[]>>({});
+  const [harnessUiState, setHarnessUiState] = useState(createHarnessUiState);
+  const [subagentPaginationBySession, setSubagentPaginationBySession] = useState<Record<string, {
+    loading: boolean;
+    hasMore: boolean;
+    nextBeforeSeq: number | null;
+  }>>({});
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSessionTitle, setCurrentSessionTitle] = useState("新会话");
   const [currentAgentId, setCurrentAgentId] = useState(STANDARD_AGENT_ID);
@@ -319,11 +374,19 @@ function ChatPageContent() {
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
   const [pendingResources, setPendingResources] = useState<UploadedResource[]>([]);
+  const [subagentPendingResourcesBySession, setSubagentPendingResourcesBySession] = useState<Record<string, UploadedResource[]>>({});
   const [uploading, setUploading] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [attachmentMenuMode, setAttachmentMenuMode] = useState<"menu" | "history">("menu");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const subagentFileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const subagentTextAnimationsRef = useRef<Map<string, SubagentTextAnimation>>(new Map());
+  const seenHarnessTranscriptEventsRef = useRef<Set<string>>(new Set());
+  const directSubagentStreamsRef = useRef<Set<string>>(new Set());
+  const applySubagentTranscriptEventRef = useRef<(
+    payload: Parameters<typeof applyHarnessEvent>[1],
+  ) => void>(() => {});
   const requestedAgentId = searchParams.get("agentId");
   const requestedSessionId = searchParams.get("sessionId");
   const routeRequestKey = `${requestedAgentId ?? ""}:${requestedSessionId ?? ""}`;
@@ -348,6 +411,43 @@ function ChatPageContent() {
     () => filterDomainAgents(domainAgents, domainAgentSearch, selectedAgentDomain),
     [domainAgentSearch, domainAgents, selectedAgentDomain],
   );
+  const currentAgentMode = agentModeFromSession({
+    runtimeType: currentRuntimeType,
+    agentId: currentAgentId,
+  });
+  const usingStandardAgent = currentAgentMode === "standard";
+  const usingHarnessAgent = currentAgentMode === "harness";
+  // 顶级父页只展示自己的直接协作者；完整快照仍保留孙级节点供抽屉继续下钻。
+  const harnessSubagents = orderedHarnessSubagents(harnessUiState).filter(
+    (subagent) => subagent.parentSessionId === sessionId,
+  );
+  const activeSubagent = usingHarnessAgent && activeSubagentSessionId
+    ? harnessUiState.subagentsBySession[activeSubagentSessionId] ?? null
+    : null;
+  const subagentMessages = activeSubagentSessionId
+    ? subagentMessagesBySession[activeSubagentSessionId] ?? []
+    : [];
+  const subagentStreaming = activeSubagentSessionId
+    ? Boolean(subagentStreamingBySession[activeSubagentSessionId])
+    : false;
+  const activeSubagentPagination = activeSubagentSessionId
+    ? subagentPaginationBySession[activeSubagentSessionId]
+    : undefined;
+  const loadingSubagentMessages = Boolean(activeSubagentPagination?.loading);
+  const hasOlderSubagentMessages = Boolean(activeSubagentPagination?.hasMore);
+  const nextSubagentBeforeSeq = activeSubagentPagination?.nextBeforeSeq ?? null;
+  const subagentPendingResources = activeSubagentSessionId
+    ? subagentPendingResourcesBySession[activeSubagentSessionId] ?? []
+    : [];
+  const subagentInput = activeSubagentSessionId
+    ? subagentInputBySession[activeSubagentSessionId] ?? ""
+    : "";
+  const subagentError = activeSubagentSessionId
+    ? subagentErrorBySession[activeSubagentSessionId] ?? ""
+    : "";
+  const subagentUploading = activeSubagentSessionId
+    ? Boolean(subagentUploadingBySession[activeSubagentSessionId])
+    : false;
 
   useEffect(() => {
     if (!sessionId || streaming || !hasPendingVideoGeneration(messages)) {
@@ -501,15 +601,138 @@ function ChatPageContent() {
   }, [messages]);
 
   const canSubmit = useMemo(
-    () => input.trim().length > 0 && !streaming && !routeBootstrapping && !showSessionChooser && !!sessionId,
+    () => input.trim().length > 0
+      && !streaming
+      && !routeBootstrapping
+      && !showSessionChooser
+      && !!sessionId,
     [input, routeBootstrapping, sessionId, showSessionChooser, streaming],
   );
-  const currentAgentMode = agentModeFromSession({
-    runtimeType: currentRuntimeType,
-    agentId: currentAgentId,
-  });
-  const usingStandardAgent = currentAgentMode === "standard";
-  const usingHarnessAgent = currentAgentMode === "harness";
+
+  const canSubmitSubagent = Boolean(
+    activeSubagent
+      && subagentInput.trim().length > 0
+      && !subagentStreaming
+      && canSubmitSubagentStatus(activeSubagent.status),
+  );
+
+  useEffect(() => {
+    if (!activeSubagentSessionId || routeBootstrapping) {
+      return;
+    }
+    // 会话切换由 hydrateSession 主动关闭抽屉；这里仅负责同步有效子会话的外部历史。
+    // 若实时快照暂时还没有该节点，保持选择意图但不触发额外渲染。
+    if (!sessionId || !usingHarnessAgent || !activeSubagent) return;
+
+    let cancelled = false;
+    getChatSessionMessages(activeSubagent.sessionId, 20)
+      .then((page) => {
+        if (cancelled) return;
+        setSubagentMessagesBySession((current) => ({
+          ...current,
+          [activeSubagent.sessionId]: mergePersistedHarnessMessages(
+            page.messages.map(toUiChatMessage),
+            current[activeSubagent.sessionId] ?? [],
+            hasPendingSubagentText(activeSubagent.sessionId),
+          ),
+        }));
+        setSubagentPaginationBySession((current) => ({
+          ...current,
+          [activeSubagent.sessionId]: {
+            loading: false,
+            hasMore: page.hasMore,
+            nextBeforeSeq: page.nextBeforeSeq,
+          },
+        }));
+        setError("");
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setSubagentErrorBySession((current) => ({
+          ...current,
+          [activeSubagent.sessionId]: loadError instanceof Error ? loadError.message : "子对话加载失败",
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSubagentPaginationBySession((current) => ({
+            ...current,
+            [activeSubagent.sessionId]: {
+              loading: false,
+              hasMore: current[activeSubagent.sessionId]?.hasMore ?? false,
+              nextBeforeSeq: current[activeSubagent.sessionId]?.nextBeforeSeq ?? null,
+            },
+          }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSubagent, activeSubagentSessionId, routeBootstrapping, sessionId, usingHarnessAgent]);
+
+  useEffect(() => {
+    if (!sessionId || !activeSubagent || routeBootstrapping || !usingHarnessAgent
+      || activeSubagent.status !== "RUNNING"
+      || directSubagentStreamsRef.current.has(activeSubagent.sessionId)) {
+      return;
+    }
+    const childSessionId = activeSubagent.sessionId;
+    const controller = new AbortController();
+    let stopped = false;
+    setSubagentStreamingBySession((current) => ({ ...current, [childSessionId]: true }));
+
+    const observe = async () => {
+      while (!stopped) {
+        try {
+          await observeHarnessSubagentEvents(
+            childSessionId,
+            (payload) => applySubagentTranscriptEventRef.current(payload),
+            controller.signal,
+          );
+          break;
+        } catch (observeError) {
+          if (controller.signal.aborted || stopped) return;
+          setSubagentErrorBySession((current) => ({
+            ...current,
+            [childSessionId]: observeError instanceof Error
+              ? observeError.message
+              : "子对话实时连接失败，正在重连",
+          }));
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+      if (stopped) return;
+      try {
+        const [page] = await Promise.all([
+          getChatSessionMessages(childSessionId, 100),
+          refreshHarnessState(sessionId),
+        ]);
+        if (!stopped) {
+          setSubagentMessagesBySession((current) => ({
+            ...current,
+            [childSessionId]: mergePersistedHarnessMessages(
+              page.messages.map(toUiChatMessage),
+              current[childSessionId] ?? [],
+              hasPendingSubagentText(childSessionId),
+            ),
+          }));
+          setSubagentErrorBySession((current) => ({ ...current, [childSessionId]: "" }));
+        }
+      } catch {
+        // 已收到终态；若最佳努力刷新失败，保留实时转录，下一次进入会从历史恢复。
+      }
+    };
+    void observe().finally(() => {
+      if (!stopped) {
+        setSubagentStreamingBySession((current) => ({ ...current, [childSessionId]: false }));
+      }
+    });
+
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [activeSubagent, routeBootstrapping, sessionId, usingHarnessAgent]);
 
   function hydrateSession(open: ChatSessionOpen | null, fallbackPromptId: number | null) {
     if (!open) return;
@@ -530,6 +753,19 @@ function ChatPageContent() {
       }),
     );
     setMessages(messagePage.messages.map(toUiChatMessage));
+    setSubagentMessagesBySession({});
+    setSubagentStreamingBySession({});
+    setSubagentPaginationBySession({});
+    setSubagentPendingResourcesBySession({});
+    setSubagentInputBySession({});
+    setSubagentErrorBySession({});
+    setSubagentUploadingBySession({});
+    setActiveSubagentSessionId(null);
+    setHarnessUiState(
+      open.subagents
+        ? replaceHarnessSubagents(createHarnessUiState(), open.subagents)
+        : createHarnessUiState(),
+    );
     setHasOlderMessages(messagePage.hasMore);
     setNextBeforeSeq(messagePage.nextBeforeSeq);
     setShowSessionChooser(false);
@@ -543,6 +779,181 @@ function ChatPageContent() {
     setMessages(detail.messages.map(toUiChatMessage));
     setHasOlderMessages(detail.hasMore);
     setNextBeforeSeq(detail.nextBeforeSeq);
+  }
+
+  async function refreshHarnessState(targetSessionId: string) {
+    const subagents = await getHarnessSubagents(targetSessionId);
+    setHarnessUiState((current) => replaceHarnessSubagents(current, subagents));
+  }
+
+  function applyHarnessProjectionEvent(payload: Parameters<typeof applyHarnessEvent>[1]) {
+    setHarnessUiState((current) => applyHarnessEvent(current, payload));
+  }
+
+  function applySubagentTranscriptEvent(payload: Parameters<typeof applyHarnessEvent>[1]) {
+    const transcriptEventKey = `${payload.eventType}:${payload.eventId}`;
+    if (seenHarnessTranscriptEventsRef.current.has(transcriptEventKey)) return;
+    seenHarnessTranscriptEventsRef.current.add(transcriptEventKey);
+    if (seenHarnessTranscriptEventsRef.current.size > 10_000) {
+      const oldest = seenHarnessTranscriptEventsRef.current.values().next().value;
+      if (oldest) seenHarnessTranscriptEventsRef.current.delete(oldest);
+    }
+    const childSessionId = harnessTranscriptSessionId(payload);
+    if (!childSessionId) return;
+
+    const replyId = typeof payload.correlation?.replyId === "string"
+      ? payload.correlation.replyId.trim()
+      : "";
+    const animationMessageId = replyId ? `runtime-assistant-${replyId}` : "";
+    const isTextDelta = payload.eventType === "TEXT_BLOCK_DELTA" && Boolean(animationMessageId);
+    const isResult = payload.eventType === "AGENT_RESULT" && Boolean(animationMessageId);
+    const animationKey = animationMessageId
+      ? subagentAnimationKey(childSessionId, animationMessageId)
+      : "";
+    const animation = animationKey ? subagentTextAnimationsRef.current.get(animationKey) : null;
+    const transcriptPayload = isTextDelta
+      ? { ...payload, data: { ...payload.data, delta: "" } }
+      : isResult
+        ? { ...payload, data: { ...payload.data, content: "" } }
+        : payload;
+
+    setSubagentMessagesBySession((current) => ({
+      ...current,
+      [childSessionId]: applyHarnessTranscriptEvent(
+        current[childSessionId] ?? [],
+        transcriptPayload,
+      ),
+    }));
+    if (isTextDelta) {
+      const delta = typeof payload.data.delta === "string" ? payload.data.delta : "";
+      enqueueSubagentText(childSessionId, animationMessageId, delta, true);
+    } else if (isResult && !animation?.receivedDelta) {
+      const content = typeof payload.data.content === "string" ? payload.data.content : "";
+      enqueueSubagentText(childSessionId, animationMessageId, content, false);
+    }
+    const streamingState = harnessTranscriptStreamingState(payload);
+    if (streamingState !== null) {
+      setSubagentStreamingBySession((current) => ({
+        ...current,
+        [childSessionId]: streamingState,
+      }));
+    }
+    if (payload.eventType === "AGENT_END" && animationMessageId) {
+      void waitForSubagentText(childSessionId, animationMessageId).then(() => {
+        subagentTextAnimationsRef.current.delete(animationKey);
+      });
+    }
+  }
+  applySubagentTranscriptEventRef.current = applySubagentTranscriptEvent;
+
+  function subagentAnimationKey(childSessionId: string, messageId: string) {
+    return `${childSessionId}:${messageId}`;
+  }
+
+  function enqueueSubagentText(
+    childSessionId: string,
+    messageId: string,
+    content: string,
+    receivedDelta: boolean,
+  ) {
+    if (!content) return;
+    const key = subagentAnimationKey(childSessionId, messageId);
+    let animation = subagentTextAnimationsRef.current.get(key);
+    if (!animation) {
+      animation = { queue: [], timer: null, receivedDelta: false, waiters: [] };
+      subagentTextAnimationsRef.current.set(key, animation);
+    }
+    animation.receivedDelta ||= receivedDelta;
+    const characters = Array.from(content);
+    for (let index = 0; index < characters.length; index += 24) {
+      animation.queue.push(characters.slice(index, index + 24).join(""));
+    }
+    if (animation.timer !== null) return;
+
+    const pump = () => {
+      const current = subagentTextAnimationsRef.current.get(key);
+      if (!current) return;
+      const chunk = current.queue.shift();
+      if (chunk) {
+        setSubagentMessagesBySession((messagesBySession) => ({
+          ...messagesBySession,
+          [childSessionId]: applyAssistantChunk(
+            messagesBySession[childSessionId] ?? [],
+            messageId,
+            chunk,
+          ),
+        }));
+      }
+      if (current.queue.length > 0) {
+        current.timer = setTimeout(pump, 24);
+        return;
+      }
+      current.timer = null;
+      const waiters = current.waiters.splice(0);
+      waiters.forEach((resolve) => resolve());
+    };
+    animation.timer = setTimeout(pump, 0);
+  }
+
+  function waitForSubagentText(childSessionId: string, messageId: string) {
+    const animation = subagentTextAnimationsRef.current.get(
+      subagentAnimationKey(childSessionId, messageId),
+    );
+    if (!animation || (animation.timer === null && animation.queue.length === 0)) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => animation.waiters.push(resolve));
+  }
+
+  function hasPendingSubagentText(childSessionId: string) {
+    const prefix = `${childSessionId}:`;
+    return [...subagentTextAnimationsRef.current.entries()].some(([key, animation]) => (
+      key.startsWith(prefix) && (animation.timer !== null || animation.queue.length > 0)
+    ));
+  }
+
+  async function handleLoadOlderSubagentMessages() {
+    if (!sessionId || !activeSubagent || loadingSubagentMessages || !hasOlderSubagentMessages) return;
+    const cursor = nextSubagentBeforeSeq;
+    if (!cursor) return;
+    const childSessionId = activeSubagent.sessionId;
+    setSubagentPaginationBySession((current) => ({
+      ...current,
+      [childSessionId]: {
+        loading: true,
+        hasMore: current[childSessionId]?.hasMore ?? false,
+        nextBeforeSeq: current[childSessionId]?.nextBeforeSeq ?? cursor,
+      },
+    }));
+    try {
+      const page = await getChatSessionMessages(activeSubagent.sessionId, 20, cursor);
+      setSubagentMessagesBySession((current) => ({
+        ...current,
+        [activeSubagent.sessionId]: [
+          ...page.messages.map(toUiChatMessage),
+          ...(current[activeSubagent.sessionId] ?? []),
+        ],
+      }));
+      setSubagentPaginationBySession((current) => ({
+        ...current,
+        [childSessionId]: {
+          loading: false,
+          hasMore: page.hasMore,
+          nextBeforeSeq: page.nextBeforeSeq,
+        },
+      }));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "加载更多子对话失败");
+    } finally {
+      setSubagentPaginationBySession((current) => ({
+        ...current,
+        [childSessionId]: {
+          loading: false,
+          hasMore: current[childSessionId]?.hasMore ?? false,
+          nextBeforeSeq: current[childSessionId]?.nextBeforeSeq ?? null,
+        },
+      }));
+    }
   }
 
   useEffect(() => {
@@ -718,7 +1129,6 @@ function ChatPageContent() {
     event.preventDefault();
     const content = input.trim();
     if (!content || streaming || !sessionId) return;
-
     const messageResources = pendingResources.map((r) => ({
       resourceId: r.resourceId,
       role: r.role,
@@ -749,19 +1159,20 @@ function ChatPageContent() {
     setError("");
     setStreaming(true);
     setMessages((current) => [...current, userMessage, reasoningMessage, assistantMessage]);
-
     try {
       await apiStream(
         "/api/chat/messages/stream",
         {
           method: "POST",
-          body: JSON.stringify(buildChatSendPayload({
-            message: content,
-            sessionId,
-            promptId: selectedPromptId,
-            agentId: currentAgentId,
-            resources: messageResources.length > 0 ? messageResources : undefined,
-          })),
+          body: JSON.stringify(
+            buildChatSendPayload({
+                  message: content,
+                  sessionId,
+                  promptId: selectedPromptId,
+                  agentId: currentAgentId,
+                  resources: messageResources.length > 0 ? messageResources : undefined,
+                }),
+          ),
         },
         {
           onUserMessage(message) {
@@ -782,6 +1193,9 @@ function ChatPageContent() {
           onAgentStep(step) {
             setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
+          onHarnessEvent(payload) {
+            applyHarnessProjectionEvent(payload);
+          },
           onDone(_content, message) {
             setMessages((current) => {
               const withPersistedMessage = message
@@ -801,6 +1215,9 @@ function ChatPageContent() {
       try {
         const latestPage = await getChatSessionMessages(sessionId, 100);
         setMessages(toUiChatMessages(latestPage.messages));
+        if (usingHarnessAgent) {
+          await refreshHarnessState(sessionId);
+        }
       } catch {
         // The stream already completed; keep its successful result if this best-effort refresh fails.
       }
@@ -821,6 +1238,140 @@ function ChatPageContent() {
       }
     } finally {
       setStreaming(false);
+    }
+  }
+
+  async function handleSubagentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const target = activeSubagent;
+    const content = subagentInput.trim();
+    if (!sessionId || !target || !content || !canSubmitSubagent) return;
+    const childSessionId = target.sessionId;
+    const resources = subagentPendingResources;
+    const messageResources = resources.map((resource) => ({
+      resourceId: resource.resourceId,
+      role: resource.role,
+      source: resource.source,
+    }));
+    const pendingMessageResources: ChatMessageResource[] = resources.map((resource) => ({
+      id: resource.resourceId,
+      type: resource.type,
+      role: resource.role,
+      viewUrl: resource.viewUrl,
+      downloadUrl: resource.downloadUrl,
+      fileName: resource.fileName,
+      mimeType: resource.mimeType,
+      fileSize: resource.fileSize,
+      width: null,
+      height: null,
+    }));
+    const seed = Date.now();
+    const { userMessage, reasoningMessage, assistantMessage } = buildPendingAssistantTurn(
+      content,
+      seed,
+      pendingMessageResources,
+    );
+
+    setSubagentInputBySession((current) => ({ ...current, [childSessionId]: "" }));
+    setSubagentPendingResourcesBySession((current) => ({ ...current, [childSessionId]: [] }));
+    setSubagentErrorBySession((current) => ({ ...current, [childSessionId]: "" }));
+    setSubagentStreamingBySession((current) => ({ ...current, [childSessionId]: true }));
+    setSubagentMessagesBySession((current) => ({
+      ...current,
+      [childSessionId]: [
+        ...(current[childSessionId] ?? []),
+        userMessage,
+        reasoningMessage,
+        assistantMessage,
+      ],
+    }));
+    setHarnessUiState((current) => ({
+      ...current,
+      subagentsBySession: {
+        ...current.subagentsBySession,
+        [childSessionId]: { ...target, status: "RUNNING" },
+      },
+    }));
+    const updateChild = (update: (messages: UiChatMessage[]) => UiChatMessage[]) => {
+      setSubagentMessagesBySession((current) => ({
+        ...current,
+        [childSessionId]: update(current[childSessionId] ?? []),
+      }));
+    };
+    let receivedDirectChunk = false;
+    directSubagentStreamsRef.current.add(childSessionId);
+
+    try {
+      await apiStream(
+        "/api/chat/messages/stream",
+        {
+          method: "POST",
+          body: JSON.stringify(buildSubagentMessageRequest({
+            message: content,
+            sessionId: target.sessionId,
+            agentId: currentAgentId,
+            resources: messageResources.length > 0 ? messageResources : undefined,
+          })),
+        },
+        {
+          onUserMessage(message) {
+            updateChild((current) => applyPersistedMessage(current, userMessage.id, message));
+          },
+          onReasoning(chunk) {
+            updateChild((current) => applyReasoningChunk(current, reasoningMessage.id, chunk));
+          },
+          onChunk(chunk) {
+            receivedDirectChunk = true;
+            enqueueSubagentText(childSessionId, assistantMessage.id, chunk, true);
+          },
+          onBlocked(message) {
+            updateChild((current) => applyBlockedState(current, assistantMessage.id, message));
+          },
+          onImage(message) {
+            updateChild((current) => applyImageMessage(current, assistantMessage.id, message));
+          },
+          onAgentStep(step) {
+            updateChild((current) => applyAgentStep(current, assistantMessage.id, step));
+          },
+          onDone(_content, message) {
+            if (!receivedDirectChunk && message?.content) {
+              enqueueSubagentText(childSessionId, assistantMessage.id, message.content, false);
+            }
+            void waitForSubagentText(childSessionId, assistantMessage.id).then(() => {
+              updateChild((current) => removeEmptyAssistantPlaceholders(
+                message ? applyPersistedMessage(current, assistantMessage.id, message) : current,
+              ));
+            });
+          },
+          onError(message) {
+            setSubagentErrorBySession((current) => ({ ...current, [childSessionId]: message }));
+          },
+        },
+      );
+      await waitForSubagentText(childSessionId, assistantMessage.id);
+      subagentTextAnimationsRef.current.delete(
+        subagentAnimationKey(childSessionId, assistantMessage.id),
+      );
+      const [latestPage] = await Promise.all([
+        getChatSessionMessages(target.sessionId, 100),
+        refreshHarnessState(sessionId),
+      ]);
+      setSubagentMessagesBySession((current) => ({
+        ...current,
+        [childSessionId]: toUiChatMessages(latestPage.messages),
+      }));
+    } catch (streamError) {
+      const message = streamError instanceof Error ? streamError.message : "发送失败";
+      setSubagentErrorBySession((current) => ({ ...current, [childSessionId]: message }));
+      updateChild((current) => current.map((item) =>
+        item.id === assistantMessage.id && !item.content
+          ? { ...item, content: "暂时无法响应，请稍后重试。" }
+          : item,
+      ));
+      void refreshHarnessState(sessionId).catch(() => undefined);
+    } finally {
+      directSubagentStreamsRef.current.delete(childSessionId);
+      setSubagentStreamingBySession((current) => ({ ...current, [childSessionId]: false }));
     }
   }
 
@@ -1086,17 +1637,21 @@ function ChatPageContent() {
         <header className="sticky top-0 z-10 border-b border-stone-200/80 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
           <div className="flex items-center gap-3">
             <button
-              className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-full border border-stone-300 bg-white/80 transition hover:bg-stone-100"
-              type="button"
-              aria-label="打开菜单"
-              onClick={() => void handleOpenDrawer()}
-            >
-              <span className="h-0.5 w-5 rounded-full bg-stone-800" />
-              <span className="h-0.5 w-5 rounded-full bg-stone-800" />
+                className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-full border border-stone-300 bg-white/80 transition hover:bg-stone-100"
+                type="button"
+                aria-label="打开菜单"
+                onClick={() => void handleOpenDrawer()}
+              >
+                <span className="h-0.5 w-5 rounded-full bg-stone-800" />
+                <span className="h-0.5 w-5 rounded-full bg-stone-800" />
             </button>
             <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent Chat</p>
-              <h1 className="mt-2 truncate text-xl font-semibold">{currentSessionTitle}</h1>
+              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">
+                H-Agent Chat
+              </p>
+              <h1 className="mt-2 truncate text-xl font-semibold">
+                {currentSessionTitle}
+              </h1>
             </div>
             <button
               className="shrink-0 rounded-full border border-stone-300 bg-white/80 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1150,9 +1705,45 @@ function ChatPageContent() {
           ) : usingHarnessAgent ? (
             <div className="sticky top-0 z-[5] -mx-4 -mt-5 bg-[#f7f4ea]/95 px-4 pb-1 pt-5 backdrop-blur">
               <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50/90 p-4 shadow-sm">
-                <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">协作 Agent · 父会话</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.2em] text-amber-700">协作进度</p>
+                        <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-stone-500">{harnessSubagents.length} 位协作者</span>
+                    </div>
+                    {harnessSubagents.length > 0 && sessionId ? (
+                      <div className="flex gap-3 overflow-x-auto pb-1">
+                        {harnessSubagents.map((subagent) => (
+                          <button
+                            key={subagent.sessionId}
+                            type="button"
+                            className="flex w-20 shrink-0 flex-col items-center gap-1.5 rounded-2xl px-1 py-2 text-center transition hover:bg-white/70"
+                            onClick={() => {
+                              setSubagentPaginationBySession((current) => ({
+                                ...current,
+                                [subagent.sessionId]: {
+                                  loading: true,
+                                  hasMore: current[subagent.sessionId]?.hasMore ?? false,
+                                  nextBeforeSeq: current[subagent.sessionId]?.nextBeforeSeq ?? null,
+                                },
+                              }));
+                              setActiveSubagentSessionId(subagent.sessionId);
+                            }}
+                          >
+                            <span className="relative flex h-11 w-11 items-center justify-center rounded-full bg-stone-900 text-sm font-semibold text-white">
+                              {subagent.displayName.trim().slice(0, 1) || "协"}
+                              <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-amber-50 ${harnessStatusTone(subagent.status)}`} />
+                            </span>
+                            <span className="w-full truncate text-xs font-medium text-stone-700">{subagent.displayName}</span>
+                            <span className="text-[10px] text-stone-500">{harnessStatusLabel[subagent.status]}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs leading-5 text-stone-500">父 Agent 拆分任务后，协作者会出现在这里。</p>
+                    )}
                 </div>
               </div>
             </div>
@@ -1216,6 +1807,8 @@ function ChatPageContent() {
                     "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
                     turn.kind === "user"
                       ? "rounded-br-md bg-stone-900 text-stone-50"
+                      : turn.kind === "system"
+                        ? "w-full max-w-full border border-amber-200 bg-amber-50 text-stone-700"
                       : turn.kind === "blocked"
                         ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
                         : turn.kind === "image"
@@ -1223,7 +1816,12 @@ function ChatPageContent() {
                         : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
                   ].join(" ")}
                 >
-                  {turn.kind === "user" ? (
+                  {turn.kind === "system" ? (
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-amber-700">系统消息</p>
+                      <p className="mt-2 whitespace-pre-wrap">{turn.content}</p>
+                    </div>
+                  ) : turn.kind === "user" ? (
                     <div className="space-y-3">
                       {turn.resources && turn.resources.length > 0 ? (
                         <MediaContent content={turn.content} resources={turn.resources} />
@@ -1289,7 +1887,7 @@ function ChatPageContent() {
               setUploading(true);
               setError("");
               try {
-                const result = await uploadChatResource(file, sessionId!, "ATTACHMENT");
+                const result = await uploadChatResource(file, "ATTACHMENT");
                 setPendingResources((prev) => [...prev, result]);
               } catch (err) {
                 setError(err instanceof Error ? err.message : "上传失败");
@@ -1419,7 +2017,9 @@ function ChatPageContent() {
                   className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.4rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder={usingStandardAgent ? "输入你想聊的内容..." : `询问 ${currentAgentName}...`}
+                  placeholder={usingStandardAgent
+                      ? "输入你想聊的内容..."
+                      : `询问 ${currentAgentName}...`}
                   rows={1}
                 />
                 <button
@@ -1433,6 +2033,210 @@ function ChatPageContent() {
             </div>
           </div>
         </div>
+
+        {activeSubagent ? (
+          <div className="fixed inset-0 z-40 flex justify-end bg-stone-950/25 backdrop-blur-[1px]">
+            <button
+              type="button"
+              className="absolute inset-0 cursor-default"
+              aria-label="关闭子 Agent 抽屉"
+              onClick={() => setActiveSubagentSessionId(null)}
+            />
+            <aside className="relative z-10 flex h-full w-[92%] max-w-md flex-col border-l border-stone-200 bg-[#f7f4ea] shadow-2xl">
+              <header className="border-b border-stone-200 bg-[#f7f4ea]/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-white text-xl"
+                    aria-label="返回父 Agent"
+                    onClick={() => setActiveSubagentSessionId(null)}
+                  >
+                    ←
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs uppercase tracking-[0.22em] text-amber-700">协作 Agent · 子对话</p>
+                    <h2 className="mt-1 truncate text-lg font-semibold text-stone-900">{activeSubagent.displayName}</h2>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-stone-600">
+                    <span className={`h-2 w-2 rounded-full ${harnessStatusTone(activeSubagent.status)}`} />
+                    {harnessStatusLabel[activeSubagent.status]}
+                  </span>
+                </div>
+              </header>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-40 pt-4">
+                {hasOlderSubagentMessages ? (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="rounded-full border border-stone-200 bg-white px-4 py-2 text-sm text-stone-600"
+                      disabled={loadingSubagentMessages}
+                      onClick={() => void handleLoadOlderSubagentMessages()}
+                    >
+                      {loadingSubagentMessages ? "加载中..." : "加载更早消息"}
+                    </button>
+                  </div>
+                ) : null}
+                <div className="mt-4 space-y-4">
+                  {!loadingSubagentMessages && subagentMessages.length === 0 ? (
+                    <article className="flex justify-start">
+                      <div className="max-w-[88%] rounded-2xl rounded-bl-md border border-stone-200 bg-white px-4 py-3 text-sm leading-6 text-stone-600">
+                        这个协作 Agent 暂无消息。完成首轮委托后，你可以继续追加要求。
+                      </div>
+                    </article>
+                  ) : null}
+                  {toRenderableTurns(subagentMessages).filter(isVisibleSubagentTurn).map((turn) => (
+                    <article key={turn.id} className={`flex ${turn.kind === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                        turn.kind === "user"
+                          ? "rounded-br-md bg-stone-900 text-white"
+                          : turn.kind === "system"
+                            ? "w-full max-w-full border border-amber-200 bg-amber-50 text-stone-700"
+                          : "rounded-bl-md border border-stone-200 bg-white text-stone-700"
+                      }`}>
+                        {turn.kind === "system" ? (
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">父 Agent 的委托</p>
+                            <p className="mt-2 whitespace-pre-wrap">{turn.content}</p>
+                          </div>
+                        ) : turn.kind === "user" ? (
+                          <div className="space-y-2">
+                            {turn.resources?.length ? <MediaContent content={turn.content} resources={turn.resources} /> : null}
+                            {turn.content ? <p className="whitespace-pre-wrap">{turn.content}</p> : null}
+                          </div>
+                        ) : turn.kind === "image" ? (
+                          <MediaContent content={turn.content} resources={turn.resources} />
+                        ) : turn.kind === "blocked" ? (
+                          <div className="space-y-2">
+                            <AgentStepDetails steps={turn.agentSteps} />
+                            {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
+                            <BlockedMessageContent content={turn.blocked} />
+                          </div>
+                        ) : turn.answer || turn.resources.length > 0 ? (
+                          <div className="space-y-2">
+                            <AgentStepDetails steps={turn.agentSteps} />
+                            {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
+                            {turn.answer ? <AssistantMessageContent content={turn.answer} /> : null}
+                            {turn.resources.length > 0 ? <MediaContent content={turn.answer} resources={turn.resources} /> : null}
+                          </div>
+                        ) : turn.reasoning ? (
+                          <div className="space-y-2">
+                            <AgentStepDetails steps={turn.agentSteps} pending />
+                            <ReasoningDetails content={turn.reasoning} pending />
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <AgentStepDetails steps={turn.agentSteps} pending />
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#f7f4ea] via-[#f7f4ea] to-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8">
+                <div className="rounded-[1.7rem] border border-stone-200 bg-[#f8f5ec]/95 p-3 shadow-lg backdrop-blur">
+                  <input
+                    ref={subagentFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/wav,audio/webm"
+                    className="hidden"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      if (!file || !sessionId) return;
+                      if (file.size > 10 * 1024 * 1024) {
+                        setSubagentErrorBySession((current) => ({
+                          ...current,
+                          [activeSubagent.sessionId]: "文件大小不能超过 10MB",
+                        }));
+                        return;
+                      }
+                      const childSessionId = activeSubagent.sessionId;
+                      setSubagentUploadingBySession((current) => ({ ...current, [childSessionId]: true }));
+                      setSubagentErrorBySession((current) => ({ ...current, [childSessionId]: "" }));
+                      try {
+                        const uploaded = await uploadChatResource(file, "ATTACHMENT");
+                        setSubagentPendingResourcesBySession((current) => ({
+                          ...current,
+                          [childSessionId]: [...(current[childSessionId] ?? []), uploaded],
+                        }));
+                      } catch (uploadError) {
+                        setSubagentErrorBySession((current) => ({
+                          ...current,
+                          [childSessionId]: uploadError instanceof Error ? uploadError.message : "上传失败",
+                        }));
+                      } finally {
+                        setSubagentUploadingBySession((current) => ({ ...current, [childSessionId]: false }));
+                        event.target.value = "";
+                      }
+                    }}
+                  />
+                  {subagentError ? <p className="px-2 pb-2 text-sm text-red-600">{subagentError}</p> : null}
+                  {!canSubmitSubagentStatus(activeSubagent.status) ? (
+                    <p className="px-2 pb-2 text-xs leading-5 text-stone-500">
+                      {activeSubagent.status === "RUNNING"
+                        ? "该协作者正在执行，完成后可继续追加。关闭抽屉不会中断运行。"
+                        : "该协作者尚未完成首轮委托。"}
+                    </p>
+                  ) : null}
+                  {subagentPendingResources.length > 0 ? (
+                    <div className="flex gap-2 px-2 pb-2">
+                      {subagentPendingResources.map((resource) => (
+                        <div key={resource.resourceId} className="relative h-14 w-14">
+                          <img
+                            src={resource.viewUrl}
+                            alt={resource.fileName}
+                            className="h-full w-full rounded-lg border border-stone-200 object-cover"
+                          />
+                          <button
+                            type="button"
+                            className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-stone-800 text-xs text-white"
+                            onClick={() => setSubagentPendingResourcesBySession((current) => ({
+                              ...current,
+                              [activeSubagent.sessionId]: (current[activeSubagent.sessionId] ?? [])
+                                .filter((item) => item.resourceId !== resource.resourceId),
+                            }))}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <form className="flex items-end gap-3" onSubmit={handleSubagentSubmit}>
+                    <button
+                      type="button"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 disabled:opacity-50"
+                      onClick={() => subagentFileInputRef.current?.click()}
+                      disabled={subagentUploading || subagentStreaming || !canSubmitSubagentStatus(activeSubagent.status)}
+                    >
+                      {subagentUploading ? "..." : "📎"}
+                    </button>
+                    <textarea
+                      className="max-h-32 min-h-12 flex-1 resize-none rounded-[1.3rem] border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-amber-500"
+                      value={subagentInput}
+                      onChange={(event) => setSubagentInputBySession((current) => ({
+                        ...current,
+                        [activeSubagent.sessionId]: event.target.value,
+                      }))}
+                      placeholder={`向 ${activeSubagent.displayName} 追加要求...`}
+                      disabled={!canSubmitSubagentStatus(activeSubagent.status) || subagentStreaming}
+                      rows={1}
+                    />
+                    <button
+                      type="submit"
+                      className="h-12 rounded-full bg-stone-900 px-5 text-sm font-semibold text-white disabled:bg-stone-400"
+                      disabled={!canSubmitSubagent}
+                    >
+                      {subagentStreaming ? "生成中" : "发送"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </aside>
+          </div>
+        ) : null}
       </section>
     </main>
   );

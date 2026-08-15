@@ -114,7 +114,6 @@ Agent 回复同理：
 | `id` | 资源 ID |
 | `message_id` | 聊天消息 ID，可空；空表示已上传但还未发送 |
 | `user_id` | 资源所有者 |
-| `session_id` | 创建资源时所在会话，可空但建议上传时传入 |
 | `resource_kind` | `IMAGE` / `AUDIO` / `VIDEO` / `FILE` |
 | `storage_type` | `LOCAL_FILE` / `OSS` / `MANAGED_URL` |
 | `storage_key` | 存储定位 |
@@ -127,6 +126,10 @@ Agent 回复同理：
 | `height` | 图片或视频高度 |
 | `duration_ms` | 音频或视频时长，后续可补 |
 | `created_at` | 创建时间 |
+
+资源不重复保存 `session_id`。绑定后的资源通过
+`message_id -> chat_session_messages.session_id` 确定实际 Agent Session；未绑定上传只属于用户，
+由 `user_id` 授权，并通过 `message_id = null` 表示尚未发送。
 
 `sha256` 不是密钥，也不是加密字段，只是文件内容摘要，常用于去重、完整性校验或审计。当前没有去重和完整性校验需求，因此不作为首版必要字段。
 

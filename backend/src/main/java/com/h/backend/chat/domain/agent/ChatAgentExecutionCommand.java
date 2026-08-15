@@ -12,7 +12,19 @@ public record ChatAgentExecutionCommand(
         FluxSink<ChatStreamEvent> sink,
         Long userId,
         Long resolvedPromptId,
+        /** 请求直接指定的实际 Agent Session ID，也是写消息、运行和并发锁身份。 */
         String sessionId,
+        /** 所属顶级聊天会话；父请求时与 sessionId 相同。 */
+        String rootSessionId,
+        /** Gateway 内部子 Agent 句柄；父请求为空，不从 HTTP 请求接收。 */
+        String gatewaySubagentId,
+        /** 子 Agent 类型、直接父节点和不可覆盖的原始委托；父请求为空。 */
+        String subagentAgentId,
+        String subagentParentSessionId,
+        /** 原始任务委托（assignment）文本  */
+        String subagentAssignment,
+        /** 用户直达子 Agent 时由服务端生成的执行代次；父请求为空。 */
+        String subagentExecutionId,
         String userMessage,
         List<ChatMessageResourceUseDto> resources,
         String memoryId,
@@ -21,4 +33,21 @@ public record ChatAgentExecutionCommand(
         AgentRunTelemetryService.TelemetryRun telemetryRun,
         Runnable onTerminal
 ) {
+    public ChatAgentExecutionCommand(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            Long resolvedPromptId,
+            String sessionId,
+            String userMessage,
+            List<ChatMessageResourceUseDto> resources,
+            String memoryId,
+            AgentDefinition agent,
+            AgentRunService.AgentRunHandle runHandle,
+            AgentRunTelemetryService.TelemetryRun telemetryRun,
+            Runnable onTerminal
+    ) {
+        this(sink, userId, resolvedPromptId, sessionId, sessionId, null, null, null, null, null,
+                userMessage, resources, memoryId,
+                agent, runHandle, telemetryRun, onTerminal);
+    }
 }

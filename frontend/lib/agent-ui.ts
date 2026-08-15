@@ -1,5 +1,5 @@
 import type { AgentTopologyNode } from "./agents";
-import type { UiAgentStep } from "./chat-message-state";
+import type { RenderableTurn, UiAgentStep } from "./chat-message-state";
 
 const CONTAINER_TOPOLOGIES = new Set(["SEQUENCE", "ROUTER", "LOOP", "PARALLEL", "STAR"]);
 
@@ -33,6 +33,19 @@ export function currentAgentStepText(steps: UiAgentStep[]) {
   }
 
   return `正在执行：${latest.nodeName}`;
+}
+
+export function isVisibleSubagentTurn(turn: RenderableTurn) {
+  if (turn.kind !== "assistant") {
+    return true;
+  }
+
+  return Boolean(
+    turn.reasoning?.trim()
+      || turn.answer.trim()
+      || turn.resources.length > 0
+      || visibleAgentSteps(turn.agentSteps).length > 0,
+  );
 }
 
 export function topologyLabel(topology: string | null) {
