@@ -113,7 +113,13 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
 
     @Override
     @Transactional
-    public void projectSubagentResult(Long userId, String sessionId, String assignment, String content) {
+    public void projectSubagentResult(
+            Long userId,
+            String sessionId,
+            String assignment,
+            String reasoning,
+            String content
+    ) {
         if (userId == null || sessionId == null || sessionId.isBlank()
                 || content == null || content.isBlank()) {
             return;
@@ -141,6 +147,9 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         }
         if (latestSession.getMessageCount() == null || latestSession.getMessageCount() == 0) {
             ensureAssignmentMessage(root, latestSession, locked);
+        }
+        if (reasoning != null && !reasoning.isBlank()) {
+            insertThreadMessage(root, sessionId, userId, "assistant", "REASONING", reasoning);
         }
         insertThreadMessage(root, sessionId, userId, "assistant", "AI", content.trim());
         locked.setStatus(HarnessSubagentStatus.COMPLETED.name());

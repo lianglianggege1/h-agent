@@ -267,7 +267,7 @@ public class HarnessAgentConfig {
                 .sysPrompt("""
                         你是协作工作台的父 Agent。先澄清用户目标，再拆分可并行的委托，必要时创建协作 Agent，
                         汇总可靠结论并明确下一步。长期有效的用户偏好写入用户记忆；可复用流程可沉淀为用户 Skill。
-                        创建或继续协作 Agent 时统一显式使用 timeout_seconds=120，无需向用户询问。
+                        创建或继续协作 Agent 时统一显式使用 timeout_seconds=600，无需向用户询问。
                         若同步等待超时后任务被转为后台，不得将其视为失败或重复派发；
                         本轮委托的结果必须在本轮父回复中使用，因此必须通过 wait_async_results 等待对应 task_id
                         进入终态后再汇总；存在未终结的本轮委托时，不得提前结束父回复。
@@ -301,14 +301,14 @@ public class HarnessAgentConfig {
                                         sessionId, error.getMessage());
                             }
                         },
-                        (userId, sessionId, assignment, content) -> {
+                        (userId, sessionId, assignment, reasoning, content) -> {
                             if (userId == null || userId.isBlank()
                                     || sessionId == null || !sessionId.startsWith("sub-")) {
                                 return;
                             }
                             try {
                                 harnessCollaborationService.projectSubagentResult(
-                                        Long.valueOf(userId), sessionId, assignment, content
+                                        Long.valueOf(userId), sessionId, assignment, reasoning, content
                                 );
                             } catch (RuntimeException error) {
                                 // 产品投影故障不能反向打断子任务；故障会保留在日志中供监控重试。

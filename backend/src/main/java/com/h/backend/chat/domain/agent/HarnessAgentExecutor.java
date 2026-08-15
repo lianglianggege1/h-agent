@@ -27,7 +27,10 @@ import reactor.core.Disposable;
 import reactor.core.publisher.FluxSink;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -36,9 +39,9 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * AgentScope Harness 与现有聊天执行协议之间的适配器。
  *
- * <p>当前请求所属 Agent 的事件会映射为 {@code harness_event}；后代 Agent 只向该请求
- * 发布已经提交的协作生命周期投影，其思考、正文和工具事件由后代 Session 的独立观察流承载。
- * 当前 Agent 的文本与思考同时降级映射为旧前端支持的 {@code chunk/reasoning}。</p>
+ * <p>对用户有意义的 AgentEvent 会映射为 {@code harness_event}，同时只把父 Agent 的文本
+ * 与思考降级映射为旧前端已支持的 {@code chunk/reasoning}。这样旧客户端仍能聊天，而
+ * 子 Agent 的增量不会被错误拼进父回复。</p>
  */
 @Slf4j
 @Component
@@ -50,6 +53,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     private final HarnessEventMapper eventMapper;
     private final HarnessRuntime harnessRuntime;
     private final HarnessCollaborationService harnessCollaborationService;
+    private final HarnessSubagentEventRelay subagentEventRelay;
 
     @Autowired
     public HarnessAgentExecutor(
@@ -58,7 +62,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper,
             HarnessRuntime harnessRuntime,
-            HarnessCollaborationService harnessCollaborationService
+            HarnessCollaborationService harnessCollaborationService,
+            HarnessSubagentEventRelay subagentEventRelay
     ) {
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
@@ -66,6 +71,19 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         this.eventMapper = eventMapper;
         this.harnessRuntime = harnessRuntime;
         this.harnessCollaborationService = harnessCollaborationService;
+        this.subagentEventRelay = subagentEventRelay;
+    }
+
+    public HarnessAgentExecutor(
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            HarnessEventMapper eventMapper,
+            HarnessRuntime harnessRuntime,
+            HarnessCollaborationService harnessCollaborationService
+    ) {
+        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
+                harnessRuntime, harnessCollaborationService, new HarnessSubagentEventRelay());
     }
 
     public HarnessAgentExecutor(
@@ -75,7 +93,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessEventMapper eventMapper
     ) {
         this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
-                new AgentScopeHarnessRuntime(), null);
+                new AgentScopeHarnessRuntime(), null, new HarnessSubagentEventRelay());
     }
 
     @Override
@@ -139,6 +157,11 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         private final Map<String, String> agentSessionIdByReply = new HashMap<>();
         // AgentScope 保证成功执行时 AGENT_RESULT 紧邻并先于 AGENT_END；结果先暂存，END 才提交完成状态。
         private final Map<String, String> childResultByReply = new HashMap<>();
+        private final Map<String, Runnable> relayUnsubscribers = new ConcurrentHashMap<>();
+        // 同一条子事件可能同时经 AgentScope 父 emitter 与产品 relay 到达。SDK eventId 是
+        // 原始事件的稳定身份；按它去重，避免父时间线双发，同时保留 relay 的后台续传能力。
+        private final Set<String> observedEventIds = new HashSet<>();
+
         private Execution(ChatAgentExecutionCommand command) {
             this.command = command;
             agentSessionIdBySource.put("", command.sessionId());
@@ -148,12 +171,22 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             if (responseTerminal.get() || command.sink().isCancelled()) {
                 return;
             }
+            if (hasText(event.getId()) && !observedEventIds.add(event.getId())) {
+                return;
+            }
             String eventAgentSessionId = resolveEventAgentSessionId(event);
             String exposedParentSessionId = null;
             HarnessSubagentSummaryDto projectedSubagent = null;
             try {
                 if (event instanceof SubagentExposedEvent exposed
                         && harnessCollaborationService != null) {
+                    relayUnsubscribers.computeIfAbsent(exposed.getSessionId(), childSessionId ->
+                            subagentEventRelay.subscribe(
+                                    String.valueOf(command.userId()),
+                                    childSessionId,
+                                    childEvent -> onRelayedSubagentEvent(childSessionId, childEvent.event())
+                            )
+                    );
                     String label = exposed.getLabel() == null || exposed.getLabel().isBlank()
                             ? exposed.getAgentId()
                             : exposed.getLabel();
@@ -236,20 +269,17 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                         command.sessionId(), event.getType(), projectionError.getMessage(), projectionError
                 );
             }
-            // 当前请求流只承载当前 Agent 自身事件，以及后代 Agent 已提交的生命周期投影。
-            // 后代的思考、正文和工具增量只进入其 Session 独立观察流，不能泄漏到父 SSE。
-            if (isParent(event) || projectedSubagent != null) {
-                emit(eventMapper.map(
-                        command.runHandle().id(),
-                        sequence.incrementAndGet(),
-                        event,
-                        exposedParentSessionId,
-                        eventAgentSessionId,
-                        projectedSubagent
-                ));
-            }
+            // sequence 按原始 AgentEvent 流严格递增；每条事件都通过同一 SSE 信封向前端发送。
+            emit(eventMapper.map(
+                    command.runHandle().id(),
+                    sequence.incrementAndGet(),
+                    event,
+                    exposedParentSessionId,
+                    eventAgentSessionId,
+                    projectedSubagent
+            ));
 
-            // source 为空才是当前请求所属 Agent；其后代文本已在上方路由到独立观察流。
+            // source 为空才是父 Agent。子文本仅保留在 harness_event，避免污染父气泡。
             if (isParent(event) && event instanceof TextBlockDeltaEvent textEvent) {
                 emittedParentText.set(true);
                 emit(new ChatStreamEvent("chunk", textEvent.getDelta()));
@@ -306,6 +336,14 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 }
             }
             return agentSessionIdBySource.get(normalizeSource(event.getSource()));
+        }
+
+        private void onRelayedSubagentEvent(String childSessionId, AgentEvent event) {
+            String relaySource = "product-relay/" + childSessionId;
+            synchronized (this) {
+                agentSessionIdBySource.put(relaySource, childSessionId);
+            }
+            onEvent(event.withSource(relaySource));
         }
 
         private void onComplete() {
@@ -448,6 +486,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
 
         private void releaseExecution() {
             if (executionReleased.compareAndSet(false, true)) {
+                relayUnsubscribers.values().forEach(Runnable::run);
+                relayUnsubscribers.clear();
                 command.onTerminal().run();
             }
         }

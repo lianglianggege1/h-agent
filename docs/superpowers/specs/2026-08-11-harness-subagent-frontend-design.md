@@ -53,7 +53,7 @@ type HarnessSubagentSummary = {
 type HarnessSubagents = HarnessSubagentSummary[];
 ```
 
-没有 snapshot 对象或 revision。接口直接返回最新协作者列表。父请求中的 `harness_event` 只更新协作状态投影；子抽屉通过指定 child session 的独立观察流消费思考、正文和工具增量。流结束后重新请求最新列表校准。
+没有 snapshot 对象或 revision。接口直接返回最新协作者列表，`harness_event` 是当前流的低延迟增量；流结束后重新请求最新列表校准。
 
 父和子运行状态分开保存：
 
@@ -71,7 +71,6 @@ subagentInput: string;
 
 - `GET /api/chat/sessions/{root}/subagents`：直接返回协作者数组，用于恢复最新协作树。
 - `GET /api/chat/sessions/{sessionId}/messages`：父子统一历史接口，`sessionId` 就是实际消息会话。
-- `GET /api/chat/agent-sessions/{childSessionId}/events`：只观察该子会话的实时事件。
 - `POST /api/chat/messages/stream`：父子请求结构一致，只传实际执行 `sessionId`。
 
 前端不接收或提交 Gateway 句柄，也不把 `source.path` 当作身份。子 Agent 定向调用由后端从实际 `sessionId` 完成归属校验并解析内部 Gateway 句柄。
@@ -84,5 +83,5 @@ subagentInput: string;
 4. 刷新页面后恢复协作者、状态、直接父关系和独立子历史。
 5. 子结果不出现在父历史，父结果不出现在子历史。
 6. 再次进入子对话时，首条 `SYSTEM` 委托仍在；后续回答同时保留原委托和此前对话上下文。
-7. 父请求流不包含子 Agent 的思考、正文或工具增量，只包含协作状态投影。
+7. 子 Agent 的实时思考在抽屉中增量显示，完成后以 `REASONING` 消息保留，刷新页面仍位于对应 `AI` 回复之前。
 8. 非法或跨用户 `sessionId` 不进入抽屉历史。

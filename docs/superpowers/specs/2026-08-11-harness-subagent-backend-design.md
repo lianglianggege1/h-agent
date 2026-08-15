@@ -119,8 +119,7 @@ Redis session permit key 使用实际 Agent Session ID。用户和全局 semapho
 - 最新状态：`GET /api/chat/sessions/{rootSessionId}/subagents`，响应数据直接为协作者数组。
 - 父子历史：统一为 `GET /api/chat/sessions/{sessionId}/messages`。
 - 父子发送：统一使用 `POST /api/chat/messages/stream`，请求只带实际执行 `sessionId`，没有 `target`。
-- 父请求 SSE 只发送父 Agent 自身事件和已提交的子 Agent 生命周期投影；子 Agent 的思考、正文和工具事件不得进入父流。
-- `GET /api/chat/agent-sessions/{childSessionId}/events` 是指定子 Session 的独立观察流，承载该子 Agent 的原始实时事件。
+- 子 Agent 完成边界将本轮思考聚合为 `REASONING` 消息，并在最终 `AI` 消息之前原子写入子会话历史；重复完成投影不得产生重复消息。
 - SSE `harness_event` 不提供第二套 target 身份；产品状态更新只读取 `projection.subagent.sessionId`，不返回 Gateway 句柄。
 
 “协作快照”仅是当前协作树的查询结果，不是独立事件存储、版本表或消息副本。
@@ -131,4 +130,4 @@ Redis session permit key 使用实际 Agent Session ID。用户和全局 semapho
 - 跨用户或无法解析到有效 Harness 根节点的 `sessionId` 必须返回不存在，不能泄露其他用户信息。
 - `source.path` 只能在当前事件流内解析拓扑，不能成为持久身份或授权键。
 - 任何父/子消息入口都必须使用数据库原子序号分配。
-- 不能把子 Agent delta 发送到父请求 SSE，更不能拼入父 Assistant 气泡。
+- 不能把子 Agent delta 拼入父 Assistant 气泡。

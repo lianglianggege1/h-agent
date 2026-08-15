@@ -384,8 +384,9 @@ function ChatPageContent() {
   const subagentTextAnimationsRef = useRef<Map<string, SubagentTextAnimation>>(new Map());
   const seenHarnessTranscriptEventsRef = useRef<Set<string>>(new Set());
   const directSubagentStreamsRef = useRef<Set<string>>(new Set());
-  const applySubagentTranscriptEventRef = useRef<(
+  const applyHarnessRuntimeEventRef = useRef<(
     payload: Parameters<typeof applyHarnessEvent>[1],
+    projectHarnessState?: boolean,
   ) => void>(() => {});
   const requestedAgentId = searchParams.get("agentId");
   const requestedSessionId = searchParams.get("sessionId");
@@ -686,7 +687,7 @@ function ChatPageContent() {
         try {
           await observeHarnessSubagentEvents(
             childSessionId,
-            (payload) => applySubagentTranscriptEventRef.current(payload),
+            (payload) => applyHarnessRuntimeEventRef.current(payload, false),
             controller.signal,
           );
           break;
@@ -786,11 +787,13 @@ function ChatPageContent() {
     setHarnessUiState((current) => replaceHarnessSubagents(current, subagents));
   }
 
-  function applyHarnessProjectionEvent(payload: Parameters<typeof applyHarnessEvent>[1]) {
-    setHarnessUiState((current) => applyHarnessEvent(current, payload));
-  }
-
-  function applySubagentTranscriptEvent(payload: Parameters<typeof applyHarnessEvent>[1]) {
+  function applyHarnessRuntimeEvent(
+    payload: Parameters<typeof applyHarnessEvent>[1],
+    projectHarnessState = true,
+  ) {
+    if (projectHarnessState) {
+      setHarnessUiState((current) => applyHarnessEvent(current, payload));
+    }
     const transcriptEventKey = `${payload.eventType}:${payload.eventId}`;
     if (seenHarnessTranscriptEventsRef.current.has(transcriptEventKey)) return;
     seenHarnessTranscriptEventsRef.current.add(transcriptEventKey);
@@ -844,7 +847,7 @@ function ChatPageContent() {
       });
     }
   }
-  applySubagentTranscriptEventRef.current = applySubagentTranscriptEvent;
+  applyHarnessRuntimeEventRef.current = applyHarnessRuntimeEvent;
 
   function subagentAnimationKey(childSessionId: string, messageId: string) {
     return `${childSessionId}:${messageId}`;
@@ -1194,7 +1197,7 @@ function ChatPageContent() {
             setMessages((current) => applyAgentStep(current, assistantMessage.id, step));
           },
           onHarnessEvent(payload) {
-            applyHarnessProjectionEvent(payload);
+            applyHarnessRuntimeEvent(payload);
           },
           onDone(_content, message) {
             setMessages((current) => {
@@ -1332,6 +1335,9 @@ function ChatPageContent() {
           },
           onAgentStep(step) {
             updateChild((current) => applyAgentStep(current, assistantMessage.id, step));
+          },
+          onHarnessEvent(payload) {
+            applyHarnessRuntimeEvent(payload);
           },
           onDone(_content, message) {
             if (!receivedDirectChunk && message?.content) {

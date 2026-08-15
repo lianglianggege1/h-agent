@@ -296,7 +296,7 @@ class HarnessCollaborationSessionOpenIT {
         harnessCollaborationService.projectSubagentResult(
                 user.getId(), "child-runtime-summer-live",
                 "写一篇描绘夏日傍晚的散文，约 500 字。",
-                "蝉鸣落在黄昏里。"
+                null, "蝉鸣落在黄昏里。"
         );
         var thread = chatSessionService.getSessionMessages(
                 user.getId(), "child-runtime-summer-live", 20, null
@@ -305,6 +305,34 @@ class HarnessCollaborationSessionOpenIT {
         assertEquals(2, thread.messages().size());
         assertEquals("写一篇描绘夏日傍晚的散文，约 500 字。", thread.messages().getFirst().content());
         assertEquals("蝉鸣落在黄昏里。", thread.messages().getLast().content());
+    }
+
+    @Test
+    void childCompletionBoundaryPersistsReasoningBeforeReply() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(user.getId(), null, ChatAgentIds.HARNESS, null);
+        harnessCollaborationService.exposeSubagent(
+                user.getId(), opened.session().sessionId(),
+                new HarnessSubagentExposure(
+                        "summer-reasoning", "general-purpose", opened.session().sessionId(),
+                        "child-runtime-summer-reasoning", "散文·夏", "写一篇夏日散文"
+                )
+        );
+
+        harnessCollaborationService.projectSubagentResult(
+                user.getId(), "child-runtime-summer-reasoning", "写一篇夏日散文",
+                "先确定黄昏、蝉鸣和晚风三个意象。", "蝉鸣落在黄昏里。"
+        );
+        var thread = chatSessionService.getSessionMessages(
+                user.getId(), "child-runtime-summer-reasoning", 20, null
+        );
+
+        assertEquals(3, thread.messages().size());
+        assertEquals("SYSTEM", thread.messages().get(0).messageType());
+        assertEquals("REASONING", thread.messages().get(1).messageType());
+        assertEquals("先确定黄昏、蝉鸣和晚风三个意象。", thread.messages().get(1).content());
+        assertEquals("AI", thread.messages().get(2).messageType());
+        assertEquals("蝉鸣落在黄昏里。", thread.messages().get(2).content());
     }
 
     @Test
@@ -323,7 +351,8 @@ class HarnessCollaborationSessionOpenIT {
                 "child-runtime-summer-race", "reply-summer-race"
         );
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-race", "写一篇夏日散文", "蝉鸣落在黄昏里。"
+                user.getId(), "child-runtime-summer-race", "写一篇夏日散文",
+                "先确定黄昏这个时间锚点。", "蝉鸣落在黄昏里。"
         );
 
         var delayed = harnessCollaborationService.completeSubagent(
@@ -335,7 +364,9 @@ class HarnessCollaborationSessionOpenIT {
         );
 
         assertNotNull(delayed.assistantMessageId());
-        assertEquals(2, thread.messages().size());
+        assertEquals(3, thread.messages().size());
+        assertEquals("REASONING", thread.messages().get(1).messageType());
+        assertEquals("AI", thread.messages().get(2).messageType());
     }
 
     @Test
@@ -350,7 +381,8 @@ class HarnessCollaborationSessionOpenIT {
                 )
         );
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-follow-up", "写一篇夏日散文", "蝉鸣落在黄昏里。"
+                user.getId(), "child-runtime-summer-follow-up", "写一篇夏日散文",
+                null, "蝉鸣落在黄昏里。"
         );
         harnessCollaborationService.beginSubagentTurn(
                 user.getId(), opened.session().sessionId(), "child-runtime-summer-follow-up",
@@ -359,7 +391,7 @@ class HarnessCollaborationSessionOpenIT {
 
         harnessCollaborationService.projectSubagentResult(
                 user.getId(), "child-runtime-summer-follow-up",
-                "再增加一些晚风的描写", "晚风从荷叶间穿过。"
+                "再增加一些晚风的描写", null, "晚风从荷叶间穿过。"
         );
         var thread = chatSessionService.getSessionMessages(
                 user.getId(), "child-runtime-summer-follow-up", 20, null

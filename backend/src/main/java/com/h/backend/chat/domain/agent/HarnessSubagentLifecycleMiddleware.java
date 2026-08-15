@@ -6,6 +6,7 @@ import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AgentStartEvent;
+import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.middleware.ActingInput;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
@@ -26,6 +27,9 @@ import java.util.function.Function;
  */
 public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase {
 
+    private static final String REASONING_ATTRIBUTE =
+            HarnessSubagentLifecycleMiddleware.class.getName() + ".reasoning";
+
     @FunctionalInterface
     public interface AssignmentListener {
         void onStarted(String userId, String sessionId, String assignment);
@@ -37,16 +41,27 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
     }
 
     @FunctionalInterface
+    public interface DetailedCompletionListener {
+        void onCompleted(
+                String userId,
+                String sessionId,
+                String assignment,
+                String reasoning,
+                String content
+        );
+    }
+
+    @FunctionalInterface
     public interface EventListener {
         void onEvent(String userId, String sessionId, AgentEvent event);
     }
 
     private final AssignmentListener assignmentListener;
-    private final CompletionListener completionListener;
+    private final DetailedCompletionListener completionListener;
     private final EventListener eventListener;
 
     public HarnessSubagentLifecycleMiddleware(CompletionListener completionListener) {
-        this((userId, sessionId, assignment) -> { }, completionListener,
+        this((userId, sessionId, assignment) -> { }, adapt(completionListener),
                 (userId, sessionId, event) -> { });
     }
 
@@ -54,12 +69,20 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
             AssignmentListener assignmentListener,
             CompletionListener completionListener
     ) {
-        this(assignmentListener, completionListener, (userId, sessionId, event) -> { });
+        this(assignmentListener, adapt(completionListener), (userId, sessionId, event) -> { });
     }
 
     public HarnessSubagentLifecycleMiddleware(
             AssignmentListener assignmentListener,
             CompletionListener completionListener,
+            EventListener eventListener
+    ) {
+        this(assignmentListener, adapt(completionListener), eventListener);
+    }
+
+    public HarnessSubagentLifecycleMiddleware(
+            AssignmentListener assignmentListener,
+            DetailedCompletionListener completionListener,
             EventListener eventListener
     ) {
         this.assignmentListener = assignmentListener;
@@ -85,6 +108,9 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
         // onAgent 早于 AgentState 绑定；先把输入放入当前调用上下文，system-prompt middleware
         // 会在状态绑定后仅对首轮执行委托写入。后续 USER 输入不会覆盖父委托。
         ParentAssignmentSystemPromptMiddleware.stageCurrentInput(context, assignment);
+        if (context != null) {
+            context.put(REASONING_ATTRIBUTE, new StringBuilder());
+        }
         // 这是子 Agent 真正收到输入的生命周期边界，不依赖父工具何时发送 TOOL_CALL_END。
         assignmentListener.onStarted(userId, sessionId, assignment);
         return next.apply(input).doOnNext(event -> {
@@ -103,9 +129,10 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
                     userId,
                     sessionId,
                     assignment,
+                    reasoningFrom(context),
                     resultEvent.getResult().getTextContent()
             );
-        });
+        }).doFinally(signal -> clearReasoning(context));
     }
 
     @Override
@@ -131,7 +158,41 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
     private Flux<AgentEvent> relay(RuntimeContext context, Flux<AgentEvent> events) {
         String userId = context == null ? null : context.getUserId();
         String sessionId = context == null ? null : context.getSessionId();
-        return events.doOnNext(event -> eventListener.onEvent(userId, sessionId, event));
+        return events.doOnNext(event -> {
+            if (event instanceof ThinkingBlockDeltaEvent thinking && context != null) {
+                reasoningBuffer(context).append(thinking.getDelta());
+            }
+            eventListener.onEvent(userId, sessionId, event);
+        });
+    }
+
+    private static DetailedCompletionListener adapt(CompletionListener listener) {
+        return (userId, sessionId, assignment, reasoning, content) ->
+                listener.onCompleted(userId, sessionId, assignment, content);
+    }
+
+    private static StringBuilder reasoningBuffer(RuntimeContext context) {
+        StringBuilder existing = context.get(REASONING_ATTRIBUTE);
+        if (existing != null) {
+            return existing;
+        }
+        StringBuilder created = new StringBuilder();
+        context.put(REASONING_ATTRIBUTE, created);
+        return created;
+    }
+
+    private static String reasoningFrom(RuntimeContext context) {
+        if (context == null) {
+            return "";
+        }
+        StringBuilder reasoning = context.get(REASONING_ATTRIBUTE);
+        return reasoning == null ? "" : reasoning.toString();
+    }
+
+    private static void clearReasoning(RuntimeContext context) {
+        if (context != null) {
+            context.put(REASONING_ATTRIBUTE, null);
+        }
     }
 
     private static boolean isAgentLifecycleEvent(AgentEvent event) {

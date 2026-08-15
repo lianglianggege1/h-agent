@@ -19,12 +19,6 @@ test("subagent direct stream consumes agent steps like the parent stream", () =>
   assert.match(childSubmit, /onAgentStep\(step\)[\s\S]*applyAgentStep/);
 });
 
-test("parent stream only updates collaboration projections while child observer owns transcript events", () => {
-  assert.match(pageSource, /onHarnessEvent\(payload\)[\s\S]*applyHarnessProjectionEvent\(payload\)/);
-  assert.match(pageSource, /observeHarnessSubagentEvents\([\s\S]*applySubagentTranscriptEventRef\.current\(payload\)/);
-  assert.doesNotMatch(childSubmit, /onHarnessEvent\(payload\)/);
-});
-
 test("subagent drawer omits the generic pending assistant status bubble", () => {
   assert.doesNotMatch(childDrawer, /<PendingAssistantStatus\b/);
   assert.match(childDrawer, /toRenderableTurns\(subagentMessages\)\.filter\(isVisibleSubagentTurn\)/);

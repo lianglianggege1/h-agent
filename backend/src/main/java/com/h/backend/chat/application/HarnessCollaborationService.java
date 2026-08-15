@@ -12,8 +12,17 @@ public interface HarnessCollaborationService {
     /** 仅凭实际 sessionId 解析顶级归属和内部 Gateway 句柄。 */
     HarnessExecutionSession resolveExecutionSession(Long userId, String sessionId);
 
-    /** 子 Agent 自身完成边界触发的实时产品投影；重复父流事件必须幂等。 */
-    void projectSubagentResult(Long userId, String sessionId, String assignment, String content);
+    /**
+     * 子 Agent 自身完成边界触发的完整产品投影，保留本轮思考并确保它位于最终回复之前。
+     * 重复父流事件必须幂等。
+     */
+    void projectSubagentResult(
+            Long userId,
+            String sessionId,
+            String assignment,
+            String reasoning,
+            String content
+    );
 
     /** 子 Agent 自身开始边界触发的委托投影；只允许补全首轮 SYSTEM 委托。 */
     void projectSubagentAssignment(Long userId, String sessionId, String assignment);

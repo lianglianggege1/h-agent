@@ -3,6 +3,7 @@ package com.h.backend.chat.domain.agent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
+import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.event.ToolResultTextDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -20,6 +21,48 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class HarnessSubagentLifecycleMiddlewareTest {
+
+    @Test
+    void shouldIncludeAccumulatedReasoningAtTheChildCompletionBoundary() {
+        AtomicReference<List<String>> completed = new AtomicReference<>();
+        var middleware = new HarnessSubagentLifecycleMiddleware(
+                (userId, sessionId, assignment) -> { },
+                (userId, sessionId, assignment, reasoning, content) -> completed.set(
+                        List.of(userId, sessionId, assignment, reasoning, content)
+                ),
+                (userId, sessionId, event) -> { }
+        );
+        var context = RuntimeContext.builder().userId("73").sessionId("sub-reasoning").build();
+        var input = new AgentInput(List.of(
+                Msg.builder().role(MsgRole.USER).textContent("分析夏日意象").build()
+        ));
+        Flux<io.agentscope.core.event.AgentEvent> reasoningEvents = middleware.onReasoning(
+                null,
+                context,
+                new ReasoningInput(List.of(), List.of(), null),
+                ignored -> Flux.just(
+                        new ThinkingBlockDeltaEvent("reply-live", "thinking-live", "先看蝉鸣，"),
+                        new ThinkingBlockDeltaEvent("reply-live", "thinking-live", "再看晚风。")
+                )
+        );
+        var result = new AgentResultEvent(Msg.builder()
+                .role(MsgRole.ASSISTANT)
+                .textContent("蝉鸣落在黄昏里。")
+                .build());
+
+        middleware.onAgent(
+                        null,
+                        context,
+                        input,
+                        ignored -> Flux.concat(reasoningEvents, Flux.just(result))
+                )
+                .collectList().block();
+
+        assertEquals(
+                List.of("73", "sub-reasoning", "分析夏日意象", "先看蝉鸣，再看晚风。", "蝉鸣落在黄昏里。"),
+                completed.get()
+        );
+    }
 
     @Test
     void shouldProjectResultFromTheChildOwnCompletionBoundary() {

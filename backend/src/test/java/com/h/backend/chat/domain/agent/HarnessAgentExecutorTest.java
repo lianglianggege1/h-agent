@@ -131,6 +131,7 @@ class HarnessAgentExecutorTest {
         assertEquals(List.of(
                 "harness_event",
                 "harness_event",
+                "harness_event",
                 "chunk",
                 "done"
         ), events.stream().map(ChatStreamEvent::type).toList());
@@ -244,19 +245,17 @@ class HarnessAgentExecutorTest {
                 "harness_event",
                 "reasoning",
                 "harness_event",
+                "harness_event",
                 "chunk",
+                "harness_event",
                 "harness_event",
                 "done"
         ), events.stream().map(ChatStreamEvent::type).toList());
         assertEquals("parent think", events.get(1).content());
-        assertEquals("parent live", events.get(3).content());
+        assertEquals("parent live", events.get(4).content());
         assertEquals(0, events.stream().filter(event -> "child think".equals(event.content())).count());
         assertEquals(0, events.stream().filter(event -> "child private".equals(event.content())).count());
-        assertEquals(0, events.stream()
-                .filter(event -> event.payload() instanceof HarnessAgentEventPayload payload
-                        && "SUBAGENT".equals(payload.source().scope()))
-                .count());
-        assertEquals(persisted, events.get(5).message());
+        assertEquals(persisted, events.get(7).message());
         assertEquals(1, terminalCount.get());
 
         ArgumentCaptor<RuntimeContext> contextCaptor = ArgumentCaptor.forClass(RuntimeContext.class);
@@ -523,7 +522,7 @@ class HarnessAgentExecutorTest {
     }
 
     @Test
-    void shouldKeepChildDeltasOutOfParentStreamWhilePublishingLifecycleProjection() {
+    void shouldRelayRealChildDeltasWithoutDuplicatingTheParentEmitterCopy() {
         HarnessRuntime runtime = mock(HarnessRuntime.class);
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -532,7 +531,7 @@ class HarnessAgentExecutorTest {
         HarnessSubagentEventRelay relay = new HarnessSubagentEventRelay();
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService, agentRunService, telemetryService,
-                new HarnessEventMapper(), runtime, collaborationService
+                new HarnessEventMapper(), runtime, collaborationService, relay
         );
         Object harnessBean = new Object();
         AgentDefinition definition = new AgentDefinition(
@@ -558,19 +557,17 @@ class HarnessAgentExecutorTest {
         TextBlockDeltaEvent childDelta = new TextBlockDeltaEvent(
                 "reply-child-relay", "block-relay", "正在实时生成"
         );
-        AgentStartEvent childStart = new AgentStartEvent(
-                "child-runtime-relay", "reply-child-relay", "general-purpose-subagent"
-        );
-        childStart.withSource("parent/general-purpose-subagent");
         when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
                 .thenReturn(Flux.create(sink -> {
                     sink.next(new SubagentExposedEvent(
                             "child-relay", "general-purpose",
                             "child-runtime-relay", "实时协作者"
                     ));
-                    sink.next(childStart);
-                    // 子会话观察流收到模型增量，但父请求流不得订阅或转发它。
+                    relay.publish("1", "child-runtime-relay",
+                            new AgentStartEvent(null, "reply-child-relay", "general-purpose-subagent"));
                     relay.publish("1", "child-runtime-relay", childDelta);
+                    // AgentScope call() 路径还会把同一原始事件送入父 emitter。
+                    sink.next(childDelta);
                     sink.next(new AgentResultEvent(finalReply()));
                     sink.next(new AgentEndEvent("reply-parent"));
                     sink.complete();
@@ -590,9 +587,17 @@ class HarnessAgentExecutorTest {
                         && "SUBAGENT".equals(payload.source().scope()))
                 .findFirst()
                 .orElseThrow();
+        HarnessAgentEventPayload delta = payloads.stream()
+                .filter(payload -> "TEXT_BLOCK_DELTA".equals(payload.eventType())
+                        && "SUBAGENT".equals(payload.source().scope()))
+                .findFirst()
+                .orElseThrow();
+
         assertEquals("child-runtime-relay", start.data().get("agentSessionId"));
         assertEquals("完整的父委托", start.projection().subagent().assignment());
-        assertEquals(0L, payloads.stream()
+        assertEquals("child-runtime-relay", delta.data().get("agentSessionId"));
+        assertEquals("正在实时生成", delta.data().get("delta"));
+        assertEquals(1L, payloads.stream()
                 .filter(payload -> childDelta.getId().equals(payload.eventId()))
                 .count());
     }
