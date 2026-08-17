@@ -124,7 +124,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     String.valueOf(command.userId()),
                                     command.subagentParentSessionId(),
                                     command.sessionId(),
-                                    command.subagentAssignment()
+                                    command.subagentAssignment(),
+                                    command.subagentExecutionId()
                             ),
                             command.userMessage()
                     );
@@ -176,17 +177,11 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             }
             String eventAgentSessionId = resolveEventAgentSessionId(event);
             String exposedParentSessionId = null;
+            String exposedChildSessionId = null;
             HarnessSubagentSummaryDto projectedSubagent = null;
             try {
                 if (event instanceof SubagentExposedEvent exposed
                         && harnessCollaborationService != null) {
-                    relayUnsubscribers.computeIfAbsent(exposed.getSessionId(), childSessionId ->
-                            subagentEventRelay.subscribe(
-                                    String.valueOf(command.userId()),
-                                    childSessionId,
-                                    childEvent -> onRelayedSubagentEvent(childSessionId, childEvent.event())
-                            )
-                    );
                     String label = exposed.getLabel() == null || exposed.getLabel().isBlank()
                             ? exposed.getAgentId()
                             : exposed.getLabel();
@@ -212,6 +207,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     assignment
                             )
                     );
+                    exposedChildSessionId = exposed.getSessionId();
                 }
                 if (event instanceof AgentStartEvent start
                         && !isParent(event)
@@ -278,6 +274,16 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                     eventAgentSessionId,
                     projectedSubagent
             ));
+            if (exposedChildSessionId != null) {
+                String childSessionId = exposedChildSessionId;
+                relayUnsubscribers.computeIfAbsent(childSessionId, ignored ->
+                        subagentEventRelay.subscribe(
+                                String.valueOf(command.userId()),
+                                childSessionId,
+                                childEvent -> onRelayedSubagentEvent(childSessionId, childEvent.event())
+                        )
+                );
+            }
 
             // source 为空才是父 Agent。子文本仅保留在 harness_event，避免污染父气泡。
             if (isParent(event) && event instanceof TextBlockDeltaEvent textEvent) {

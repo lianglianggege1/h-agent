@@ -193,10 +193,30 @@ export function mergePersistedHarnessMessages(
       || message.id.startsWith("reasoning-")
       || message.id.startsWith("assistant-")
   ));
-  const persistedHasAssistant = persisted.some(
+  const persistedAssistantCount = persisted.filter(
     (message) => message.role === "assistant" && message.messageType === "AI",
-  );
-  const transient = preserveRuntime || !persistedHasAssistant ? [...runtime, ...local] : local;
+  ).length;
+  const currentPersistedAssistantCount = current.filter((message) => (
+    message.role === "assistant"
+      && message.messageType === "AI"
+      && !message.id.startsWith("runtime-")
+      && !message.id.startsWith("assistant-")
+  )).length;
+  // 只有历史查询比当前稳定历史多出一条 AI 消息时，才能证明本轮最终回复已经落库。
+  // “历史里存在任意旧回复”不代表当前失败轮已持久化，否则会把仅存在于 runtime 的 reasoning 清掉。
+  const persistedHasNewAssistant = persistedAssistantCount > currentPersistedAssistantCount;
+  const persistedReasoningCount = persisted.filter(
+    (message) => message.role === "assistant" && message.messageType === "REASONING",
+  ).length;
+  const currentPersistedReasoningCount = current.filter((message) => (
+    message.role === "assistant"
+      && message.messageType === "REASONING"
+      && !message.id.startsWith("runtime-")
+      && !message.id.startsWith("reasoning-")
+  )).length;
+  const persistedHasNewReasoning = persistedReasoningCount > currentPersistedReasoningCount;
+  const persistedHasCurrentTurn = persistedHasNewAssistant || persistedHasNewReasoning;
+  const transient = preserveRuntime || !persistedHasCurrentTurn ? [...runtime, ...local] : local;
   if (transient.length === 0) return persisted;
 
   let base = persisted;

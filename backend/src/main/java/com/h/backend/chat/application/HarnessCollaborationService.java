@@ -14,14 +14,25 @@ public interface HarnessCollaborationService {
 
     /**
      * 子 Agent 自身完成边界触发的完整产品投影，保留本轮思考并确保它位于最终回复之前。
-     * 重复父流事件必须幂等。
+     * 仅当前 RUNNING execution 可以提交，重复或迟到终态必须幂等。
      */
     void projectSubagentResult(
             Long userId,
             String sessionId,
+            String executionId,
             String assignment,
             String reasoning,
             String content
+    );
+
+    /** 子 Agent 自身失败边界触发的产品投影，失败状态和本轮思考在同一事务中提交。 */
+    HarnessSubagentSummaryDto projectSubagentFailure(
+            Long userId,
+            String sessionId,
+            String executionId,
+            HarnessSubagentFailureReason reason,
+            String message,
+            String reasoning
     );
 
     /** 子 Agent 自身开始边界触发的委托投影；只允许补全首轮 SYSTEM 委托。 */
@@ -63,6 +74,16 @@ public interface HarnessCollaborationService {
             String executionId,
             HarnessSubagentFailureReason reason,
             String message
+    );
+
+    HarnessSubagentSummaryDto failSubagent(
+            Long userId,
+            String parentSessionId,
+            String sessionId,
+            String executionId,
+            HarnessSubagentFailureReason reason,
+            String message,
+            String reasoning
     );
 
 }

@@ -292,9 +292,13 @@ class HarnessCollaborationSessionOpenIT {
                         "child-runtime-summer-live", "散文·夏", "散文·夏"
                 )
         );
+        harnessCollaborationService.markRunning(
+                user.getId(), opened.session().sessionId(),
+                "child-runtime-summer-live", "execution-summer-live"
+        );
 
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-live",
+                user.getId(), "child-runtime-summer-live", "execution-summer-live",
                 "写一篇描绘夏日傍晚的散文，约 500 字。",
                 null, "蝉鸣落在黄昏里。"
         );
@@ -318,9 +322,14 @@ class HarnessCollaborationSessionOpenIT {
                         "child-runtime-summer-reasoning", "散文·夏", "写一篇夏日散文"
                 )
         );
+        harnessCollaborationService.markRunning(
+                user.getId(), opened.session().sessionId(),
+                "child-runtime-summer-reasoning", "execution-summer-reasoning"
+        );
 
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-reasoning", "写一篇夏日散文",
+                user.getId(), "child-runtime-summer-reasoning", "execution-summer-reasoning",
+                "写一篇夏日散文",
                 "先确定黄昏、蝉鸣和晚风三个意象。", "蝉鸣落在黄昏里。"
         );
         var thread = chatSessionService.getSessionMessages(
@@ -351,7 +360,7 @@ class HarnessCollaborationSessionOpenIT {
                 "child-runtime-summer-race", "reply-summer-race"
         );
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-race", "写一篇夏日散文",
+                user.getId(), "child-runtime-summer-race", "reply-summer-race", "写一篇夏日散文",
                 "先确定黄昏这个时间锚点。", "蝉鸣落在黄昏里。"
         );
 
@@ -380,17 +389,22 @@ class HarnessCollaborationSessionOpenIT {
                         "child-runtime-summer-follow-up", "散文·夏", "写一篇夏日散文"
                 )
         );
+        harnessCollaborationService.markRunning(
+                user.getId(), opened.session().sessionId(),
+                "child-runtime-summer-follow-up", "execution-summer-follow-up"
+        );
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-follow-up", "写一篇夏日散文",
+                user.getId(), "child-runtime-summer-follow-up", "execution-summer-follow-up",
+                "写一篇夏日散文",
                 null, "蝉鸣落在黄昏里。"
         );
-        harnessCollaborationService.beginSubagentTurn(
+        var followUp = harnessCollaborationService.beginSubagentTurn(
                 user.getId(), opened.session().sessionId(), "child-runtime-summer-follow-up",
                 "再增加一些晚风的描写", java.util.List.of()
         );
 
         harnessCollaborationService.projectSubagentResult(
-                user.getId(), "child-runtime-summer-follow-up",
+                user.getId(), "child-runtime-summer-follow-up", followUp.executionId(),
                 "再增加一些晚风的描写", null, "晚风从荷叶间穿过。"
         );
         var thread = chatSessionService.getSessionMessages(
@@ -573,6 +587,90 @@ class HarnessCollaborationSessionOpenIT {
         assertEquals("验证迟到终态", thread.messages().getFirst().content());
         assertEquals("第一轮完成。", thread.messages().get(1).content());
         assertEquals("开始第二轮。", thread.messages().getLast().content());
+    }
+
+    @Test
+    void staleChildCompletionBoundaryCannotOverwriteANewerSubagentTurn() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(user.getId(), null, ChatAgentIds.HARNESS, null);
+        String rootSessionId = opened.session().sessionId();
+        String childSessionId = "child-runtime-stale-boundary-" + UUID.randomUUID();
+        harnessCollaborationService.exposeSubagent(
+                user.getId(), rootSessionId,
+                new HarnessSubagentExposure(
+                        "stale-boundary", "general-purpose", rootSessionId, childSessionId,
+                        "散文创作", "验证迟到的子完成边界"
+                )
+        );
+        harnessCollaborationService.markRunning(
+                user.getId(), rootSessionId, childSessionId, "execution-old"
+        );
+        harnessCollaborationService.completeSubagent(
+                user.getId(), rootSessionId, childSessionId, "execution-old", "第一轮完成。"
+        );
+        var newerTurn = harnessCollaborationService.beginSubagentTurn(
+                user.getId(), rootSessionId, childSessionId, "开始第二轮。", null
+        );
+
+        harnessCollaborationService.projectSubagentResult(
+                user.getId(), childSessionId, "execution-old", "验证迟到的子完成边界",
+                "旧执行的迟到思考。", "旧执行的迟到结果。"
+        );
+        var summary = harnessCollaborationService.listSubagents(user.getId(), rootSessionId).getFirst();
+        var thread = chatSessionService.getSessionMessages(user.getId(), childSessionId, 20, null);
+
+        assertNotNull(newerTurn.executionId());
+        assertEquals("RUNNING", summary.status().name());
+        assertEquals(3, thread.messages().size());
+        assertEquals("开始第二轮。", thread.messages().getLast().content());
+    }
+
+    @Test
+    void failedSubagentPersistsReasoningBeforeRetry() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(user.getId(), null, ChatAgentIds.HARNESS, null);
+        String rootSessionId = opened.session().sessionId();
+        String childSessionId = "child-runtime-failed-reasoning-" + UUID.randomUUID();
+        harnessCollaborationService.exposeSubagent(
+                user.getId(), rootSessionId,
+                new HarnessSubagentExposure(
+                        "failed-reasoning", "general-purpose", rootSessionId, childSessionId,
+                        "宋词创作", "创作一首宋词"
+                )
+        );
+        harnessCollaborationService.markRunning(
+                user.getId(), rootSessionId, childSessionId, "execution-failed-reasoning"
+        );
+
+        var failed = harnessCollaborationService.projectSubagentFailure(
+                user.getId(), childSessionId, "execution-failed-reasoning",
+                HarnessSubagentFailureReason.PROTOCOL_INCOMPLETE,
+                "模型输出被截断，未生成最终正文",
+                "先确定词牌，再安排上下阕的意象。"
+        );
+        var thread = chatSessionService.getSessionMessages(user.getId(), childSessionId, 20, null);
+
+        assertEquals("FAILED", failed.status().name());
+        assertEquals(2, thread.messages().size());
+        assertEquals("SYSTEM", thread.messages().get(0).messageType());
+        assertEquals("REASONING", thread.messages().get(1).messageType());
+        assertEquals("先确定词牌，再安排上下阕的意象。", thread.messages().get(1).content());
+
+        harnessCollaborationService.markRunning(
+                user.getId(), rootSessionId, childSessionId, "execution-retry"
+        );
+        harnessCollaborationService.projectSubagentResult(
+                user.getId(), childSessionId, "execution-retry", "创作一首宋词",
+                "调整用韵后重新组织上下阕。", "晚风吹过小楼，月色落满归舟。"
+        );
+        var retried = harnessCollaborationService.listSubagents(user.getId(), rootSessionId).getFirst();
+        var retriedThread = chatSessionService.getSessionMessages(user.getId(), childSessionId, 20, null);
+
+        assertEquals("COMPLETED", retried.status().name());
+        assertEquals(4, retriedThread.messages().size());
+        assertEquals("先确定词牌，再安排上下阕的意象。", retriedThread.messages().get(1).content());
+        assertEquals("调整用韵后重新组织上下阕。", retriedThread.messages().get(2).content());
+        assertEquals("晚风吹过小楼，月色落满归舟。", retriedThread.messages().get(3).content());
     }
 
     @Test

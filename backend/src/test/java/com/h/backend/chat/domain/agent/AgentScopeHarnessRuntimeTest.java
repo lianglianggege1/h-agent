@@ -37,7 +37,8 @@ class AgentScopeHarnessRuntimeTest {
                 "42",
                 "parent-session",
                 "child-session",
-                "收集并整理官方资料"
+                "收集并整理官方资料",
+                "execution-follow-up"
         );
 
         when(parent.getSubagentAgentManager()).thenReturn(manager);
@@ -65,6 +66,10 @@ class AgentScopeHarnessRuntimeTest {
         assertEquals("再补充两个来源", messageCaptor.getValue().getFirst().getTextContent());
         assertEquals("42", childContextCaptor.getValue().getUserId());
         assertEquals("child-session", childContextCaptor.getValue().getSessionId());
+        assertEquals(
+                "execution-follow-up",
+                HarnessSubagentLifecycleMiddleware.executionIdFrom(childContextCaptor.getValue())
+        );
 
         ArgumentCaptor<RuntimeContext> parentContextCaptor = ArgumentCaptor.forClass(RuntimeContext.class);
         verify(manager).createAgentIfPresent(eq("research-agent"), parentContextCaptor.capture());
@@ -91,7 +96,8 @@ class AgentScopeHarnessRuntimeTest {
                 "42",
                 "parent-session",
                 "child-session",
-                "核对三个官方来源并写出结论"
+                "核对三个官方来源并写出结论",
+                "execution-repair"
         );
 
         when(parent.getSubagentAgentManager()).thenReturn(manager);

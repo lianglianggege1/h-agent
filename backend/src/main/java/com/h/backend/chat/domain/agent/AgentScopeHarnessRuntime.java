@@ -38,6 +38,7 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                 .userId(context.userId())
                 .sessionId(context.sessionId())
                 .build();
+        HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
         return child.streamEvents(List.of(userMessage), runtimeContext);
     }
 

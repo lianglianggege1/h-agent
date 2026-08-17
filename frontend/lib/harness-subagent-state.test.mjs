@@ -194,6 +194,74 @@ test("history refresh keeps live child deltas until the final assistant is persi
   );
 });
 
+test("history refresh keeps failed runtime reasoning when persisted replies belong to older turns", () => {
+  const persisted = [
+    { id: "db-assignment", role: "system", messageType: "SYSTEM", content: "委托" },
+    { id: "db-old-answer", role: "assistant", messageType: "AI", content: "旧回答" },
+  ];
+  const current = [
+    ...persisted,
+    {
+      id: "runtime-reasoning-reply-failed",
+      role: "assistant",
+      messageType: "REASONING",
+      content: "失败前已经完成的思考",
+    },
+    {
+      id: "runtime-assistant-reply-failed",
+      role: "assistant",
+      messageType: "AI",
+      content: "",
+    },
+  ];
+
+  assert.deepEqual(
+    mergePersistedHarnessMessages(persisted, current).map((message) => message.id),
+    [
+      "db-assignment",
+      "db-old-answer",
+      "runtime-reasoning-reply-failed",
+      "runtime-assistant-reply-failed",
+    ],
+  );
+});
+
+test("history refresh replaces failed runtime reasoning after that reasoning is persisted", () => {
+  const stableHistory = [
+    { id: "db-assignment", role: "system", messageType: "SYSTEM", content: "委托" },
+    { id: "db-old-answer", role: "assistant", messageType: "AI", content: "旧回答" },
+  ];
+  const persisted = [
+    ...stableHistory,
+    {
+      id: "db-failed-reasoning",
+      role: "assistant",
+      messageType: "REASONING",
+      content: "失败前已经完成的思考",
+    },
+  ];
+  const current = [
+    ...stableHistory,
+    {
+      id: "runtime-reasoning-reply-failed",
+      role: "assistant",
+      messageType: "REASONING",
+      content: "失败前已经完成的思考",
+    },
+    {
+      id: "runtime-assistant-reply-failed",
+      role: "assistant",
+      messageType: "AI",
+      content: "",
+    },
+  ];
+
+  assert.deepEqual(
+    mergePersistedHarnessMessages(persisted, current).map((message) => message.id),
+    ["db-assignment", "db-old-answer", "db-failed-reasoning"],
+  );
+});
+
 test("history refresh preserves a direct follow-up placeholder after older persisted replies", () => {
   const persisted = [
     { id: "db-assignment", role: "system", messageType: "SYSTEM", content: "委托" },

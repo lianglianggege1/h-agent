@@ -1,5 +1,6 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEndEvent;
@@ -14,6 +15,8 @@ import io.agentscope.core.middleware.ReasoningInput;
 import io.agentscope.core.message.MsgRole;
 import reactor.core.publisher.Flux;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /**
@@ -29,6 +32,8 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
 
     private static final String REASONING_ATTRIBUTE =
             HarnessSubagentLifecycleMiddleware.class.getName() + ".reasoning";
+    private static final String EXECUTION_ID_ATTRIBUTE =
+            HarnessSubagentLifecycleMiddleware.class.getName() + ".executionId";
 
     @FunctionalInterface
     public interface AssignmentListener {
@@ -52,16 +57,43 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
     }
 
     @FunctionalInterface
+    public interface ExecutionCompletionListener {
+        void onCompleted(
+                String userId,
+                String sessionId,
+                String assignment,
+                String executionId,
+                String reasoning,
+                String content
+        );
+    }
+
+    @FunctionalInterface
+    public interface FailureListener {
+        void onFailed(
+                String userId,
+                String sessionId,
+                String assignment,
+                String executionId,
+                String reasoning,
+                HarnessSubagentFailureReason reason,
+                String message
+        );
+    }
+
+    @FunctionalInterface
     public interface EventListener {
         void onEvent(String userId, String sessionId, AgentEvent event);
     }
 
     private final AssignmentListener assignmentListener;
-    private final DetailedCompletionListener completionListener;
+    private final ExecutionCompletionListener completionListener;
+    private final FailureListener failureListener;
     private final EventListener eventListener;
 
     public HarnessSubagentLifecycleMiddleware(CompletionListener completionListener) {
-        this((userId, sessionId, assignment) -> { }, adapt(completionListener),
+        this((userId, sessionId, assignment) -> { }, adaptCompletion(completionListener),
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> { },
                 (userId, sessionId, event) -> { });
     }
 
@@ -69,7 +101,9 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
             AssignmentListener assignmentListener,
             CompletionListener completionListener
     ) {
-        this(assignmentListener, adapt(completionListener), (userId, sessionId, event) -> { });
+        this(assignmentListener, adaptCompletion(completionListener),
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> { },
+                (userId, sessionId, event) -> { });
     }
 
     public HarnessSubagentLifecycleMiddleware(
@@ -77,7 +111,9 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
             CompletionListener completionListener,
             EventListener eventListener
     ) {
-        this(assignmentListener, adapt(completionListener), eventListener);
+        this(assignmentListener, adaptCompletion(completionListener),
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> { },
+                eventListener);
     }
 
     public HarnessSubagentLifecycleMiddleware(
@@ -85,8 +121,29 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
             DetailedCompletionListener completionListener,
             EventListener eventListener
     ) {
+        this(assignmentListener, adaptDetailed(completionListener),
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> { },
+                eventListener);
+    }
+
+    public HarnessSubagentLifecycleMiddleware(
+            AssignmentListener assignmentListener,
+            DetailedCompletionListener completionListener,
+            FailureListener failureListener,
+            EventListener eventListener
+    ) {
+        this(assignmentListener, adaptDetailed(completionListener), failureListener, eventListener);
+    }
+
+    public HarnessSubagentLifecycleMiddleware(
+            AssignmentListener assignmentListener,
+            ExecutionCompletionListener completionListener,
+            FailureListener failureListener,
+            EventListener eventListener
+    ) {
         this.assignmentListener = assignmentListener;
         this.completionListener = completionListener;
+        this.failureListener = failureListener;
         this.eventListener = eventListener;
     }
 
@@ -111,9 +168,33 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
         if (context != null) {
             context.put(REASONING_ATTRIBUTE, new StringBuilder());
         }
+        AtomicReference<String> executionId = new AtomicReference<>(executionIdFrom(context));
+        AtomicBoolean terminalProjected = new AtomicBoolean(false);
         // 这是子 Agent 真正收到输入的生命周期边界，不依赖父工具何时发送 TOOL_CALL_END。
         assignmentListener.onStarted(userId, sessionId, assignment);
         return next.apply(input).doOnNext(event -> {
+            if (event instanceof AgentStartEvent startEvent) {
+                if (executionId.get() == null || executionId.get().isBlank()) {
+                    executionId.set(startEvent.getReplyId());
+                }
+            }
+            if (event instanceof AgentEndEvent endEvent) {
+                if ((executionId.get() == null || executionId.get().isBlank())
+                        && endEvent.getReplyId() != null && !endEvent.getReplyId().isBlank()) {
+                    executionId.set(endEvent.getReplyId());
+                }
+                if (terminalProjected.compareAndSet(false, true)) {
+                    failureListener.onFailed(
+                            userId,
+                            sessionId,
+                            assignment,
+                            executionId.get(),
+                            reasoningFrom(context),
+                            HarnessSubagentFailureReason.PROTOCOL_INCOMPLETE,
+                            "AGENT_END arrived without a non-blank AGENT_RESULT"
+                    );
+                }
+            }
             // reasoning/acting 事件已在它们各自的边界发布。直接打开子会话时，
             // 同一批事件还会进入外层 onAgent Flux，因此这里只发布生命周期事件以避免重复。
             if (isAgentLifecycleEvent(event)) {
@@ -125,13 +206,29 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
                     || resultEvent.getResult().getTextContent().isBlank()) {
                 return;
             }
+            terminalProjected.set(true);
             completionListener.onCompleted(
                     userId,
                     sessionId,
                     assignment,
+                    executionId.get(),
                     reasoningFrom(context),
                     resultEvent.getResult().getTextContent()
             );
+        }).doOnError(error -> {
+            if (terminalProjected.compareAndSet(false, true)) {
+                failureListener.onFailed(
+                        userId,
+                        sessionId,
+                        assignment,
+                        executionId.get(),
+                        reasoningFrom(context),
+                        HarnessSubagentFailureReason.EXECUTION_ERROR,
+                        error.getMessage() == null || error.getMessage().isBlank()
+                                ? error.getClass().getSimpleName()
+                                : error.getMessage()
+                );
+            }
         }).doFinally(signal -> clearReasoning(context));
     }
 
@@ -166,9 +263,24 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
         });
     }
 
-    private static DetailedCompletionListener adapt(CompletionListener listener) {
-        return (userId, sessionId, assignment, reasoning, content) ->
+    public static void stageExecutionId(RuntimeContext context, String executionId) {
+        if (context != null && executionId != null && !executionId.isBlank()) {
+            context.put(EXECUTION_ID_ATTRIBUTE, executionId);
+        }
+    }
+
+    private static ExecutionCompletionListener adaptCompletion(CompletionListener listener) {
+        return (userId, sessionId, assignment, executionId, reasoning, content) ->
                 listener.onCompleted(userId, sessionId, assignment, content);
+    }
+
+    private static ExecutionCompletionListener adaptDetailed(DetailedCompletionListener listener) {
+        return (userId, sessionId, assignment, executionId, reasoning, content) ->
+                listener.onCompleted(userId, sessionId, assignment, reasoning, content);
+    }
+
+    static String executionIdFrom(RuntimeContext context) {
+        return context == null ? null : context.get(EXECUTION_ID_ATTRIBUTE);
     }
 
     private static StringBuilder reasoningBuffer(RuntimeContext context) {

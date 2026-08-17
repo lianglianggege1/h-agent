@@ -6,6 +6,7 @@ public record HarnessSubagentContext(
         String userId,
         String parentSessionId,
         String sessionId,
-        String assignment
+        String assignment,
+        String executionId
 ) {
 }

@@ -301,18 +301,34 @@ public class HarnessAgentConfig {
                                         sessionId, error.getMessage());
                             }
                         },
-                        (userId, sessionId, assignment, reasoning, content) -> {
+                        (userId, sessionId, assignment, executionId, reasoning, content) -> {
                             if (userId == null || userId.isBlank()
                                     || sessionId == null || !sessionId.startsWith("sub-")) {
                                 return;
                             }
                             try {
                                 harnessCollaborationService.projectSubagentResult(
-                                        Long.valueOf(userId), sessionId, assignment, reasoning, content
+                                        Long.valueOf(userId), sessionId, executionId,
+                                        assignment, reasoning, content
                                 );
                             } catch (RuntimeException error) {
                                 // 产品投影故障不能反向打断子任务；故障会保留在日志中供监控重试。
                                 log.warn("Failed to project completed subagent result sessionId={}: {}",
+                                        sessionId, error.getMessage());
+                            }
+                        },
+                        (userId, sessionId, assignment, executionId, reasoning, reason, message) -> {
+                            if (userId == null || userId.isBlank()
+                                    || sessionId == null || !sessionId.startsWith("sub-")) {
+                                return;
+                            }
+                            try {
+                                harnessCollaborationService.projectSubagentFailure(
+                                        Long.valueOf(userId), sessionId, executionId,
+                                        reason, message, reasoning
+                                );
+                            } catch (RuntimeException error) {
+                                log.warn("Failed to project failed subagent result sessionId={}: {}",
                                         sessionId, error.getMessage());
                             }
                         },

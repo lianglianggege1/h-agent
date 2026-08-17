@@ -298,7 +298,8 @@ class HarnessAgentExecutorTest {
         when(runtime.streamSubagent(
                 harnessBean,
                 new HarnessSubagentContext(
-                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集"
+                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
+                        "execution-targeted"
                 ),
                 "补充官方来源"
         ))
@@ -333,7 +334,8 @@ class HarnessAgentExecutorTest {
         verify(runtime).streamSubagent(
                 harnessBean,
                 new HarnessSubagentContext(
-                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集"
+                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
+                        "execution-targeted"
                 ),
                 "补充官方来源"
         );
@@ -600,6 +602,81 @@ class HarnessAgentExecutorTest {
         assertEquals(1L, payloads.stream()
                 .filter(payload -> childDelta.getId().equals(payload.eventId()))
                 .count());
+    }
+
+    @Test
+    void shouldPublishRunningAfterReplayingStartsThatPrecedeExposure() {
+        HarnessRuntime runtime = mock(HarnessRuntime.class);
+        HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        HarnessSubagentEventRelay relay = new HarnessSubagentEventRelay();
+        HarnessAgentExecutor executor = new HarnessAgentExecutor(
+                chatSessionService, agentRunService, telemetryService,
+                new HarnessEventMapper(), runtime, collaborationService, relay
+        );
+        Object harnessBean = new Object();
+        AgentDefinition definition = new AgentDefinition(
+                "harness-agent", "协作 Agent", "协作", List.of("协作"),
+                "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
+        );
+        stubPersistence(chatSessionService, persistedReply());
+
+        var exposedSessions = new java.util.HashSet<String>();
+        for (int index = 0; index < 3; index++) {
+            relay.publish(
+                    "1",
+                    "sub-race-" + index,
+                    new AgentStartEvent(null, "reply-race-" + index, "general-purpose-subagent")
+            );
+        }
+        when(collaborationService.exposeSubagent(eq(1L), eq("session-1"), any()))
+                .thenAnswer(invocation -> {
+                    HarnessSubagentExposure exposure = invocation.getArgument(2);
+                    exposedSessions.add(exposure.sessionId());
+                    int order = Integer.parseInt(exposure.sessionId().substring("sub-race-".length()));
+                    return new HarnessSubagentSummaryDto(
+                            exposure.sessionId(), "session-1", exposure.displayName(), exposure.assignment(),
+                            HarnessSubagentStatus.AVAILABLE, order, LocalDateTime.now()
+                    );
+                });
+        when(collaborationService.markRunning(eq(1L), eq("session-1"), any(), any()))
+                .thenAnswer(invocation -> {
+                    String sessionId = invocation.getArgument(2);
+                    if (!exposedSessions.contains(sessionId)) {
+                        return null;
+                    }
+                    int order = Integer.parseInt(sessionId.substring("sub-race-".length()));
+                    return new HarnessSubagentSummaryDto(
+                            sessionId, "session-1", "协作者-" + order, "任务-" + order,
+                            HarnessSubagentStatus.RUNNING, order, LocalDateTime.now()
+                    );
+                });
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+                .thenReturn(Flux.just(
+                        new SubagentExposedEvent("child-race-0", "general-purpose", "sub-race-0", "协作者-0"),
+                        new SubagentExposedEvent("child-race-1", "general-purpose", "sub-race-1", "协作者-1"),
+                        new SubagentExposedEvent("child-race-2", "general-purpose", "sub-race-2", "协作者-2"),
+                        new AgentResultEvent(finalReply()),
+                        new AgentEndEvent("reply-parent")
+                ));
+
+        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+                .collectList()
+                .block();
+        var latestStatuses = new java.util.HashMap<String, HarnessSubagentStatus>();
+        events.stream()
+                .filter(event -> event.payload() instanceof HarnessAgentEventPayload)
+                .map(event -> (HarnessAgentEventPayload) event.payload())
+                .filter(payload -> payload.projection() != null && payload.projection().subagent() != null)
+                .forEach(payload -> latestStatuses.put(
+                        payload.projection().subagent().sessionId(),
+                        payload.projection().subagent().status()
+                ));
+
+        assertEquals(3, latestStatuses.size());
+        assertTrue(latestStatuses.values().stream().allMatch(HarnessSubagentStatus.RUNNING::equals));
     }
 
     @Test
@@ -894,7 +971,8 @@ class HarnessAgentExecutorTest {
         when(runtime.streamSubagent(
                 harnessBean,
                 new HarnessSubagentContext(
-                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集"
+                        "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
+                        "execution-error"
                 ),
                 "补充来源"
         ))

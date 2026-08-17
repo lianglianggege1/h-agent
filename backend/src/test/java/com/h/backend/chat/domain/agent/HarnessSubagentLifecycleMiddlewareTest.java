@@ -1,7 +1,10 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentResultEvent;
+import io.agentscope.core.event.AgentStartEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.event.ToolResultTextDeltaEvent;
@@ -23,16 +26,69 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class HarnessSubagentLifecycleMiddlewareTest {
 
     @Test
+    void shouldReportAccumulatedReasoningWhenChildEndsWithoutAResult() {
+        AtomicReference<List<String>> failed = new AtomicReference<>();
+        var middleware = new HarnessSubagentLifecycleMiddleware(
+                (userId, sessionId, assignment) -> { },
+                (userId, sessionId, assignment, reasoning, content) -> { },
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> failed.set(
+                        List.of(
+                                userId, sessionId, assignment, executionId, reasoning,
+                                reason.name(), message
+                        )
+                ),
+                (userId, sessionId, event) -> { }
+        );
+        var context = RuntimeContext.builder().userId("73").sessionId("sub-failed").build();
+        var input = new AgentInput(List.of(
+                Msg.builder().role(MsgRole.USER).textContent("创作一首宋词").build()
+        ));
+        Flux<io.agentscope.core.event.AgentEvent> reasoningEvents = middleware.onReasoning(
+                null,
+                context,
+                new ReasoningInput(List.of(), List.of(), null),
+                ignored -> Flux.just(
+                        new ThinkingBlockDeltaEvent("reply-failed", "thinking-failed", "先确定词牌，"),
+                        new ThinkingBlockDeltaEvent("reply-failed", "thinking-failed", "再安排上下阕。")
+                )
+        );
+
+        middleware.onAgent(
+                        null,
+                        context,
+                        input,
+                        ignored -> Flux.concat(
+                                Flux.just(new AgentStartEvent("sub-failed", "reply-failed", "child")),
+                                reasoningEvents,
+                                Flux.just(new AgentEndEvent("reply-failed"))
+                        )
+                )
+                .collectList().block();
+
+        assertEquals(
+                List.of(
+                        "73", "sub-failed", "创作一首宋词", "reply-failed",
+                        "先确定词牌，再安排上下阕。",
+                        HarnessSubagentFailureReason.PROTOCOL_INCOMPLETE.name(),
+                        "AGENT_END arrived without a non-blank AGENT_RESULT"
+                ),
+                failed.get()
+        );
+    }
+
+    @Test
     void shouldIncludeAccumulatedReasoningAtTheChildCompletionBoundary() {
         AtomicReference<List<String>> completed = new AtomicReference<>();
         var middleware = new HarnessSubagentLifecycleMiddleware(
                 (userId, sessionId, assignment) -> { },
-                (userId, sessionId, assignment, reasoning, content) -> completed.set(
-                        List.of(userId, sessionId, assignment, reasoning, content)
+                (userId, sessionId, assignment, executionId, reasoning, content) -> completed.set(
+                        List.of(userId, sessionId, assignment, executionId, reasoning, content)
                 ),
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> { },
                 (userId, sessionId, event) -> { }
         );
         var context = RuntimeContext.builder().userId("73").sessionId("sub-reasoning").build();
+        HarnessSubagentLifecycleMiddleware.stageExecutionId(context, "execution-product");
         var input = new AgentInput(List.of(
                 Msg.builder().role(MsgRole.USER).textContent("分析夏日意象").build()
         ));
@@ -54,12 +110,19 @@ class HarnessSubagentLifecycleMiddlewareTest {
                         null,
                         context,
                         input,
-                        ignored -> Flux.concat(reasoningEvents, Flux.just(result))
+                        ignored -> Flux.concat(
+                                Flux.just(new AgentStartEvent("sub-reasoning", "reply-live", "child")),
+                                reasoningEvents,
+                                Flux.just(result)
+                        )
                 )
                 .collectList().block();
 
         assertEquals(
-                List.of("73", "sub-reasoning", "分析夏日意象", "先看蝉鸣，再看晚风。", "蝉鸣落在黄昏里。"),
+                List.of(
+                        "73", "sub-reasoning", "分析夏日意象", "execution-product",
+                        "先看蝉鸣，再看晚风。", "蝉鸣落在黄昏里。"
+                ),
                 completed.get()
         );
     }

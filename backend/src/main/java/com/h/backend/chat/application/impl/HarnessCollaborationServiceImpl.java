@@ -116,6 +116,7 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
     public void projectSubagentResult(
             Long userId,
             String sessionId,
+            String executionId,
             String assignment,
             String reasoning,
             String content
@@ -131,8 +132,15 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         HarnessSubagentEntity locked = harnessSubagentMapper.selectBySessionIdForUpdate(sessionId);
         AgentSessionEntity latestSession = agentSessionMapper.selectBySessionId(sessionId);
         ChatSessionMessageEntity latestMessage = chatSessionMessageMapper.selectLatestByAgentSessionId(sessionId);
-        if (locked == null || latestSession == null
-                || (latestMessage != null && "assistant".equals(latestMessage.getRoleCode()))) {
+        boolean latestIsAssistantReply = latestMessage != null
+                && "assistant".equals(latestMessage.getRoleCode())
+                && "AI".equals(latestMessage.getMessageType());
+        if (locked == null || latestSession == null || latestIsAssistantReply) {
+            return;
+        }
+        if (!HarnessSubagentStatus.RUNNING.name().equals(locked.getStatus())
+                || executionId == null || executionId.isBlank()
+                || !executionId.equals(locked.getExecutionId())) {
             return;
         }
         HarnessExecutionSession execution = resolveExecutionSession(userId, sessionId);
@@ -158,6 +166,35 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         locked.setFinishedAt(LocalDateTime.now());
         locked.setUpdatedAt(locked.getFinishedAt());
         harnessSubagentMapper.updateById(locked);
+    }
+
+    @Override
+    @Transactional
+    public HarnessSubagentSummaryDto projectSubagentFailure(
+            Long userId,
+            String sessionId,
+            String executionId,
+            HarnessSubagentFailureReason reason,
+            String message,
+            String reasoning
+    ) {
+        if (userId == null || sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        AgentSessionEntity session = agentSessionMapper.selectBySessionId(sessionId);
+        if (session == null || session.getParentSessionId() == null || !userId.equals(session.getUserId())) {
+            return null;
+        }
+        HarnessExecutionSession execution = resolveExecutionSession(userId, sessionId);
+        return failSubagent(
+                userId,
+                execution.rootSessionId(),
+                sessionId,
+                executionId,
+                reason,
+                message,
+                reasoning
+        );
     }
 
     @Override
@@ -410,17 +447,35 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
             HarnessSubagentFailureReason reason,
             String message
     ) {
+        return failSubagent(userId, rootSessionId, sessionId, executionId, reason, message, null);
+    }
+
+    @Override
+    @Transactional
+    public HarnessSubagentSummaryDto failSubagent(
+            Long userId,
+            String rootSessionId,
+            String sessionId,
+            String executionId,
+            HarnessSubagentFailureReason reason,
+            String message,
+            String reasoning
+    ) {
         requireProductSession(userId, rootSessionId, sessionId, true);
         HarnessSubagentEntity entity = harnessSubagentMapper.selectBySessionId(sessionId);
         if (executionId == null || executionId.isBlank()) {
             return toSummary(entity);
         }
-        harnessSubagentMapper.failExecution(
+        int transitioned = harnessSubagentMapper.failExecution(
                 sessionId,
                 executionId,
                 reason == null ? HarnessSubagentFailureReason.EXECUTION_ERROR.name() : reason.name(),
                 message
         );
+        if (transitioned > 0 && reasoning != null && !reasoning.isBlank()) {
+            ChatSessionEntity root = requireOwnedHarnessRoot(userId, rootSessionId);
+            insertThreadMessage(root, sessionId, userId, "assistant", "REASONING", reasoning.trim());
+        }
         return toSummary(harnessSubagentMapper.selectBySessionId(sessionId));
     }
 
