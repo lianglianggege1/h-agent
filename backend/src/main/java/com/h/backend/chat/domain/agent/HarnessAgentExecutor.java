@@ -7,6 +7,11 @@ import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
+import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
+import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
+import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
+import com.h.backend.chat.domain.subagentdefinition.model.SubagentTurnSnapshot;
+import com.h.backend.chat.infrastructure.config.SubagentCatalogProperties;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
@@ -21,6 +26,7 @@ import io.agentscope.core.event.SubagentExposedEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
@@ -54,6 +60,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     private final HarnessRuntime harnessRuntime;
     private final HarnessCollaborationService harnessCollaborationService;
     private final HarnessSubagentEventRelay subagentEventRelay;
+    private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
+    private final ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider;
 
     @Autowired
     public HarnessAgentExecutor(
@@ -63,7 +71,9 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessEventMapper eventMapper,
             HarnessRuntime harnessRuntime,
             HarnessCollaborationService harnessCollaborationService,
-            HarnessSubagentEventRelay subagentEventRelay
+            HarnessSubagentEventRelay subagentEventRelay,
+            ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
+            ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider
     ) {
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
@@ -72,6 +82,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         this.harnessRuntime = harnessRuntime;
         this.harnessCollaborationService = harnessCollaborationService;
         this.subagentEventRelay = subagentEventRelay;
+        this.subagentCatalogProvider = subagentCatalogProvider;
+        this.subagentCatalogPropertiesProvider = subagentCatalogPropertiesProvider;
     }
 
     public HarnessAgentExecutor(
@@ -83,7 +95,21 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessCollaborationService harnessCollaborationService
     ) {
         this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
-                harnessRuntime, harnessCollaborationService, new HarnessSubagentEventRelay());
+                harnessRuntime, harnessCollaborationService, new HarnessSubagentEventRelay(),
+                null, null);
+    }
+
+    public HarnessAgentExecutor(
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            HarnessEventMapper eventMapper,
+            HarnessRuntime harnessRuntime,
+            HarnessCollaborationService harnessCollaborationService,
+            HarnessSubagentEventRelay subagentEventRelay
+    ) {
+        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
+                harnessRuntime, harnessCollaborationService, subagentEventRelay, null, null);
     }
 
     public HarnessAgentExecutor(
@@ -93,7 +119,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessEventMapper eventMapper
     ) {
         this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
-                new AgentScopeHarnessRuntime(), null, new HarnessSubagentEventRelay());
+                new AgentScopeHarnessRuntime(null, null), null, new HarnessSubagentEventRelay(),
+                null, null);
     }
 
     @Override
@@ -105,17 +132,24 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     public void execute(ChatAgentExecutionCommand command) {
         log.info("[HarnessExecutor] Agent执行开始 userId={}, sessionId={}, runId={}",
                 command.userId(), command.sessionId(), command.runHandle().id());
-        RuntimeContext runtimeContext = RuntimeContext.builder()
+        boolean parentTurn = command.gatewaySubagentId() == null;
+        // 父 turn 开始时生成不可变 Catalog 快照（设计 7.1）：定义在 turn 中途发布或停用
+        // 不影响本轮执行；Execution 持有同一 snapshot 用于 exposure 版本固定。
+        SubagentTurnSnapshot snapshot = parentTurn ? snapshotForTurn(command.userId()) : null;
+        RuntimeContext.Builder contextBuilder = RuntimeContext.builder()
                 .userId(String.valueOf(command.userId()))
                 .sessionId(command.sessionId())
                 // Harness 2.0.1 只有显式打开该上下文标记才会发 SUBAGENT_EXPOSED。
-                .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
-                .build();
-        Execution execution = new Execution(command);
+                .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true);
+        if (snapshot != null) {
+            contextBuilder.put(SubagentTurnSnapshot.class, snapshot);
+        }
+        RuntimeContext runtimeContext = contextBuilder.build();
+        Execution execution = new Execution(command, snapshot);
 
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));
         try {
-            reactor.core.publisher.Flux<AgentEvent> events = command.gatewaySubagentId() == null
+            reactor.core.publisher.Flux<AgentEvent> events = parentTurn
                     ? harnessRuntime.streamParent(command.agent().agentBean(), command.userMessage(), runtimeContext)
                     : harnessRuntime.streamSubagent(
                             command.agent().agentBean(),
@@ -125,7 +159,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentParentSessionId(),
                                     command.sessionId(),
                                     command.subagentAssignment(),
-                                    command.subagentExecutionId()
+                                    command.subagentExecutionId(),
+                                    command.subagentDefinitionBinding()
                             ),
                             command.userMessage()
                     );
@@ -140,9 +175,33 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         }
     }
 
+    /**
+     * Catalog 关闭或实现不可用时返回 null，父 turn 完全保持 SDK 静态行为。
+     */
+    private SubagentTurnSnapshot snapshotForTurn(Long userId) {
+        if (subagentCatalogProvider == null || subagentCatalogPropertiesProvider == null) {
+            return null;
+        }
+        SubagentCatalogProperties properties = subagentCatalogPropertiesProvider.getIfAvailable();
+        SubagentDefinitionCatalog catalog = subagentCatalogProvider.getIfAvailable();
+        if (properties == null || !properties.isEnabled() || catalog == null || userId == null) {
+            return null;
+        }
+        try {
+            return catalog.snapshotForTurn(userId);
+        } catch (RuntimeException error) {
+            // 快照失败时让本次 turn 以静态内置继续，产品聊天不能因为 Catalog 故障整体不可用。
+            log.warn("[HarnessExecutor] 生成 Subagent turn snapshot 失败，降级为静态内置 userId={}: {}",
+                    userId, error.getMessage(), error);
+            return null;
+        }
+    }
+
     private final class Execution {
 
         private final ChatAgentExecutionCommand command;
+        /** 父 turn 的不可变 Catalog 快照；exposure 用它把 agent_id 固定到 Definition Version。 */
+        private final SubagentTurnSnapshot snapshot;
         private final AtomicLong sequence = new AtomicLong();
         // 用户可见响应与 Harness 后置维护是两个终态；父响应结束后仍允许记忆任务继续运行。
         private final AtomicBoolean responseTerminal = new AtomicBoolean();
@@ -163,9 +222,23 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         // 原始事件的稳定身份；按它去重，避免父时间线双发，同时保留 relay 的后台续传能力。
         private final Set<String> observedEventIds = new HashSet<>();
 
-        private Execution(ChatAgentExecutionCommand command) {
+        private Execution(ChatAgentExecutionCommand command, SubagentTurnSnapshot snapshot) {
             this.command = command;
+            this.snapshot = snapshot;
             agentSessionIdBySource.put("", command.sessionId());
+        }
+
+        /**
+         * 从本 turn snapshot 解析 exposure 的版本绑定（设计 7.5）。
+         * 禁止在 exposure 时查询"当前发布版本"；不在 snapshot 内的 agent（SDK 合成
+         * general-purpose、未入库的静态声明）按无绑定处理，保持既有会话语义。
+         */
+        private DefinitionBinding bindingOf(String agentId) {
+            if (snapshot == null || agentId == null) {
+                return null;
+            }
+            ResolvedSubagentDefinition resolved = snapshot.resolve(agentId);
+            return resolved == null ? null : resolved.binding();
         }
 
         private synchronized void onEvent(AgentEvent event) {
@@ -204,7 +277,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     parentSessionId,
                                     exposed.getSessionId(),
                                     label,
-                                    assignment
+                                    assignment,
+                                    bindingOf(exposed.getAgentId())
                             )
                     );
                     exposedChildSessionId = exposed.getSessionId();

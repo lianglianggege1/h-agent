@@ -38,6 +38,14 @@ public class AgentSessionEntity {
     @TableField("gateway_subagent_id")
     private String gatewaySubagentId;
 
+    /** 协作 Agent Session 固定的 Subagent 定义 ID；顶级与历史 Session 为空。 */
+    @TableField("agent_definition_id")
+    private Long agentDefinitionId;
+
+    /** 协作 Agent Session 固定的定义版本；版本身份是重新物化的真相。 */
+    @TableField("agent_definition_version")
+    private Integer agentDefinitionVersion;
+
     @TableField("display_order")
     private Integer displayOrder;
 

@@ -5,6 +5,13 @@ import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;
 import com.h.backend.chat.domain.agent.HarnessSubagentLifecycleMiddleware;
 import com.h.backend.chat.domain.agent.HarnessSubagentEventRelay;
 import com.h.backend.chat.application.HarnessCollaborationService;
+import com.h.backend.chat.infrastructure.subagent.BuiltinSubagentDeclarations;
+import com.h.backend.chat.infrastructure.subagent.CatalogSubagentsMiddleware;
+import com.h.backend.chat.infrastructure.subagent.ReservedRemoteFilesystemSpec;
+import com.h.backend.chat.infrastructure.subagent.SubagentSpawnGuardMiddleware;
+import com.h.backend.chat.infrastructure.subagent.SubagentToolNames;
+import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
+import io.agentscope.harness.agent.tools.ToolsConfig;
 import org.springframework.context.annotation.Lazy;
 import com.h.backend.chat.infrastructure.agentscope.DisabledHarnessModel;
 import com.anthropic.client.AnthropicClient;
@@ -40,6 +47,7 @@ import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
 import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -244,6 +252,79 @@ public class HarnessAgentConfig {
                 .build();
     }
 
+    /**
+     * 父委托合并 middleware：子 Agent（声明式或 Catalog 物化）统一继承，
+     * 把持久化委托合并进 provider 的真实 SYSTEM。
+     */
+    @Bean
+    public ParentAssignmentSystemPromptMiddleware parentAssignmentSystemPromptMiddleware() {
+        return new ParentAssignmentSystemPromptMiddleware();
+    }
+
+    /**
+     * 子 Agent 生命周期投影 middleware：子 Agent 无论同步完成还是超时转后台，
+     * 都在自己的完成边界实时写产品聊天记录。
+     */
+    @Bean
+    public HarnessSubagentLifecycleMiddleware harnessSubagentLifecycleMiddleware(
+            @Lazy HarnessCollaborationService harnessCollaborationService,
+            HarnessSubagentEventRelay subagentEventRelay
+    ) {
+        return new HarnessSubagentLifecycleMiddleware(
+                (userId, sessionId, assignment) -> {
+                    if (userId == null || userId.isBlank()
+                            || sessionId == null || !sessionId.startsWith("sub-")) {
+                        return;
+                    }
+                    try {
+                        harnessCollaborationService.projectSubagentAssignment(
+                                Long.valueOf(userId), sessionId, assignment
+                        );
+                    } catch (RuntimeException error) {
+                        log.warn("Failed to project started subagent assignment sessionId={}: {}",
+                                sessionId, error.getMessage());
+                    }
+                },
+                (userId, sessionId, assignment, executionId, reasoning, content) -> {
+                    if (userId == null || userId.isBlank()
+                            || sessionId == null || !sessionId.startsWith("sub-")) {
+                        return;
+                    }
+                    try {
+                        harnessCollaborationService.projectSubagentResult(
+                                Long.valueOf(userId), sessionId, executionId,
+                                assignment, reasoning, content
+                        );
+                    } catch (RuntimeException error) {
+                        // 产品投影故障不能反向打断子任务；故障会保留在日志中供监控重试。
+                        log.warn("Failed to project completed subagent result sessionId={}: {}",
+                                sessionId, error.getMessage());
+                    }
+                },
+                (userId, sessionId, assignment, executionId, reasoning, reason, message) -> {
+                    if (userId == null || userId.isBlank()
+                            || sessionId == null || !sessionId.startsWith("sub-")) {
+                        return;
+                    }
+                    try {
+                        harnessCollaborationService.projectSubagentFailure(
+                                Long.valueOf(userId), sessionId, executionId,
+                                reason, message, reasoning
+                        );
+                    } catch (RuntimeException error) {
+                        log.warn("Failed to project failed subagent result sessionId={}: {}",
+                                sessionId, error.getMessage());
+                    }
+                },
+                (userId, sessionId, event) -> {
+                    if (userId != null && !userId.isBlank()
+                            && sessionId != null && sessionId.startsWith("sub-")) {
+                        subagentEventRelay.publish(userId, sessionId, event);
+                    }
+                }
+        );
+    }
+
     @Bean(destroyMethod = "close")
     public HarnessAgent harnessAgent(
             @Qualifier("harnessModel") Model model,
@@ -251,16 +332,24 @@ public class HarnessAgentConfig {
             @Qualifier("harnessCompactionConfig") CompactionConfig compactionConfig,
             @Qualifier("harnessMemoryConfig") MemoryConfig memoryConfig,
             @Qualifier("harnessToolResultEvictionConfig") ToolResultEvictionConfig toolResultEvictionConfig,
-            @Lazy HarnessCollaborationService harnessCollaborationService,
-            HarnessSubagentEventRelay subagentEventRelay,
+            ParentAssignmentSystemPromptMiddleware assignmentMiddleware,
+            HarnessSubagentLifecycleMiddleware lifecycleMiddleware,
+            BuiltinSubagentDeclarations builtinSubagentDeclarations,
+            SubagentCatalogProperties subagentCatalogProperties,
+            ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactory,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
-        RemoteFilesystemSpec filesystem = new RemoteFilesystemSpec()
-                // MEMORY.md 与用户 Skills 需要跨该用户的 Harness 会话共享。
-                .isolationScope(IsolationScope.USER)
-                .addSharedPrefix("artifacts/");
+        RemoteFilesystemSpec filesystem = subagentCatalogProperties.isEnabled()
+                // Catalog 开启时 subagents/ 是保留路径（设计 7.3）：文件工具不可读写。
+                ? new ReservedRemoteFilesystemSpec()
+                        // MEMORY.md 与用户 Skills 需要跨该用户的 Harness 会话共享。
+                        .isolationScope(IsolationScope.USER)
+                        .addSharedPrefix("artifacts/")
+                : new RemoteFilesystemSpec()
+                        .isolationScope(IsolationScope.USER)
+                        .addSharedPrefix("artifacts/");
 
-        HarnessAgent agent = HarnessAgent.builder()
+        HarnessAgent.Builder builder = HarnessAgent.builder()
                 .agentId(ChatAgentIds.HARNESS)
                 .name(ChatAgentIds.HARNESS)
                 .description("面向复杂目标的协作父 Agent")
@@ -284,69 +373,52 @@ public class HarnessAgentConfig {
                 .memory(memoryConfig)
                 .toolResultEviction(toolResultEvictionConfig)
                 // 子 Agent 会继承显式 middleware：把持久化委托合并进 provider 的真实 SYSTEM。
-                .middleware(new ParentAssignmentSystemPromptMiddleware())
+                .middleware(assignmentMiddleware)
                 // 子 Agent 无论同步完成还是超时转后台，都在自己的完成边界实时写产品聊天记录。
-                .middleware(new HarnessSubagentLifecycleMiddleware(
-                        (userId, sessionId, assignment) -> {
-                            if (userId == null || userId.isBlank()
-                                    || sessionId == null || !sessionId.startsWith("sub-")) {
-                                return;
-                            }
-                            try {
-                                harnessCollaborationService.projectSubagentAssignment(
-                                        Long.valueOf(userId), sessionId, assignment
-                                );
-                            } catch (RuntimeException error) {
-                                log.warn("Failed to project started subagent assignment sessionId={}: {}",
-                                        sessionId, error.getMessage());
-                            }
-                        },
-                        (userId, sessionId, assignment, executionId, reasoning, content) -> {
-                            if (userId == null || userId.isBlank()
-                                    || sessionId == null || !sessionId.startsWith("sub-")) {
-                                return;
-                            }
-                            try {
-                                harnessCollaborationService.projectSubagentResult(
-                                        Long.valueOf(userId), sessionId, executionId,
-                                        assignment, reasoning, content
-                                );
-                            } catch (RuntimeException error) {
-                                // 产品投影故障不能反向打断子任务；故障会保留在日志中供监控重试。
-                                log.warn("Failed to project completed subagent result sessionId={}: {}",
-                                        sessionId, error.getMessage());
-                            }
-                        },
-                        (userId, sessionId, assignment, executionId, reasoning, reason, message) -> {
-                            if (userId == null || userId.isBlank()
-                                    || sessionId == null || !sessionId.startsWith("sub-")) {
-                                return;
-                            }
-                            try {
-                                harnessCollaborationService.projectSubagentFailure(
-                                        Long.valueOf(userId), sessionId, executionId,
-                                        reason, message, reasoning
-                                );
-                            } catch (RuntimeException error) {
-                                log.warn("Failed to project failed subagent result sessionId={}: {}",
-                                        sessionId, error.getMessage());
-                            }
-                        },
-                        (userId, sessionId, event) -> {
-                            if (userId != null && !userId.isBlank()
-                                    && sessionId != null && sessionId.startsWith("sub-")) {
-                                subagentEventRelay.publish(userId, sessionId, event);
-                            }
-                        }
-                ))
+                .middleware(lifecycleMiddleware)
                 .disableShellTool()
                 .enableSkillManageTool(true)
-                .enablePlanMode(true)
-                .build();
+                .enablePlanMode(true);
+
+        if (subagentCatalogProperties.isEnabled()) {
+            // Subagent Definition Catalog 开启（设计 7.2 / 8.1 / 8.2）：
+            // 1. 静态注册内置声明（researcher/reviewer/planner），general-purpose 由 SDK 自动提供；
+            // 2. 禁用 DynamicSubagentsMiddleware 的共享 replaceAgents 路径，
+            //    切换到会安装 per-call CTX_AGENT_MANAGER 的 SubagentsMiddleware；
+            // 3. CatalogSubagentsMiddleware 在 SDK middleware 之后执行，用本 turn snapshot
+            //    的用户 factory 覆盖 per-call manager，并替换 SDK 生成的 Subagents 说明段；
+            // 4. SubagentSpawnGuardMiddleware 拒绝携带 label 的 agent_spawn 调用；
+            // 5. DENY agent_send/agent_list：AgentSpawnTool 的共享 key/label Map
+            //    没有 (userId, parentSessionId) 分桶，跨用户风险不可接受（设计 8.2）。
+            //    ToolsConfig override 同时使 workspace tools.json 不再参与工具面。
+            builder.subagents(builtinSubagentDeclarations.declarations())
+                    .disableDynamicSubagents()
+                    .toolsConfig(subagentCatalogToolsConfig())
+                    .middleware(new SubagentSpawnGuardMiddleware());
+            SubagentRuntimeFactory runtimeFactory = subagentRuntimeFactory.getIfAvailable();
+            if (runtimeFactory != null) {
+                builder.middleware(new CatalogSubagentsMiddleware(runtimeFactory));
+            }
+            log.info("Subagent Definition Catalog enabled: static builtins registered, "
+                    + "dynamic subagents disabled, agent_send/agent_list denied, "
+                    + "label guard + reserved subagents/ path active");
+        }
+
+        HarnessAgent agent = builder.build();
 
         // 2.0.1 需要先初始化 Gateway bridge，expose_to_user 才会产生 SUBAGENT_EXPOSED。
         agent.gateway();
         return agent;
+    }
+
+    /**
+     * Catalog 开启时的父 Agent 工具面（设计 8.2）：
+     * 保留 agent_spawn 与 task 工具，DENY 依赖共享 key/label 状态的 agent_send / agent_list。
+     */
+    private static ToolsConfig subagentCatalogToolsConfig() {
+        ToolsConfig config = new ToolsConfig();
+        config.setDeny(List.of(SubagentToolNames.AGENT_SEND, SubagentToolNames.AGENT_LIST));
+        return config;
     }
 
     /**

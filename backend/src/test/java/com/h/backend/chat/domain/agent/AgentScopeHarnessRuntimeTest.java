@@ -48,7 +48,7 @@ class AgentScopeHarnessRuntimeTest {
         when(child.streamEvents(anyList(), org.mockito.ArgumentMatchers.any(RuntimeContext.class)))
                 .thenReturn(Flux.empty());
 
-        AgentScopeHarnessRuntime runtime = new AgentScopeHarnessRuntime();
+        AgentScopeHarnessRuntime runtime = new AgentScopeHarnessRuntime(null, null);
         runtime.streamSubagent(parent, context, "再补充两个来源").collectList().block();
 
         assertEquals(1, state.getContext().size());
@@ -108,7 +108,7 @@ class AgentScopeHarnessRuntimeTest {
         when(child.streamEvents(anyList(), org.mockito.ArgumentMatchers.any(RuntimeContext.class)))
                 .thenReturn(Flux.empty());
 
-        new AgentScopeHarnessRuntime().streamSubagent(parent, context, "继续核对")
+        new AgentScopeHarnessRuntime(null, null).streamSubagent(parent, context, "继续核对")
                 .collectList().block();
 
         assertEquals("核对三个官方来源并写出结论", state.getContext().getFirst().getTextContent());

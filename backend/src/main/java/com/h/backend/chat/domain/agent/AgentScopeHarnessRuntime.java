@@ -1,5 +1,8 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
+import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
+import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
@@ -8,13 +11,32 @@ import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.DefaultAgentManager;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
 
+/**
+ * Harness 执行的 AgentScope 实现。
+ *
+ * <p>Catalog 子会话（带 pinned {@code DefinitionBinding}）按固定版本重新物化：
+ * 停用、软删除或发布新版本都不改变子会话已绑定的版本；当前安全政策重新求
+ * 能力交集（设计 7.6）。无绑定的会话保持 SDK 静态 factory 路径。</p>
+ */
 @Component
 public class AgentScopeHarnessRuntime implements HarnessRuntime {
+
+    private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
+    private final ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider;
+
+    public AgentScopeHarnessRuntime(
+            ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
+            ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider
+    ) {
+        this.subagentCatalogProvider = subagentCatalogProvider;
+        this.subagentRuntimeFactoryProvider = subagentRuntimeFactoryProvider;
+    }
 
     @Override
     public Flux<AgentEvent> streamParent(Object agentBean, String message, RuntimeContext context) {
@@ -44,14 +66,40 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
 
     private ReActAgent materializeSubagent(Object agentBean, HarnessSubagentContext context) {
         HarnessAgent parent = requireHarnessAgent(agentBean);
-        DefaultAgentManager manager = parent.getSubagentAgentManager();
-        if (manager == null) {
-            throw new IllegalStateException("Harness subagent manager is unavailable");
-        }
         RuntimeContext parentContext = RuntimeContext.builder()
                 .userId(context.userId())
                 .sessionId(context.parentSessionId())
                 .build();
+        if (context.definitionBinding() != null) {
+            return materializePinned(context, parentContext);
+        }
+        return materializeViaStaticFactory(parent, context, parentContext);
+    }
+
+    /**
+     * Catalog 子会话固定版本物化（设计 7.6）：agent_sessions 的 pinned binding
+     * 经 {@code resolvePinned} 解析到确切版本，再交给平台 runtime factory。
+     */
+    private ReActAgent materializePinned(HarnessSubagentContext context, RuntimeContext parentContext) {
+        SubagentDefinitionCatalog catalog = subagentCatalogProvider == null
+                ? null : subagentCatalogProvider.getIfAvailable();
+        SubagentRuntimeFactory runtimeFactory = subagentRuntimeFactoryProvider == null
+                ? null : subagentRuntimeFactoryProvider.getIfAvailable();
+        if (catalog == null || runtimeFactory == null) {
+            throw new IllegalStateException(
+                    "Pinned subagent session requires the Subagent Definition Catalog: " + context.agentId());
+        }
+        ResolvedSubagentDefinition definition = catalog.resolvePinned(
+                Long.parseLong(context.userId()), context.definitionBinding());
+        return runtimeFactory.materialize(definition, parentContext);
+    }
+
+    private ReActAgent materializeViaStaticFactory(
+            HarnessAgent parent, HarnessSubagentContext context, RuntimeContext parentContext) {
+        DefaultAgentManager manager = parent.getSubagentAgentManager();
+        if (manager == null) {
+            throw new IllegalStateException("Harness subagent manager is unavailable");
+        }
         Agent child = manager.createAgentIfPresent(context.agentId(), parentContext)
                 .orElseThrow(() -> new IllegalStateException(
                         "Unknown Harness subagent type: " + context.agentId()

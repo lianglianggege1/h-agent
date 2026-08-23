@@ -56,6 +56,9 @@ langfuse:
 chat:
   harness:
     workspace-template: /tmp/h-agent/harness-workspace
+  subagent-catalog:
+    # 代码默认关闭（设计 Phase 5 滚动发布要求）；本地开发显式开启。
+    enabled: true
   stream:
     heartbeat-interval: 15s
     max-concurrent-per-user: 100

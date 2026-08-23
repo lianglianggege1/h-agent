@@ -84,6 +84,19 @@ async function parseApiResponse<T>(response: Response) {
   }
 }
 
+/** 携带响应 code 与 data 的请求错误：message 行为与普通 Error 一致。 */
+export class ApiError extends Error {
+  readonly code: number;
+  readonly data: unknown;
+
+  constructor(message: string, code: number, data: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+    this.data = data;
+  }
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
@@ -96,7 +109,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   const body = await parseApiResponse<T>(response);
 
   if (!response.ok || body.code !== 0) {
-    throw new Error(body.message || "请求失败");
+    throw new ApiError(body.message || "请求失败", body.code, body.data);
   }
 
   return body.data as T;
@@ -116,7 +129,7 @@ export async function apiFormFetch<T>(path: string, body: FormData, init: Omit<R
   const parsedBody = await parseApiResponse<T>(response);
 
   if (!response.ok || parsedBody.code !== 0) {
-    throw new Error(parsedBody.message || "请求失败");
+    throw new ApiError(parsedBody.message || "请求失败", parsedBody.code, parsedBody.data);
   }
 
   return parsedBody.data as T;

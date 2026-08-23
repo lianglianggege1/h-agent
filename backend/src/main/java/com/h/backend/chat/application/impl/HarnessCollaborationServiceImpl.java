@@ -7,6 +7,7 @@ import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.HarnessSubagentTurnStart;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
@@ -101,13 +102,21 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         HarnessSubagentEntity subagent = root.getSessionId().equals(requested.getSessionId())
                 ? null
                 : harnessSubagentMapper.selectBySessionId(requested.getSessionId());
+        DefinitionBinding binding = requested.getAgentDefinitionId() != null
+                ? new DefinitionBinding(
+                        requested.getAgentDefinitionId(),
+                        requested.getAgentDefinitionVersion() == null
+                                ? 0
+                                : requested.getAgentDefinitionVersion())
+                : null;
         return new HarnessExecutionSession(
                 root.getSessionId(),
                 requested.getSessionId(),
                 requested.getGatewaySubagentId(),
                 requested.getParentSessionId(),
                 requested.getAgentId(),
-                subagent == null ? null : subagent.getAssignment()
+                subagent == null ? null : subagent.getAssignment(),
+                binding
         );
     }
 
@@ -310,6 +319,11 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         session.setUserId(userId);
         session.setAgentId(exposure.agentId());
         session.setGatewaySubagentId(exposure.gatewaySubagentId());
+        // 版本固定：Catalog 子会话从此固定到 exposure 时的 Definition Version（设计 7.5）。
+        if (exposure.definitionBinding() != null) {
+            session.setAgentDefinitionId(exposure.definitionBinding().definitionId());
+            session.setAgentDefinitionVersion(exposure.definitionBinding().version());
+        }
         session.setDisplayOrder(siblings.size());
         session.setMessageCount(0);
         session.setCreatedAt(now);

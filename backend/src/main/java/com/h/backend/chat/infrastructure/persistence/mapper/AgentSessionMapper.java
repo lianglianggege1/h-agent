@@ -13,6 +13,7 @@ public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
 
     @Select("""
             SELECT id, session_id, parent_session_id, user_id, agent_id, gateway_subagent_id,
+                   agent_definition_id, agent_definition_version,
                    display_order, message_count, created_at, updated_at
             FROM agent_sessions
             WHERE session_id = #{sessionId}
@@ -22,6 +23,7 @@ public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
 
     @Select("""
             SELECT id, session_id, parent_session_id, user_id, agent_id, gateway_subagent_id,
+                   agent_definition_id, agent_definition_version,
                    display_order, message_count, created_at, updated_at
             FROM agent_sessions
             WHERE parent_session_id = #{parentSessionId}
