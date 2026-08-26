@@ -108,8 +108,6 @@ public class CallTurnService {
         byte[] audio = mergeChunks(dir);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
-                sessionId,
-                "call-user-recording",
                 audio,
                 "audio/webm",
                 "webm",

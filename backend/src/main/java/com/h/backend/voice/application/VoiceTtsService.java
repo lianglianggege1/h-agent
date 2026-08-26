@@ -55,8 +55,6 @@ public class VoiceTtsService {
         Map<String, Object> metadata = assistantTtsMetadata(result);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 "AUDIO",
-                sessionId,
-                "call-assistant-tts",
                 result.audioBytes(),
                 result.mimeType(),
                 extension(result.mimeType()),

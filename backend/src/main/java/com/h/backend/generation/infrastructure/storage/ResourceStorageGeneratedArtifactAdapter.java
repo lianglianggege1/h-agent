@@ -24,7 +24,7 @@ public class ResourceStorageGeneratedArtifactAdapter implements GeneratedArtifac
     @Override
     public GeneratedArtifact storeVideo(String sessionId, ProviderFilePort.DownloadableFile file, InputStream inputStream) {
         StoredResource resource = resourceStorage.save(ResourceSaveCommand.fromStream(
-                "VIDEO", sessionId, null, inputStream, file.mimeType(), extension(file.fileName()),
+                "VIDEO", inputStream, file.mimeType(), extension(file.fileName()),
                 properties.getDownload().getMaxFileSize()
         ));
         return new GeneratedArtifact(

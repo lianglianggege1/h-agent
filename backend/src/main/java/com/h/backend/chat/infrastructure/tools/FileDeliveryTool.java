@@ -1,6 +1,7 @@
 package com.h.backend.chat.infrastructure.tools;
 
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFile;
@@ -25,17 +26,20 @@ public class FileDeliveryTool {
     private final ResourceStorage resourceStorage;
     private final ChatSessionService chatSessionService;
     private final ChatStreamEventBridge chatStreamEventBridge;
+    private final ChatResourceUrls chatResourceUrls;
 
     public FileDeliveryTool(
             AssistantFileStorage fileStorage,
             ResourceStorage resourceStorage,
             ChatSessionService chatSessionService,
-            ChatStreamEventBridge chatStreamEventBridge
+            ChatStreamEventBridge chatStreamEventBridge,
+            ChatResourceUrls chatResourceUrls
     ) {
         this.fileStorage = fileStorage;
         this.resourceStorage = resourceStorage;
         this.chatSessionService = chatSessionService;
         this.chatStreamEventBridge = chatStreamEventBridge;
+        this.chatResourceUrls = chatResourceUrls;
     }
 
     @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
@@ -58,8 +62,6 @@ public class FileDeliveryTool {
         String resourceType = resourceTypeFor(resolvedMimeType);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
                 resourceType,
-                context.sessionId(),
-                file.virtualPath(),
                 file.content(),
                 resolvedMimeType,
                 extension,
@@ -71,8 +73,8 @@ public class FileDeliveryTool {
                 stored.id(),
                 resourceType,
                 "GENERATED",
-                resourceStorage.buildViewUrl(stored.id()),
-                resourceStorage.buildDownloadUrl(stored.id()),
+                chatResourceUrls.view(stored.id()),
+                chatResourceUrls.download(stored.id()),
                 resolvedFileName,
                 resolvedMimeType,
                 stored.fileSize(),

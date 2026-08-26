@@ -4,131 +4,278 @@ import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LocalFileResourceStorageTest {
 
     @TempDir
     Path tempDir;
 
+    // ------------------------------------------------------------------
+    // save：现有行为保持（前缀目录、扩展名、大小）
+    // ------------------------------------------------------------------
+
     @Test
     void savesAudioResourcesUnderCallAudioDirectory() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(
-                null,
-                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
-        );
-        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+        LocalFileResourceStorage storage = storage();
 
         StoredResource stored = storage.save(new ResourceSaveCommand(
-                "AUDIO",
-                "session-1",
-                "call-user-recording",
-                new byte[]{1, 2, 3},
-                "audio/webm",
-                "webm",
-                null,
-                null
+                "AUDIO", new byte[]{1, 2, 3}, "audio/webm", "webm", null, null
         ));
 
-        assertTrue(stored.storageKey().startsWith("call-audio/"));
-        assertTrue(stored.fileName().endsWith(".webm"));
-        assertEquals("audio/webm", stored.mimeType());
-        assertEquals(3L, stored.fileSize());
-        assertTrue(Files.exists(tempDir.resolve(stored.storageKey())));
+        assertThat(stored.storageType()).isEqualTo("LOCAL_FILE");
+        assertThat(stored.storageKey()).startsWith("call-audio/");
+        assertThat(stored.fileName()).endsWith(".webm");
+        assertThat(stored.mimeType()).isEqualTo("audio/webm");
+        assertThat(stored.fileSize()).isEqualTo(3L);
+        assertThat(Files.exists(tempDir.resolve(stored.storageKey()))).isTrue();
     }
 
     @Test
     void infersAudioExtensionFromMimeType() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(
-                null,
-                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
-        );
-        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+        LocalFileResourceStorage storage = storage();
 
         StoredResource stored = storage.save(new ResourceSaveCommand(
-                "AUDIO",
-                "session-1",
-                "call-user-recording",
-                new byte[]{1, 2, 3},
-                "audio/webm",
-                null,
-                null,
-                null
+                "AUDIO", new byte[]{1, 2, 3}, "audio/webm", null, null, null
         ));
 
-        assertTrue(stored.storageKey().startsWith("call-audio/"));
-        assertTrue(stored.storageKey().endsWith(".webm"));
-        assertTrue(stored.fileName().endsWith(".webm"));
+        assertThat(stored.storageKey()).startsWith("call-audio/");
+        assertThat(stored.storageKey()).endsWith(".webm");
+        assertThat(stored.fileName()).endsWith(".webm");
     }
 
     @Test
     void savesGeneratedFilesUnderGeneratedFilesDirectory() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(
-                null,
-                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
-        );
-        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+        LocalFileResourceStorage storage = storage();
 
         StoredResource stored = storage.save(new ResourceSaveCommand(
-                "FILE",
-                "session-1",
-                "send-file",
-                new byte[]{1, 2, 3},
-                "application/pdf",
-                "pdf",
-                null,
-                null
+                "FILE", new byte[]{1, 2, 3}, "application/pdf", "pdf", null, null
         ));
 
-        assertTrue(stored.storageKey().startsWith("generated-files/"));
-        assertTrue(stored.fileName().startsWith("file-"));
-        assertTrue(stored.fileName().endsWith(".pdf"));
+        assertThat(stored.storageKey()).startsWith("generated-files/");
+        assertThat(stored.fileName()).startsWith("file-");
+        assertThat(stored.fileName()).endsWith(".pdf");
     }
 
     @Test
     void savesGeneratedVideosUnderGeneratedVideosDirectory() {
-        ImageGenerationProperties properties = new ImageGenerationProperties(
-                null,
-                new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
-        );
-        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
+        LocalFileResourceStorage storage = storage();
 
         StoredResource stored = storage.save(new ResourceSaveCommand(
-                "VIDEO",
-                "session-1",
-                "send-video",
-                new byte[]{1, 2, 3},
-                "video/mp4",
-                "mp4",
-                null,
-                null
+                "VIDEO", new byte[]{1, 2, 3}, "video/mp4", "mp4", null, null
         ));
 
-        assertTrue(stored.storageKey().startsWith("generated-videos/"));
-        assertTrue(stored.fileName().startsWith("video-"));
-        assertTrue(stored.fileName().endsWith(".mp4"));
+        assertThat(stored.storageKey()).startsWith("generated-videos/");
+        assertThat(stored.fileName()).startsWith("video-");
+        assertThat(stored.fileName()).endsWith(".mp4");
     }
 
     @Test
     void savesVideoStreamThroughTheSameResourceSaveCommand() throws Exception {
+        LocalFileResourceStorage storage = storage();
+
+        StoredResource stored = storage.save(ResourceSaveCommand.fromStream(
+                "VIDEO", new ByteArrayInputStream(new byte[]{1, 2, 3}), "video/mp4", "mp4", 10
+        ));
+
+        assertThat(stored.fileSize()).isEqualTo(3L);
+        assertThat(Files.exists(tempDir.resolve(stored.storageKey()))).isTrue();
+        assertThat(Files.size(tempDir.resolve(stored.storageKey()))).isEqualTo(3L);
+    }
+
+    // ------------------------------------------------------------------
+    // save：大小上限（计划 §6.1：业务上限与绝对上限取小，超限映射 SIZE_LIMIT）
+    // ------------------------------------------------------------------
+
+    @Test
+    void saveRejectsContentAboveBusinessMaxBytes() {
+        LocalFileResourceStorage storage = storage();
+
+        assertThatThrownBy(() -> storage.save(ResourceSaveCommand.fromStream(
+                "VIDEO", new ByteArrayInputStream(new byte[11]), "video/mp4", "mp4", 10
+        )))
+                .isInstanceOf(ResourceStorageException.class)
+                .satisfies(error -> assertThat(((ResourceStorageException) error).kind())
+                        .isEqualTo(ResourceStorageErrorKind.SIZE_LIMIT));
+    }
+
+    @Test
+    void saveRejectsDeclaredSizeAboveLimitBeforeReadingTheStream() {
+        LocalFileResourceStorage storage = storage();
+        InputStream neverConsumed = new ByteArrayInputStream(new byte[1]);
+
+        assertThatThrownBy(() -> storage.save(ResourceSaveCommand.fromStream(
+                "VIDEO", neverConsumed, 11L, "video/mp4", "mp4", 10
+        )))
+                .isInstanceOf(ResourceStorageException.class)
+                .satisfies(error -> assertThat(((ResourceStorageException) error).kind())
+                        .isEqualTo(ResourceStorageErrorKind.SIZE_LIMIT));
+    }
+
+    // ------------------------------------------------------------------
+    // open(String, ResourceRange)：完整读取字段契约
+    // ------------------------------------------------------------------
+
+    @Test
+    void openReturnsCompleteContentForFullRead() throws IOException {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3, 4, 5}, "application/octet-stream", "bin", null, null
+        ));
+
+        try (ResourceContent content = storage.open(stored.storageKey(), ResourceRange.fullRead())) {
+            assertThat(content.totalSize()).isEqualTo(5L);
+            assertThat(content.responseLength()).isEqualTo(5L);
+            assertThat(content.offset()).isZero();
+            assertThat(content.partial()).isFalse();
+            assertThat(content.mimeType()).isNotBlank();
+            assertThat(content.inputStream().readAllBytes()).containsExactly(1, 2, 3, 4, 5);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // open(String, ResourceRange)：区间读取（206 部分内容语义）
+    // ------------------------------------------------------------------
+
+    @Test
+    void openReturnsPartialContentForClosedRange() throws IOException {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3, 4, 5}, "application/octet-stream", "bin", null, null
+        ));
+
+        try (ResourceContent content = storage.open(stored.storageKey(), ResourceRange.fromHeader("bytes=1-3"))) {
+            assertThat(content.totalSize()).isEqualTo(5L);
+            assertThat(content.offset()).isEqualTo(1L);
+            assertThat(content.responseLength()).isEqualTo(3L);
+            assertThat(content.partial()).isTrue();
+            assertThat(content.inputStream().readAllBytes()).containsExactly(2, 3, 4);
+        }
+    }
+
+    @Test
+    void openReturnsPartialContentForOpenEndedRange() throws IOException {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3, 4, 5}, "application/octet-stream", "bin", null, null
+        ));
+
+        try (ResourceContent content = storage.open(stored.storageKey(), ResourceRange.fromHeader("bytes=3-"))) {
+            assertThat(content.offset()).isEqualTo(3L);
+            assertThat(content.responseLength()).isEqualTo(2L);
+            assertThat(content.partial()).isTrue();
+            assertThat(content.inputStream().readAllBytes()).containsExactly(4, 5);
+        }
+    }
+
+    @Test
+    void openReturnsPartialContentForSuffixRange() throws IOException {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3, 4, 5}, "application/octet-stream", "bin", null, null
+        ));
+
+        try (ResourceContent content = storage.open(stored.storageKey(), ResourceRange.fromHeader("bytes=-2"))) {
+            assertThat(content.offset()).isEqualTo(3L);
+            assertThat(content.responseLength()).isEqualTo(2L);
+            assertThat(content.partial()).isTrue();
+            assertThat(content.inputStream().readAllBytes()).containsExactly(4, 5);
+        }
+    }
+
+    @Test
+    void openClampsEndBeyondTotalSize() throws IOException {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3, 4, 5}, "application/octet-stream", "bin", null, null
+        ));
+
+        try (ResourceContent content = storage.open(stored.storageKey(), ResourceRange.fromHeader("bytes=4-99"))) {
+            assertThat(content.offset()).isEqualTo(4L);
+            assertThat(content.responseLength()).isEqualTo(1L);
+            assertThat(content.partial()).isTrue();
+            assertThat(content.inputStream().readAllBytes()).containsExactly(5);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // open：错误语义
+    // ------------------------------------------------------------------
+
+    @Test
+    void openThrowsNotFoundWhenFileIsMissing() {
+        LocalFileResourceStorage storage = storage();
+
+        assertThatThrownBy(() -> storage.open("generated-files/missing.bin", ResourceRange.fullRead()))
+                .isInstanceOf(ResourceStorageException.class)
+                .satisfies(error -> {
+                    ResourceStorageException storageError = (ResourceStorageException) error;
+                    assertThat(storageError.kind()).isEqualTo(ResourceStorageErrorKind.NOT_FOUND);
+                    // 原始 cause 保留在异常链中（NoSuchFileException）。
+                    assertThat(storageError.getCause()).isInstanceOf(NoSuchFileException.class);
+                    // 消息不包含完整存储 key。
+                    assertThat(storageError.getMessage()).doesNotContain("generated-files");
+                    assertThat(storageError.getMessage()).doesNotContain("missing.bin");
+                });
+    }
+
+    @Test
+    void openThrowsUnsatisfiableWhenRangeStartsBeyondTotalSize() {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3}, "application/octet-stream", "bin", null, null
+        ));
+
+        assertThatThrownBy(() -> storage.open(stored.storageKey(), ResourceRange.fromHeader("bytes=100-")))
+                .isInstanceOf(ResourceRangeException.class)
+                .satisfies(error -> {
+                    ResourceRangeException rangeError = (ResourceRangeException) error;
+                    assertThat(rangeError.reason()).isEqualTo(ResourceRangeException.Reason.UNSATISFIABLE);
+                    assertThat(rangeError.totalSize()).isEqualTo(3L);
+                });
+    }
+
+    // ------------------------------------------------------------------
+    // discard：幂等删除（计划 §4.1：对不存在对象幂等）
+    // ------------------------------------------------------------------
+
+    @Test
+    void discardDeletesAnExistingObject() {
+        LocalFileResourceStorage storage = storage();
+        StoredResource stored = storage.save(new ResourceSaveCommand(
+                "FILE", new byte[]{1, 2, 3}, "application/octet-stream", "bin", null, null
+        ));
+        assertThat(Files.exists(tempDir.resolve(stored.storageKey()))).isTrue();
+
+        storage.discard(stored.storageKey());
+
+        assertThat(Files.exists(tempDir.resolve(stored.storageKey()))).isFalse();
+    }
+
+    @Test
+    void discardIsIdempotentWhenObjectDoesNotExist() {
+        LocalFileResourceStorage storage = storage();
+
+        storage.discard("generated-files/never-saved.bin");
+        storage.discard("generated-files/never-saved.bin");
+
+        // 幂等：第二次删除不抛异常。
+        storage.discard("generated-files/never-saved.bin");
+    }
+
+    private LocalFileResourceStorage storage() {
         ImageGenerationProperties properties = new ImageGenerationProperties(
                 null,
                 new ImageGenerationProperties.LocalStorage(tempDir.toString(), "")
         );
-        LocalFileResourceStorage storage = new LocalFileResourceStorage(properties);
-
-        StoredResource stored = storage.save(ResourceSaveCommand.fromStream(
-                "VIDEO", "session-1", null, new ByteArrayInputStream(new byte[]{1, 2, 3}),
-                "video/mp4", "mp4", 10
-        ));
-
-        assertEquals(3L, stored.fileSize());
-        assertTrue(Files.exists(tempDir.resolve(stored.storageKey())));
-        assertEquals(3L, Files.size(tempDir.resolve(stored.storageKey())));
+        return new LocalFileResourceStorage(properties);
     }
 }

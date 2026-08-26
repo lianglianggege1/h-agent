@@ -6,6 +6,7 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageClient;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ImageGenerationService;
 import com.h.backend.chat.application.reference.ReferenceImageResolver;
 import com.h.backend.chat.application.reference.ResolvedReferenceImage;
@@ -42,7 +43,8 @@ class ImageGenerationServiceImplTest {
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                referenceImageResolver
+                referenceImageResolver,
+                new ChatResourceUrls("")
         );
 
         MiniMaxImageGenerationResult generationResult = new MiniMaxImageGenerationResult(
@@ -88,8 +90,6 @@ class ImageGenerationServiceImplTest {
 
         when(miniMaxImageClient.generate(any())).thenReturn(generationResult);
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
-        when(resourceStorage.buildViewUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/content");
-        when(resourceStorage.buildDownloadUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/download");
         when(chatSessionService.appendImageMessage(
                 org.mockito.Mockito.eq(1L),
                 org.mockito.Mockito.eq("session-1"),
@@ -135,7 +135,8 @@ class ImageGenerationServiceImplTest {
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                referenceImageResolver
+                referenceImageResolver,
+                new ChatResourceUrls("")
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
@@ -162,8 +163,6 @@ class ImageGenerationServiceImplTest {
         ));
 
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
-        when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
-        when(resourceStorage.buildDownloadUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/download");
         when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("把衣服改成黑色"), any(), any()))
                 .thenReturn(new ChatSessionMessageDto("502", "assistant", "IMAGE", "把衣服改成黑色", null, List.of(), LocalDateTime.now()));
 
@@ -203,7 +202,8 @@ class ImageGenerationServiceImplTest {
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                referenceImageResolver
+                referenceImageResolver,
+                new ChatResourceUrls("")
         );
         when(referenceImageResolver.resolve(1L, "resource-1"))
                 .thenThrow(new IllegalArgumentException("参考图片资源不存在: resource-1"));
@@ -235,7 +235,8 @@ class ImageGenerationServiceImplTest {
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                referenceImageResolver
+                referenceImageResolver,
+                new ChatResourceUrls("")
         );
         when(referenceImageResolver.resolve(1L, "resource-1"))
                 .thenThrow(new IllegalArgumentException("参考资源必须是图片: resource-1"));
@@ -267,7 +268,8 @@ class ImageGenerationServiceImplTest {
                 resourceStorage,
                 chatSessionService,
                 new ImageGenerationProperties(null, null),
-                referenceImageResolver
+                referenceImageResolver,
+                new ChatResourceUrls("")
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
@@ -290,12 +292,6 @@ class ImageGenerationServiceImplTest {
                         new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
                         new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
                 );
-        when(resourceStorage.buildViewUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/content");
-        when(resourceStorage.buildViewUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/content");
-        when(resourceStorage.buildViewUrl("resource-3")).thenReturn("/api/chat/resources/resource-3/content");
-        when(resourceStorage.buildDownloadUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/download");
-        when(resourceStorage.buildDownloadUrl("resource-2")).thenReturn("/api/chat/resources/resource-2/download");
-        when(resourceStorage.buildDownloadUrl("resource-3")).thenReturn("/api/chat/resources/resource-3/download");
         when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("三张图"), any(), any()))
                 .thenReturn(new ChatSessionMessageDto("503", "assistant", "IMAGE", "三张图", null, List.of(), LocalDateTime.now()));
 

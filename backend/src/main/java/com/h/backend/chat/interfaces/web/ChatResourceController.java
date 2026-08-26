@@ -1,10 +1,14 @@
 package com.h.backend.chat.interfaces.web;
 
+import com.h.backend.chat.application.ChatResourceService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.infrastructure.config.ResourceUploadProperties;
 import com.h.backend.chat.interfaces.dto.ResourceUploadResponse;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.application.ChatResourceService;
+import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.infrastructure.storage.ResourceRange;
+import com.h.backend.chat.infrastructure.storage.ResourceRangeException;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
@@ -21,7 +25,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
@@ -33,17 +36,20 @@ public class ChatResourceController {
     private final ResourceStorage resourceStorage;
     private final ChatMessageResourceMapper chatMessageResourceMapper;
     private final ResourceUploadProperties uploadProperties;
+    private final ChatResourceUrls chatResourceUrls;
 
     public ChatResourceController(
             ChatResourceService chatResourceService,
             ResourceStorage resourceStorage,
             ChatMessageResourceMapper chatMessageResourceMapper,
-            ResourceUploadProperties uploadProperties
+            ResourceUploadProperties uploadProperties,
+            ChatResourceUrls chatResourceUrls
     ) {
         this.chatResourceService = chatResourceService;
         this.resourceStorage = resourceStorage;
         this.chatMessageResourceMapper = chatMessageResourceMapper;
         this.uploadProperties = uploadProperties;
+        this.chatResourceUrls = chatResourceUrls;
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -68,7 +74,7 @@ public class ChatResourceController {
 
         String extension = extensionForMimeType(mimeType);
         StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                resourceType, null, null, file.getBytes(), mimeType, extension, null, null
+                resourceType, file.getBytes(), mimeType, extension, null, null
         ));
 
         String originalName = safeFileName(file.getOriginalFilename(), extension);
@@ -80,8 +86,8 @@ public class ChatResourceController {
         row.setResourceRole(resourceRole);
         row.setStorageType(stored.storageType());
         row.setStorageKey(stored.storageKey());
-        row.setViewUrl(resourceStorage.buildViewUrl(stored.id()));
-        row.setDownloadUrl(resourceStorage.buildDownloadUrl(stored.id()));
+        row.setViewUrl(chatResourceUrls.view(stored.id()));
+        row.setDownloadUrl(chatResourceUrls.download(stored.id()));
         row.setMimeType(stored.mimeType());
         row.setFileName(originalName);
         row.setFileSize(stored.fileSize());
@@ -92,8 +98,8 @@ public class ChatResourceController {
 
         return ResponseEntity.ok(new ResourceUploadResponse(
                 stored.id(), resourceType, resourceRole,
-                resourceStorage.buildViewUrl(stored.id()),
-                resourceStorage.buildDownloadUrl(stored.id()),
+                chatResourceUrls.view(stored.id()),
+                chatResourceUrls.download(stored.id()),
                 originalName, stored.mimeType(), stored.fileSize()
         ));
     }
@@ -104,7 +110,14 @@ public class ChatResourceController {
             @PathVariable String resourceId,
             @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader
     ) {
-        return toPreviewResponse(chatResourceService.openPreview(principal.userId(), resourceId), rangeHeader);
+        ResourceRange range = parseRangeHeader(rangeHeader);
+        try {
+            return toPreviewResponse(chatResourceService.openPreview(principal.userId(), resourceId, range));
+        } catch (ResourceRangeException exception) {
+            // UNSATISFIABLE：任务 1 过渡语义按 400 拒绝；
+            // 416 + Content-Range: bytes */total 留给任务 4 完整实现。
+            throw new BusinessException(40000, "Range 请求头无法满足");
+        }
     }
 
     @GetMapping("/{resourceId}/download")
@@ -115,10 +128,22 @@ public class ChatResourceController {
         return toResponse(chatResourceService.openDownload(principal.userId(), resourceId));
     }
 
+    private ResourceRange parseRangeHeader(String rangeHeader) {
+        if (rangeHeader == null || rangeHeader.isBlank()) {
+            return ResourceRange.fullRead();
+        }
+        try {
+            return ResourceRange.fromHeader(rangeHeader);
+        } catch (ResourceRangeException exception) {
+            throw new BusinessException(40000, "Range 请求头格式无效");
+        }
+    }
+
     private ResponseEntity<InputStreamResource> toResponse(ChatResourceService.ResourceResponse resource) {
+        ResourceContent content = resource.content();
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(resource.content().mimeType()));
-        headers.setContentLength(resource.content().fileSize());
+        headers.setContentType(MediaType.parseMediaType(content.mimeType()));
+        headers.setContentLength(content.responseLength());
         if (resource.attachment()) {
             headers.setContentDisposition(ContentDisposition.attachment()
                     .filename(resource.fileName(), StandardCharsets.UTF_8)
@@ -126,61 +151,29 @@ public class ChatResourceController {
         }
         return ResponseEntity.ok()
                 .headers(headers)
-                .body(new InputStreamResource(resource.content().inputStream()));
+                .body(new InputStreamResource(content.inputStream()));
     }
 
-    private ResponseEntity<InputStreamResource> toPreviewResponse(
-            ChatResourceService.ResourceResponse resource,
-            String rangeHeader
-    ) {
-        if (rangeHeader == null || rangeHeader.isBlank()) {
+    private ResponseEntity<InputStreamResource> toPreviewResponse(ChatResourceService.ResourceResponse resource) {
+        ResourceContent content = resource.content();
+        if (!content.partial()) {
             return toResponse(resource);
         }
 
-        long totalSize = resource.content().fileSize();
-        ByteRange range = parseRange(rangeHeader, totalSize);
-        InputStream inputStream = resource.content().inputStream();
-        try {
-            inputStream.skipNBytes(range.start());
-        } catch (IOException exception) {
-            try {
-                inputStream.close();
-            } catch (IOException ignored) {
-                // Preserve the original seek error.
-            }
-            throw new IllegalStateException("无法定位视频预览区间", exception);
-        }
-
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(resource.content().mimeType()));
+        headers.setContentType(MediaType.parseMediaType(content.mimeType()));
         headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
-        headers.set(HttpHeaders.CONTENT_RANGE, "bytes %d-%d/%d".formatted(range.start(), range.end(), totalSize));
-        headers.setContentLength(range.length());
+        headers.set(HttpHeaders.CONTENT_RANGE, "bytes %d-%d/%d".formatted(
+                content.offset(), content.offset() + content.responseLength() - 1, content.totalSize()));
+        headers.setContentLength(content.responseLength());
+        if (resource.attachment()) {
+            headers.setContentDisposition(ContentDisposition.attachment()
+                    .filename(resource.fileName(), StandardCharsets.UTF_8)
+                    .build());
+        }
         return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
                 .headers(headers)
-                .body(new InputStreamResource(inputStream));
-    }
-
-    private ByteRange parseRange(String rangeHeader, long totalSize) {
-        if (!rangeHeader.startsWith("bytes=") || rangeHeader.contains(",")) {
-            throw new IllegalArgumentException("不支持的视频预览区间: " + rangeHeader);
-        }
-        String[] bounds = rangeHeader.substring("bytes=".length()).split("-", -1);
-        if (bounds.length != 2) {
-            throw new IllegalArgumentException("不支持的视频预览区间: " + rangeHeader);
-        }
-        long start = bounds[0].isBlank() ? 0 : Long.parseLong(bounds[0]);
-        long end = bounds[1].isBlank() ? totalSize - 1 : Long.parseLong(bounds[1]);
-        if (start < 0 || end < start || start >= totalSize) {
-            throw new IllegalArgumentException("视频预览区间超出文件范围: " + rangeHeader);
-        }
-        return new ByteRange(start, Math.min(end, totalSize - 1));
-    }
-
-    private record ByteRange(long start, long end) {
-        private long length() {
-            return end - start + 1;
-        }
+                .body(new InputStreamResource(content.inputStream()));
     }
 
     private String extensionForMimeType(String mimeType) {

@@ -1,6 +1,7 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
@@ -36,7 +37,8 @@ class FileDeliveryToolTest {
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
-        FileDeliveryTool tool = new FileDeliveryTool(assistantFileStorage, resourceStorage, chatSessionService, bridge);
+        FileDeliveryTool tool = new FileDeliveryTool(
+                assistantFileStorage, resourceStorage, chatSessionService, bridge, new ChatResourceUrls(""));
         String memoryId = "1:22:session-1";
         assistantFileStorage.write(memoryId, "/deck.pptx", "ppt-bytes");
 
@@ -51,8 +53,6 @@ class FileDeliveryToolTest {
                         null,
                         null
                 ));
-        when(resourceStorage.buildViewUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/content");
-        when(resourceStorage.buildDownloadUrl("resource-1")).thenReturn("/api/chat/resources/resource-1/download");
 
         ChatMessageResourceDto resourceDto = new ChatMessageResourceDto(
                 "resource-1",
@@ -93,7 +93,6 @@ class FileDeliveryToolTest {
         ArgumentCaptor<ResourceSaveCommand> saveCommand = ArgumentCaptor.forClass(ResourceSaveCommand.class);
         verify(resourceStorage).save(saveCommand.capture());
         assertEquals("FILE", saveCommand.getValue().resourceType());
-        assertEquals("session-1", saveCommand.getValue().sessionId());
         assertEquals("application/vnd.openxmlformats-officedocument.presentationml.presentation", saveCommand.getValue().mimeType());
         assertEquals("pptx", saveCommand.getValue().extension());
         assertArrayEquals("ppt-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8), saveCommand.getValue().content());
@@ -107,7 +106,8 @@ class FileDeliveryToolTest {
                 assistantFileStorage,
                 mock(ResourceStorage.class),
                 mock(ChatSessionService.class),
-                new ChatStreamEventBridge()
+                new ChatStreamEventBridge(),
+                new ChatResourceUrls("")
         );
 
         assertEquals(

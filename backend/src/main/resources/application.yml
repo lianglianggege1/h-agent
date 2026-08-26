@@ -65,6 +65,7 @@ chat:
     max-concurrent-global: 100
     permit-ttl: 10m
   resources:
+    public-base-url: ""
     upload:
       allowed-mime-types: image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/wav,audio/webm
       max-file-size: 10485760

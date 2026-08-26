@@ -8,6 +8,7 @@ import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationRequest;
 import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ImageGenerationService;
 import com.h.backend.chat.application.reference.ImageDataUrlEncoder;
 import com.h.backend.chat.application.reference.ReferenceImageResolver;
@@ -32,6 +33,7 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
     private final ChatSessionService chatSessionService;
     private final ImageGenerationProperties properties;
     private final ReferenceImageResolver referenceImageResolver;
+    private final ChatResourceUrls chatResourceUrls;
 
     @Autowired
     public ImageGenerationServiceImpl(
@@ -39,13 +41,15 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
             ResourceStorage resourceStorage,
             ChatSessionService chatSessionService,
             ImageGenerationProperties properties,
-            ReferenceImageResolver referenceImageResolver
+            ReferenceImageResolver referenceImageResolver,
+            ChatResourceUrls chatResourceUrls
     ) {
         this.miniMaxImageClient = miniMaxImageClient;
         this.resourceStorage = resourceStorage;
         this.chatSessionService = chatSessionService;
         this.properties = properties;
         this.referenceImageResolver = referenceImageResolver;
+        this.chatResourceUrls = chatResourceUrls;
     }
 
     @Override
@@ -74,16 +78,14 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generationResult.images()) {
             StoredResource storedResource = resourceStorage.save(new ResourceSaveCommand(
                     "IMAGE",
-                    command.sessionId(),
-                    prompt,
                     generatedImage.imageBytes(),
                     generatedImage.mimeType(),
                     extensionFor(generatedImage.mimeType()),
                     generatedImage.width(),
                     generatedImage.height()
             ));
-            String viewUrl = resourceStorage.buildViewUrl(storedResource.id());
-            String downloadUrl = resourceStorage.buildDownloadUrl(storedResource.id());
+            String viewUrl = chatResourceUrls.view(storedResource.id());
+            String downloadUrl = chatResourceUrls.download(storedResource.id());
             resources.add(new ChatMessageResourceDto(
                     storedResource.id(),
                     "IMAGE",

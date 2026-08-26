@@ -1,5 +1,6 @@
 package com.h.backend.chat;
 
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.infrastructure.config.ResourceUploadProperties;
 import com.h.backend.chat.interfaces.web.ChatResourceController;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
@@ -7,21 +8,24 @@ import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceM
 import com.h.backend.chat.application.ChatResourceService;
 import com.h.backend.chat.application.impl.ChatResourceServiceImpl;
 import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.infrastructure.storage.ResourceRange;
+import com.h.backend.chat.infrastructure.storage.ResourceRangeException;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.NoSuchFileException;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -30,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,31 +46,83 @@ class ChatResourceControllerTest {
     private final ResourceStorage resourceStorage = mock(ResourceStorage.class);
     private final ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
     private final ResourceUploadProperties uploadProperties = new ResourceUploadProperties();
+    private final ChatResourceUrls chatResourceUrls = new ChatResourceUrls("");
     private final ChatResourceController controller = new ChatResourceController(
-            chatResourceService, resourceStorage, chatMessageResourceMapper, uploadProperties
+            chatResourceService, resourceStorage, chatMessageResourceMapper, uploadProperties, chatResourceUrls
     );
 
     @Test
     void shouldReturnPreviewResourceWithImageContentType() {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        when(chatResourceService.openPreview(1L, "resource-1")).thenReturn(new ChatResourceService.ResourceResponse(
-                new ResourceContent(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L),
-                "generated.png",
-                false
-        ));
+        when(chatResourceService.openPreview(eq(1L), eq("resource-1"), any(ResourceRange.class))).thenReturn(
+                new ChatResourceService.ResourceResponse(
+                        new ResourceContent(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L, 3L, 0L, false),
+                        "generated.png",
+                        false
+                )
+        );
 
         var response = controller.preview(principal, "resource-1", null);
 
         assertEquals(MediaType.IMAGE_PNG, response.getHeaders().getContentType());
         assertEquals(3L, response.getHeaders().getContentLength());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
         assertInstanceOf(InputStreamResource.class, response.getBody());
+    }
+
+    @Test
+    void shouldReturnPartialContentForResourceRangeRequest() {
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        when(chatResourceService.openPreview(eq(1L), eq("resource-1"), eq(ResourceRange.fromHeader("bytes=1-2"))))
+                .thenReturn(new ChatResourceService.ResourceResponse(
+                        new ResourceContent(new ByteArrayInputStream(new byte[]{2, 3}), "video/mp4", 3L, 2L, 1L, true),
+                        "video.mp4",
+                        false
+                ));
+
+        var response = controller.preview(principal, "resource-1", "bytes=1-2");
+
+        assertEquals(HttpStatus.PARTIAL_CONTENT, response.getStatusCode());
+        assertEquals(MediaType.valueOf("video/mp4"), response.getHeaders().getContentType());
+        assertEquals(2L, response.getHeaders().getContentLength());
+        assertEquals("bytes", response.getHeaders().getFirst(HttpHeaders.ACCEPT_RANGES));
+        assertEquals("bytes 1-2/3", response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE));
+        assertInstanceOf(InputStreamResource.class, response.getBody());
+    }
+
+    @Test
+    void shouldRejectMalformedRangeHeaderWithBadRequest() {
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> controller.preview(principal, "resource-1", "bytes=0-1,5-6")
+        );
+
+        assertEquals(40000, error.getCode());
+    }
+
+    @Test
+    void shouldRejectUnsatisfiableRangeHeaderUntilTask4AddsFull416Semantics() {
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        when(chatResourceService.openPreview(eq(1L), eq("resource-1"), any(ResourceRange.class)))
+                .thenThrow(ResourceRangeException.unsatisfiable(3L));
+
+        // 任务 1 过渡语义：416 + Content-Range: bytes */total 留给任务 4 实现。
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> controller.preview(principal, "resource-1", "bytes=100-")
+        );
+
+        assertEquals(40000, error.getCode());
+        assertTrue(error.getMessage().contains("无法满足"));
     }
 
     @Test
     void shouldReturnDownloadResourceWithAttachmentHeader() {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         when(chatResourceService.openDownload(1L, "resource-1")).thenReturn(new ChatResourceService.ResourceResponse(
-                new ResourceContent(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L),
+                new ResourceContent(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L, 3L, 0L, false),
                 "generated.png",
                 true
         ));
@@ -87,7 +144,10 @@ class ChatResourceControllerTest {
         row.setUserId(2L);
         when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
 
-        BusinessException error = assertThrows(BusinessException.class, () -> service.openPreview(1L, "resource-1"));
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.openPreview(1L, "resource-1", ResourceRange.fullRead())
+        );
 
         assertEquals(40404, error.getCode());
     }
@@ -103,23 +163,45 @@ class ChatResourceControllerTest {
         row.setStorageKey("generated-videos/2026/07/14/resource-1.mp4");
         row.setFileName("video.mp4");
         when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
-        when(resourceStorage.open(row.getStorageKey()))
-                .thenThrow(new IllegalStateException("Failed to open generated resource", new NoSuchFileException(row.getStorageKey())));
+        when(resourceStorage.open(eq(row.getStorageKey()), any(ResourceRange.class)))
+                .thenThrow(new ResourceStorageException(ResourceStorageErrorKind.NOT_FOUND, "资源不存在或已被清理"));
 
-        BusinessException error = assertThrows(BusinessException.class, () -> service.openPreview(1L, "resource-1"));
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.openPreview(1L, "resource-1", ResourceRange.fullRead())
+        );
 
         assertEquals(40404, error.getCode());
         assertEquals("资源文件已被清理", error.getMessage());
     }
 
     @Test
+    void shouldRethrowOtherStorageErrorKindsFromPreview() {
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatResourceService service = new ChatResourceServiceImpl(resourceMapper, resourceStorage);
+        ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+        row.setId("resource-1");
+        row.setUserId(1L);
+        row.setStorageKey("generated-videos/2026/07/14/resource-1.mp4");
+        when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
+        when(resourceStorage.open(eq(row.getStorageKey()), any(ResourceRange.class)))
+                .thenThrow(new ResourceStorageException(ResourceStorageErrorKind.UNAVAILABLE, "资源存储暂时不可用"));
+
+        ResourceStorageException error = assertThrows(
+                ResourceStorageException.class,
+                () -> service.openPreview(1L, "resource-1", ResourceRange.fullRead())
+        );
+
+        assertEquals(ResourceStorageErrorKind.UNAVAILABLE, error.kind());
+    }
+
+    @Test
     void uploadImage_shouldSaveUnboundResourceAndReturnResponse() throws IOException {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(
-                new StoredResource("r-1", "LOCAL_FILE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100)
+                new StoredResource("r-1", "OBJECT_STORAGE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100)
         );
-        when(resourceStorage.buildViewUrl("r-1")).thenReturn("/api/chat/resources/r-1/content");
-        when(resourceStorage.buildDownloadUrl("r-1")).thenReturn("/api/chat/resources/r-1/download");
 
         MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[1024]);
         var response = controller.upload(principal, file, "REFERENCE");
@@ -129,6 +211,8 @@ class ChatResourceControllerTest {
         assertEquals("IMAGE", response.getBody().type());
         assertEquals("REFERENCE", response.getBody().role());
         assertEquals("photo.jpg", response.getBody().fileName());
+        assertEquals("/api/chat/resources/r-1/content", response.getBody().viewUrl());
+        assertEquals("/api/chat/resources/r-1/download", response.getBody().downloadUrl());
         ArgumentCaptor<ChatMessageResourceEntity> captor = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
         verify(chatMessageResourceMapper).insert(captor.capture());
         ChatMessageResourceEntity row = captor.getValue();
@@ -138,6 +222,8 @@ class ChatResourceControllerTest {
         assertEquals("IMAGE", row.getResourceType());
         assertEquals("REFERENCE", row.getResourceRole());
         assertEquals("key1", row.getStorageKey());
+        assertEquals("/api/chat/resources/r-1/content", row.getViewUrl());
+        assertEquals("/api/chat/resources/r-1/download", row.getDownloadUrl());
         assertEquals("photo.jpg", row.getFileName());
     }
 

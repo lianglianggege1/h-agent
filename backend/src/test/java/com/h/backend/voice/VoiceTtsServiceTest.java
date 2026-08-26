@@ -129,8 +129,6 @@ class VoiceTtsServiceTest {
         verify(storage).save(saveCaptor.capture());
         ResourceSaveCommand command = saveCaptor.getValue();
         assertEquals("AUDIO", command.resourceType());
-        assertEquals("session-1", command.sessionId());
-        assertEquals("call-assistant-tts", command.prompt());
         assertArrayEquals(new byte[]{1, 2, 3}, command.content());
         assertEquals("audio/mpeg", command.mimeType());
         assertEquals("mp3", command.extension());
