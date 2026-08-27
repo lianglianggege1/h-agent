@@ -231,6 +231,13 @@
             <version>1.51.0</version>
         </dependency>
 
+        <!-- MinIO 对象存储 SDK：固定版本，计划 §技术栈 -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>9.0.1</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

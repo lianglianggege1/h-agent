@@ -1,7 +1,6 @@
 package com.h.backend.chat.infrastructure.storage;
 
 import com.h.backend.chat.infrastructure.config.ImageGenerationProperties;
-import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -25,6 +24,8 @@ import java.util.UUID;
  * 过渡期本地文件实现（计划任务 1 最小适配；任务 5 整体删除）。
  *
  * <ul>
+ *   <li>不再是 Spring Bean（任务 2 起：生产唯一 Bean 是 MinioResourceStorage）；
+ *       类与其测试保留至任务 5 整体删除，测试直接 new。</li>
  *   <li>{@link #open}：stat 后定位 FileChannel 读取区间，按
  *       {@link ResourceContent} 新契约返回 offset/responseLength/partial。</li>
  *   <li>{@link #discard}：删除本地文件，不存在时幂等。</li>
@@ -38,7 +39,6 @@ import java.util.UUID;
  *       不再被存储层使用，任务 5 一并清理配置。</li>
  * </ul>
  */
-@Component
 public class LocalFileResourceStorage implements ResourceStorage {
 
     private static final String STORAGE_TYPE = "LOCAL_FILE";
