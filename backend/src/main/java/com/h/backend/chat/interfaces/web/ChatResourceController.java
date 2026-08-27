@@ -2,7 +2,9 @@ package com.h.backend.chat.interfaces.web;
 
 import com.h.backend.chat.application.ChatResourceService;
 import com.h.backend.chat.application.ChatResourceUrls;
+import com.h.backend.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.infrastructure.config.ResourceUploadProperties;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.interfaces.dto.ResourceUploadResponse;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
@@ -31,24 +33,34 @@ import java.time.LocalDateTime;
 @RequestMapping("/api/chat/resources")
 public class ChatResourceController {
 
+    /** 所有资源响应统一携带的反 MIME 嗅探头（计划 §6.3）。 */
+    static final String X_CONTENT_TYPE_OPTIONS_HEADER = "X-Content-Type-Options";
+    static final String X_CONTENT_TYPE_OPTIONS_NOSNIFF = "nosniff";
+
     private final ChatResourceService chatResourceService;
     private final ResourceWriteCoordinator writeCoordinator;
     private final ChatMessageResourceMapper chatMessageResourceMapper;
     private final ResourceUploadProperties uploadProperties;
     private final ChatResourceUrls chatResourceUrls;
+    private final ResourceContentInspector contentInspector;
+    private final ResourceContentPolicy contentPolicy;
 
     public ChatResourceController(
             ChatResourceService chatResourceService,
             ResourceWriteCoordinator writeCoordinator,
             ChatMessageResourceMapper chatMessageResourceMapper,
             ResourceUploadProperties uploadProperties,
-            ChatResourceUrls chatResourceUrls
+            ChatResourceUrls chatResourceUrls,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
     ) {
         this.chatResourceService = chatResourceService;
         this.writeCoordinator = writeCoordinator;
         this.chatMessageResourceMapper = chatMessageResourceMapper;
         this.uploadProperties = uploadProperties;
         this.chatResourceUrls = chatResourceUrls;
+        this.contentInspector = contentInspector;
+        this.contentPolicy = contentPolicy;
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -74,12 +86,25 @@ public class ChatResourceController {
         String extension = extensionForMimeType(mimeType);
         String originalName = safeFileName(file.getOriginalFilename(), extension);
 
+        // 内容安全（新计划 §6.3 / §10 任务 4）：用户上传属于不可信输入，
+        // 保存前必须通过签名校验；Inspector 只读有上限的文件头，
+        // 校验通过后用回放流（已读头字节 + 剩余原流）继续保存，
+        // 不二次读源流、不整读 byte[]。
+        ResourceContentInspector.Inspection inspection =
+                contentInspector.inspect(file.getInputStream(), mimeType);
+        ResourceContentPolicy.SaveDecision decision =
+                contentPolicy.validateForSave(inspection.result(), mimeType);
+        if (!decision.allowed()) {
+            inspection.replayStream().close();
+            throw new BusinessException(40000, decision.reason());
+        }
+
         // 新计划任务 3：写入经 Coordinator，对象先落对象存储，
         // DB insert 在挂接回调内执行（挂接事务 rollback 时对象被 best-effort 补偿删除）。
         ResourceUploadResponse response = writeCoordinator.saveAndAttach(
                 ResourceSaveCommand.fromStream(
                         resourceType,
-                        file.getInputStream(),
+                        inspection.replayStream(),
                         file.getSize(),
                         mimeType,
                         extension,
@@ -123,11 +148,20 @@ public class ChatResourceController {
     ) {
         ResourceRange range = parseRangeHeader(rangeHeader);
         try {
-            return toPreviewResponse(chatResourceService.openPreview(principal.userId(), resourceId, range));
+            return toContentResponse(chatResourceService.openPreview(principal.userId(), resourceId, range));
         } catch (ResourceRangeException exception) {
-            // UNSATISFIABLE：任务 1 过渡语义按 400 拒绝；
-            // 416 + Content-Range: bytes */total 留给任务 4 完整实现。
-            throw new BusinessException(40000, "Range 请求头无法满足");
+            if (exception.reason() == ResourceRangeException.Reason.UNSATISFIABLE) {
+                // 合法但不可满足：416 + Content-Range: bytes */total（计划 §6.4）。
+                // 在 Controller 层直接构建响应，不扩展 GlobalExceptionHandler——
+                // Content-Range 头需要 totalSize，BusinessException 链路不携带该信息，
+                // 这是最小改动方案。
+                HttpHeaders headers = new HttpHeaders();
+                headers.set(HttpHeaders.CONTENT_RANGE, "bytes */" + exception.totalSize());
+                return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                        .headers(headers)
+                        .build();
+            }
+            throw new BusinessException(40000, "Range 请求头格式无效");
         }
     }
 
@@ -136,7 +170,7 @@ public class ChatResourceController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable String resourceId
     ) {
-        return toResponse(chatResourceService.openDownload(principal.userId(), resourceId));
+        return toContentResponse(chatResourceService.openDownload(principal.userId(), resourceId));
     }
 
     private ResourceRange parseRangeHeader(String rangeHeader) {
@@ -150,39 +184,36 @@ public class ChatResourceController {
         }
     }
 
-    private ResponseEntity<InputStreamResource> toResponse(ChatResourceService.ResourceResponse resource) {
+    /**
+     * 统一内容响应构造（新计划 §6.4/§11.3）：
+     * <ul>
+     *   <li>Content-Type 使用策略输出（未知 → application/octet-stream）；</li>
+     *   <li>所有响应（content 与 download、200 与 206）都带
+     *       {@code X-Content-Type-Options: nosniff} 与 {@code Accept-Ranges: bytes}；</li>
+     *   <li>按 {@code ResourceContent.partial} 判定 206/200：206 携带
+     *       {@code Content-Range: bytes offset-(offset+length-1)/total}；</li>
+     *   <li>attachment=true（download 恒真；content 非白名单强制真）时输出
+     *       {@code Content-Disposition: attachment} 带文件名。</li>
+     * </ul>
+     */
+    private ResponseEntity<InputStreamResource> toContentResponse(ChatResourceService.ResourceResponse resource) {
         ResourceContent content = resource.content();
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(content.mimeType()));
+        headers.setContentType(MediaType.parseMediaType(resource.responseContentType()));
         headers.setContentLength(content.responseLength());
-        if (resource.attachment()) {
-            headers.setContentDisposition(ContentDisposition.attachment()
-                    .filename(resource.fileName(), StandardCharsets.UTF_8)
-                    .build());
-        }
-        return ResponseEntity.ok()
-                .headers(headers)
-                .body(new InputStreamResource(content.inputStream()));
-    }
-
-    private ResponseEntity<InputStreamResource> toPreviewResponse(ChatResourceService.ResourceResponse resource) {
-        ResourceContent content = resource.content();
-        if (!content.partial()) {
-            return toResponse(resource);
-        }
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(content.mimeType()));
         headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
-        headers.set(HttpHeaders.CONTENT_RANGE, "bytes %d-%d/%d".formatted(
-                content.offset(), content.offset() + content.responseLength() - 1, content.totalSize()));
-        headers.setContentLength(content.responseLength());
+        headers.set(X_CONTENT_TYPE_OPTIONS_HEADER, X_CONTENT_TYPE_OPTIONS_NOSNIFF);
+        if (content.partial()) {
+            headers.set(HttpHeaders.CONTENT_RANGE, "bytes %d-%d/%d".formatted(
+                    content.offset(), content.offset() + content.responseLength() - 1, content.totalSize()));
+        }
         if (resource.attachment()) {
             headers.setContentDisposition(ContentDisposition.attachment()
                     .filename(resource.fileName(), StandardCharsets.UTF_8)
                     .build());
         }
-        return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+        HttpStatus status = content.partial() ? HttpStatus.PARTIAL_CONTENT : HttpStatus.OK;
+        return ResponseEntity.status(status)
                 .headers(headers)
                 .body(new InputStreamResource(content.inputStream()));
     }

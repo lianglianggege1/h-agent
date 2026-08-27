@@ -16,7 +16,8 @@ public interface ChatResourceService {
     record ResourceResponse(
             ResourceContent content,
             String fileName,
-            boolean attachment
+            boolean attachment,
+            String responseContentType
     ) {
     }
 }

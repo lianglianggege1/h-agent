@@ -3,6 +3,8 @@ package com.h.backend.chat;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
 import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
@@ -38,14 +40,33 @@ class FileDeliveryToolTest {
     @TempDir
     Path tempDir;
 
+    private final ResourceContentInspector contentInspector = new ResourceContentInspector();
+    private final ResourceContentPolicy contentPolicy = new ResourceContentPolicy();
+
+    private FileDeliveryTool newTool(
+            AssistantFileStorage assistantFileStorage,
+            ResourceWriteCoordinator writeCoordinator,
+            ChatSessionService chatSessionService,
+            ChatStreamEventBridge bridge
+    ) {
+        return new FileDeliveryTool(
+                assistantFileStorage,
+                writeCoordinator,
+                chatSessionService,
+                bridge,
+                new ChatResourceUrls(""),
+                contentInspector,
+                contentPolicy
+        );
+    }
+
     @Test
     void shouldSendSessionFileToCurrentChatStream() {
         AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
-        FileDeliveryTool tool = new FileDeliveryTool(
-                assistantFileStorage, writeCoordinator, chatSessionService, bridge, new ChatResourceUrls(""));
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, chatSessionService, bridge);
         String memoryId = "1:22:session-1";
         assistantFileStorage.write(memoryId, "/deck.pptx", "ppt-bytes");
 
@@ -118,8 +139,7 @@ class FileDeliveryToolTest {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
-        FileDeliveryTool tool = new FileDeliveryTool(
-                assistantFileStorage, writeCoordinator, chatSessionService, bridge, new ChatResourceUrls(""));
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, chatSessionService, bridge);
         String memoryId = "1:22:session-1";
         assistantFileStorage.write(memoryId, "/deck.pptx", "ppt-bytes");
 
@@ -151,8 +171,7 @@ class FileDeliveryToolTest {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
-        FileDeliveryTool tool = new FileDeliveryTool(
-                assistantFileStorage, writeCoordinator, chatSessionService, bridge, new ChatResourceUrls(""));
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, chatSessionService, bridge);
         String memoryId = "1:22:session-1";
         assistantFileStorage.write(memoryId, "/deck.pptx", "ppt-bytes");
 
@@ -165,17 +184,95 @@ class FileDeliveryToolTest {
     @Test
     void shouldRejectSendingFilesOutsideSessionDirectory() {
         AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
-        FileDeliveryTool tool = new FileDeliveryTool(
+        FileDeliveryTool tool = newTool(
                 assistantFileStorage,
                 mock(ResourceWriteCoordinator.class),
                 mock(ChatSessionService.class),
-                new ChatStreamEventBridge(),
-                new ChatResourceUrls("")
+                new ChatStreamEventBridge()
         );
 
         assertEquals(
                 "Error: Path traversal is not allowed",
                 tool.sendFileToChat("1:22:session-1", "/../secret.txt", "secret.txt", null, null)
         );
+    }
+
+    // ------------------------------------------------------------------
+    // 内容安全（新计划 §6.3 / §10 任务 4）：Agent 模型文件属于不可信输入，
+    // 保存前必须经签名校验；模型声明的 MIME 只是提示（拒绝方案 10）。
+    // ------------------------------------------------------------------
+
+    @Test
+    void shouldRejectFileWhoseDeclaredMimeConflictsWithContent() {
+        AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatStreamEventBridge bridge = new ChatStreamEventBridge();
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, mock(ChatSessionService.class), bridge);
+        String memoryId = "1:22:session-1";
+        // 模型声明 image/png，但文件内容是纯文本：签名校验拒绝
+        assistantFileStorage.write(memoryId, "/fake.png", "plain text, definitely not a png");
+
+        String result = tool.sendFileToChat(memoryId, "/fake.png", "fake.png", "image/png", null);
+
+        assertTrue(result.startsWith("Error:"));
+        assertTrue(result.contains("签名"));
+        verify(writeCoordinator, never()).saveAndAttach(any(), any());
+    }
+
+    @Test
+    void shouldRejectActiveContentDelivery() {
+        AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatStreamEventBridge bridge = new ChatStreamEventBridge();
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, mock(ChatSessionService.class), bridge);
+        String memoryId = "1:22:session-1";
+        // 伪装成图片的 HTML 主动内容：无论声明什么都拒绝（计划 §6.3）
+        assistantFileStorage.write(memoryId, "/evil.png", "<html><script>alert(1)</script></html>");
+
+        String result = tool.sendFileToChat(memoryId, "/evil.png", "evil.png", "image/png", null);
+
+        assertTrue(result.startsWith("Error:"));
+        assertTrue(result.contains("主动内容"));
+        verify(writeCoordinator, never()).saveAndAttach(any(), any());
+    }
+
+    @Test
+    void shouldDeliverRealPngFileWithMatchingDeclaredMime() {
+        AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatStreamEventBridge bridge = new ChatStreamEventBridge();
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        FileDeliveryTool tool = newTool(assistantFileStorage, writeCoordinator, chatSessionService, bridge);
+        String memoryId = "1:22:session-1";
+        // 真实 PNG 魔数二进制内容：直接写入会话目录（write() 的字符串 API 会做
+        // UTF-8 重编码破坏二进制），校验通过后保存流必须完整回放（不丢头字节）
+        byte[] png = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4};
+        try {
+            Path sessionDir = tempDir.resolve("assistant-files").resolve("1").resolve("session-1");
+            java.nio.file.Files.createDirectories(sessionDir);
+            java.nio.file.Files.write(sessionDir.resolve("icon.png"), png);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e);
+        }
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatSessionMessageDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(new StoredResource(
+                            "resource-9", "OBJECT_STORAGE", "key-9", "image/png", "icon.png", 12L, null, null));
+                });
+        when(chatSessionService.appendResourceMessage(any(), any(), any(), any(), any())).thenReturn(
+                new ChatSessionMessageDto("m-1", "assistant", "IMAGE", "已发送文件：icon.png",
+                        null, List.of(), LocalDateTime.now()));
+
+        String result = tool.sendFileToChat(memoryId, "/icon.png", "icon.png", "image/png", null);
+
+        assertEquals("文件已发送到聊天中。", result);
+        ArgumentCaptor<ResourceSaveCommand> saveCommand = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(writeCoordinator).saveAndAttach(saveCommand.capture(), any());
+        try (var in = saveCommand.getValue().openContentStream()) {
+            assertArrayEquals(png, in.readAllBytes(), "保存流必须完整回放 PNG 内容（含已校验头字节）");
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

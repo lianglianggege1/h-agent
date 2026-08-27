@@ -3,6 +3,8 @@ package com.h.backend.chat.infrastructure.tools;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFileStream;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
@@ -15,9 +17,18 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Agent 文件交付工具（send_file_to_chat）。
+ *
+ * <p>内容安全（新计划 §6.3 / §10 任务 4）：Agent 模型生成的会话文件属于
+ * 不可信输入——模型可声明任意 MIME，因此保存前必须经签名校验
+ * （Inspector 只读有上限的文件头，校验后用回放流继续保存，不二次读源流）；
+ * 校验失败返回 Error 文案（Agent 工具协议），不抛异常破坏会话循环。
+ */
 @Component
 public class FileDeliveryTool {
 
@@ -26,19 +37,25 @@ public class FileDeliveryTool {
     private final ChatSessionService chatSessionService;
     private final ChatStreamEventBridge chatStreamEventBridge;
     private final ChatResourceUrls chatResourceUrls;
+    private final ResourceContentInspector contentInspector;
+    private final ResourceContentPolicy contentPolicy;
 
     public FileDeliveryTool(
             AssistantFileStorage fileStorage,
             ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService,
             ChatStreamEventBridge chatStreamEventBridge,
-            ChatResourceUrls chatResourceUrls
+            ChatResourceUrls chatResourceUrls,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
     ) {
         this.fileStorage = fileStorage;
         this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
         this.chatStreamEventBridge = chatStreamEventBridge;
         this.chatResourceUrls = chatResourceUrls;
+        this.contentInspector = contentInspector;
+        this.contentPolicy = contentPolicy;
     }
 
     @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
@@ -61,14 +78,29 @@ public class FileDeliveryTool {
         String resourceType = resourceTypeFor(resolvedMimeType);
         String content = (message == null || message.isBlank()) ? "已发送文件：" + resolvedFileName : message.trim();
 
+        // 内容安全（新计划 §6.3 / §10 任务 4）：模型声明 MIME 只是提示，
+        // 签名校验失败/主动内容一律拒绝交付，不触碰 Coordinator。
+        ResourceContentInspector.Inspection inspection;
+        try {
+            inspection = contentInspector.inspect(file.stream(), resolvedMimeType);
+        } catch (IOException exception) {
+            return "Error: 读取文件失败: " + file.virtualPath();
+        }
+        ResourceContentPolicy.SaveDecision decision =
+                contentPolicy.validateForSave(inspection.result(), resolvedMimeType);
+        if (!decision.allowed()) {
+            closeQuietly(inspection.replayStream());
+            return "Error: " + decision.reason();
+        }
+
         // 新计划任务 3：Agent 文件只有 appendResourceMessage 事务提交后才算挂接；
         // 挂接回调在 Coordinator 事务内（rollback 时对象被补偿），
         // 流事件在 saveAndAttach 返回（挂接事务已提交）后才发布。
-        // 模型提供的 MIME 只作提示传给命令，不能作为可信响应类型（内容校验在任务 4）。
+        // 保存流使用回放流（头字节已缓冲 + 剩余原流），不二次读源。
         ChatSessionMessageDto chatMessage = writeCoordinator.saveAndAttach(
                 ResourceSaveCommand.fromStream(
                         resourceType,
-                        file.stream(),
+                        inspection.replayStream(),
                         file.size(),
                         resolvedMimeType,
                         extension,
@@ -111,6 +143,16 @@ public class FileDeliveryTool {
             return new FileDeliveryContext(Long.valueOf(parts[0]), parts[3]);
         }
         throw new IllegalArgumentException("Invalid chat memory id");
+    }
+
+    private static void closeQuietly(java.io.InputStream stream) {
+        try {
+            if (stream != null) {
+                stream.close();
+            }
+        } catch (IOException ignored) {
+            // 关闭失败不影响拒绝路径
+        }
     }
 
     private String safeDisplayName(String displayName, String fallbackName) {
