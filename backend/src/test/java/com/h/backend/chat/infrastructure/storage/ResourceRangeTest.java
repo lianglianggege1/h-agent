@@ -45,6 +45,47 @@ class ResourceRangeTest {
     }
 
     // ------------------------------------------------------------------
+    // 审查修复 7c：bytes 单位名大小写宽容（RFC 9110 token 大小写不敏感）
+    // 与 OWS 空白宽容
+    // ------------------------------------------------------------------
+
+    @Test
+    void parsesRangeWithUpperCaseBytesUnit() {
+        ResourceRange range = ResourceRange.fromHeader("Bytes=0-499");
+
+        assertThat(range.kind()).isEqualTo(ResourceRange.Kind.START_END);
+        assertThat(range.start()).isEqualTo(0L);
+        assertThat(range.end()).isEqualTo(499L);
+    }
+
+    @Test
+    void parsesRangeWithMixedCaseBytesUnitAndPadding() {
+        ResourceRange range = ResourceRange.fromHeader("  ByTeS=0-499  ");
+
+        assertThat(range.kind()).isEqualTo(ResourceRange.Kind.START_END);
+        assertThat(range.start()).isEqualTo(0L);
+        assertThat(range.end()).isEqualTo(499L);
+    }
+
+    @Test
+    void parsesRangeWithInternalWhitespace() {
+        // OWS 宽容：token 周围的空白不应让合法区间退化为 400
+        ResourceRange range = ResourceRange.fromHeader("bytes = 0 - 499");
+
+        assertThat(range.kind()).isEqualTo(ResourceRange.Kind.START_END);
+        assertThat(range.start()).isEqualTo(0L);
+        assertThat(range.end()).isEqualTo(499L);
+    }
+
+    @Test
+    void parsesOpenAndSuffixRangesWithTolerantUnit() {
+        assertThat(ResourceRange.fromHeader("BYTES=500-").kind())
+                .isEqualTo(ResourceRange.Kind.START_TO_END);
+        assertThat(ResourceRange.fromHeader("Bytes=-500").kind())
+                .isEqualTo(ResourceRange.Kind.SUFFIX);
+    }
+
+    // ------------------------------------------------------------------
     // malformed：语法级 400 语义
     // ------------------------------------------------------------------
 

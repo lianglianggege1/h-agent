@@ -287,6 +287,32 @@ class MinioResourceStorageTest {
     }
 
     @Test
+    void saveAbortsAndBestEffortCleansUpWhenSdkWrapsSizeLimitAsIllegalStateException() throws Exception {
+        // 审查修复（SIZE_LIMIT 半写清理不对称）：multipart 路径（unknown-size 或
+        // size>partSize）下，SDK throwMinioException 会把流读取中抛出的
+        // RuntimeException（含 SizeLimitingInputStream 的 RSE）包成
+        // IllegalStateException 上抛——此时同样必须 best-effort 清理半写对象。
+        when(minioClient.putObject(any(PutObjectArgs.class))).thenAnswer(invocation -> {
+            PutObjectArgs args = invocation.getArgument(0);
+            try (InputStream stream = args.stream()) {
+                stream.readAllBytes();
+            } catch (RuntimeException exception) {
+                throw new IllegalStateException(exception);
+            }
+            return null;
+        });
+        TrackingInputStream stream = new TrackingInputStream(new byte[6]);
+
+        assertThatThrownBy(() -> storage.save(ResourceSaveCommand.fromStream(
+                "FILE", stream, null, "application/pdf", "pdf", 5)))
+                .isInstanceOfSatisfying(ResourceStorageException.class, exception ->
+                        assertThat(exception.kind()).isEqualTo(ResourceStorageErrorKind.SIZE_LIMIT));
+
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
+        assertThat(stream.isClosed()).isTrue();
+    }
+
+    @Test
     void saveTightensLimitFromConfiguredAbsoluteMaxBytes() throws Exception {
         stubPutConsumingStream();
         properties.setAbsoluteMaxBytes(4L);
@@ -492,6 +518,18 @@ class MinioResourceStorageTest {
                     assertThat(exception.kind()).isEqualTo(ResourceStorageErrorKind.UNAVAILABLE);
                     assertThat(exception.getMessage()).doesNotContain("500");
                 });
+    }
+
+    @Test
+    void openMaps4xxServerExceptionToIoError() throws Exception {
+        // 审查修复：ServerException 不只由 5xx 合成，4xx（客户端/请求侧错误）
+        // 不是服务不可用，映射 IO_ERROR 而非 UNAVAILABLE。
+        when(minioClient.statObject(any(StatObjectArgs.class)))
+                .thenThrow(new ServerException("server failed with HTTP status code 404", 404, "trace"));
+
+        assertThatThrownBy(() -> storage.open("resources/v1/files/2026/08/x.pdf", ResourceRange.fullRead()))
+                .isInstanceOfSatisfying(ResourceStorageException.class, exception ->
+                        assertThat(exception.kind()).isEqualTo(ResourceStorageErrorKind.IO_ERROR));
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
+import com.h.backend.common.exception.GlobalExceptionHandler;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.InputStreamResource;
@@ -35,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -176,6 +178,8 @@ class ChatResourceControllerTest {
 
         assertEquals(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE, response.getStatusCode());
         assertEquals("bytes */3", response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE));
+        // 审查修复 7a：416 错误响应同样携带 nosniff，防止浏览器嗅探响应体
+        assertEquals("nosniff", response.getHeaders().getFirst("X-Content-Type-Options"));
         assertNull(response.getBody());
     }
 
@@ -189,6 +193,7 @@ class ChatResourceControllerTest {
 
         assertEquals(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE, response.getStatusCode());
         assertEquals("bytes */1024", response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE));
+        assertEquals("nosniff", response.getHeaders().getFirst("X-Content-Type-Options"));
     }
 
     @Test
@@ -297,6 +302,7 @@ class ChatResourceControllerTest {
         ChatMessageResourceEntity row = new ChatMessageResourceEntity();
         row.setId("resource-1");
         row.setUserId(1L);
+        row.setStorageType("OBJECT_STORAGE");
         row.setStorageKey("generated-videos/2026/07/14/resource-1.mp4");
         row.setFileName("video.mp4");
         when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
@@ -314,24 +320,95 @@ class ChatResourceControllerTest {
 
     @Test
     void shouldRethrowOtherStorageErrorKindsFromPreview() {
+        // 审查修复第 1 项：Service 仍原样上抛 RSE（不做 HTTP 语义转换），
+        // 四类存储错误的 HTTP 映射由 GlobalExceptionHandler 接管——
+        // 预览接口对 UNAVAILABLE 返回 503、下载接口对 SIZE_LIMIT 返回 413。
+        // 按现有直调风格模拟完整链路：Controller 直调捕获异常后交 handler。
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        when(chatResourceService.openPreview(eq(1L), eq("resource-1"), any(ResourceRange.class)))
+                .thenThrow(new ResourceStorageException(ResourceStorageErrorKind.UNAVAILABLE, "资源存储暂时不可用"));
+        when(chatResourceService.openDownload(eq(1L), eq("resource-1")))
+                .thenThrow(new ResourceStorageException(ResourceStorageErrorKind.SIZE_LIMIT, "资源大小超过存储上限"));
+        GlobalExceptionHandler exceptionHandler = new GlobalExceptionHandler();
+
+        ResourceStorageException previewError = assertThrows(
+                ResourceStorageException.class,
+                () -> controller.preview(principal, "resource-1", null)
+        );
+        assertEquals(ResourceStorageErrorKind.UNAVAILABLE, previewError.kind());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE,
+                exceptionHandler.handleResourceStorageException(previewError).getStatusCode());
+
+        ResourceStorageException downloadError = assertThrows(
+                ResourceStorageException.class,
+                () -> controller.download(principal, "resource-1")
+        );
+        assertEquals(ResourceStorageErrorKind.SIZE_LIMIT, downloadError.kind());
+        assertEquals(413, exceptionHandler.handleResourceStorageException(downloadError)
+                .getStatusCode().value());
+    }
+
+    @Test
+    void openPreviewFailsClosedWhenStorageTypeIsNotObjectStorage() {
+        // 计划 §4.4：只服务 OBJECT_STORAGE 行；读到其他存储类型（历史/污染数据）
+        // 按内部数据错误 fail closed（IO_ERROR→全局映射 500），消息不暴露
+        // storage key，且存储层从未被触碰。
         ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
         ResourceStorage resourceStorage = mock(ResourceStorage.class);
-        ResourceContentPolicy policy = new ResourceContentPolicy();
-        ChatResourceService service = new ChatResourceServiceImpl(resourceMapper, resourceStorage, policy);
-        ChatMessageResourceEntity row = new ChatMessageResourceEntity();
-        row.setId("resource-1");
-        row.setUserId(1L);
-        row.setStorageKey("generated-videos/2026/07/14/resource-1.mp4");
+        ChatResourceService service = new ChatResourceServiceImpl(
+                resourceMapper, resourceStorage, new ResourceContentPolicy());
+        ChatMessageResourceEntity row = ownedRow("image/png");
+        row.setStorageType("LOCAL_DISK");
+        row.setStorageKey("/var/local/disk/path/file.bin");
         when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
-        when(resourceStorage.open(eq(row.getStorageKey()), any(ResourceRange.class)))
-                .thenThrow(new ResourceStorageException(ResourceStorageErrorKind.UNAVAILABLE, "资源存储暂时不可用"));
 
         ResourceStorageException error = assertThrows(
                 ResourceStorageException.class,
                 () -> service.openPreview(1L, "resource-1", ResourceRange.fullRead())
         );
 
-        assertEquals(ResourceStorageErrorKind.UNAVAILABLE, error.kind());
+        assertEquals(ResourceStorageErrorKind.IO_ERROR, error.kind());
+        assertFalse(error.getMessage().contains("/var/local"), "消息不得暴露 storage key");
+        verifyNoInteractions(resourceStorage);
+    }
+
+    @Test
+    void openDownloadFailsClosedWhenStorageTypeIsNotObjectStorage() {
+        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
+        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ChatResourceService service = new ChatResourceServiceImpl(
+                resourceMapper, resourceStorage, new ResourceContentPolicy());
+        ChatMessageResourceEntity row = ownedRow("image/png");
+        row.setStorageType(null);
+        when(resourceMapper.selectByResourceId("resource-1")).thenReturn(row);
+
+        assertThrows(ResourceStorageException.class,
+                () -> service.openDownload(1L, "resource-1"));
+        verifyNoInteractions(resourceStorage);
+    }
+
+    @Test
+    void uploadClosesMultipartStreamWhenInspectionFails() throws IOException {
+        // 审查修复第 4 项（同构）：inspect 抛 IOException 时必须安全关闭
+        // MultipartFile 底层流，避免 fd 泄漏。
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        TrackingInputStream failingStream = new TrackingInputStream(new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException("disk unreadable");
+            }
+        });
+        MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[0]) {
+            @Override
+            public InputStream getInputStream() throws IOException {
+                return failingStream;
+            }
+        };
+
+        assertThrows(IOException.class, () -> controller.upload(principal, file, "ATTACHMENT"));
+
+        assertTrue(failingStream.isClosed(), "inspect 失败后底层流必须被关闭");
+        verifyNoInteractions(writeCoordinator);
     }
 
     @Test
@@ -643,9 +720,35 @@ class ChatResourceControllerTest {
         ChatMessageResourceEntity row = new ChatMessageResourceEntity();
         row.setId("resource-1");
         row.setUserId(1L);
+        row.setStorageType("OBJECT_STORAGE");
         row.setStorageKey("key-1");
         row.setFileName("generated.png");
         row.setMimeType(storedMimeType);
         return row;
+    }
+
+    /** 跟踪关闭状态的包装流（fd 泄漏断言用）。 */
+    private static final class TrackingInputStream extends InputStream {
+        private final InputStream delegate;
+        private boolean closed;
+
+        TrackingInputStream(InputStream delegate) {
+            this.delegate = delegate;
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+
+        @Override
+        public int read() throws IOException {
+            return delegate.read();
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            delegate.close();
+        }
     }
 }

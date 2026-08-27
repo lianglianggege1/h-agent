@@ -8,6 +8,7 @@ import com.h.backend.chat.infrastructure.storage.ResourceRange;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
 import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageType;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 
@@ -80,6 +81,13 @@ public class ChatResourceServiceImpl implements ChatResourceService {
         ChatMessageResourceEntity resource = chatMessageResourceMapper.selectByResourceId(resourceId);
         if (resource == null || !userId.equals(resource.getUserId())) {
             throw new BusinessException(40404, "资源不存在");
+        }
+        // 计划 §4.4：只服务 OBJECT_STORAGE 行；读到其他存储类型（历史/污染数据）
+        // 按内部数据错误 fail closed（IO_ERROR→全局映射 500），
+        // 消息为固定安全文案，不暴露 storage key，且存储层从未被触碰。
+        if (!ResourceStorageType.OBJECT_STORAGE.value().equals(resource.getStorageType())) {
+            throw new ResourceStorageException(
+                    ResourceStorageErrorKind.IO_ERROR, "资源存储类型异常");
         }
         return resource;
     }

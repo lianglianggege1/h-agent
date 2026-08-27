@@ -6,6 +6,7 @@ import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFileStream;
 import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
@@ -273,6 +274,42 @@ class FileDeliveryToolTest {
             assertArrayEquals(png, in.readAllBytes(), "保存流必须完整回放 PNG 内容（含已校验头字节）");
         } catch (java.io.IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void shouldCloseSourceStreamWhenInspectionFails() {
+        // 审查修复第 4 项：inspect 抛 IOException 返回 Error 文案前必须关闭
+        // file.stream()，否则会话文件句柄泄漏（fd 泄漏）。
+        AssistantFileStorage assistantFileStorage = mock(AssistantFileStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TrackingInputStream trackingStream = new TrackingInputStream();
+        when(assistantFileStorage.openSessionFileStream("1:22:session-1", "/broken.png"))
+                .thenReturn(new AssistantSessionFileStream(
+                        true, null, "/broken.png", "broken.png", "image/png", 10L, trackingStream));
+        FileDeliveryTool tool = newTool(
+                assistantFileStorage, writeCoordinator, mock(ChatSessionService.class), new ChatStreamEventBridge());
+
+        String result = tool.sendFileToChat("1:22:session-1", "/broken.png", "broken.png", "image/png", null);
+
+        assertTrue(result.startsWith("Error: 读取文件失败"));
+        assertTrue(trackingStream.closed, "inspect 失败时源流必须被关闭（fd 泄漏修复）");
+        verify(writeCoordinator, never()).saveAndAttach(any(), any());
+    }
+
+    /** read 即抛 IOException 的跟踪流：验证 inspect 失败路径的流关闭（TrackingStream 风格）。 */
+    private static final class TrackingInputStream extends java.io.InputStream {
+
+        boolean closed = false;
+
+        @Override
+        public int read() throws java.io.IOException {
+            throw new java.io.IOException("simulated read failure");
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 }

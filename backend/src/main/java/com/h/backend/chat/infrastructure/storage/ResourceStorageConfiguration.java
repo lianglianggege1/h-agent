@@ -32,16 +32,24 @@ public class ResourceStorageConfiguration {
     public MinioClient minioClient(ResourceStorageProperties properties) {
         validate(properties);
 
-        ResourceStorageProperties.Minio minio = properties.getMinio();
-        OkHttpClient httpClient = new OkHttpClient.Builder()
+        return MinioClient.builder()
+                .endpoint(properties.getMinio().getEndpoint().strip())
+                .credentials(properties.getMinio().getAccessKey(), properties.getMinio().getSecretKey())
+                .region(properties.getMinio().getRegion())
+                .httpClient(buildOkHttpClient(properties.getMinio()))
+                .build();
+    }
+
+    /**
+     * 显式设置全部超时：OkHttp 默认 writeTimeout 10s，大对象 multipart 分片
+     * 在慢速网络会被中断。写入超时复用 read-timeout 同源配置（不新增配置字段）：
+     * 上传写入与大文件读取共用同一上限语义，运维只需调一个超时。
+     */
+    static OkHttpClient buildOkHttpClient(ResourceStorageProperties.Minio minio) {
+        return new OkHttpClient.Builder()
                 .connectTimeout(minio.getConnectTimeout())
                 .readTimeout(minio.getReadTimeout())
-                .build();
-        return MinioClient.builder()
-                .endpoint(minio.getEndpoint().strip())
-                .credentials(minio.getAccessKey(), minio.getSecretKey())
-                .region(minio.getRegion())
-                .httpClient(httpClient)
+                .writeTimeout(minio.getReadTimeout())
                 .build();
     }
 
@@ -61,10 +69,10 @@ public class ResourceStorageConfiguration {
     private void validate(ResourceStorageProperties properties) {
         ResourceStorageProperties.Minio minio = properties.getMinio();
 
-        requireHttpUrl(minio.getEndpoint(), "resource-storage.minio.endpoint");
-        requireText(minio.getAccessKey(), "resource-storage.minio.access-key");
-        requireText(minio.getSecretKey(), "resource-storage.minio.secret-key");
-        requireText(minio.getBucket(), "resource-storage.minio.bucket");
+        requireHttpUrl(minio.getEndpoint(), "resource-storage.minio.endpoint", "MINIO_ENDPOINT");
+        requireText(minio.getAccessKey(), "resource-storage.minio.access-key", "MINIO_ACCESS_KEY");
+        requireText(minio.getSecretKey(), "resource-storage.minio.secret-key", "MINIO_SECRET_KEY");
+        requireText(minio.getBucket(), "resource-storage.minio.bucket", "MINIO_RESOURCES_BUCKET");
         requireObjectPrefix(minio.getObjectPrefix(), "resource-storage.minio.object-prefix");
         requirePositiveDuration(minio.getConnectTimeout(), "resource-storage.minio.connect-timeout");
         requirePositiveDuration(minio.getReadTimeout(), "resource-storage.minio.read-timeout");
@@ -74,15 +82,17 @@ public class ResourceStorageConfiguration {
         }
     }
 
-    private static void requireText(String value, String propertyName) {
+    private static void requireText(String value, String propertyName, String environmentVariable) {
         if (!StringUtils.hasText(value)) {
-            throw new IllegalStateException(propertyName + " 不能为空");
+            throw new IllegalStateException(
+                    propertyName + " 不能为空（对应环境变量 " + environmentVariable + "）");
         }
     }
 
-    private static void requireHttpUrl(String value, String propertyName) {
+    private static void requireHttpUrl(String value, String propertyName, String environmentVariable) {
         if (!StringUtils.hasText(value)) {
-            throw new IllegalStateException(propertyName + " 不能为空");
+            throw new IllegalStateException(
+                    propertyName + " 不能为空（对应环境变量 " + environmentVariable + "）");
         }
         URI uri;
         try {

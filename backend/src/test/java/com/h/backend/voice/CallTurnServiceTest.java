@@ -2,6 +2,8 @@ package com.h.backend.voice;
 
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
@@ -27,11 +29,18 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CallTurnServiceTest {
+
+    /** WebM EBML 头魔数（合并后签名校验用）：chunk0 以魔数开头。 */
+    private static final byte[] WEBM_CHUNK_0 = {
+            (byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3, 0x01, 0x02
+    };
+    private static final byte[] WEBM_CHUNK_1 = {0x03, 0x04, 0x05};
 
     @TempDir
     Path tempDir;
@@ -40,7 +49,7 @@ class CallTurnServiceTest {
     void finalizesChunksAndBindsUserRecordingResource() throws Exception {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
 
         StoredResource stored = new StoredResource(
                 "audio-1",
@@ -83,14 +92,14 @@ class CallTurnServiceTest {
         service.appendChunk(
                 1L,
                 turnId,
-                new MockMultipartFile("chunk", "0.webm", "audio/webm", new byte[]{1, 2, 3}),
+                new MockMultipartFile("chunk", "0.webm", "audio/webm", WEBM_CHUNK_0),
                 0,
                 "audio/webm"
         );
         service.appendChunk(
                 1L,
                 turnId,
-                new MockMultipartFile("chunk", "1.webm", "audio/webm", new byte[]{4, 5, 6}),
+                new MockMultipartFile("chunk", "1.webm", "audio/webm", WEBM_CHUNK_1),
                 1,
                 "audio/webm"
         );
@@ -102,7 +111,9 @@ class CallTurnServiceTest {
         verify(writeCoordinator).saveAndAttach(saveCaptor.capture(), any());
         ResourceSaveCommand command = saveCaptor.getValue();
         assertEquals("AUDIO", command.resourceType());
-        assertArrayEquals(new byte[]{1, 2, 3, 4, 5, 6}, command.content());
+        assertArrayEquals(
+                new byte[]{(byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3, 0x01, 0x02, 0x03, 0x04, 0x05},
+                command.content());
         assertEquals("audio/webm", command.mimeType());
         assertEquals("webm", command.extension());
 
@@ -125,7 +136,7 @@ class CallTurnServiceTest {
     void finalizeKeepsTurnDirectoryWhenBindingResourceFails() throws Exception {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         StoredResource stored = new StoredResource(
                 "audio-1",
                 "OBJECT_STORAGE",
@@ -155,7 +166,7 @@ class CallTurnServiceTest {
         service.appendChunk(
                 1L,
                 turnId,
-                new MockMultipartFile("chunk", "0.webm", "audio/webm", new byte[]{1, 2, 3}),
+                new MockMultipartFile("chunk", "0.webm", "audio/webm", WEBM_CHUNK_0),
                 0,
                 "audio/webm"
         );
@@ -175,7 +186,7 @@ class CallTurnServiceTest {
     void cancelRejectsTurnIdEscapingUserDirectory() throws Exception {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String userTwoTurnId = UUID.randomUUID().toString();
         Path userTwoDir = tempDir.resolve("2").resolve(userTwoTurnId);
         Files.createDirectories(userTwoDir);
@@ -196,7 +207,7 @@ class CallTurnServiceTest {
     void appendRejectsDuplicateSequence() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
 
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
@@ -225,7 +236,7 @@ class CallTurnServiceTest {
     void appendRejectsSequenceOutsideChunkFilenameRange() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -246,7 +257,7 @@ class CallTurnServiceTest {
     void appendRejectsEmptyChunk() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -267,7 +278,7 @@ class CallTurnServiceTest {
     void appendRejectsUnsupportedAudioFormat() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -288,7 +299,7 @@ class CallTurnServiceTest {
     void appendAcceptsWebmAudioFormatWithCodecParameters() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         service.appendChunk(
@@ -306,7 +317,7 @@ class CallTurnServiceTest {
     void cancelRejectsNonCanonicalUuidTurnId() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String upperCaseTurnId = UUID.randomUUID().toString().toUpperCase();
 
         BusinessException ex = assertThrows(
@@ -321,7 +332,7 @@ class CallTurnServiceTest {
     void finalizeRejectsNoChunks() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -336,7 +347,7 @@ class CallTurnServiceTest {
     void finalizeRejectsMismatchedSessionFromStartedTurn() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
                 1L,
@@ -358,7 +369,7 @@ class CallTurnServiceTest {
     void appendRejectsTurnWithoutMetadata() throws Exception {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = UUID.randomUUID().toString();
         Files.createDirectories(tempDir.resolve("1").resolve(turnId));
 
@@ -380,7 +391,7 @@ class CallTurnServiceTest {
     void finalizeRejectsMissingSequence() {
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
                 1L,
@@ -403,5 +414,34 @@ class CallTurnServiceTest {
         );
 
         assertEquals(40000, ex.getCode());
+    }
+
+    @Test
+    void finalizeTurnRejectsMergedAudioWhenSignatureDoesNotMatch() throws Exception {
+        // 审查修复第 3 项：浏览器上传分片是用户输入，合并后的字节必须通过
+        // audio/webm 签名校验——拼出 HTML 主动内容则拒绝保存，不进入写入路径；
+        // 「签名符合正常保存」由 finalizesChunksAndBindsUserRecordingResource
+        // （WebM EBML 魔数分片）覆盖。
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
+
+        String turnId = service.start(1L, "session-1", "standard-chat");
+        service.appendChunk(
+                1L,
+                turnId,
+                new MockMultipartFile("chunk", "0.webm", "audio/webm",
+                        "<html><script>alert(1)</script>".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                0,
+                "audio/webm"
+        );
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.finalizeTurn(1L, turnId, "session-1", "standard-chat", 101L, "你好")
+        );
+
+        assertEquals("音频内容未通过校验，已拒绝保存", ex.getMessage());
+        verify(writeCoordinator, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
     }
 }

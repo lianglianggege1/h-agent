@@ -80,10 +80,13 @@ public class FileDeliveryTool {
 
         // 内容安全（新计划 §6.3 / §10 任务 4）：模型声明 MIME 只是提示，
         // 签名校验失败/主动内容一律拒绝交付，不触碰 Coordinator。
+        // 审查修复第 4 项：inspect 抛 IOException 时必须关闭源流（fd 泄漏）。
+        java.io.InputStream sourceStream = file.stream();
         ResourceContentInspector.Inspection inspection;
         try {
-            inspection = contentInspector.inspect(file.stream(), resolvedMimeType);
+            inspection = contentInspector.inspect(sourceStream, resolvedMimeType);
         } catch (IOException exception) {
+            closeQuietly(sourceStream);
             return "Error: 读取文件失败: " + file.virtualPath();
         }
         ResourceContentPolicy.SaveDecision decision =

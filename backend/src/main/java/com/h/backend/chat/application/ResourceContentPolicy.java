@@ -16,18 +16,22 @@ import java.util.regex.Pattern;
  *       文本等已知附件类型允许保存并强制 attachment；未知/非法 MIME 一律
  *       attachment 且响应 {@code application/octet-stream}。</li>
  *   <li>保存侧 {@link #validateForSave(ResourceContentInspector.InspectionResult, String)}：
- *       用于用户上传与 Agent 模型文件两条不可信输入路径——MIME 与签名冲突拒绝
- *       （拒绝方案 10：用户/文件名/Agent 模型声明的 MIME 只是提示）、
- *       HTML/SVG/JS 主动内容明确拒绝、白名单声明但签名无法验证拒绝。</li>
+ *       覆盖全部资源写入路径（审查修复后无豁免）——MIME 与签名冲突拒绝
+ *       （拒绝方案 10：用户/文件名/HTTP Client/Agent 模型/provider 元数据声明的
+ *       MIME 只是提示）、HTML/SVG/JS 主动内容明确拒绝、白名单声明但签名
+ *       无法验证拒绝。</li>
  * </ul>
  *
- * <p><b>豁免边界（服务端自产内容，不做签名校验）</b>：图片生成
- * （ImageGenerationServiceImpl）、TTS（VoiceTtsService）、语音块
- * （CallTurnService，MIME 服务端硬编码 audio/webm）与异步生成 provider 代理下载
- * （ResourceStorageGeneratedArtifactAdapter）的 MIME 由服务端代码与受信 provider
- * 契约决定，不属于「用户/模型输入」；即使 provider MIME 异常，读取侧白名单
- * 仍会把非白名单 MIME 强制 attachment 兜底。豁免边界由
- * {@code ResourceContentArchitectureTest} 以依赖白名单锁定。
+ * <p><b>写入校验覆盖面（审查修复后无豁免）</b>：除用户上传
+ * （ChatResourceController）与 Agent 模型文件（FileDeliveryTool）两条不可信
+ * 输入路径外，服务端写入点——图片生成（ImageGenerationServiceImpl）、TTS
+ * （VoiceTtsService）、语音块（CallTurnService，合并后字节是用户输入，MIME
+ * 服务端硬编码 audio/webm）与异步生成 provider 代理下载
+ * （ResourceStorageGeneratedArtifactAdapter）——同样在保存前经 Inspector
+ * 签名校验：provider 元数据（含 MIME/size）不可信（计划 §6.2/§6.3）。
+ * 即使如此，读取侧白名单仍会把非白名单 MIME 强制 attachment 兜底。
+ * 写入校验覆盖面由 {@code ResourceContentArchitectureTest} 以 gatekeeper
+ * 白名单锁定。
  */
 @Component
 public final class ResourceContentPolicy {
@@ -71,12 +75,15 @@ public final class ResourceContentPolicy {
     }
 
     /**
-     * 保存侧校验（用户上传 / Agent 模型文件两条不可信输入路径）。
+     * 保存侧校验（全部写入路径：用户上传 / Agent 模型文件 / 服务端写入点）。
      *
-     * <p>规则（计划 §6.3）：
+     * <p>规则（计划 §6.3 + 审查修复）：
      * <ol>
      *   <li>主动内容（HTML/SVG/JS）→ 拒绝；</li>
-     *   <li>签名命中且与声明 MIME（归一化后）一致（或声明为空以检测为准）→ 放行；</li>
+     *   <li>声明 MIME 非法 token（含 CR/LF 等控制字符）→ 拒绝，
+     *       不留给存储 SDK 在 contentType 上抛 IAE；</li>
+     *   <li>签名命中且与声明 MIME（归一化后）一致（或声明为空以检测为准）→ 放行；
+     *       audio/mp4 与 video/mp4 同属 MP4 容器家族，互不视为冲突（m4a 互认）；</li>
      *   <li>签名命中但与声明冲突 → 拒绝（模型声明 MIME 不能覆盖检测结果）；</li>
      *   <li>签名未知（空文件/短头/纯文本/未知二进制）且声明白名单类型 → 拒绝
      *       （白名单图片/音视频必须通过签名校验）；</li>
@@ -94,21 +101,37 @@ public final class ResourceContentPolicy {
             return SaveDecision.reject("文件包含 HTML/SVG/JavaScript 等主动内容，不允许上传");
         }
 
+        String normalizedDeclared = ResourceContentInspector.normalizeMimeType(declaredMimeType);
+        if (normalizedDeclared != null && !MIME_TYPE_PATTERN.matcher(normalizedDeclared).matches()) {
+            return SaveDecision.reject("声明的文件类型格式非法，已拒绝保存");
+        }
+
         String detectedType = inspection.detectedType();
         if (detectedType != null) {
-            String normalizedDeclared = ResourceContentInspector.normalizeMimeType(declaredMimeType);
-            if (normalizedDeclared == null || normalizedDeclared.equals(detectedType)) {
+            if (normalizedDeclared == null
+                    || normalizedDeclared.equals(detectedType)
+                    || isSameMp4ContainerFamily(detectedType, normalizedDeclared)) {
                 return SaveDecision.allow();
             }
             return SaveDecision.reject("声明的文件类型与内容签名不符，已拒绝保存");
         }
 
         // 签名未知：白名单声明必须可验证，非白名单附件类型放行
-        String normalizedDeclared = ResourceContentInspector.normalizeMimeType(declaredMimeType);
         if (normalizedDeclared != null && INLINE_PREVIEWABLE_MIME_TYPES.contains(normalizedDeclared)) {
             return SaveDecision.reject("声明的图片或音视频类型未通过文件签名校验，已拒绝保存");
         }
         return SaveDecision.allow();
+    }
+
+    /**
+     * MP4 容器家族互认（审查修复）：Inspector 检测层只认 ftyp major brand
+     * "M4A "，合法 m4a（isom/iso2/mp42 等 brand）被检测为 video/mp4；
+     * 声明 audio/mp4 与检测 video/mp4（及反向）属同类 ISO BMFF 容器，不视为
+     * 冲突。其他 MIME 与 MP4 容器仍按冲突拒绝。
+     */
+    private static boolean isSameMp4ContainerFamily(String detected, String declared) {
+        return ("audio/mp4".equals(detected) && "video/mp4".equals(declared))
+                || ("video/mp4".equals(detected) && "audio/mp4".equals(declared));
     }
 
     /** 读取侧处置：inlineSafe 表示允许 inline 预览，否则必须 attachment。 */

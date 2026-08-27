@@ -1,8 +1,25 @@
 # MinIO 资源对象存储运行手册
 
 > 对应计划：`docs/superpowers/plans/2026-08-24-minio-object-storage-implementation.md`
-> 部署范围：**开发环境**。生产启用受 §7 前置条件约束，本期完成不等于生产启用。
-> 最后更新：2026-08-27（新计划任务 6：真实 contract test 与最小可观测性）
+> 部署范围：**开发环境**。生产启用受 §8 前置条件约束，本期完成不等于生产启用。
+> 最后更新：2026-08-27（审查修复轮：HTTP 错误映射接入、四写入点签名校验、m4a 互认）
+
+## 0. 部署前置环境变量（置顶清单）
+
+部署任何 MinIO-only 构建（含开发环境）前，以下四个环境变量**必须**显式设置，缺失即启动 fail fast（§2.3）：
+
+| 环境变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `MINIO_ENDPOINT` | **是** | MinIO S3 API 地址（如 `http://169.254.140.78:9000`）；Console `:9001` 不是应用 Endpoint |
+| `MINIO_ACCESS_KEY` | **是** | 应用专用账号 access key（§4） |
+| `MINIO_SECRET_KEY` | **是** | 应用专用账号 secret key（§4） |
+| `MINIO_RESOURCES_BUCKET` | **是** | 私有 Bucket 名（开发环境 `huajiang`） |
+
+**常见误区（`.env` 变量不被应用读取）**：
+
+- 工作树根目录 `.env` 中的 `MINIO_DEFAULT_BUCKET`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD` 是 **docker-compose 启动 MinIO 服务本身**的变量（服务端管理员账号与默认 bucket），**后端应用不读取它们**。
+- 后端应用只认 `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_RESOURCES_BUCKET`（及可选 `MINIO_RESOURCES_PREFIX` / `MINIO_REGION`，见 §2.2）。
+- `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` 是管理员凭证：仅限 §6.2 所述开发联调豁免（`-Dcontract.account=admin`）临时使用，**不得**作为长期应用凭证（§4）。
 
 ## 1. 概述
 
@@ -63,7 +80,7 @@ java -jar backend-*.jar
 
 - 启动只做**配置字段与格式校验**：不联网、不 `bucketExists`、不写探针对象、不验证凭证有效性。
 - 必填缺失或格式非法（URL 非 http/https、前缀以 `/` 开头、超时非正数、part-size 越界等）→ 启动立即失败（`IllegalStateException` fail fast）。
-- 错误信息只含**属性名与格式要求，不含任何属性值**（尤其 secret）。
+- 错误信息只含**属性名、对应环境变量名（`MINIO_*`）与格式要求，不含任何属性值**（尤其 secret）。审查修复轮后必填缺失的消息形如：`resource-storage.minio.endpoint 不能为空（对应环境变量 MINIO_ENDPOINT）`。
 - 后果：Endpoint 不可达、凭证错误或 Bucket 不存在**不会在启动期暴露**，只会在首次资源操作时按 §5 错误语义返回。
 - 意图：MinIO 故障不阻止应用启动（纯文本聊天等非资源功能不受影响），资源操作失败按现有错误链路处理，不改变 health/readiness。
 
@@ -194,11 +211,23 @@ SELECT
   出现该日志说明数据库事务回滚后的 best-effort 补偿删除失败，可能残留未挂接数据库的孤儿对象。处理：按 resourceId 在 MinIO Console 检索 `resources/` 前缀下对应对象人工确认并删除（本期无 orphan 自动清理，计划 §1.2）。
 - 日志纪律（计划不变量 17）：该告警只含 resourceId 与 key 尾段（uuid.ext），不含完整 object key、secret、endpoint 或 SDK 异常全文；成功操作不产生日志，避免刷屏。
 
+### 5.5 内容签名校验与 m4a 互认（审查修复轮行为变化）
+
+审查修复轮后，**全部资源写入路径在保存前必须通过文件签名校验**（无服务端自产豁免）：用户上传（`ChatResourceController`）、Agent 模型文件（`FileDeliveryTool`）、图片生成（`ImageGenerationServiceImpl`）、TTS（`VoiceTtsService`）、通话音频（`CallTurnService`，合并后字节是用户输入）与生成视频（`ResourceStorageGeneratedArtifactAdapter`）。用户/文件名/HTTP Client/Agent 模型/provider 元数据声明的 MIME 都只是提示，签名冲突即拒绝：
+
+- 用户/Agent 侧拒绝：上传 400 业务错误、Agent 工具返回 Error 文案；
+- 同步生成路径（图片生成/TTS/通话）拒绝：明确业务异常，任务/请求失败可见；
+- 后台生成视频拒绝：任务标记失败（存储 IO_ERROR 语义，安全文案不暴露 key）。
+
+**m4a 互认**：Inspector 检测层只认 ISO BMFF（MP4 家族）容器——`ftyp` major brand `"M4A "` 判为 `audio/mp4`，其余合法 brand（`isom`/`iso2`/`mp42`/`mp41` 等）判为 `video/mp4`。因合法 m4a 文件的 brand 通常是 `isom` 系而非 `"M4A "`，保存侧校验中 `audio/mp4` 与 `video/mp4` **同属 MP4 容器家族，互不视为冲突**：声明 `audio/mp4` 的 m4a 文件（brand `isom`）不会被误拒；其他 MIME 与 MP4 容器冲突仍拒绝（如声明 `image/png` 而字节是 MP4）。
+
+另外两个相关宽容度：Range 头 `bytes=` 前缀大小写不敏感且容忍前后空白；MinIO 服务端 4xx 错误归 IO_ERROR（500）而非 UNAVAILABLE（仅 5xx/连接层故障归 503）。
+
 ## 6. 真实 contract test 指引（任务 6 交付）
 
 测试类：`backend/src/test/java/com/h/backend/chat/infrastructure/storage/MinioResourceStorageContractTest.java`（普通 `*Test` 命名，不启动 Spring 上下文，直接构造 MinioClient + MinioResourceStorage）。本套件是本期最终验收的强制门槛（计划 §11.4），可不进每次普通 CI：**无凭证时全类 SKIP，普通 `mvn test` 不受影响**。
 
-### 6.1 环境变量清单（系统属性优先，环境变量兑底）
+### 6.1 环境变量清单（系统属性优先，环境变量兜底）
 
 | 用途 | 解析顺序（取第一个非空值） | 必填 |
  | --- | --- | --- |
@@ -277,9 +306,37 @@ mvn -Dtest=MinioResourceStorageContractTest -Dcontract.account=admin test
 - 凭证：来自工作树 `.env`（管理员凭证，用户选择开发验证用途；仅环境注入，未写入任何文件/日志/提交）。
 - 模式：`-Dcontract.account=admin`；endpoint `http://169.254.140.78:9000`；bucket `huajiang`（因 `.env` 的 `MINIO_DEFAULT_BUCKET` 值不合 S3 命名规则，显式以 `MINIO_RESOURCES_BUCKET` 覆盖）。
 - 结果：7/7 通过（含两条 admin 豁免 WARN）；清理断言通过且独立复核前缀清零。
-- 遗留：生产验收前需创建前缀受限专用账号并以默认 restricted 模式重跑（见 §4、§7）。
+- 遗留：生产验收前需创建前缀受限专用账号并以默认 restricted 模式重跑（见 §4、§8）。
 
-## 7. 生产启用前置条件（计划 §8.3）
+## 7. 开发部署验收清单（计划任务 7 与 §12 Phase 3 人工项）
+
+开发环境部署 MinIO-only 构建后、开放日常使用前，逐项勾选以下人工验收项。前置：§0 四个环境变量已设置、§3 开发数据清理已通过 §3.5 验收断言、§6 contract test 已以真实凭证跑过一次。
+
+### 7.1 基础设施行为验收
+
+| # | 验收项 | 操作 | 预期 |
+| --- | --- | --- | --- |
+| 1 | 多实例共享读取 | 同一 Bucket 前后启动两个后端实例（不同端口），实例 A 上传资源，实例 B 预览/下载同一资源 | 成功且字节一致（对象存储无节点本地状态） |
+| 2 | 容器/进程重启后读取 | 上传资源 → 重启后端进程/容器 → 再次预览/下载 | 成功（资源字节在 MinIO，不在进程内状态） |
+
+### 7.2 七项 smoke test 勾选表
+
+| # | smoke 项 | 操作要点 | 预期 | 勾选 |
+| --- | --- | --- | --- | --- |
+| 1 | 上传 | 聊天上传一张真实 PNG/JPEG | 消息带资源，预览可看 | [ ] |
+| 2 | 图片生成 | 触发一次图片生成（对话内或 Agent） | 生成图片入库并可在聊天中预览 | [ ] |
+| 3 | 预览 | 打开已上传图片的 `/content` 预览 | inline 展示（白名单 MIME） | [ ] |
+| 4 | 下载 | 点击资源下载（`/download`） | attachment 下载，文件名/字节正确 | [ ] |
+| 5 | Range | 对较大视频/音频资源请求部分 Range（如 `bytes=0-1023`） | 206 + 正确切片；越界 Range 返回 416 带 `Content-Range: bytes */total` 与 nosniff | [ ] |
+| 6 | Agent 文件 | 让 Agent 用 `send_file_to_chat` 发送会话文件 | 文件消息出现且可下载；伪装 MIME/主动内容被拒 | [ ] |
+| 7 | Voice | 语音通话录音 finalize + 一次 TTS 合成 | 通话音频入库可回放；TTS 音频可播放 | [ ] |
+
+### 7.3 验收结果记录
+
+- 验收日期：____（记录人：____）
+- 全部通过后本清单随部署记录归档；任一项失败按 §5.3 处置（开放流量前可回退，开放后只 roll-forward）。
+
+## 8. 生产启用前置条件（计划 §8.3）
 
 本期为开发环境实现，代码具备生产质量，但**以下条件未全部满足前不得生产启用**（当前单节点 HTTP link-local MinIO 明确不可用作生产主存储）：
 

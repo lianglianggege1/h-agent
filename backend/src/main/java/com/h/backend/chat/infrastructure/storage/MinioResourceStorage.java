@@ -93,7 +93,6 @@ public class MinioResourceStorage implements ResourceStorage {
         String bucket = properties.getMinio().getBucket();
         long partSizeBytes = properties.getMinio().getPartSizeBytes();
         long effectiveMaxBytes = effectiveMaxBytes(command);
-
         boolean putAttempted = false;
         try (InputStream source = command.openContentStream()) {
             if (command.declaredSize() != null && command.declaredSize() > effectiveMaxBytes) {
@@ -125,17 +124,28 @@ public class MinioResourceStorage implements ResourceStorage {
                     null,
                     null);
         } catch (ResourceStorageException exception) {
-            metrics.recordSaveFailure(exception.kind());
-            if (exception.kind() == ResourceStorageErrorKind.SIZE_LIMIT && putAttempted) {
-                // 流式写入中途超限：best-effort 清理半写对象，
-                // 清理失败只记 debug 日志，不覆盖原错误（计划任务 2）。
-                bestEffortDelete(bucket, objectKey, resourceId);
-            }
+            handleSaveFailure(exception, bucket, objectKey, resourceId, putAttempted);
             throw exception;
         } catch (Exception exception) {
+            // multipart 路径（unknown-size 或 size>partSize）下 SDK 会把流读取中抛出的
+            // RSE（含 SIZE_LIMIT）包成 IllegalStateException 上抛，toStorageException
+            // 解包还原后同样走统一失败出口（审查修复：半写清理不再仅限第一分支）。
             ResourceStorageException mapped = toStorageException(exception, "资源写入失败");
-            metrics.recordSaveFailure(mapped.kind());
+            handleSaveFailure(mapped, bucket, objectKey, resourceId, putAttempted);
             throw mapped;
+        }
+    }
+
+    /**
+     * save 统一失败出口（两分支共用）：计数埋点 + SIZE_LIMIT 半写对象 best-effort 清理。
+     * 清理失败只记 debug 日志，不覆盖原错误（计划任务 2）。
+     */
+    private void handleSaveFailure(
+            ResourceStorageException failure, String bucket, String objectKey,
+            String resourceId, boolean putAttempted) {
+        metrics.recordSaveFailure(failure.kind());
+        if (failure.kind() == ResourceStorageErrorKind.SIZE_LIMIT && putAttempted) {
+            bestEffortDelete(bucket, objectKey, resourceId);
         }
     }
 
@@ -280,10 +290,15 @@ public class MinioResourceStorage implements ResourceStorage {
             if (current instanceof ErrorResponseException errorResponse) {
                 return mapErrorResponse(errorResponse, failure);
             }
-            if (current instanceof ServerException) {
-                // ServerException 仅在 HTTP 5xx 时由 SDK 合成（计划任务 2 异常矩阵）。
+            if (current instanceof ServerException serverException) {
+                // 按 response code 区分：5xx 才是服务端不可用；4xx（客户端/请求侧错误，
+                // 如 SDK 对畸形请求合成的 4xx）映射 IO_ERROR，不是 UNAVAILABLE。
+                if (serverException.statusCode() >= 500) {
+                    return new ResourceStorageException(
+                            ResourceStorageErrorKind.UNAVAILABLE, "存储服务暂时不可用", failure);
+                }
                 return new ResourceStorageException(
-                        ResourceStorageErrorKind.UNAVAILABLE, "存储服务暂时不可用", failure);
+                        ResourceStorageErrorKind.IO_ERROR, "资源存储读写失败", failure);
             }
             if (current instanceof SocketTimeoutException
                     || current instanceof InterruptedIOException

@@ -26,9 +26,11 @@ import java.util.regex.Pattern;
  */
 public record ResourceRange(Kind kind, Long start, Long end, Long suffixLength) {
 
-    private static final Pattern CLOSED_RANGE = Pattern.compile("bytes=(\\d+)-(\\d+)");
-    private static final Pattern OPEN_RANGE = Pattern.compile("bytes=(\\d+)-");
-    private static final Pattern SUFFIX_RANGE = Pattern.compile("bytes=-(\\d+)");
+    // 审查修复 7c：bytes 单位名大小写宽容（RFC 9110 token 大小写不敏感），
+    // token 周围空白（OWS）宽容；非 bytes 单位仍然拒绝。
+    private static final Pattern CLOSED_RANGE = Pattern.compile("(?i)bytes\\s*=\\s*(\\d+)\\s*-\\s*(\\d+)");
+    private static final Pattern OPEN_RANGE = Pattern.compile("(?i)bytes\\s*=\\s*(\\d+)\\s*-");
+    private static final Pattern SUFFIX_RANGE = Pattern.compile("(?i)bytes\\s*=\\s*-\\s*(\\d+)");
 
     /** 单例常量：完整读取。 */
     private static final ResourceRange FULL = new ResourceRange(Kind.FULL, null, null, null);
@@ -76,8 +78,9 @@ public record ResourceRange(Kind kind, Long start, Long end, Long suffixLength) 
     }
 
     /**
-     * 解析 HTTP Range 头。仅接受单个 byte 区间；语法非法、多区间、
-     * 负数或 start&gt;end 抛出 400 语义的 {@link ResourceRangeException}。
+     * 解析 HTTP Range 头。仅接受单个 byte 区间；bytes 单位名大小写不敏感、
+     * token 周围空白宽容；语法非法、多区间、负数或 start&gt;end 抛出
+     * 400 语义的 {@link ResourceRangeException}。
      */
     public static ResourceRange fromHeader(String rangeHeader) {
         if (rangeHeader == null || rangeHeader.isBlank()) {

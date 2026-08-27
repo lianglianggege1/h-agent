@@ -8,6 +8,8 @@ import com.h.backend.chat.infrastructure.image.MiniMaxImageGenerationResult;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ImageGenerationService;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.application.reference.ReferenceImageResolver;
 import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
@@ -15,12 +17,14 @@ import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -30,12 +34,27 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
 
 class ImageGenerationServiceImplTest {
+
+    /** PNG 魔数（非完整图片：签名可验，ImageIO 解析失败回退 provider 声明宽高）。 */
+    private static final byte[] PNG_SIGNATURE = {
+            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D
+    };
+
+    /** JPEG 魔数。 */
+    private static final byte[] JPEG_SIGNATURE = {
+            (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10
+    };
+
+    /** 完整有效的 1×1 像素 PNG（ImageIO 可解析出真实宽高）。 */
+    private static final byte[] ONE_BY_ONE_PNG = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
 
     @Test
     void shouldGenerateImageStoreResourceAndAppendImageMessage() {
@@ -51,14 +70,16 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
 
         MiniMaxImageGenerationResult generationResult = new MiniMaxImageGenerationResult(
                 "provider-123",
                 "image/png",
                 "image-01",
-                new byte[]{1, 2, 3},
+                PNG_SIGNATURE,
                 1024,
                 1024,
                 "{\"id\":\"provider-123\"}"
@@ -155,14 +176,16 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
                 "provider-456",
                 "image/png",
                 "image-01",
-                new byte[]{4, 5, 6},
+                PNG_SIGNATURE,
                 null,
                 null,
                 "{\"id\":\"provider-456\"}"
@@ -232,7 +255,9 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
         when(referenceImageResolver.resolve(1L, "resource-1"))
                 .thenThrow(new IllegalArgumentException("参考图片资源不存在: resource-1"));
@@ -267,7 +292,9 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
         when(referenceImageResolver.resolve(1L, "resource-1"))
                 .thenThrow(new IllegalArgumentException("参考资源必须是图片: resource-1"));
@@ -302,21 +329,23 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
                 "provider-789",
                 "image/jpeg",
                 "image-01",
-                new byte[]{1},
+                JPEG_SIGNATURE,
                 null,
                 null,
                 "{\"id\":\"provider-789\"}",
                 List.of(
-                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{1}, null, null),
-                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{2}, null, null),
-                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{3}, null, null)
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", JPEG_SIGNATURE, null, null),
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", JPEG_SIGNATURE, null, null),
+                        new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", JPEG_SIGNATURE, null, null)
                 )
         ));
         List<StoredResource> storedResources = List.of(
@@ -373,9 +402,11 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
-        byte[] imageBytes = new byte[]{1, 2, 3};
+        byte[] imageBytes = PNG_SIGNATURE;
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
                 "provider-1", "image/png", "image-01", imageBytes, 1024, 1024, "{}"
         ));
@@ -422,11 +453,13 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
         List<String> order = new ArrayList<>();
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
-                "provider-1", "image/png", "image-01", new byte[]{1}, null, null, "{}"
+                "provider-1", "image/png", "image-01", PNG_SIGNATURE, null, null, "{}"
         ));
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             order.add("tx-begin");
@@ -471,10 +504,12 @@ class ImageGenerationServiceImplTest {
                 transactionTemplate,
                 new ImageGenerationProperties(null),
                 referenceImageResolver,
-                new ChatResourceUrls("")
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
         );
         when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
-                "provider-1", "image/png", "image-01", new byte[]{1}, null, null, "{}"
+                "provider-1", "image/png", "image-01", PNG_SIGNATURE, null, null, "{}"
         ));
         when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
                 .thenAnswer(invocation -> {
@@ -496,5 +531,91 @@ class ImageGenerationServiceImplTest {
                         1L, "session-1", 22L, "提示词", "COMMAND"))
         );
         org.junit.jupiter.api.Assertions.assertEquals(boom, thrown);
+    }
+
+    @Test
+    void rejectsGeneratedImageWhenSignatureDoesNotMatchDeclaredMime() {
+        // 审查修复第 3 项：provider 声明 image/png 但字节实际是 JPEG ——
+        // 模型提供的 MIME 只是提示，签名冲突即拒绝保存，且不进入写入路径。
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                writeCoordinator,
+                chatSessionService,
+                transactionTemplate,
+                new ImageGenerationProperties(null),
+                referenceImageResolver,
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
+        );
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", JPEG_SIGNATURE, 1024, 1024, "{}"
+        ));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                        1L, "session-1", 22L, "提示词", "COMMAND"))
+        );
+
+        assertEquals("图片生成结果未通过内容校验，已放弃保存", error.getMessage());
+        verify(writeCoordinator, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
+        verify(chatSessionService, never()).appendImageMessage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void parsesImageDimensionsServerSideFromGeneratedBytes() {
+        // 计划 §6.2：图片生成调用方用 ImageIO 从字节解析真实宽高传入命令；
+        // provider 声明的 1024×1024 只是提示，服务端解析出的 1×1 覆盖声明值。
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                writeCoordinator,
+                chatSessionService,
+                transactionTemplate,
+                new ImageGenerationProperties(null),
+                referenceImageResolver,
+                new ChatResourceUrls(""),
+                new ResourceContentInspector(),
+                new ResourceContentPolicy()
+        );
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", ONE_BY_ONE_PNG, 1024, 1024, "{}"
+        ));
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(new StoredResource(
+                            "resource-1", "OBJECT_STORAGE", "key-1", "image/png", "generated.png", 1L, null, null));
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(chatSessionService.appendImageMessage(any(), any(), any(), any(), any()))
+                .thenReturn(new ChatSessionMessageDto("1", "assistant", "IMAGE", "提示词", null, List.of(), LocalDateTime.now()));
+
+        service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L, "session-1", 22L, "提示词", "COMMAND"
+        ));
+
+        ArgumentCaptor<ResourceSaveCommand> commandCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(writeCoordinator).saveAndAttach(commandCaptor.capture(), any());
+        ResourceSaveCommand command = commandCaptor.getValue();
+        assertEquals(1, command.width(), "宽高必须来自 ImageIO 对字节的服务端解析");
+        assertEquals(1, command.height());
     }
 }

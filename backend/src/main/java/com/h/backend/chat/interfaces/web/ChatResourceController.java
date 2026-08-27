@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
@@ -90,8 +91,20 @@ public class ChatResourceController {
         // 保存前必须通过签名校验；Inspector 只读有上限的文件头，
         // 校验通过后用回放流（已读头字节 + 剩余原流）继续保存，
         // 不二次读源流、不整读 byte[]。
-        ResourceContentInspector.Inspection inspection =
-                contentInspector.inspect(file.getInputStream(), mimeType);
+        // 审查修复第 4 项（同构）：inspect 抛 IOException 时安全关闭底层流，
+        // 避免 fd 泄漏；正常路径的流由回放流链路消费并在存储侧关闭。
+        ResourceContentInspector.Inspection inspection;
+        InputStream contentStream = file.getInputStream();
+        try {
+            inspection = contentInspector.inspect(contentStream, mimeType);
+        } catch (IOException exception) {
+            try {
+                contentStream.close();
+            } catch (IOException suppressed) {
+                exception.addSuppressed(suppressed);
+            }
+            throw exception;
+        }
         ResourceContentPolicy.SaveDecision decision =
                 contentPolicy.validateForSave(inspection.result(), mimeType);
         if (!decision.allowed()) {
@@ -157,6 +170,9 @@ public class ChatResourceController {
                 // 这是最小改动方案。
                 HttpHeaders headers = new HttpHeaders();
                 headers.set(HttpHeaders.CONTENT_RANGE, "bytes */" + exception.totalSize());
+                // 审查修复 7a：416 响应同样携带 nosniff，与其他资源响应一致，
+                // 防止浏览器对错误响应体嗅探。
+                headers.set(X_CONTENT_TYPE_OPTIONS_HEADER, X_CONTENT_TYPE_OPTIONS_NOSNIFF);
                 return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                         .headers(headers)
                         .build();

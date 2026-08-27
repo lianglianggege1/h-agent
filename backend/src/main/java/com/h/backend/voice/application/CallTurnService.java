@@ -3,7 +3,11 @@ package com.h.backend.voice.application;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.interfaces.dto.VoiceResourceResponse;
@@ -12,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -30,20 +35,32 @@ public class CallTurnService {
     private final Path baseDir;
     private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
+    private final ResourceContentInspector contentInspector;
+    private final ResourceContentPolicy contentPolicy;
 
     @Autowired
     public CallTurnService(
             @Value("${voice.call-turns.base-dir:/tmp/h-agent/call-turns}") String baseDir,
             ResourceWriteCoordinator writeCoordinator,
-            ChatSessionService chatSessionService
+            ChatSessionService chatSessionService,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
     ) {
-        this(Path.of(baseDir), writeCoordinator, chatSessionService);
+        this(Path.of(baseDir), writeCoordinator, chatSessionService, contentInspector, contentPolicy);
     }
 
-    public CallTurnService(Path baseDir, ResourceWriteCoordinator writeCoordinator, ChatSessionService chatSessionService) {
+    public CallTurnService(
+            Path baseDir,
+            ResourceWriteCoordinator writeCoordinator,
+            ChatSessionService chatSessionService,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
+    ) {
         this.baseDir = baseDir.toAbsolutePath().normalize();
         this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
+        this.contentInspector = contentInspector;
+        this.contentPolicy = contentPolicy;
     }
 
     public String start(Long userId, String sessionId, String agentId) {
@@ -105,6 +122,10 @@ public class CallTurnService {
         }
         chatSessionService.assertActiveAgentSession(userId, sessionId, resolvedAgentId);
         byte[] audio = mergeChunks(dir);
+        // 审查修复第 3 项（计划 §6.3）：浏览器上传分片是用户输入，合并后的字节
+        // 必须通过 audio/webm 签名校验（MIME 服务端硬编码）才能保存；
+        // 校验失败时分片目录保留（与挂接失败语义一致，用户可重试或 cancel）。
+        verifyMergedAudio(audio);
         // 新计划任务 3：写入经 Coordinator，音频绑定在挂接事务内（rollback 时对象被补偿）；
         // 挂接事务提交后才删除本地分片目录（失败时保留，与既有语义一致）。
         ChatMessageResourceDto resource = writeCoordinator.saveAndAttach(
@@ -138,6 +159,22 @@ public class CallTurnService {
         );
         deleteDirectory(dir);
         return response;
+    }
+
+    /** 合并后用户录音的签名校验（审查修复第 3 项）：用户输入不豁免，冲突即拒绝保存。 */
+    private void verifyMergedAudio(byte[] audio) {
+        ResourceContentInspector.Inspection inspection;
+        try {
+            inspection = contentInspector.inspect(new ByteArrayInputStream(audio), "audio/webm");
+        } catch (IOException exception) {
+            throw new ResourceStorageException(
+                    ResourceStorageErrorKind.IO_ERROR, "通话音频读取失败", exception);
+        }
+        ResourceContentPolicy.SaveDecision decision =
+                contentPolicy.validateForSave(inspection.result(), "audio/webm");
+        if (!decision.allowed()) {
+            throw new BusinessException(40000, "音频内容未通过校验，已拒绝保存");
+        }
     }
 
     public void cancel(Long userId, String turnId) {

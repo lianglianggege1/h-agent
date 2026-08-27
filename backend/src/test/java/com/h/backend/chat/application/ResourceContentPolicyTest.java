@@ -201,4 +201,86 @@ class ResourceContentPolicyTest {
     void nullInspectionIsProgrammingError() {
         assertThrows(NullPointerException.class, () -> policy.validateForSave(null, "image/png"));
     }
+
+    // ------------------------------------------------------------------
+    // 审查修复：MP4 容器 m4a/mp4 互认（audio/mp4 与 video/mp4 同类容器）
+    // ------------------------------------------------------------------
+
+    @Test
+    void isomBrandMp4ContainerDeclaredAsAudioMp4IsAllowed() {
+        // 合法 m4a 文件（isom/iso2/mp42 等 brand）被 Inspector 检测为 video/mp4
+        // （检测层只认 "M4A " brand），声明 audio/mp4 属同类 MP4 容器，不视为冲突
+        var inspection = new ResourceContentInspector.InspectionResult(
+                "video/mp4", ResourceContentInspector.ContentCategory.VIDEO, false);
+
+        ResourceContentPolicy.SaveDecision decision = policy.validateForSave(inspection, "audio/mp4");
+
+        assertTrue(decision.allowed(), "isom-brand m4a 声明 audio/mp4 应放行");
+    }
+
+    @Test
+    void m4aBrandContainerDeclaredAsVideoMp4IsAllowed() {
+        // 反向互认："M4A " brand 检测为 audio/mp4，声明 video/mp4 同类容器
+        var inspection = new ResourceContentInspector.InspectionResult(
+                "audio/mp4", ResourceContentInspector.ContentCategory.AUDIO, false);
+
+        assertTrue(policy.validateForSave(inspection, "video/mp4").allowed(),
+                "M4A-brand 容器声明 video/mp4 应放行");
+    }
+
+    @Test
+    void mp4ContainerStillRejectsNonMp4FamilyDeclaredMime() {
+        // 互认仅限 audio/mp4 与 video/mp4 之间；其他 MIME 与 MP4 容器冲突仍拒绝
+        var inspection = new ResourceContentInspector.InspectionResult(
+                "video/mp4", ResourceContentInspector.ContentCategory.VIDEO, false);
+
+        assertFalse(policy.validateForSave(inspection, "image/png").allowed(),
+                "声明 image/png 但内容是 MP4 容器仍应拒绝");
+        assertFalse(policy.validateForSave(inspection, "audio/mpeg").allowed(),
+                "声明 audio/mpeg 但内容是 MP4 容器仍应拒绝");
+    }
+
+    @Test
+    void m4aCrossRecognitionEndToEndThroughInspector() throws Exception {
+        // 端到端：真实 isom-brand MP4 容器字节 + 声明 audio/mp4 → 检测 video/mp4，互认放行
+        byte[] isomBrandM4a = new byte[]{
+                0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, // ....ftyp
+                'i', 's', 'o', 'm', // major brand = isom
+                0x00, 0x00, 0x02, 0x00, 'i', 's', 'o', 'm', 'i', 's', 'o', '2',
+                'm', 'p', '4', '1', 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00
+        };
+        var inspection = new ResourceContentInspector().inspect(
+                new java.io.ByteArrayInputStream(isomBrandM4a), "audio/mp4");
+
+        assertTrue(policy.validateForSave(inspection.result(), "audio/mp4").allowed(),
+                "isom-brand m4a 声明 audio/mp4 应通过签名校验");
+    }
+
+    // ------------------------------------------------------------------
+    // 审查修复：声明 MIME 提前做 RFC 2045 token 合法性校验（防 CR/LF 等控制字符）
+    // ------------------------------------------------------------------
+
+    @Test
+    void malformedDeclaredMimeIsRejectedInsteadOfLeakingToSdk() {
+        // 含 CR/LF 的声明（潜在 header 注入面）与非法 token：明确拒绝，
+        // 不留给存储 SDK 在 contentType 上抛 IAE
+        var inspection = new ResourceContentInspector.InspectionResult(
+                null, ResourceContentInspector.ContentCategory.UNKNOWN, false);
+
+        assertFalse(policy.validateForSave(inspection, "image/png\r\nX-Evil: 1").allowed(),
+                "含 CR/LF 的声明 MIME 必须拒绝");
+        assertFalse(policy.validateForSave(inspection, "bad mime").allowed(),
+                "非 type/subtype 形态的声明 MIME 必须拒绝");
+    }
+
+    @Test
+    void malformedDeclaredMimeWithDetectedSignatureIsRejectedToo() {
+        var inspection = new ResourceContentInspector.InspectionResult(
+                "image/png", ResourceContentInspector.ContentCategory.IMAGE, false);
+
+        ResourceContentPolicy.SaveDecision decision =
+                policy.validateForSave(inspection, "image\r/png");
+
+        assertFalse(decision.allowed(), "声明 MIME 含控制字符时即使签名命中也拒绝");
+    }
 }

@@ -1,9 +1,11 @@
 package com.h.backend.chat.infrastructure.storage;
 
 import io.minio.MinioClient;
+import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -40,6 +42,27 @@ class ResourceStorageConfigurationTest {
             assertThat(context.getBean(ResourceStorage.class))
                     .isInstanceOf(MinioResourceStorage.class);
         });
+    }
+
+    @Test
+    void okHttpClientAppliesExplicitWriteTimeoutMirroringReadTimeout() {
+        // 审查修复：OkHttp 默认 writeTimeout 10s，大对象 multipart 分片在慢速网络
+        // 会被中断；显式设置写入超时（复用 read-timeout 同源配置，不新增配置字段）。
+        ResourceStorageProperties properties = new ResourceStorageProperties();
+        properties.getMinio().setEndpoint("http://127.0.0.1:9000");
+        properties.getMinio().setAccessKey("ak");
+        properties.getMinio().setSecretKey("sk");
+        properties.getMinio().setBucket("bucket");
+        properties.getMinio().setReadTimeout(Duration.ofSeconds(42));
+
+        OkHttpClient httpClient = ResourceStorageConfiguration.buildOkHttpClient(properties.getMinio());
+
+        // okhttp-jvm 5.x 的 getter 返回毫秒 int（writeTimeoutMillis）；
+        // 42s = 42000ms。
+        assertThat(httpClient.writeTimeoutMillis()).isEqualTo(42_000);
+        assertThat(httpClient.readTimeoutMillis()).isEqualTo(42_000);
+        assertThat(httpClient.connectTimeoutMillis())
+                .isEqualTo((int) properties.getMinio().getConnectTimeout().toMillis());
     }
 
     // ------------------------------------------------------------------
