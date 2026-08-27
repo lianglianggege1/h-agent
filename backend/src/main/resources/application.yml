@@ -89,7 +89,8 @@ agents:
   mcp:
     other-agents:
       enabled: false
-      url: http://localhost:8082/mcp
+      url: http://localhost:8082/test1/mcp
+      token: ${MCP_TEST1_TOKEN:dev-token-test1}
       tool-execution-timeout-seconds: 4
 
 knowledge:

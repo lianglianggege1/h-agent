@@ -6,6 +6,14 @@ server:
 other-agents:
   a2a:
     public-url: http://localhost:8082
+  mcp:
+    endpoints:
+      test1:
+        path: /test1/mcp
+        token: ${MCP_TEST1_TOKEN:dev-token-test1}
+      test2:
+        path: /test2/mcp
+        token: ${MCP_TEST2_TOKEN:dev-token-test2}
 
 spring:
   application:
@@ -13,10 +21,8 @@ spring:
   ai:
     mcp:
       server:
-        name: other-agents-mcp
-        version: 0.0.1
-        type: async
-        protocol: streamable
+        # 关闭 Spring AI 单端点自动装配，改用 McpEndpointConfig 手工装配多 endpoint（见 docs/adr/0004）
+        enabled: false
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://127.0.0.1:5432/h_agent_db

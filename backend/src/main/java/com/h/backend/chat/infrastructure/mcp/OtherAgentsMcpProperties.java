@@ -7,7 +7,10 @@ public class OtherAgentsMcpProperties {
 
     private boolean enabled = false;
 
-    private String url = "http://localhost:8082/mcp";
+    private String url = "http://localhost:8082/test1/mcp";
+
+    /** Bearer Token，与 other-agents 侧对应 MCP endpoint 的 token 一致 */
+    private String token;
 
     private int toolExecutionTimeoutSeconds = 4;
 
@@ -25,6 +28,14 @@ public class OtherAgentsMcpProperties {
 
     public void setUrl(String url) {
         this.url = url;
+    }
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
     }
 
     public int getToolExecutionTimeoutSeconds() {

@@ -11,6 +11,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
+import java.util.Map;
+import java.util.function.Supplier;
 
 @Configuration
 @EnableConfigurationProperties(OtherAgentsMcpProperties.class)
@@ -19,9 +21,15 @@ public class OtherAgentsMcpConfig {
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "agents.mcp.other-agents", name = "enabled", havingValue = "true")
     McpClient otherAgentsMcpClient(OtherAgentsMcpProperties properties) {
-        McpTransport transport = new StreamableHttpMcpTransport.Builder()
-                .url(properties.getUrl())
-                .build();
+        StreamableHttpMcpTransport.Builder transportBuilder = new StreamableHttpMcpTransport.Builder()
+                .url(properties.getUrl());
+        String token = properties.getToken();
+        if (token != null && !token.isBlank()) {
+            // other-agents 的每个 MCP endpoint 都要求 Authorization: Bearer <token>
+            Supplier<Map<String, String>> authHeaders = () -> Map.of("Authorization", "Bearer " + token);
+            transportBuilder.customHeaders(authHeaders);
+        }
+        McpTransport transport = transportBuilder.build();
         return new DefaultMcpClient.Builder()
                 .transport(transport)
                 .toolExecutionTimeout(Duration.ofSeconds(properties.getToolExecutionTimeoutSeconds()))

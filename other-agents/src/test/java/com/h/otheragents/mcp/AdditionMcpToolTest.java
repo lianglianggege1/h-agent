@@ -2,6 +2,7 @@ package com.h.otheragents.mcp;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,7 +19,9 @@ class AdditionMcpToolTest {
 
     @Test
     void registersAddNumbersTool() {
-        ToolCallbackProvider provider = new McpToolConfig().mcpTools(new AdditionMcpTool());
+        ToolCallbackProvider provider = MethodToolCallbackProvider.builder()
+                .toolObjects(new AdditionMcpTool())
+                .build();
 
         assertThat(provider.getToolCallbacks())
                 .singleElement()
