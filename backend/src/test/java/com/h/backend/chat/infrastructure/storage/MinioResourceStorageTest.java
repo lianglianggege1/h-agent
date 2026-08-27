@@ -55,6 +55,7 @@ class MinioResourceStorageTest {
 
     private MinioClient minioClient;
     private ResourceStorageProperties properties;
+    private ResourceStorageMetrics metrics;
     private MinioResourceStorage storage;
 
     @BeforeEach
@@ -62,7 +63,8 @@ class MinioResourceStorageTest {
         minioClient = mock(MinioClient.class);
         properties = new ResourceStorageProperties();
         properties.getMinio().setBucket(BUCKET);
-        storage = new MinioResourceStorage(minioClient, properties);
+        metrics = new ResourceStorageMetrics();
+        storage = new MinioResourceStorage(minioClient, properties, metrics);
     }
 
     // ------------------------------------------------------------------
@@ -519,6 +521,72 @@ class MinioResourceStorageTest {
         assertThatThrownBy(() -> storage.discard("resources/v1/files/2026/08/x.pdf"))
                 .isInstanceOfSatisfying(ResourceStorageException.class, exception ->
                         assertThat(exception.kind()).isEqualTo(ResourceStorageErrorKind.IO_ERROR));
+    }
+
+    // ------------------------------------------------------------------
+    // 可观测性埋点（新计划任务 6）：成功/失败计数与按 kind 细分
+    // ------------------------------------------------------------------
+
+    @Test
+    void instrumentationCountsSaveOpenDiscardSuccessAndFailureByKind() throws Exception {
+        // save 成功
+        stubPutConsumingStream();
+        storage.save(command("IMAGE", new byte[]{1}, "image/webp", "webp"));
+        // save 失败：declaredSize 超限 → SIZE_LIMIT（未发 putObject）
+        assertThatThrownBy(() -> storage.save(ResourceSaveCommand.fromStream(
+                "FILE", new ByteArrayInputStream(new byte[10]), 6L, "application/pdf", "pdf", 5)))
+                .isInstanceOf(ResourceStorageException.class);
+
+        // open 成功（关闭流释放 mock 响应）
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(statResponse(10L, "video/mp4"));
+        when(minioClient.getObject(any(GetObjectArgs.class))).thenReturn(getObjectResponse(new byte[10]));
+        try (ResourceContent ignored = storage.open("resources/v1/videos/2026/08/x.mp4", ResourceRange.fullRead())) {
+            // 仅消费打开/关闭
+        }
+        // open 失败：NoSuchKey → NOT_FOUND
+        when(minioClient.statObject(any(StatObjectArgs.class)))
+                .thenThrow(errorResponseException("NoSuchKey", 404));
+        assertThatThrownBy(() -> storage.open("resources/v1/videos/2026/08/x.mp4", ResourceRange.fullRead()))
+                .isInstanceOf(ResourceStorageException.class);
+
+        // discard 成功 + 幂等 NOT_FOUND 也计成功
+        storage.discard("resources/v1/files/2026/08/x.pdf");
+        doThrow(errorResponseException("NoSuchKey", 404))
+                .when(minioClient).removeObject(any(RemoveObjectArgs.class));
+        storage.discard("resources/v1/files/2026/08/x.pdf");
+        // discard 失败：AccessDenied → UNAVAILABLE
+        doThrow(errorResponseException("AccessDenied", 403))
+                .when(minioClient).removeObject(any(RemoveObjectArgs.class));
+        assertThatThrownBy(() -> storage.discard("resources/v1/files/2026/08/x.pdf"))
+                .isInstanceOf(ResourceStorageException.class);
+
+        ResourceStorageMetrics.StorageMetricsSnapshot snapshot = metrics.snapshot();
+        assertThat(snapshot.saveSuccess()).isEqualTo(1L);
+        assertThat(snapshot.saveFailuresByKind())
+                .containsEntry(ResourceStorageErrorKind.SIZE_LIMIT, 1L)
+                .hasSize(1);
+        assertThat(snapshot.openSuccess()).isEqualTo(1L);
+        assertThat(snapshot.openFailuresByKind())
+                .containsEntry(ResourceStorageErrorKind.NOT_FOUND, 1L)
+                .hasSize(1);
+        assertThat(snapshot.discardSuccess()).isEqualTo(2L);
+        assertThat(snapshot.discardFailuresByKind())
+                .containsEntry(ResourceStorageErrorKind.UNAVAILABLE, 1L)
+                .hasSize(1);
+        assertThat(snapshot.compensatedDiscardSuccess()).isZero();
+        assertThat(snapshot.compensatedDiscardFailure()).isZero();
+    }
+
+    @Test
+    void unsatisfiableRangeIsNotCountedAsStorageFailure() throws Exception {
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(statResponse(100L, "video/mp4"));
+
+        assertThatThrownBy(() -> storage.open(
+                "resources/v1/videos/2026/08/x.mp4", ResourceRange.fromHeader("bytes=100-")))
+                .isInstanceOf(ResourceRangeException.class);
+
+        // 416 是 Range 语义错误（未发生存储读失败），不计入 open 失败
+        assertThat(metrics.snapshot().openFailureTotal()).isZero();
     }
 
     // ------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 > 对应计划：`docs/superpowers/plans/2026-08-24-minio-object-storage-implementation.md`
 > 部署范围：**开发环境**。生产启用受 §7 前置条件约束，本期完成不等于生产启用。
-> 最后更新：2026-08-26（新计划任务 5）
+> 最后更新：2026-08-27（新计划任务 6：真实 contract test 与最小可观测性）
 
 ## 1. 概述
 
@@ -180,14 +180,104 @@ SELECT
 ### 5.3 失败恢复与 roll-forward 原则
 
 - **开放流量前**（开发数据清理或 smoke test 失败）：可恢复 §3.2 备份行并回退旧构建。
-- **开放流量后**：只允许 **roll-forward**——修复配置、MinIO、权限或代码并恢复资源能力。**禁止**恢复切换前的 PostgreSQL 快照（会丢失切换后的聊天、运行与资源 metadata）。
+- **开放流量后**：只允许 **roll-forward**——修复配置、MinIO、权限或代码并恢复资源能力。**禁止**恢复切换前的 PostgreSQL 快照（会丢失切换后的聊天、运行和资源 metadata）。
 
-## 6. 真实 contract test 指引（简要，任务 6 完善）
+### 5.4 存储可观测性（任务 6：进程内计数与告警）
 
-- 用**应用专用账号**（非管理员）运行 `MinioResourceStorageContractTest`（任务 6 交付），测试对象使用 `resources/contract-tests/<runId>/` 前缀，结束后删除该前缀对象。
-- 覆盖项：20–32 MiB 生成流 multipart 上传、stat、完整读取、Range 读取；匿名访问、跨前缀访问与管理操作被拒绝；数据库 rollback 后补偿删除。
-- 本套件是本期最终验收的强制门槛：不因缺少 Endpoint 而把 MinIO 接入标记完成；可不入每次普通 CI。
-- 运行时通过 §2.2 环境变量注入真实开发 MinIO 连接信息。
+- `ResourceStorageMetrics`（Spring Bean）对 save/open/discard 成功/失败做进程内 LongAdder 计数（失败按四类错误细分），另有 Coordinator 事务回滚补偿 discard 的成功/失败计数。不引入 micrometer/actuator/health（计划 §1.2 明确不实施）；计数仅供排障与测试断言，不对外暴露端点。
+- **补偿删除失败告警**（ERROR 级，需人工关注孤儿对象）：
+
+  ```text
+  资源补偿删除失败，需人工关注孤儿对象 operation=discard errorKind=UNAVAILABLE resourceId=<uuid> storageKeySuffix=<uuid.ext>
+  ```
+
+  出现该日志说明数据库事务回滚后的 best-effort 补偿删除失败，可能残留未挂接数据库的孤儿对象。处理：按 resourceId 在 MinIO Console 检索 `resources/` 前缀下对应对象人工确认并删除（本期无 orphan 自动清理，计划 §1.2）。
+- 日志纪律（计划不变量 17）：该告警只含 resourceId 与 key 尾段（uuid.ext），不含完整 object key、secret、endpoint 或 SDK 异常全文；成功操作不产生日志，避免刷屏。
+
+## 6. 真实 contract test 指引（任务 6 交付）
+
+测试类：`backend/src/test/java/com/h/backend/chat/infrastructure/storage/MinioResourceStorageContractTest.java`（普通 `*Test` 命名，不启动 Spring 上下文，直接构造 MinioClient + MinioResourceStorage）。本套件是本期最终验收的强制门槛（计划 §11.4），可不进每次普通 CI：**无凭证时全类 SKIP，普通 `mvn test` 不受影响**。
+
+### 6.1 环境变量清单（系统属性优先，环境变量兑底）
+
+| 用途 | 解析顺序（取第一个非空值） | 必填 |
+ | --- | --- | --- |
+| endpoint | `-DTEST_MINIO_ENDPOINT` → env `TEST_MINIO_ENDPOINT` → `MINIO_ENDPOINT` | 是 |
+| access key | `TEST_MINIO_ACCESS_KEY` → `MINIO_ACCESS_KEY` → `MINIO_ROOT_USER` | 是 |
+| secret key | `TEST_MINIO_SECRET_KEY` → `MINIO_SECRET_KEY` → `MINIO_ROOT_PASSWORD` | 是 |
+| bucket | `TEST_MINIO_BUCKET` → `MINIO_RESOURCES_BUCKET` → `MINIO_DEFAULT_BUCKET` | 是 |
+| region | `TEST_MINIO_REGION` → `MINIO_REGION`（默认 `us-east-1`） | 否 |
+
+任一必填缺失 → 全部用例 `assumeTrue` SKIP（surefire 报 `Skipped: 7`，BUILD SUCCESS）。
+
+**注意（2026-08-27 首次真实运行发现）**：`.env` 的 `MINIO_DEFAULT_BUCKET` 值不符合 S3 bucket 命名规则，MinIO SDK 客户端会直接拒绝所有 bucket 级操作（用例以 IllegalArgument 失败；此时 listBuckets 仍可成功，可据此判别是 bucket 名问题而非凭证/endpoint 问题）。真实运行时需显式覆盖为开发 bucket（`MINIO_RESOURCES_BUCKET=huajiang`，计划 §8.2 已核验的私有 bucket）。
+
+### 6.2 运行命令
+
+```bash
+# 无凭证（普通 CI / 本地无环境）：全 SKIP，BUILD SUCCESS
+cd backend && mvn -Dtest=MinioResourceStorageContractTest test
+
+# 真实运行（生产验收语义，需前缀受限专用账号）：
+export TEST_MINIO_ENDPOINT=http://169.254.140.78:9000   # 开发实例 S3 API（Console :9001 不是）
+export TEST_MINIO_ACCESS_KEY=<专用账号 access key>
+export TEST_MINIO_SECRET_KEY=<专用账号 secret key>
+export TEST_MINIO_BUCKET=huajiang
+cd backend && mvn -Dtest=MinioResourceStorageContractTest test
+
+# admin 模式（开发验证豁免，仅限无专用账号时的联调，不是验收终态）：
+set -a && source <(grep -E '^MINIO_' ../.env) && set +a   # 凭证只经环境注入，绝不写入命令行历史/文档
+export MINIO_ENDPOINT=${MINIO_ENDPOINT:-http://169.254.140.78:9000}
+export MINIO_RESOURCES_BUCKET=huajiang
+mvn -Dtest=MinioResourceStorageContractTest -Dcontract.account=admin test
+```
+
+### 6.3 账号前提与 contract.account 模式
+
+跨前缀写拒绝、管理操作（listBuckets/makeBucket）拒绝两条用例按**前缀受限专用账号**设计（计划 §5.4：只允许 `huajiang/resources/*` 的 GetObject/PutObject/DeleteObject，不预授 ListBucket/CreateBucket 等宽权限）：
+
+| 模式 | 跨前缀/管理用例行为 | 用途 |
+| --- | --- | --- |
+| `restricted`（默认，不传 `contract.account` 时） | 断言**被拒绝**；失败即说明账号权限过宽——这是验收发现，应收紧 Policy 而非改测试 | 生产验收终态 |
+| `-Dcontract.account=admin` | 改为"验证并告警"：断言操作成功（管理员确实能做）并输出 WARN"生产验收必须使用前缀受限专用账号" | 开发验证豁免（2026-08-27 首次真实运行即用管理员凭证，两条 WARN 已如实输出） |
+
+匿名访问拒绝用例在两种模式下都断言被拒（私有 Bucket 硬不变量，计划不变量 1）。
+
+### 6.4 SKIP 与 fail 的含义
+
+| 结果 | 含义 |
+| --- | --- |
+| `Skipped: 7`，BUILD SUCCESS | 未提供凭证（预期：普通 CI / 本地无环境）。不把 MinIO 接入标记为完成 |
+| 全部用例通过 | 真实 MinIO 满足 multipart/Range/补偿删除/权限矩阵全部验收项 |
+| BUILD FAILURE：endpoint 指向公共环境 | 配置了 play.min.io / AWS 等公共端点，测试拒绝向公共端点写对象（防呆 fail，不是 bug） |
+| 跨前缀/管理用例失败（restricted 模式） | 账号权限过宽（验收发现）：收紧账号 Policy 后重跑 |
+| 其他用例失败 | 逐条对照 §6.5 结果解读排查（endpoint 可达性 / 凭证 / bucket / 代码 bug） |
+
+### 6.5 用例清单与结果解读
+
+| 用例 | 验证点 | 通过含义 |
+| --- | --- | --- |
+| multipart 上传往返 | 24 MiB 确定性生成流（不落盘）未知大小流式 save → fileSize、key 前缀、完整读取 SHA-256 逐字节一致；etag 含 `-`（multipart 分片特征） | 流式写入/读取链路端到端正确 |
+| stat 一致 + Range | totalSize 与 stat 一致；中部闭区间/suffix/开放结尾三种 Range 的 offset/responseLength/partial 与内容区间一致 | Range 解析与 ranged GET 下推正确（拒绝方案 9） |
+| Range 不下载全量 | 对 20 MiB+ 对象请求 1 KiB：responseLength=1024 且流只产出 1024 字节 | 大视频 Range 不会拉完整对象 |
+| discard 补偿删除 | save → discard → open 断言 NOT_FOUND | 数据库 rollback 后补偿删除的存储侧语义（事务侧由 ResourceWriteCoordinatorTest 在真实 PG 锁定） |
+| 匿名访问拒绝 | 无凭证 client 读取同一对象 → ResourceStorageException（UNAVAILABLE/IO_ERROR） | 私有 Bucket 硬不变量 |
+| 跨前缀写（按模式） | 见 §6.3 | 账号前缀受限矩阵 |
+| 管理操作（按模式） | 见 §6.3 | 账号无管理权限矩阵 |
+
+### 6.6 测试对象清理
+
+- 所有对象写入 `resources/contract-tests/{runId}/`（runId=UUID，每次运行全新）；跨前缀探针固定写 `other-prefix/contract-tests/{runId}/`。
+- `@AfterAll` 先逐一幂等 discard 测试期间记录的全部 key（含跨前缀探针、admin 模式 makeBucket 后立即 removeBucket 的临时 bucket `contract-test-bucket-*`），再用 listObjects 兜底删除残留并断言前缀剩余为 0。
+- 受限账号无 ListBucket 权限时（预期行为）退化按记录 key 清理，并断言全部 discard 成功。
+- 运行后可独立复核（2026-08-27 首次真实运行后已复核）：`resources/contract-tests/` 与 `other-prefix/contract-tests/` 剩余对象数均为 0，无遗留临时 bucket。
+
+### 6.7 首次真实运行记录（2026-08-27）
+
+- 凭证：来自工作树 `.env`（管理员凭证，用户选择开发验证用途；仅环境注入，未写入任何文件/日志/提交）。
+- 模式：`-Dcontract.account=admin`；endpoint `http://169.254.140.78:9000`；bucket `huajiang`（因 `.env` 的 `MINIO_DEFAULT_BUCKET` 值不合 S3 命名规则，显式以 `MINIO_RESOURCES_BUCKET` 覆盖）。
+- 结果：7/7 通过（含两条 admin 豁免 WARN）；清理断言通过且独立复核前缀清零。
+- 遗留：生产验收前需创建前缀受限专用账号并以默认 restricted 模式重跑（见 §4、§7）。
 
 ## 7. 生产启用前置条件（计划 §8.3）
 

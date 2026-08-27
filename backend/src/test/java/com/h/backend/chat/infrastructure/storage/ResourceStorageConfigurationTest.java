@@ -26,6 +26,7 @@ class ResourceStorageConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(ResourceStorageConfiguration.class)
+            .withBean(ResourceStorageMetrics.class)
             .withPropertyValues(baseProperties());
 
     @Test
@@ -150,6 +151,7 @@ class ResourceStorageConfigurationTest {
         properties.removeIf(property -> property.startsWith(excludedPropertyPrefix + "="));
         return new ApplicationContextRunner()
                 .withUserConfiguration(ResourceStorageConfiguration.class)
+                .withBean(ResourceStorageMetrics.class)
                 .withPropertyValues(properties.toArray(String[]::new));
     }
 

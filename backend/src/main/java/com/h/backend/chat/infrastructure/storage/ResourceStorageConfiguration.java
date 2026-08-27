@@ -47,8 +47,11 @@ public class ResourceStorageConfiguration {
 
     @Bean
     public MinioResourceStorage minioResourceStorage(
-            MinioClient minioClient, ResourceStorageProperties properties) {
-        return new MinioResourceStorage(minioClient, properties);
+            MinioClient minioClient,
+            ResourceStorageProperties properties,
+            ResourceStorageMetrics metrics
+    ) {
+        return new MinioResourceStorage(minioClient, properties, metrics);
     }
 
     // ------------------------------------------------------------------

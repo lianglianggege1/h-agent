@@ -180,7 +180,7 @@ class ResourceWriteCoordinatorTest {
         when(failingManager.getTransaction(any(org.springframework.transaction.TransactionDefinition.class)))
                 .thenThrow(new CannotCreateTransactionException("simulated transaction begin failure"));
         TransactionalResourceWriteCoordinator local =
-                new TransactionalResourceWriteCoordinator(storage, failingManager);
+                new TransactionalResourceWriteCoordinator(storage, failingManager, new ResourceStorageMetrics());
         when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored("res-begin-fail", "key-bf"));
 
         assertThrows(CannotCreateTransactionException.class,

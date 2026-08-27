@@ -1,15 +1,11 @@
 package com.h.backend.chat.infrastructure.storage;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Coordinator 的事务实现（计划 §4.3）。
@@ -27,26 +23,26 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>事务创建或同步器注册失败（hook 尚未生效）时在异常路径立即 discard；
  *       挂接回调失败时由 rollback 的 afterCompletion 补偿——两条路径互斥，
  *       保证每个失败场景 discard 恰好一次。</li>
- *   <li>discard 失败只写安全结构化日志（resourceId + key 尾段 + 错误类别，
- *       不含完整 key、secret、endpoint 或 SDK 异常消息）并计数
- *       （任务 6 再统一可观测性），绝不覆盖原始数据库异常。</li>
+ *   <li>discard 失败只记计数与 ERROR 级脱敏告警（新计划任务 6：
+ *       {@link ResourceStorageMetrics#recordCompensatedDiscardFailure}，
+ *       只含 resourceId + key 尾段 + 错误类别，不含完整 key、secret、endpoint
+ *       或 SDK 异常消息），绝不覆盖原始数据库异常。</li>
  * </ol>
  */
 @Component
 public class TransactionalResourceWriteCoordinator implements ResourceWriteCoordinator {
 
-    private static final Logger log = LoggerFactory.getLogger(TransactionalResourceWriteCoordinator.class);
-
     private final ResourceStorage resourceStorage;
     private final TransactionTemplate transactionTemplate;
-    private final AtomicLong compensatedDiscardCount = new AtomicLong();
-    private final AtomicLong discardFailureCount = new AtomicLong();
+    private final ResourceStorageMetrics metrics;
 
     public TransactionalResourceWriteCoordinator(
             ResourceStorage resourceStorage,
-            PlatformTransactionManager transactionManager
+            PlatformTransactionManager transactionManager,
+            ResourceStorageMetrics metrics
     ) {
         this.resourceStorage = resourceStorage;
+        this.metrics = metrics;
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
         this.transactionTemplate = template;
@@ -79,28 +75,24 @@ public class TransactionalResourceWriteCoordinator implements ResourceWriteCoord
         }
     }
 
-    /** 补偿删除成功次数（任务 6 统一可观测性前的简单计数）。 */
+    /** 补偿删除成功次数（包内访问，供测试断言；实际计数在 metrics）。 */
     long compensatedDiscardCount() {
-        return compensatedDiscardCount.get();
+        return metrics.compensatedDiscardSuccessCount();
     }
 
-    /** 补偿删除失败次数（任务 6 统一可观测性前的简单计数）。 */
+    /** 补偿删除失败次数（包内访问，供测试断言；实际计数与告警在 metrics）。 */
     long discardFailureCount() {
-        return discardFailureCount.get();
+        return metrics.compensatedDiscardFailureCount();
     }
 
     private void discardQuietly(StoredResource stored) {
         try {
             resourceStorage.discard(stored.storageKey());
-            compensatedDiscardCount.incrementAndGet();
+            metrics.recordCompensatedDiscardSuccess();
         } catch (RuntimeException | Error ex) {
-            discardFailureCount.incrementAndGet();
-            log.warn(
-                    "resource compensate discard failed resourceId={} storageKeySuffix={} reason={}",
-                    stored.id(),
-                    keySuffix(stored.storageKey()),
-                    safeReason(ex)
-            );
+            // 告警与计数统一在 metrics（ERROR 级脱敏日志），不覆盖原始事务异常。
+            metrics.recordCompensatedDiscardFailure(
+                    stored.id(), keySuffix(stored.storageKey()), ex);
         }
     }
 
@@ -111,13 +103,5 @@ public class TransactionalResourceWriteCoordinator implements ResourceWriteCoord
         }
         int slash = storageKey.lastIndexOf('/');
         return slash >= 0 ? storageKey.substring(slash + 1) : storageKey;
-    }
-
-    /** 只暴露错误类别（四类错误枚举名或异常类名），不透出可能含敏感信息的消息。 */
-    private String safeReason(Throwable exception) {
-        if (exception instanceof ResourceStorageException storageException) {
-            return storageException.kind().name();
-        }
-        return exception.getClass().getSimpleName();
     }
 }

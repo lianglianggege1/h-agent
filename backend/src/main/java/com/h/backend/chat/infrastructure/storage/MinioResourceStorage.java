@@ -47,6 +47,10 @@ import java.util.UUID;
  *
  * <p>日志纪律（计划不变量 17）：不输出 secret、endpoint、完整 object key、
  * SDK 异常全文；定位信息最多使用 resourceId。
+ *
+ * <p>可观测性（新计划任务 6）：save/open/discard 成功失败埋点统一上报
+ * {@link ResourceStorageMetrics}（失败按 kind 细分）；416 Range 语义错误
+ * 未发生存储读失败，不计入 open 失败。本类自身不打日志，告警统一由 metrics 发出。
  */
 public class MinioResourceStorage implements ResourceStorage {
 
@@ -62,10 +66,16 @@ public class MinioResourceStorage implements ResourceStorage {
 
     private final MinioClient minioClient;
     private final ResourceStorageProperties properties;
+    private final ResourceStorageMetrics metrics;
 
-    public MinioResourceStorage(MinioClient minioClient, ResourceStorageProperties properties) {
+    public MinioResourceStorage(
+            MinioClient minioClient,
+            ResourceStorageProperties properties,
+            ResourceStorageMetrics metrics
+    ) {
         this.minioClient = Objects.requireNonNull(minioClient, "minioClient must not be null");
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
     }
 
     // ------------------------------------------------------------------
@@ -104,6 +114,7 @@ public class MinioResourceStorage implements ResourceStorage {
                     .stream(limited, declaredSize == null ? -1L : declaredSize, partSizeBytes)
                     .build());
             long transferred = limited.transferredBytes();
+            metrics.recordSaveSuccess();
             return new StoredResource(
                     resourceId,
                     ResourceStorageType.OBJECT_STORAGE.value(),
@@ -114,6 +125,7 @@ public class MinioResourceStorage implements ResourceStorage {
                     null,
                     null);
         } catch (ResourceStorageException exception) {
+            metrics.recordSaveFailure(exception.kind());
             if (exception.kind() == ResourceStorageErrorKind.SIZE_LIMIT && putAttempted) {
                 // 流式写入中途超限：best-effort 清理半写对象，
                 // 清理失败只记 debug 日志，不覆盖原错误（计划任务 2）。
@@ -121,7 +133,9 @@ public class MinioResourceStorage implements ResourceStorage {
             }
             throw exception;
         } catch (Exception exception) {
-            throw toStorageException(exception, "资源写入失败");
+            ResourceStorageException mapped = toStorageException(exception, "资源写入失败");
+            metrics.recordSaveFailure(mapped.kind());
+            throw mapped;
         }
     }
 
@@ -142,7 +156,9 @@ public class MinioResourceStorage implements ResourceStorage {
                     .object(storageKey)
                     .build());
         } catch (Exception exception) {
-            throw toStorageException(exception, "资源读取失败");
+            ResourceStorageException mapped = toStorageException(exception, "资源读取失败");
+            metrics.recordOpenFailure(mapped.kind());
+            throw mapped;
         }
 
         long totalSize = stat.size();
@@ -161,6 +177,7 @@ public class MinioResourceStorage implements ResourceStorage {
                 builder.offset(resolved.offset()).length(resolved.length());
             }
             GetObjectResponse response = minioClient.getObject(builder.build());
+            metrics.recordOpenSuccess();
             return new ResourceContent(
                     response,
                     mimeType,
@@ -169,7 +186,9 @@ public class MinioResourceStorage implements ResourceStorage {
                     resolved.offset(),
                     resolved.partial());
         } catch (Exception exception) {
-            throw toStorageException(exception, "资源读取失败");
+            ResourceStorageException mapped = toStorageException(exception, "资源读取失败");
+            metrics.recordOpenFailure(mapped.kind());
+            throw mapped;
         }
     }
 
@@ -185,12 +204,15 @@ public class MinioResourceStorage implements ResourceStorage {
                     .bucket(properties.getMinio().getBucket())
                     .object(storageKey)
                     .build());
+            metrics.recordDiscardSuccess();
         } catch (Exception exception) {
             ResourceStorageException mapped = toStorageException(exception, "资源删除失败");
             if (mapped.kind() == ResourceStorageErrorKind.NOT_FOUND) {
                 // 幂等：对象不存在视为删除成功（计划 §4.1）。
+                metrics.recordDiscardSuccess();
                 return;
             }
+            metrics.recordDiscardFailure(mapped.kind());
             throw mapped;
         }
     }
