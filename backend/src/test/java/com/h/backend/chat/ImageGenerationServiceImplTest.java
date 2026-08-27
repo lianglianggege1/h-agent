@@ -11,13 +11,18 @@ import com.h.backend.chat.application.ImageGenerationService;
 import com.h.backend.chat.application.reference.ReferenceImageResolver;
 import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
+import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,13 +40,15 @@ class ImageGenerationServiceImplTest {
     @Test
     void shouldGenerateImageStoreResourceAndAppendImageMessage() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
-        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
-                resourceStorage,
+                writeCoordinator,
                 chatSessionService,
+                transactionTemplate,
                 new ImageGenerationProperties(null, null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
@@ -89,7 +96,17 @@ class ImageGenerationServiceImplTest {
         );
 
         when(miniMaxImageClient.generate(any())).thenReturn(generationResult);
-        when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
+        // mock 边界（任务 3）：调用方测试 mock Coordinator；
+        // attachment 回调同步执行（单图：save 与挂接同事务，rollback 时对象被补偿）。
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(storedResource);
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
         when(chatSessionService.appendImageMessage(
                 org.mockito.Mockito.eq(1L),
                 org.mockito.Mockito.eq("session-1"),
@@ -111,7 +128,7 @@ class ImageGenerationServiceImplTest {
         assertEquals("IMAGE", message.messageType());
         assertEquals("/api/chat/resources/resource-1/content", message.resources().getFirst().viewUrl());
         verify(miniMaxImageClient).generate(any());
-        verify(resourceStorage).save(any(ResourceSaveCommand.class));
+        verify(writeCoordinator).saveAndAttach(any(ResourceSaveCommand.class), any());
         verify(chatSessionService).appendImageMessage(
                 eq(1L),
                 eq("session-1"),
@@ -127,13 +144,15 @@ class ImageGenerationServiceImplTest {
     @Test
     void shouldPersistImageEditContextInPayload() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
-        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
-                resourceStorage,
+                writeCoordinator,
                 chatSessionService,
+                transactionTemplate,
                 new ImageGenerationProperties(null, null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
@@ -162,7 +181,15 @@ class ImageGenerationServiceImplTest {
                 "resource-1", "image/png", new byte[]{7, 8, 9}, 3L, 512, 512
         ));
 
-        when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(storedResource);
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(storedResource);
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
         when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("把衣服改成黑色"), any(), any()))
                 .thenReturn(new ChatSessionMessageDto("502", "assistant", "IMAGE", "把衣服改成黑色", null, List.of(), LocalDateTime.now()));
 
@@ -194,13 +221,15 @@ class ImageGenerationServiceImplTest {
     @Test
     void shouldRejectReferenceResourceOwnedByAnotherUser() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
-        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
-                resourceStorage,
+                writeCoordinator,
                 chatSessionService,
+                transactionTemplate,
                 new ImageGenerationProperties(null, null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
@@ -227,13 +256,15 @@ class ImageGenerationServiceImplTest {
     @Test
     void shouldRejectNonImageReferenceResource() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
-        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
-                resourceStorage,
+                writeCoordinator,
                 chatSessionService,
+                transactionTemplate,
                 new ImageGenerationProperties(null, null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
@@ -260,13 +291,15 @@ class ImageGenerationServiceImplTest {
     @Test
     void shouldStoreEveryGeneratedImageAndAppendOneImageMessageWithMultipleResources() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
-        ResourceStorage resourceStorage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
         ImageGenerationService service = new ImageGenerationServiceImpl(
                 miniMaxImageClient,
-                resourceStorage,
+                writeCoordinator,
                 chatSessionService,
+                transactionTemplate,
                 new ImageGenerationProperties(null, null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
@@ -286,12 +319,21 @@ class ImageGenerationServiceImplTest {
                         new MiniMaxImageGenerationResult.GeneratedImage("image/jpeg", new byte[]{3}, null, null)
                 )
         ));
-        when(resourceStorage.save(any(ResourceSaveCommand.class)))
-                .thenReturn(
-                        new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null),
-                        new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
-                        new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
-                );
+        List<StoredResource> storedResources = List.of(
+                new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null),
+                new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
+                new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
+        );
+        AtomicInteger storedIndex = new AtomicInteger();
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(storedResources.get(storedIndex.getAndIncrement()));
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
         when(chatSessionService.appendImageMessage(eq(1L), eq("session-1"), eq("三张图"), any(), any()))
                 .thenReturn(new ChatSessionMessageDto("503", "assistant", "IMAGE", "三张图", null, List.of(), LocalDateTime.now()));
 
@@ -303,7 +345,7 @@ class ImageGenerationServiceImplTest {
                 "TOOL"
         ));
 
-        verify(resourceStorage, times(3)).save(any(ResourceSaveCommand.class));
+        verify(writeCoordinator, times(3)).saveAndAttach(any(ResourceSaveCommand.class), any());
         verify(chatSessionService).appendImageMessage(
                 eq(1L),
                 eq("session-1"),
@@ -315,5 +357,144 @@ class ImageGenerationServiceImplTest {
                                 && "resource-2".equals(resources.get(1).id())
                                 && "resource-3".equals(resources.get(2).id()))
         );
+    }
+
+    @Test
+    void generateImageWritesImageBytesThroughCoordinatorCommand() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                writeCoordinator,
+                chatSessionService,
+                transactionTemplate,
+                new ImageGenerationProperties(null, null),
+                referenceImageResolver,
+                new ChatResourceUrls("")
+        );
+        byte[] imageBytes = new byte[]{1, 2, 3};
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", imageBytes, 1024, 1024, "{}"
+        ));
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(new StoredResource(
+                            "resource-1", "OBJECT_STORAGE", "key-1", "image/png", "generated.png", 3L, 1024, 1024));
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(chatSessionService.appendImageMessage(any(), any(), any(), any(), any()))
+                .thenReturn(new ChatSessionMessageDto("1", "assistant", "IMAGE", "提示词", null, List.of(), LocalDateTime.now()));
+
+        service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L, "session-1", 22L, "提示词", "COMMAND"
+        ));
+
+        // byte[] 形态保留：图片生成结果在内存中已成 byte[]，携带 width/height 元数据
+        ArgumentCaptor<ResourceSaveCommand> commandCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(writeCoordinator).saveAndAttach(commandCaptor.capture(), any());
+        ResourceSaveCommand command = commandCaptor.getValue();
+        assertEquals("IMAGE", command.resourceType());
+        assertEquals(imageBytes, command.content());
+        assertEquals("image/png", command.mimeType());
+        assertEquals("png", command.extension());
+        assertEquals(1024, command.width());
+        assertEquals(1024, command.height());
+    }
+
+    @Test
+    void generateImageRunsAllSavesAndAppendInsideSingleAttachmentTransaction() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                writeCoordinator,
+                chatSessionService,
+                transactionTemplate,
+                new ImageGenerationProperties(null, null),
+                referenceImageResolver,
+                new ChatResourceUrls("")
+        );
+        List<String> order = new ArrayList<>();
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", new byte[]{1}, null, null, "{}"
+        ));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            order.add("tx-begin");
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            Object result = callback.doInTransaction(null);
+            order.add("tx-end");
+            return result;
+        });
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    order.add("save");
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(new StoredResource(
+                            "resource-1", "OBJECT_STORAGE", "key-1", "image/png", "generated.png", 1L, null, null));
+                });
+        when(chatSessionService.appendImageMessage(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    order.add("append");
+                    return new ChatSessionMessageDto("1", "assistant", "IMAGE", "提示词", null, List.of(), LocalDateTime.now());
+                });
+
+        service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                1L, "session-1", 22L, "提示词", "COMMAND"
+        ));
+
+        // 所有对象 save 与消息挂接必须在同一事务回调内：
+        // 外层 rollback 时 Coordinator 同步器补偿每张已保存图片。
+        assertEquals(List.of("tx-begin", "save", "append", "tx-end"), order);
+    }
+
+    @Test
+    void generateImagePropagatesAppendFailureForTransactionCompensation() {
+        MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        ReferenceImageResolver referenceImageResolver = mock(ReferenceImageResolver.class);
+        ImageGenerationService service = new ImageGenerationServiceImpl(
+                miniMaxImageClient,
+                writeCoordinator,
+                chatSessionService,
+                transactionTemplate,
+                new ImageGenerationProperties(null, null),
+                referenceImageResolver,
+                new ChatResourceUrls("")
+        );
+        when(miniMaxImageClient.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", new byte[]{1}, null, null, "{}"
+        ));
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(new StoredResource(
+                            "resource-1", "OBJECT_STORAGE", "key-1", "image/png", "generated.png", 1L, null, null));
+                });
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        IllegalStateException boom = new IllegalStateException("消息挂接失败");
+        when(chatSessionService.appendImageMessage(any(), any(), any(), any(), any())).thenThrow(boom);
+
+        // 挂接失败必须原样上抛（由外层事务 rollback 触发对象补偿），不得被吞。
+        IllegalStateException thrown = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalStateException.class,
+                () -> service.generateImage(new ImageGenerationService.ImageGenerationCommand(
+                        1L, "session-1", 22L, "提示词", "COMMAND"))
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(boom, thrown);
     }
 }

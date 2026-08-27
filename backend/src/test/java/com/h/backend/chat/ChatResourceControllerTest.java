@@ -7,6 +7,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceE
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.application.ChatResourceService;
 import com.h.backend.chat.application.impl.ChatResourceServiceImpl;
+import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceContent;
 import com.h.backend.chat.infrastructure.storage.ResourceRange;
 import com.h.backend.chat.infrastructure.storage.ResourceRangeException;
@@ -14,6 +15,7 @@ import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
 import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
@@ -31,11 +33,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
@@ -43,12 +48,12 @@ import org.mockito.ArgumentCaptor;
 class ChatResourceControllerTest {
 
     private final ChatResourceService chatResourceService = mock(ChatResourceService.class);
-    private final ResourceStorage resourceStorage = mock(ResourceStorage.class);
+    private final ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
     private final ChatMessageResourceMapper chatMessageResourceMapper = mock(ChatMessageResourceMapper.class);
     private final ResourceUploadProperties uploadProperties = new ResourceUploadProperties();
     private final ChatResourceUrls chatResourceUrls = new ChatResourceUrls("");
     private final ChatResourceController controller = new ChatResourceController(
-            chatResourceService, resourceStorage, chatMessageResourceMapper, uploadProperties, chatResourceUrls
+            chatResourceService, writeCoordinator, chatMessageResourceMapper, uploadProperties, chatResourceUrls
     );
 
     @Test
@@ -199,9 +204,16 @@ class ChatResourceControllerTest {
     @Test
     void uploadImage_shouldSaveUnboundResourceAndReturnResponse() throws IOException {
         AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(
-                new StoredResource("r-1", "OBJECT_STORAGE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100)
-        );
+        // mock 边界（任务 3）：Controller 测试 mock Coordinator；
+        // 回调由 mock 同步执行，保持 attachment 内 DB 行为可断言。
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<com.h.backend.chat.interfaces.dto.ResourceUploadResponse> attachment =
+                            invocation.getArgument(1);
+                    return attachment.attach(
+                            new StoredResource("r-1", "OBJECT_STORAGE", "key1", "image/jpeg", "photo.jpg", 1024L, 100, 100)
+                    );
+                });
 
         MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[1024]);
         var response = controller.upload(principal, file, "REFERENCE");
@@ -221,10 +233,62 @@ class ChatResourceControllerTest {
         assertEquals(1L, row.getUserId());
         assertEquals("IMAGE", row.getResourceType());
         assertEquals("REFERENCE", row.getResourceRole());
+        assertEquals("OBJECT_STORAGE", row.getStorageType());
         assertEquals("key1", row.getStorageKey());
         assertEquals("/api/chat/resources/r-1/content", row.getViewUrl());
         assertEquals("/api/chat/resources/r-1/download", row.getDownloadUrl());
         assertEquals("photo.jpg", row.getFileName());
+
+        // 写入命令必须是流式形态（计划不变量 10：上传不调 getBytes，不进 byte[]）
+        ArgumentCaptor<ResourceSaveCommand> commandCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(writeCoordinator).saveAndAttach(commandCaptor.capture(), any());
+        ResourceSaveCommand command = commandCaptor.getValue();
+        assertEquals("IMAGE", command.resourceType());
+        assertNull(command.content(), "上传必须走流式命令，不得装入 byte[]");
+        assertEquals(1024L, command.declaredSize(), "MultipartFile 已知大小必须作为 declaredSize 传入");
+        assertEquals("image/jpeg", command.mimeType());
+        assertEquals("jpg", command.extension());
+        assertEquals(uploadProperties.getMaxFileSize(), command.maxBytes(), "业务上限必须沿用上传配置");
+    }
+
+    @Test
+    void upload_readsInputStreamAndNeverCallsGetBytes() throws IOException {
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<com.h.backend.chat.interfaces.dto.ResourceUploadResponse> attachment =
+                            invocation.getArgument(1);
+                    return attachment.attach(
+                            new StoredResource("r-2", "OBJECT_STORAGE", "key2", "image/jpeg", "photo.jpg", 8L, null, null)
+                    );
+                });
+        MockMultipartFile file = spy(new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[8]));
+
+        controller.upload(principal, file, "ATTACHMENT");
+
+        // 计划 §6.1 / 拒绝方案 8：用户上传从 getInputStream() 读取，不调用 getBytes()
+        verify(file).getInputStream();
+        verify(file, never()).getBytes();
+    }
+
+    @Test
+    void upload_attachmentFailurePropagatesThroughCoordinator() throws IOException {
+        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        IllegalStateException boom = new IllegalStateException("数据库挂接失败");
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<Object> attachment = invocation.getArgument(1);
+                    return attachment.attach(
+                            new StoredResource("r-3", "OBJECT_STORAGE", "key3", "image/jpeg", "photo.jpg", 8L, null, null)
+                    );
+                });
+        when(chatMessageResourceMapper.insert(any(ChatMessageResourceEntity.class))).thenThrow(boom);
+        MockMultipartFile file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", new byte[8]);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> controller.upload(principal, file, "ATTACHMENT"));
+
+        assertSame(boom, thrown);
     }
 
     @Test

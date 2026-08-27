@@ -14,10 +14,11 @@ import com.h.backend.chat.application.reference.ImageDataUrlEncoder;
 import com.h.backend.chat.application.reference.ReferenceImageResolver;
 import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,8 +30,9 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
     private static final String READY_STATUS = "READY";
 
     private final MiniMaxImageClient miniMaxImageClient;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
+    private final TransactionTemplate transactionTemplate;
     private final ImageGenerationProperties properties;
     private final ReferenceImageResolver referenceImageResolver;
     private final ChatResourceUrls chatResourceUrls;
@@ -38,15 +40,17 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
     @Autowired
     public ImageGenerationServiceImpl(
             MiniMaxImageClient miniMaxImageClient,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService,
+            TransactionTemplate transactionTemplate,
             ImageGenerationProperties properties,
             ReferenceImageResolver referenceImageResolver,
             ChatResourceUrls chatResourceUrls
     ) {
         this.miniMaxImageClient = miniMaxImageClient;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
+        this.transactionTemplate = transactionTemplate;
         this.properties = properties;
         this.referenceImageResolver = referenceImageResolver;
         this.chatResourceUrls = chatResourceUrls;
@@ -74,34 +78,6 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                         subjectReference
                 )
         );
-        List<ChatMessageResourceDto> resources = new ArrayList<>();
-        for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generationResult.images()) {
-            StoredResource storedResource = resourceStorage.save(new ResourceSaveCommand(
-                    "IMAGE",
-                    generatedImage.imageBytes(),
-                    generatedImage.mimeType(),
-                    extensionFor(generatedImage.mimeType()),
-                    generatedImage.width(),
-                    generatedImage.height()
-            ));
-            String viewUrl = chatResourceUrls.view(storedResource.id());
-            String downloadUrl = chatResourceUrls.download(storedResource.id());
-            resources.add(new ChatMessageResourceDto(
-                    storedResource.id(),
-                    "IMAGE",
-                    "GENERATED",
-                    viewUrl,
-                    downloadUrl,
-                    storedResource.fileName(),
-                    storedResource.mimeType(),
-                    storedResource.fileSize(),
-                    storedResource.width(),
-                    storedResource.height(),
-                    storedResource.storageType(),
-                    storedResource.storageKey()
-            ));
-        }
-
         ChatMessagePayload payload = new ChatMessagePayload();
         payload.setPrompt(prompt);
         payload.setProvider(PROVIDER);
@@ -114,12 +90,47 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         payload.setParentImageMessageId(command.parentImageMessageId());
         payload.setOperationType(command.operationType());
 
-        return chatSessionService.appendImageMessage(
-                command.userId(),
-                command.sessionId(),
-                prompt,
-                payload,
-                resources
+        // 新计划任务 3：provider HTTP 调用留在事务外；所有对象写入与消息挂接
+        // 在同一事务内（Coordinator 加入本事务，rollback 时每张图被补偿删除）。
+        return transactionTemplate.execute(status -> {
+            List<ChatMessageResourceDto> resources = new ArrayList<>();
+            for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generationResult.images()) {
+                resources.add(writeCoordinator.saveAndAttach(
+                        new ResourceSaveCommand(
+                                "IMAGE",
+                                generatedImage.imageBytes(),
+                                generatedImage.mimeType(),
+                                extensionFor(generatedImage.mimeType()),
+                                generatedImage.width(),
+                                generatedImage.height()
+                        ),
+                        this::toResourceDto
+                ));
+            }
+            return chatSessionService.appendImageMessage(
+                    command.userId(),
+                    command.sessionId(),
+                    prompt,
+                    payload,
+                    resources
+            );
+        });
+    }
+
+    private ChatMessageResourceDto toResourceDto(StoredResource storedResource) {
+        return new ChatMessageResourceDto(
+                storedResource.id(),
+                "IMAGE",
+                "GENERATED",
+                chatResourceUrls.view(storedResource.id()),
+                chatResourceUrls.download(storedResource.id()),
+                storedResource.fileName(),
+                storedResource.mimeType(),
+                storedResource.fileSize(),
+                storedResource.width(),
+                storedResource.height(),
+                storedResource.storageType(),
+                storedResource.storageKey()
         );
     }
 

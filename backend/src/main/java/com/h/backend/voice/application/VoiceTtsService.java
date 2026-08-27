@@ -4,8 +4,7 @@ import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
 import com.h.backend.voice.interfaces.dto.VoiceResourceResponse;
@@ -22,18 +21,18 @@ public class VoiceTtsService {
 
     private final VoiceTtsProperties properties;
     private final MiniMaxTtsClient ttsClient;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
 
     public VoiceTtsService(
             VoiceTtsProperties properties,
             MiniMaxTtsClient ttsClient,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService
     ) {
         this.properties = properties;
         this.ttsClient = ttsClient;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
     }
 
@@ -53,21 +52,24 @@ public class VoiceTtsService {
         String normalizedText = validateText(message.content(), properties.getMessageMaxTextLength());
         MiniMaxTtsResult result = ttsClient.synthesize(new MiniMaxTtsRequest(normalizedText, null));
         Map<String, Object> metadata = assistantTtsMetadata(result);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                "AUDIO",
-                result.audioBytes(),
-                result.mimeType(),
-                extension(result.mimeType()),
-                null,
-                null
-        ));
-        ChatMessageResourceDto resource = chatSessionService.bindStoredAudioResource(
-                userId,
-                sessionId,
-                messageId,
-                "ASSISTANT_TTS",
-                stored,
-                metadata
+        // 新计划任务 3：写入经 Coordinator，音频绑定在挂接事务内（rollback 时对象被补偿）。
+        ChatMessageResourceDto resource = writeCoordinator.saveAndAttach(
+                new ResourceSaveCommand(
+                        "AUDIO",
+                        result.audioBytes(),
+                        result.mimeType(),
+                        extension(result.mimeType()),
+                        null,
+                        null
+                ),
+                stored -> chatSessionService.bindStoredAudioResource(
+                        userId,
+                        sessionId,
+                        messageId,
+                        "ASSISTANT_TTS",
+                        stored,
+                        metadata
+                )
         );
         return new VoiceResourceResponse(
                 resource.id(),

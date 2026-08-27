@@ -4,8 +4,7 @@ import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.interfaces.dto.VoiceResourceResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,21 +28,21 @@ import java.util.stream.Stream;
 public class CallTurnService {
 
     private final Path baseDir;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
 
     @Autowired
     public CallTurnService(
             @Value("${voice.call-turns.base-dir:/tmp/h-agent/call-turns}") String baseDir,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService
     ) {
-        this(Path.of(baseDir), resourceStorage, chatSessionService);
+        this(Path.of(baseDir), writeCoordinator, chatSessionService);
     }
 
-    public CallTurnService(Path baseDir, ResourceStorage resourceStorage, ChatSessionService chatSessionService) {
+    public CallTurnService(Path baseDir, ResourceWriteCoordinator writeCoordinator, ChatSessionService chatSessionService) {
         this.baseDir = baseDir.toAbsolutePath().normalize();
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
     }
 
@@ -106,24 +105,28 @@ public class CallTurnService {
         }
         chatSessionService.assertActiveAgentSession(userId, sessionId, resolvedAgentId);
         byte[] audio = mergeChunks(dir);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                "AUDIO",
-                audio,
-                "audio/webm",
-                "webm",
-                null,
-                null
-        ));
-        ChatMessageResourceDto resource = chatSessionService.bindStoredAudioResource(
-                userId,
-                sessionId,
-                messageId,
-                "USER_RECORDING",
-                stored,
-                Map.of(
-                        "source", "USER_RECORDING",
-                        "callTurnId", turnId,
-                        "transcript", transcript == null ? "" : transcript
+        // 新计划任务 3：写入经 Coordinator，音频绑定在挂接事务内（rollback 时对象被补偿）；
+        // 挂接事务提交后才删除本地分片目录（失败时保留，与既有语义一致）。
+        ChatMessageResourceDto resource = writeCoordinator.saveAndAttach(
+                new ResourceSaveCommand(
+                        "AUDIO",
+                        audio,
+                        "audio/webm",
+                        "webm",
+                        null,
+                        null
+                ),
+                stored -> chatSessionService.bindStoredAudioResource(
+                        userId,
+                        sessionId,
+                        messageId,
+                        "USER_RECORDING",
+                        stored,
+                        Map.of(
+                                "source", "USER_RECORDING",
+                                "callTurnId", turnId,
+                                "transcript", transcript == null ? "" : transcript
+                        )
                 )
         );
         VoiceResourceResponse response = new VoiceResourceResponse(

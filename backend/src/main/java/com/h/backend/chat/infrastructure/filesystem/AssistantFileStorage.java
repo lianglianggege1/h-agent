@@ -4,10 +4,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -204,6 +206,34 @@ public class AssistantFileStorage {
         }
     }
 
+    /**
+     * 受大小约束的流式读取（新计划任务 3）：与 readSessionFile 同样的存在性与大小检查，
+     * 但返回文件流而非整读 byte array，供 send_file_to_chat 直传对象存储。
+     */
+    public AssistantSessionFileStream openSessionFileStream(String memoryId, String path) {
+        try {
+            ResolvedFile target = resolve(memoryId, path);
+            if (!Files.exists(target.realPath()) || !Files.isRegularFile(target.realPath())) {
+                return AssistantSessionFileStream.error("File '" + target.virtualPath() + "' not found");
+            }
+            long size = Files.size(target.realPath());
+            if (size > maxFileSizeBytes) {
+                return AssistantSessionFileStream.error("File exceeds max readable size: " + target.virtualPath());
+            }
+            String fileName = target.realPath().getFileName() == null ? "file" : target.realPath().getFileName().toString();
+            String mimeType = Files.probeContentType(target.realPath());
+            return AssistantSessionFileStream.ok(
+                    target.virtualPath(),
+                    fileName,
+                    mimeType,
+                    size,
+                    Files.newInputStream(target.realPath(), StandardOpenOption.READ)
+            );
+        } catch (IOException | IllegalArgumentException ex) {
+            return AssistantSessionFileStream.error(ex.getMessage());
+        }
+    }
+
     private ResolvedFile resolve(String memoryId, String path) {
         AssistantFileScope scope = parseScope(memoryId);
         Path sessionRoot = baseDir
@@ -331,6 +361,28 @@ public class AssistantFileStorage {
 
         static AssistantSessionFile error(String error) {
             return new AssistantSessionFile(false, error, null, null, null, null);
+        }
+    }
+
+    /** 流式会话文件视图（新计划任务 3）：流由调用方经 ResourceSaveCommand 移交 Adapter 关闭。 */
+    public record AssistantSessionFileStream(
+            boolean success,
+            String error,
+            String virtualPath,
+            String fileName,
+            String mimeType,
+            long size,
+            InputStream stream
+    ) {
+
+        static AssistantSessionFileStream ok(
+                String virtualPath, String fileName, String mimeType, long size, InputStream stream
+        ) {
+            return new AssistantSessionFileStream(true, null, virtualPath, fileName, mimeType, size, stream);
+        }
+
+        static AssistantSessionFileStream error(String error) {
+            return new AssistantSessionFileStream(false, error, null, null, null, 0L, null);
         }
     }
 }

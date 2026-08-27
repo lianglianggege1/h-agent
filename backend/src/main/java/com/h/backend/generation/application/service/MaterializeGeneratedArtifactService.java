@@ -36,9 +36,15 @@ public class MaterializeGeneratedArtifactService {
         }
         ProviderFilePort.DownloadableFile file = providerFilePort.retrieve(task.providerFileId());
         try (InputStream inputStream = providerFilePort.openDownload(file)) {
-            task.complete(artifactStoragePort.storeVideo(task.sessionId(), file, inputStream), now);
-            taskRepository.save(task);
-            chatProjectionPort.updateMessage(task);
+            // 挂接语义（新计划任务 3）：artifact type/key 写入 generation_tasks
+            // 及投影更新都发生在 storeVideo 的挂接回调内，由 Coordinator 的
+            // PROPAGATION_REQUIRED 事务覆盖；事务 rollback 时对象被 best-effort discard。
+            artifactStoragePort.storeVideo(task.sessionId(), file, inputStream, artifact -> {
+                task.complete(artifact, now);
+                taskRepository.save(task);
+                chatProjectionPort.updateMessage(task);
+                return null;
+            });
         } catch (IOException ex) {
             throw new IllegalStateException("读取视频下载流失败", ex);
         }

@@ -540,7 +540,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setUserId(userId);
             row.setResourceType(requireResourceField(resource.type(), "type"));
             row.setResourceRole(requireResourceField(resource.role(), "role"));
-            row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
+            row.setStorageType(requireResourceField(resource.storageType(), "storageType"));
             row.setStorageKey(resource.storageKey() == null ? resource.id() : resource.storageKey());
             row.setViewUrl(resource.viewUrl());
             row.setDownloadUrl(resource.downloadUrl());
@@ -601,7 +601,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             row.setUserId(userId);
             row.setResourceType(requireResourceField(resource.type(), "type"));
             row.setResourceRole(requireResourceField(resource.role(), "role"));
-            row.setStorageType(resource.storageType() == null ? "LOCAL_FILE" : resource.storageType());
+            row.setStorageType(requireResourceField(resource.storageType(), "storageType"));
             row.setStorageKey(resource.storageKey() == null ? resource.id() : resource.storageKey());
             row.setViewUrl(resource.viewUrl());
             row.setDownloadUrl(resource.downloadUrl());

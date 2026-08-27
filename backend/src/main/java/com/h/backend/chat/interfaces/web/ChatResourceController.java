@@ -10,8 +10,7 @@ import com.h.backend.chat.infrastructure.storage.ResourceContent;
 import com.h.backend.chat.infrastructure.storage.ResourceRange;
 import com.h.backend.chat.infrastructure.storage.ResourceRangeException;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.core.io.InputStreamResource;
@@ -33,20 +32,20 @@ import java.time.LocalDateTime;
 public class ChatResourceController {
 
     private final ChatResourceService chatResourceService;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatMessageResourceMapper chatMessageResourceMapper;
     private final ResourceUploadProperties uploadProperties;
     private final ChatResourceUrls chatResourceUrls;
 
     public ChatResourceController(
             ChatResourceService chatResourceService,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatMessageResourceMapper chatMessageResourceMapper,
             ResourceUploadProperties uploadProperties,
             ChatResourceUrls chatResourceUrls
     ) {
         this.chatResourceService = chatResourceService;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatMessageResourceMapper = chatMessageResourceMapper;
         this.uploadProperties = uploadProperties;
         this.chatResourceUrls = chatResourceUrls;
@@ -73,35 +72,47 @@ public class ChatResourceController {
         String resourceRole = normalizeRole(role);
 
         String extension = extensionForMimeType(mimeType);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                resourceType, file.getBytes(), mimeType, extension, null, null
-        ));
-
         String originalName = safeFileName(file.getOriginalFilename(), extension);
-        ChatMessageResourceEntity row = new ChatMessageResourceEntity();
-        row.setId(stored.id());
-        row.setMessageId(null);
-        row.setUserId(principal.userId());
-        row.setResourceType(resourceType);
-        row.setResourceRole(resourceRole);
-        row.setStorageType(stored.storageType());
-        row.setStorageKey(stored.storageKey());
-        row.setViewUrl(chatResourceUrls.view(stored.id()));
-        row.setDownloadUrl(chatResourceUrls.download(stored.id()));
-        row.setMimeType(stored.mimeType());
-        row.setFileName(originalName);
-        row.setFileSize(stored.fileSize());
-        row.setWidth(stored.width());
-        row.setHeight(stored.height());
-        row.setCreatedAt(LocalDateTime.now());
-        chatMessageResourceMapper.insert(row);
 
-        return ResponseEntity.ok(new ResourceUploadResponse(
-                stored.id(), resourceType, resourceRole,
-                chatResourceUrls.view(stored.id()),
-                chatResourceUrls.download(stored.id()),
-                originalName, stored.mimeType(), stored.fileSize()
-        ));
+        // 新计划任务 3：写入经 Coordinator，对象先落对象存储，
+        // DB insert 在挂接回调内执行（挂接事务 rollback 时对象被 best-effort 补偿删除）。
+        ResourceUploadResponse response = writeCoordinator.saveAndAttach(
+                ResourceSaveCommand.fromStream(
+                        resourceType,
+                        file.getInputStream(),
+                        file.getSize(),
+                        mimeType,
+                        extension,
+                        uploadProperties.getMaxFileSize()
+                ),
+                stored -> {
+                    ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+                    row.setId(stored.id());
+                    row.setMessageId(null);
+                    row.setUserId(principal.userId());
+                    row.setResourceType(resourceType);
+                    row.setResourceRole(resourceRole);
+                    row.setStorageType(stored.storageType());
+                    row.setStorageKey(stored.storageKey());
+                    row.setViewUrl(chatResourceUrls.view(stored.id()));
+                    row.setDownloadUrl(chatResourceUrls.download(stored.id()));
+                    row.setMimeType(stored.mimeType());
+                    row.setFileName(originalName);
+                    row.setFileSize(stored.fileSize());
+                    row.setWidth(stored.width());
+                    row.setHeight(stored.height());
+                    row.setCreatedAt(LocalDateTime.now());
+                    chatMessageResourceMapper.insert(row);
+                    return new ResourceUploadResponse(
+                            stored.id(), resourceType, resourceRole,
+                            chatResourceUrls.view(stored.id()),
+                            chatResourceUrls.download(stored.id()),
+                            originalName, stored.mimeType(), stored.fileSize()
+                    );
+                }
+        );
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{resourceId}/content")

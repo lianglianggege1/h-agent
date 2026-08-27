@@ -4,10 +4,9 @@ import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFile;
+import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFileStream;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import dev.langchain4j.agent.tool.P;
@@ -23,20 +22,20 @@ import java.util.Locale;
 public class FileDeliveryTool {
 
     private final AssistantFileStorage fileStorage;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
     private final ChatStreamEventBridge chatStreamEventBridge;
     private final ChatResourceUrls chatResourceUrls;
 
     public FileDeliveryTool(
             AssistantFileStorage fileStorage,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService,
             ChatStreamEventBridge chatStreamEventBridge,
             ChatResourceUrls chatResourceUrls
     ) {
         this.fileStorage = fileStorage;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
         this.chatStreamEventBridge = chatStreamEventBridge;
         this.chatResourceUrls = chatResourceUrls;
@@ -50,7 +49,7 @@ public class FileDeliveryTool {
             @P(value = "文件 MIME 类型；为空则自动推断", required = false, defaultValue = "") String mimeType,
             @P(value = "随文件消息显示的文本；为空则使用默认文案", required = false, defaultValue = "") String message
     ) {
-        AssistantSessionFile file = fileStorage.readSessionFile(memoryId, path);
+        AssistantSessionFileStream file = fileStorage.openSessionFileStream(memoryId, path);
         if (!file.success()) {
             return "Error: " + file.error();
         }
@@ -60,36 +59,44 @@ public class FileDeliveryTool {
         String resolvedMimeType = resolveMimeType(mimeType, file.mimeType(), resolvedFileName);
         String extension = extensionFromFileName(resolvedFileName);
         String resourceType = resourceTypeFor(resolvedMimeType);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                resourceType,
-                file.content(),
-                resolvedMimeType,
-                extension,
-                null,
-                null
-        ));
-
-        ChatMessageResourceDto resource = new ChatMessageResourceDto(
-                stored.id(),
-                resourceType,
-                "GENERATED",
-                chatResourceUrls.view(stored.id()),
-                chatResourceUrls.download(stored.id()),
-                resolvedFileName,
-                resolvedMimeType,
-                stored.fileSize(),
-                stored.width(),
-                stored.height(),
-                stored.storageType(),
-                stored.storageKey()
-        );
         String content = (message == null || message.isBlank()) ? "已发送文件：" + resolvedFileName : message.trim();
-        ChatSessionMessageDto chatMessage = chatSessionService.appendResourceMessage(
-                context.userId(),
-                context.sessionId(),
-                content,
-                resourceType,
-                List.of(resource)
+
+        // 新计划任务 3：Agent 文件只有 appendResourceMessage 事务提交后才算挂接；
+        // 挂接回调在 Coordinator 事务内（rollback 时对象被补偿），
+        // 流事件在 saveAndAttach 返回（挂接事务已提交）后才发布。
+        // 模型提供的 MIME 只作提示传给命令，不能作为可信响应类型（内容校验在任务 4）。
+        ChatSessionMessageDto chatMessage = writeCoordinator.saveAndAttach(
+                ResourceSaveCommand.fromStream(
+                        resourceType,
+                        file.stream(),
+                        file.size(),
+                        resolvedMimeType,
+                        extension,
+                        0L
+                ),
+                stored -> {
+                    ChatMessageResourceDto resource = new ChatMessageResourceDto(
+                            stored.id(),
+                            resourceType,
+                            "GENERATED",
+                            chatResourceUrls.view(stored.id()),
+                            chatResourceUrls.download(stored.id()),
+                            resolvedFileName,
+                            resolvedMimeType,
+                            stored.fileSize(),
+                            stored.width(),
+                            stored.height(),
+                            stored.storageType(),
+                            stored.storageKey()
+                    );
+                    return chatSessionService.appendResourceMessage(
+                            context.userId(),
+                            context.sessionId(),
+                            content,
+                            resourceType,
+                            List.of(resource)
+                    );
+                }
         );
         chatStreamEventBridge.publishMessage(memoryId, chatMessage);
         return "文件已发送到聊天中。";

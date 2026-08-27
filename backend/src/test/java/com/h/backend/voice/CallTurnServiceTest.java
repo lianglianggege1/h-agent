@@ -2,8 +2,9 @@ package com.h.backend.voice;
 
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.application.CallTurnService;
@@ -37,9 +38,9 @@ class CallTurnServiceTest {
 
     @Test
     void finalizesChunksAndBindsUserRecordingResource() throws Exception {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
 
         StoredResource stored = new StoredResource(
                 "audio-1",
@@ -51,7 +52,12 @@ class CallTurnServiceTest {
                 null,
                 null
         );
-        when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored);
+        // mock 边界（任务 3）：调用方测试 mock Coordinator，attachment 同步执行（byte[] 形态保留）。
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(stored);
+                });
         when(chatSessionService.bindStoredAudioResource(
                 eq(1L),
                 eq("session-1"),
@@ -93,7 +99,7 @@ class CallTurnServiceTest {
 
         verify(chatSessionService, times(2)).assertActiveAgentSession(1L, "session-1", "standard-chat");
         ArgumentCaptor<ResourceSaveCommand> saveCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
-        verify(storage).save(saveCaptor.capture());
+        verify(writeCoordinator).saveAndAttach(saveCaptor.capture(), any());
         ResourceSaveCommand command = saveCaptor.getValue();
         assertEquals("AUDIO", command.resourceType());
         assertArrayEquals(new byte[]{1, 2, 3, 4, 5, 6}, command.content());
@@ -117,9 +123,9 @@ class CallTurnServiceTest {
 
     @Test
     void finalizeKeepsTurnDirectoryWhenBindingResourceFails() throws Exception {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         StoredResource stored = new StoredResource(
                 "audio-1",
                 "LOCAL_FILE",
@@ -130,7 +136,12 @@ class CallTurnServiceTest {
                 null,
                 null
         );
-        when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored);
+        // mock 边界（任务 3）：调用方测试 mock Coordinator，attachment 同步执行（byte[] 形态保留）。
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(stored);
+                });
         doThrow(new IllegalStateException("bind failed")).when(chatSessionService).bindStoredAudioResource(
                 eq(1L),
                 eq("session-1"),
@@ -162,9 +173,9 @@ class CallTurnServiceTest {
 
     @Test
     void cancelRejectsTurnIdEscapingUserDirectory() throws Exception {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String userTwoTurnId = UUID.randomUUID().toString();
         Path userTwoDir = tempDir.resolve("2").resolve(userTwoTurnId);
         Files.createDirectories(userTwoDir);
@@ -183,9 +194,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendRejectsDuplicateSequence() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
 
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
@@ -212,9 +223,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendRejectsSequenceOutsideChunkFilenameRange() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -233,9 +244,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendRejectsEmptyChunk() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -254,9 +265,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendRejectsUnsupportedAudioFormat() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -275,9 +286,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendAcceptsWebmAudioFormatWithCodecParameters() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         service.appendChunk(
@@ -293,9 +304,9 @@ class CallTurnServiceTest {
 
     @Test
     void cancelRejectsNonCanonicalUuidTurnId() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String upperCaseTurnId = UUID.randomUUID().toString().toUpperCase();
 
         BusinessException ex = assertThrows(
@@ -308,9 +319,9 @@ class CallTurnServiceTest {
 
     @Test
     void finalizeRejectsNoChunks() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
 
         BusinessException ex = assertThrows(
@@ -323,9 +334,9 @@ class CallTurnServiceTest {
 
     @Test
     void finalizeRejectsMismatchedSessionFromStartedTurn() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
                 1L,
@@ -345,9 +356,9 @@ class CallTurnServiceTest {
 
     @Test
     void appendRejectsTurnWithoutMetadata() throws Exception {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = UUID.randomUUID().toString();
         Files.createDirectories(tempDir.resolve("1").resolve(turnId));
 
@@ -367,9 +378,9 @@ class CallTurnServiceTest {
 
     @Test
     void finalizeRejectsMissingSequence() {
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        CallTurnService service = new CallTurnService(tempDir, storage, chatSessionService);
+        CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         String turnId = service.start(1L, "session-1", "standard-chat");
         service.appendChunk(
                 1L,
