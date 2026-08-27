@@ -5,10 +5,9 @@ package com.h.backend.chat.infrastructure.storage;
  *
  * <p>接口契约：
  * <ul>
- *   <li>{@link #save}：写入一个新对象，返回 {@link StoredResource}。生产 Adapter
- *       （任务 2 的 {@code MinioResourceStorage}）固定返回
- *       {@code ResourceStorageType.OBJECT_STORAGE.value()}；
- *       过渡期 {@link LocalFileResourceStorage} 仍返回 {@code LOCAL_FILE}。
+ *   <li>{@link #save}：写入一个新对象，返回 {@link StoredResource}。
+ *       唯一生产 Adapter（{@code MinioResourceStorage}）固定返回
+ *       {@code ResourceStorageType.OBJECT_STORAGE.value()}。
  *       Adapter 负责关闭 {@link ResourceSaveCommand} 提供的输入流
  *       （成功与失败路径都要关闭）。</li>
  *   <li>{@link #open}：内部执行 stat 并结合对象总大小解析实际 Range，

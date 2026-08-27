@@ -62,8 +62,7 @@ class MiniMaxHttpImageClientTest {
 
         MiniMaxHttpImageClient client = new MiniMaxHttpImageClient(
                 new ImageGenerationProperties(
-                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "16:9", true),
-                        null
+                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "16:9", true)
                 ),
                 new ObjectMapper()
         );
@@ -118,8 +117,7 @@ class MiniMaxHttpImageClientTest {
 
         MiniMaxHttpImageClient client = new MiniMaxHttpImageClient(
                 new ImageGenerationProperties(
-                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "16:9", true),
-                        null
+                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "16:9", true)
                 ),
                 new ObjectMapper()
         );
@@ -160,8 +158,7 @@ class MiniMaxHttpImageClientTest {
 
         MiniMaxHttpImageClient client = new MiniMaxHttpImageClient(
                 new ImageGenerationProperties(
-                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "1:1", true),
-                        null
+                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "1:1", true)
                 ),
                 new ObjectMapper()
         );
@@ -201,8 +198,7 @@ class MiniMaxHttpImageClientTest {
 
         MiniMaxHttpImageClient client = new MiniMaxHttpImageClient(
                 new ImageGenerationProperties(
-                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "1:1", true, 1, 1),
-                        null
+                        new ImageGenerationProperties.MiniMax(baseUrl(), "test-key", "image-01", "1:1", true, 1, 1)
                 ),
                 new ObjectMapper()
         );

@@ -76,7 +76,7 @@ class FileDeliveryToolTest {
                     ResourceAttachment<ChatSessionMessageDto> attachment = invocation.getArgument(1);
                     return attachment.attach(new StoredResource(
                             "resource-1",
-                            "LOCAL_FILE",
+                            "OBJECT_STORAGE",
                             "generated-files/2026/07/07/resource-1.pptx",
                             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                             "generated-resource-1.pptx",
@@ -97,7 +97,7 @@ class FileDeliveryToolTest {
                 9L,
                 null,
                 null,
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "generated-files/2026/07/07/resource-1.pptx"
         );
         ChatSessionMessageDto message = new ChatSessionMessageDto(

@@ -86,7 +86,7 @@ class VoiceTtsServiceTest {
         );
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.mp3",
                 "audio/mpeg",
                 "audio-1.mp3",
@@ -173,7 +173,7 @@ class VoiceTtsServiceTest {
         );
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.mp3",
                 "audio/mpeg",
                 "audio-1.mp3",

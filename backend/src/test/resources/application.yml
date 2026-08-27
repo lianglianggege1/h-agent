@@ -110,11 +110,6 @@ knowledge:
       - xls
       - xlsx
 
-image-generation:
-  storage:
-    base-dir: /tmp/h-agent
-    public-base-url: ""
-
 voice:
   tts:
     preview-max-text-length: 240

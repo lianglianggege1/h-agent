@@ -14,7 +14,8 @@ import java.net.URI;
  * 资源存储装配（计划 §8.1 / §10 任务 2）。
  *
  * <p>注册 {@link MinioResourceStorage} 为<b>唯一生产</b> {@link ResourceStorage} Bean
- * （{@code LocalFileResourceStorage} 已不再是 Spring Bean，类与其测试保留至任务 5）。
+ * （历史本地文件存储实现及其资源配置已在任务 5 删除，
+ * 生产运行态无本地回退、双写或双读——计划不变量 6/7）。
  *
  * <p>启动校验是纯配置校验：<b>不联网、不 bucketExists、不写探针对象</b>（计划 §8.1）。
  * 必填缺失或格式非法立即以 {@link IllegalStateException} fail fast；异常消息只含

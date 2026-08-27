@@ -11,14 +11,12 @@ import java.util.Properties;
 public class ImageGenerationProperties {
 
     private MiniMax minimax;
-    private LocalStorage storage;
 
     public ImageGenerationProperties() {
     }
 
-    public ImageGenerationProperties(MiniMax minimax, LocalStorage storage) {
+    public ImageGenerationProperties(MiniMax minimax) {
         this.minimax = minimax;
-        this.storage = storage;
     }
 
     public MiniMax getMinimax() {
@@ -27,14 +25,6 @@ public class ImageGenerationProperties {
 
     public void setMinimax(MiniMax minimax) {
         this.minimax = minimax;
-    }
-
-    public LocalStorage getStorage() {
-        return storage;
-    }
-
-    public void setStorage(LocalStorage storage) {
-        this.storage = storage;
     }
 
     public MiniMax minimaxOrDefault() {
@@ -70,13 +60,6 @@ public class ImageGenerationProperties {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to load .env file", ex);
         }
-    }
-
-    public LocalStorage storageOrDefault() {
-        if (storage != null) {
-            return storage;
-        }
-        return new LocalStorage("/tmp/h-agent", "");
     }
 
     public static class MiniMax {
@@ -214,12 +197,6 @@ public class ImageGenerationProperties {
         public void setRequestTimeoutSeconds(int requestTimeoutSeconds) {
             this.requestTimeoutSeconds = Math.max(1, requestTimeoutSeconds);
         }
-    }
-
-    public record LocalStorage(
-            String baseDir,
-            String publicBaseUrl
-    ) {
     }
 
     private static int parseImageCount(String value) {

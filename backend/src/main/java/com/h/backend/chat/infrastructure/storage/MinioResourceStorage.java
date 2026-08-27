@@ -34,8 +34,7 @@ import java.util.UUID;
  *
  * <p>object key：{@code {objectPrefix}v1/{segment}/{yyyy}/{MM}/{resourceId}.{ext}}
  * （计划 §5.2）；resourceType 到 key 段的映射：IMAGE→images、VIDEO→videos、
- * AUDIO→audio、FILE/DOCUMENT→files（以计划 §5.2 示例段名为准，未识别类型
- * 归并 files，与 {@code LocalFileResourceStorage} 现有归并逻辑一致）。
+ * AUDIO→audio、FILE/DOCUMENT→files（以计划 §5.2 示例段名为准，未识别类型归并 files）。
  *
  * <p>object metadata 只写 Content-Type、{@code x-amz-meta-schema-version=1}、
  * {@code x-amz-meta-created-by=h-agent}，不写 SHA-256（计划不变量 13）；

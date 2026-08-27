@@ -38,7 +38,6 @@ class ResourceStorageConfigurationTest {
             assertThat(context).hasSingleBean(ResourceStorage.class);
             assertThat(context.getBean(ResourceStorage.class))
                     .isInstanceOf(MinioResourceStorage.class);
-            assertThat(context).doesNotHaveBean(LocalFileResourceStorage.class);
         });
     }
 

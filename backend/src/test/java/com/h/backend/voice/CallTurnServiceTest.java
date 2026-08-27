@@ -44,7 +44,7 @@ class CallTurnServiceTest {
 
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.webm",
                 "audio/webm",
                 "call.webm",
@@ -128,7 +128,7 @@ class CallTurnServiceTest {
         CallTurnService service = new CallTurnService(tempDir, writeCoordinator, chatSessionService);
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.webm",
                 "audio/webm",
                 "call.webm",

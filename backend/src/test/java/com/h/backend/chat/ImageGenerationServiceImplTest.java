@@ -49,7 +49,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -65,7 +65,7 @@ class ImageGenerationServiceImplTest {
         );
         StoredResource storedResource = new StoredResource(
                 "resource-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "generated-images/2026/06/03/resource-1.png",
                 "image/png",
                 "generated-resource-1.png",
@@ -136,7 +136,7 @@ class ImageGenerationServiceImplTest {
                 any(),
                 argThat(resources ->
                         resources.size() == 1
-                                && "LOCAL_FILE".equals(resources.getFirst().storageType())
+                                && "OBJECT_STORAGE".equals(resources.getFirst().storageType())
                                 && "generated-images/2026/06/03/resource-1.png".equals(resources.getFirst().storageKey()))
         );
     }
@@ -153,7 +153,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -169,7 +169,7 @@ class ImageGenerationServiceImplTest {
         ));
         StoredResource storedResource = new StoredResource(
                 "resource-2",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "generated-images/2026/06/05/resource-2.png",
                 "image/png",
                 "generated-resource-2.png",
@@ -230,7 +230,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -265,7 +265,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -300,7 +300,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -320,9 +320,9 @@ class ImageGenerationServiceImplTest {
                 )
         ));
         List<StoredResource> storedResources = List.of(
-                new StoredResource("resource-1", "LOCAL_FILE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null),
-                new StoredResource("resource-2", "LOCAL_FILE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
-                new StoredResource("resource-3", "LOCAL_FILE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
+                new StoredResource("resource-1", "OBJECT_STORAGE", "generated-images/1.jpg", "image/jpeg", "1.jpg", 1L, null, null),
+                new StoredResource("resource-2", "OBJECT_STORAGE", "generated-images/2.jpg", "image/jpeg", "2.jpg", 1L, null, null),
+                new StoredResource("resource-3", "OBJECT_STORAGE", "generated-images/3.jpg", "image/jpeg", "3.jpg", 1L, null, null)
         );
         AtomicInteger storedIndex = new AtomicInteger();
         when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
@@ -371,7 +371,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -420,7 +420,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );
@@ -469,7 +469,7 @@ class ImageGenerationServiceImplTest {
                 writeCoordinator,
                 chatSessionService,
                 transactionTemplate,
-                new ImageGenerationProperties(null, null),
+                new ImageGenerationProperties(null),
                 referenceImageResolver,
                 new ChatResourceUrls("")
         );

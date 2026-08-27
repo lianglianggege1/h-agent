@@ -5,10 +5,7 @@ package com.h.backend.chat.infrastructure.storage;
  *
  * <p>数据库 {@code storage_type} 固定写 {@code OBJECT_STORAGE}；
  * Java 侧禁止散落裸字符串。读到其他类型按内部数据错误 fail closed。
- *
- * <p>过渡期说明（任务 1）：{@code LOCAL_FILE} 是 {@link LocalFileResourceStorage}
- * 的遗留返回值，保留在该类内部常量中，随任务 5 一并删除；
- * 本 enum 只声明生产目标类型。
+ * （历史本地文件存储类型已在任务 5 随其实现删除，不再存在本地存储类型。）
  */
 public enum ResourceStorageType {
 
