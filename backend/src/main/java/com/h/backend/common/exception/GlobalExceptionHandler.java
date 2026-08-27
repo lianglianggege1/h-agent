@@ -1,5 +1,6 @@
 package com.h.backend.common.exception;
 
+import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.common.api.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,5 +22,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException ex) {
         return ResponseEntity.badRequest().body(ApiResponse.error(40001, "参数错误"));
+    }
+
+    /**
+     * 四类存储错误的全局 HTTP 映射（审查修复第 1 项 / 计划 §4.5）：
+     * NOT_FOUND 404 / SIZE_LIMIT 413 / UNAVAILABLE 503 / IO_ERROR 500。
+     *
+     * <p>预览/下载路径的 NOT_FOUND 已在 ChatResourceServiceImpl 转为
+     * BusinessException 40404（用户可见语义），本分支是全局兜底；
+     * 响应体沿用 ApiResponse.error 形状，消息使用异常自带的脱敏安全文案，
+     * cause 链不并入响应。
+     */
+    @ExceptionHandler(ResourceStorageException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResourceStorageException(ResourceStorageException ex) {
+        return ResponseEntity.status(ex.kind().httpStatus())
+                .body(ApiResponse.error(ex.kind().httpStatus(), ex.getMessage()));
     }
 }

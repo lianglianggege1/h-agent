@@ -3,9 +3,12 @@ package com.h.backend.voice.application;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
 import com.h.backend.voice.interfaces.dto.VoiceResourceResponse;
@@ -14,6 +17,8 @@ import com.h.backend.voice.infrastructure.tts.MiniMaxTtsRequest;
 import com.h.backend.voice.infrastructure.tts.MiniMaxTtsResult;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -22,19 +27,25 @@ public class VoiceTtsService {
 
     private final VoiceTtsProperties properties;
     private final MiniMaxTtsClient ttsClient;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
+    private final ResourceContentInspector contentInspector;
+    private final ResourceContentPolicy contentPolicy;
 
     public VoiceTtsService(
             VoiceTtsProperties properties,
             MiniMaxTtsClient ttsClient,
-            ResourceStorage resourceStorage,
-            ChatSessionService chatSessionService
+            ResourceWriteCoordinator writeCoordinator,
+            ChatSessionService chatSessionService,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
     ) {
         this.properties = properties;
         this.ttsClient = ttsClient;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
+        this.contentInspector = contentInspector;
+        this.contentPolicy = contentPolicy;
     }
 
     public PreviewAudio preview(Long userId, String sessionId, String agentId, String text) {
@@ -52,24 +63,28 @@ public class VoiceTtsService {
         }
         String normalizedText = validateText(message.content(), properties.getMessageMaxTextLength());
         MiniMaxTtsResult result = ttsClient.synthesize(new MiniMaxTtsRequest(normalizedText, null));
+        // 审查修复第 3 项（计划 §6.3）：TTS 音频在保存前完成签名校验——
+        // provider 声明的 MIME 只是提示，签名冲突即拒绝（preview 不持久化，无需校验）。
+        verifyTtsAudio(result);
         Map<String, Object> metadata = assistantTtsMetadata(result);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                "AUDIO",
-                sessionId,
-                "call-assistant-tts",
-                result.audioBytes(),
-                result.mimeType(),
-                extension(result.mimeType()),
-                null,
-                null
-        ));
-        ChatMessageResourceDto resource = chatSessionService.bindStoredAudioResource(
-                userId,
-                sessionId,
-                messageId,
-                "ASSISTANT_TTS",
-                stored,
-                metadata
+        // 新计划任务 3：写入经 Coordinator，音频绑定在挂接事务内（rollback 时对象被补偿）。
+        ChatMessageResourceDto resource = writeCoordinator.saveAndAttach(
+                new ResourceSaveCommand(
+                        "AUDIO",
+                        result.audioBytes(),
+                        result.mimeType(),
+                        extension(result.mimeType()),
+                        null,
+                        null
+                ),
+                stored -> chatSessionService.bindStoredAudioResource(
+                        userId,
+                        sessionId,
+                        messageId,
+                        "ASSISTANT_TTS",
+                        stored,
+                        metadata
+                )
         );
         return new VoiceResourceResponse(
                 resource.id(),
@@ -78,6 +93,23 @@ public class VoiceTtsService {
                 resource.mimeType(),
                 null
         );
+    }
+
+    /** 服务端自产 TTS 音频的签名校验（审查修复第 3 项）：声明与签名冲突即拒绝保存。 */
+    private void verifyTtsAudio(MiniMaxTtsResult result) {
+        ResourceContentInspector.Inspection inspection;
+        try {
+            inspection = contentInspector.inspect(
+                    new ByteArrayInputStream(result.audioBytes()), result.mimeType());
+        } catch (IOException exception) {
+            throw new ResourceStorageException(
+                    ResourceStorageErrorKind.IO_ERROR, "TTS 音频读取失败", exception);
+        }
+        ResourceContentPolicy.SaveDecision decision =
+                contentPolicy.validateForSave(inspection.result(), result.mimeType());
+        if (!decision.allowed()) {
+            throw new BusinessException(40000, "TTS 音频未通过内容校验，已放弃保存");
+        }
     }
 
     private String validateText(String text, int maxLength) {

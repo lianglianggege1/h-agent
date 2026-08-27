@@ -5,6 +5,7 @@ import com.h.backend.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.infrastructure.storage.ResourceRange;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import org.springframework.stereotype.Service;
 
@@ -33,10 +34,10 @@ public class ChatReferenceImageResolver implements ReferenceImageResolver {
         if (!"IMAGE".equalsIgnoreCase(resource.getResourceType())) {
             throw new IllegalArgumentException("参考资源必须是图片: " + resourceId);
         }
-        ResourceContent content = resourceStorage.open(resource.getStorageKey());
+        ResourceContent content = resourceStorage.open(resource.getStorageKey(), ResourceRange.fullRead());
         try (InputStream inputStream = content.inputStream()) {
             String mimeType = hasText(content.mimeType()) ? content.mimeType() : resource.getMimeType();
-            return new ResolvedReferenceImage(resourceId, mimeType, inputStream.readAllBytes(), content.fileSize(),
+            return new ResolvedReferenceImage(resourceId, mimeType, inputStream.readAllBytes(), content.totalSize(),
                     resource.getWidth(), resource.getHeight());
         } catch (IOException exception) {
             throw new IllegalStateException("读取参考图片失败: " + resourceId, exception);

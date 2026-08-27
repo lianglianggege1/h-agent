@@ -1,7 +1,7 @@
 package com.h.backend.generation.infrastructure.projection;
 
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
@@ -14,11 +14,11 @@ import java.util.List;
 @Component
 public class ChatGenerationProjectionAdapter implements GenerationChatProjectionPort {
     private final ChatSessionService chatSessionService;
-    private final ResourceStorage resourceStorage;
+    private final ChatResourceUrls chatResourceUrls;
 
-    public ChatGenerationProjectionAdapter(ChatSessionService chatSessionService, ResourceStorage resourceStorage) {
+    public ChatGenerationProjectionAdapter(ChatSessionService chatSessionService, ChatResourceUrls chatResourceUrls) {
         this.chatSessionService = chatSessionService;
-        this.resourceStorage = resourceStorage;
+        this.chatResourceUrls = chatResourceUrls;
     }
 
     @Override
@@ -56,8 +56,8 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
         }
         var artifact = task.artifact();
         return List.of(new ChatMessageResourceDto(
-                artifact.resourceId(), "VIDEO", "GENERATED", resourceStorage.buildViewUrl(artifact.resourceId()),
-                resourceStorage.buildDownloadUrl(artifact.resourceId()), artifact.fileName(), artifact.mimeType(),
+                artifact.resourceId(), "VIDEO", "GENERATED", chatResourceUrls.view(artifact.resourceId()),
+                chatResourceUrls.download(artifact.resourceId()), artifact.fileName(), artifact.mimeType(),
                 artifact.fileSize(), null, null, artifact.storageType(), artifact.storageKey()
         ));
     }

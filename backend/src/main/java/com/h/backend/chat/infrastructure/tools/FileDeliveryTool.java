@@ -1,12 +1,14 @@
 package com.h.backend.chat.infrastructure.tools;
 
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFile;
+import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFileStream;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import dev.langchain4j.agent.tool.P;
@@ -15,27 +17,45 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Agent 文件交付工具（send_file_to_chat）。
+ *
+ * <p>内容安全（新计划 §6.3 / §10 任务 4）：Agent 模型生成的会话文件属于
+ * 不可信输入——模型可声明任意 MIME，因此保存前必须经签名校验
+ * （Inspector 只读有上限的文件头，校验后用回放流继续保存，不二次读源流）；
+ * 校验失败返回 Error 文案（Agent 工具协议），不抛异常破坏会话循环。
+ */
 @Component
 public class FileDeliveryTool {
 
     private final AssistantFileStorage fileStorage;
-    private final ResourceStorage resourceStorage;
+    private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
     private final ChatStreamEventBridge chatStreamEventBridge;
+    private final ChatResourceUrls chatResourceUrls;
+    private final ResourceContentInspector contentInspector;
+    private final ResourceContentPolicy contentPolicy;
 
     public FileDeliveryTool(
             AssistantFileStorage fileStorage,
-            ResourceStorage resourceStorage,
+            ResourceWriteCoordinator writeCoordinator,
             ChatSessionService chatSessionService,
-            ChatStreamEventBridge chatStreamEventBridge
+            ChatStreamEventBridge chatStreamEventBridge,
+            ChatResourceUrls chatResourceUrls,
+            ResourceContentInspector contentInspector,
+            ResourceContentPolicy contentPolicy
     ) {
         this.fileStorage = fileStorage;
-        this.resourceStorage = resourceStorage;
+        this.writeCoordinator = writeCoordinator;
         this.chatSessionService = chatSessionService;
         this.chatStreamEventBridge = chatStreamEventBridge;
+        this.chatResourceUrls = chatResourceUrls;
+        this.contentInspector = contentInspector;
+        this.contentPolicy = contentPolicy;
     }
 
     @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
@@ -46,7 +66,7 @@ public class FileDeliveryTool {
             @P(value = "文件 MIME 类型；为空则自动推断", required = false, defaultValue = "") String mimeType,
             @P(value = "随文件消息显示的文本；为空则使用默认文案", required = false, defaultValue = "") String message
     ) {
-        AssistantSessionFile file = fileStorage.readSessionFile(memoryId, path);
+        AssistantSessionFileStream file = fileStorage.openSessionFileStream(memoryId, path);
         if (!file.success()) {
             return "Error: " + file.error();
         }
@@ -56,38 +76,62 @@ public class FileDeliveryTool {
         String resolvedMimeType = resolveMimeType(mimeType, file.mimeType(), resolvedFileName);
         String extension = extensionFromFileName(resolvedFileName);
         String resourceType = resourceTypeFor(resolvedMimeType);
-        StoredResource stored = resourceStorage.save(new ResourceSaveCommand(
-                resourceType,
-                context.sessionId(),
-                file.virtualPath(),
-                file.content(),
-                resolvedMimeType,
-                extension,
-                null,
-                null
-        ));
-
-        ChatMessageResourceDto resource = new ChatMessageResourceDto(
-                stored.id(),
-                resourceType,
-                "GENERATED",
-                resourceStorage.buildViewUrl(stored.id()),
-                resourceStorage.buildDownloadUrl(stored.id()),
-                resolvedFileName,
-                resolvedMimeType,
-                stored.fileSize(),
-                stored.width(),
-                stored.height(),
-                stored.storageType(),
-                stored.storageKey()
-        );
         String content = (message == null || message.isBlank()) ? "已发送文件：" + resolvedFileName : message.trim();
-        ChatSessionMessageDto chatMessage = chatSessionService.appendResourceMessage(
-                context.userId(),
-                context.sessionId(),
-                content,
-                resourceType,
-                List.of(resource)
+
+        // 内容安全（新计划 §6.3 / §10 任务 4）：模型声明 MIME 只是提示，
+        // 签名校验失败/主动内容一律拒绝交付，不触碰 Coordinator。
+        // 审查修复第 4 项：inspect 抛 IOException 时必须关闭源流（fd 泄漏）。
+        java.io.InputStream sourceStream = file.stream();
+        ResourceContentInspector.Inspection inspection;
+        try {
+            inspection = contentInspector.inspect(sourceStream, resolvedMimeType);
+        } catch (IOException exception) {
+            closeQuietly(sourceStream);
+            return "Error: 读取文件失败: " + file.virtualPath();
+        }
+        ResourceContentPolicy.SaveDecision decision =
+                contentPolicy.validateForSave(inspection.result(), resolvedMimeType);
+        if (!decision.allowed()) {
+            closeQuietly(inspection.replayStream());
+            return "Error: " + decision.reason();
+        }
+
+        // 新计划任务 3：Agent 文件只有 appendResourceMessage 事务提交后才算挂接；
+        // 挂接回调在 Coordinator 事务内（rollback 时对象被补偿），
+        // 流事件在 saveAndAttach 返回（挂接事务已提交）后才发布。
+        // 保存流使用回放流（头字节已缓冲 + 剩余原流），不二次读源。
+        ChatSessionMessageDto chatMessage = writeCoordinator.saveAndAttach(
+                ResourceSaveCommand.fromStream(
+                        resourceType,
+                        inspection.replayStream(),
+                        file.size(),
+                        resolvedMimeType,
+                        extension,
+                        0L
+                ),
+                stored -> {
+                    ChatMessageResourceDto resource = new ChatMessageResourceDto(
+                            stored.id(),
+                            resourceType,
+                            "GENERATED",
+                            chatResourceUrls.view(stored.id()),
+                            chatResourceUrls.download(stored.id()),
+                            resolvedFileName,
+                            resolvedMimeType,
+                            stored.fileSize(),
+                            stored.width(),
+                            stored.height(),
+                            stored.storageType(),
+                            stored.storageKey()
+                    );
+                    return chatSessionService.appendResourceMessage(
+                            context.userId(),
+                            context.sessionId(),
+                            content,
+                            resourceType,
+                            List.of(resource)
+                    );
+                }
         );
         chatStreamEventBridge.publishMessage(memoryId, chatMessage);
         return "文件已发送到聊天中。";
@@ -102,6 +146,16 @@ public class FileDeliveryTool {
             return new FileDeliveryContext(Long.valueOf(parts[0]), parts[3]);
         }
         throw new IllegalArgumentException("Invalid chat memory id");
+    }
+
+    private static void closeQuietly(java.io.InputStream stream) {
+        try {
+            if (stream != null) {
+                stream.close();
+            }
+        } catch (IOException ignored) {
+            // 关闭失败不影响拒绝路径
+        }
     }
 
     private String safeDisplayName(String displayName, String fallbackName) {

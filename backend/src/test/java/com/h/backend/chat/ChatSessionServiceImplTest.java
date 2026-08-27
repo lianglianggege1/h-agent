@@ -326,7 +326,7 @@ class ChatSessionServiceImplTest {
         resourceRow.setUserId(1L);
         resourceRow.setResourceType("IMAGE");
         resourceRow.setResourceRole("GENERATED");
-        resourceRow.setStorageType("LOCAL_FILE");
+        resourceRow.setStorageType("OBJECT_STORAGE");
         resourceRow.setStorageKey("generated-images/2026/05/27/cat.png");
         resourceRow.setViewUrl("/api/chat/resources/resource-701/content");
         resourceRow.setDownloadUrl("/api/chat/resources/resource-701/download");
@@ -465,7 +465,7 @@ class ChatSessionServiceImplTest {
                         "USER_RECORDING",
                         new StoredResource(
                                 "audio-1",
-                                "LOCAL_FILE",
+                                "OBJECT_STORAGE",
                                 "call-audio/audio-1.webm",
                                 "audio/webm",
                                 "call.webm",
@@ -537,7 +537,7 @@ class ChatSessionServiceImplTest {
                 1234L,
                 1024,
                 1024,
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "generated-images/2026/05/27/cat.png"
         );
 
@@ -554,7 +554,7 @@ class ChatSessionServiceImplTest {
         assertEquals(501L, resourceRow.getMessageId());
         assertEquals("IMAGE", resourceRow.getResourceType());
         assertEquals("GENERATED", resourceRow.getResourceRole());
-        assertEquals("LOCAL_FILE", resourceRow.getStorageType());
+        assertEquals("OBJECT_STORAGE", resourceRow.getStorageType());
         assertEquals("generated-images/2026/05/27/cat.png", resourceRow.getStorageKey());
     }
 
@@ -792,7 +792,7 @@ class ChatSessionServiceImplTest {
         uploaded.setUserId(1L);
         uploaded.setResourceType("IMAGE");
         uploaded.setResourceRole("ATTACHMENT");
-        uploaded.setStorageType("LOCAL_FILE");
+        uploaded.setStorageType("OBJECT_STORAGE");
         uploaded.setStorageKey("uploads/resource-1.jpg");
         uploaded.setViewUrl("/api/chat/resources/resource-1/content");
         uploaded.setDownloadUrl("/api/chat/resources/resource-1/download");
@@ -861,7 +861,7 @@ class ChatSessionServiceImplTest {
         generated.setUserId(1L);
         generated.setResourceType("VIDEO");
         generated.setResourceRole("GENERATED");
-        generated.setStorageType("LOCAL_FILE");
+        generated.setStorageType("OBJECT_STORAGE");
         generated.setStorageKey("generated-videos/resource-2.mp4");
         generated.setViewUrl("/api/chat/resources/resource-2/content");
         generated.setDownloadUrl("/api/chat/resources/resource-2/download");

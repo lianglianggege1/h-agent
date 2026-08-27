@@ -231,6 +231,13 @@
             <version>1.51.0</version>
         </dependency>
 
+        <!-- MinIO 对象存储 SDK：固定版本，计划 §技术栈 -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>9.0.1</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -245,6 +252,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- ArchUnit 架构守卫（仅核心库 + ClassFileImporter API，写普通 JUnit 测试；不引 archunit-junit5 引擎以规避 JUnit 6 兼容风险） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.5.0</version>
             <scope>test</scope>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/io.agentscope/agentscope-harness -->

@@ -4,6 +4,7 @@ import com.h.backend.chat.application.impl.ChatReferenceImageResolver;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.storage.ResourceContent;
+import com.h.backend.chat.infrastructure.storage.ResourceRange;
 import com.h.backend.chat.infrastructure.storage.ResourceStorage;
 import org.junit.jupiter.api.Test;
 
@@ -29,8 +30,9 @@ class ChatReferenceImageResolverTest {
         resource.setWidth(512);
         resource.setHeight(768);
         when(mapper.selectByResourceId("image-1")).thenReturn(resource);
-        when(storage.open("generated-images/image-1.png"))
-                .thenReturn(new ResourceContent(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L));
+        when(storage.open("generated-images/image-1.png", ResourceRange.fullRead()))
+                .thenReturn(new ResourceContent(
+                        new ByteArrayInputStream(new byte[]{1, 2, 3}), "image/png", 3L, 3L, 0L, false));
 
         var image = new ChatReferenceImageResolver(mapper, storage).resolve(1L, "image-1");
 

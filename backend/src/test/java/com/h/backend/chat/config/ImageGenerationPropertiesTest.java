@@ -8,13 +8,14 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * MiniMax API 配置绑定测试（计划 §10 任务 5：本地资源存储配置已随本地文件存储实现删除）。
+ */
 class ImageGenerationPropertiesTest {
 
     @Test
-    void shouldBindStorageAndMiniMaxProperties() {
+    void shouldBindMiniMaxProperties() {
         Map<String, String> values = Map.of(
-                "image-generation.storage.base-dir", "/data/images",
-                "image-generation.storage.public-base-url", "https://cdn.example.com",
                 "image-generation.minimax.base-url", "https://api.example.com",
                 "image-generation.minimax.api-key", "test-key",
                 "image-generation.minimax.model", "image-01",
@@ -27,10 +28,6 @@ class ImageGenerationPropertiesTest {
         ImageGenerationProperties properties = new Binder(new MapConfigurationPropertySource(values))
                 .bind("image-generation", ImageGenerationProperties.class)
                 .orElseThrow(IllegalStateException::new);
-
-        ImageGenerationProperties.LocalStorage storage = properties.storageOrDefault();
-        assertEquals("/data/images", storage.baseDir());
-        assertEquals("https://cdn.example.com", storage.publicBaseUrl());
 
         ImageGenerationProperties.MiniMax minimax = properties.minimaxOrDefault();
         assertEquals("https://api.example.com", minimax.baseUrl());

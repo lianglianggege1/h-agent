@@ -3,8 +3,11 @@ package com.h.backend.voice;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
+import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
 import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
@@ -32,12 +35,15 @@ import static org.mockito.Mockito.when;
 
 class VoiceTtsServiceTest {
 
+    /** MP3 ID3 头魔数（保存路径签名校验用）。 */
+    private static final byte[] MP3_BYTES = {'I', 'D', '3', 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A};
+
     @Test
     void previewReturnsAudioBytesWithoutPersisting() {
         MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         when(client.synthesize(new MiniMaxTtsRequest("你好", null)))
                 .thenReturn(new MiniMaxTtsResult(new byte[]{1, 2, 3}, "audio/mpeg", "trace-1", null, null));
 
@@ -46,15 +52,15 @@ class VoiceTtsServiceTest {
         assertArrayEquals(new byte[]{1, 2, 3}, audio.audioBytes());
         assertEquals("audio/mpeg", audio.mimeType());
         verify(chatSessionService).assertActiveAgentSession(1L, "session-1", "standard-chat");
-        verify(storage, never()).save(any(ResourceSaveCommand.class));
+        verify(writeCoordinator, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
     }
 
     @Test
     void previewValidatesActiveSessionBeforeCallingProvider() {
         MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         doThrow(new BusinessException(40404, "会话不存在")).when(chatSessionService)
                 .assertActiveAgentSession(1L, "session-1", "standard-chat");
 
@@ -71,9 +77,9 @@ class VoiceTtsServiceTest {
     @Test
     void messageTtsReadsAssistantMessageAndBindsAudioResource() {
         MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         ChatSessionMessageDto message = new ChatSessionMessageDto(
                 "101",
                 "assistant",
@@ -85,7 +91,7 @@ class VoiceTtsServiceTest {
         );
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.mp3",
                 "audio/mpeg",
                 "audio-1.mp3",
@@ -96,13 +102,18 @@ class VoiceTtsServiceTest {
         when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(message);
         when(client.synthesize(new MiniMaxTtsRequest("完整回复", null)))
                 .thenReturn(new MiniMaxTtsResult(
-                        new byte[]{1, 2, 3},
+                        MP3_BYTES,
                         "audio/mpeg",
                         "trace-1",
                         "speech-2.8-turbo",
                         "voice-1"
                 ));
-        when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored);
+        // mock 边界（任务 3）：调用方测试 mock Coordinator，attachment 同步执行（byte[] 形态保留）。
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(stored);
+                });
         when(chatSessionService.bindStoredAudioResource(
                 eq(1L),
                 eq("session-1"),
@@ -126,12 +137,10 @@ class VoiceTtsServiceTest {
         var response = service.messageTts(1L, "session-1", "standard-chat", 101L);
 
         ArgumentCaptor<ResourceSaveCommand> saveCaptor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
-        verify(storage).save(saveCaptor.capture());
+        verify(writeCoordinator).saveAndAttach(saveCaptor.capture(), any());
         ResourceSaveCommand command = saveCaptor.getValue();
         assertEquals("AUDIO", command.resourceType());
-        assertEquals("session-1", command.sessionId());
-        assertEquals("call-assistant-tts", command.prompt());
-        assertArrayEquals(new byte[]{1, 2, 3}, command.content());
+        assertArrayEquals(MP3_BYTES, command.content());
         assertEquals("audio/mpeg", command.mimeType());
         assertEquals("mp3", command.extension());
 
@@ -155,9 +164,9 @@ class VoiceTtsServiceTest {
     @Test
     void messageTtsHandlesMissingProviderMetadata() {
         MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         ChatSessionMessageDto message = new ChatSessionMessageDto(
                 "101",
                 "assistant",
@@ -169,7 +178,7 @@ class VoiceTtsServiceTest {
         );
         StoredResource stored = new StoredResource(
                 "audio-1",
-                "LOCAL_FILE",
+                "OBJECT_STORAGE",
                 "call-audio/audio-1.mp3",
                 "audio/mpeg",
                 "audio-1.mp3",
@@ -179,8 +188,12 @@ class VoiceTtsServiceTest {
         );
         when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(message);
         when(client.synthesize(new MiniMaxTtsRequest("完整回复", null)))
-                .thenReturn(new MiniMaxTtsResult(new byte[]{1, 2, 3}, "audio/mpeg", "trace-1", null, null));
-        when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored);
+                .thenReturn(new MiniMaxTtsResult(MP3_BYTES, "audio/mpeg", "trace-1", null, null));
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(stored);
+                });
         when(chatSessionService.bindStoredAudioResource(
                 eq(1L),
                 eq("session-1"),
@@ -220,9 +233,9 @@ class VoiceTtsServiceTest {
     @Test
     void messageTtsRejectsNonAssistantAiMessage() {
         MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
-        ResourceStorage storage = mock(ResourceStorage.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
-        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, storage, chatSessionService);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
         when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(new ChatSessionMessageDto(
                 "101",
                 "user",
@@ -241,6 +254,62 @@ class VoiceTtsServiceTest {
         assertEquals(40000, error.getCode());
         assertEquals("Assistant TTS 只能绑定 AI 回复消息", error.getMessage());
         verify(client, never()).synthesize(any(MiniMaxTtsRequest.class));
-        verify(storage, never()).save(any(ResourceSaveCommand.class));
+        verify(writeCoordinator, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
+    }
+
+    @Test
+    void messageTtsPropagatesAttachmentFailureForCompensation() {
+        MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(new ChatSessionMessageDto(
+                "101", "assistant", "AI", "完整回复", null, List.of(), LocalDateTime.now()
+        ));
+        when(client.synthesize(new MiniMaxTtsRequest("完整回复", null)))
+                .thenReturn(new MiniMaxTtsResult(MP3_BYTES, "audio/mpeg", "trace-1", null, null));
+        StoredResource stored = new StoredResource(
+                "audio-1", "OBJECT_STORAGE", "key-1", "audio/mpeg", "audio-1.mp3", 3L, null, null);
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any()))
+                .thenAnswer(invocation -> {
+                    ResourceAttachment<ChatMessageResourceDto> attachment = invocation.getArgument(1);
+                    return attachment.attach(stored);
+                });
+        IllegalStateException boom = new IllegalStateException("音频绑定失败");
+        when(chatSessionService.bindStoredAudioResource(any(), any(), any(), any(), any(), any())).thenThrow(boom);
+
+        // 挂接失败必须原样上抛（Coordinator 事务 rollback 补偿对象），不得被吞。
+        IllegalStateException thrown = assertThrows(
+                IllegalStateException.class,
+                () -> service.messageTts(1L, "session-1", "standard-chat", 101L)
+        );
+
+        assertEquals(boom, thrown);
+    }
+
+    @Test
+    void messageTtsRejectsAudioWhenSignatureDoesNotMatchDeclaredMime() {
+        // 审查修复第 3 项：TTS provider 声明 audio/mpeg 但字节实际是 WebM 容器 ——
+        // provider MIME 只是提示，签名冲突即拒绝保存，不进入写入路径；
+        // 「签名符合正常保存」由 messageTtsReadsAssistantMessageAndBindsAudioResource
+        // （ID3 魔数字节）覆盖。
+        MiniMaxTtsClient client = mock(MiniMaxTtsClient.class);
+        ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        VoiceTtsService service = new VoiceTtsService(new VoiceTtsProperties(), client, writeCoordinator, chatSessionService, new ResourceContentInspector(), new ResourceContentPolicy());
+        when(chatSessionService.getOwnedMessage(1L, "session-1", 101L)).thenReturn(new ChatSessionMessageDto(
+                "101", "assistant", "AI", "完整回复", null, List.of(), LocalDateTime.now()
+        ));
+        byte[] webmBytes = {(byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3, 0x01};
+        when(client.synthesize(new MiniMaxTtsRequest("完整回复", null)))
+                .thenReturn(new MiniMaxTtsResult(webmBytes, "audio/mpeg", "trace-1", null, null));
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.messageTts(1L, "session-1", "standard-chat", 101L)
+        );
+
+        assertEquals("TTS 音频未通过内容校验，已放弃保存", error.getMessage());
+        verify(writeCoordinator, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
     }
 }

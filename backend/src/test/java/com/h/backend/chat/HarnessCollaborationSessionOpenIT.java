@@ -700,7 +700,7 @@ class HarnessCollaborationSessionOpenIT {
         resource.setUserId(user.getId());
         resource.setResourceType("FILE");
         resource.setResourceRole("ATTACHMENT");
-        resource.setStorageType("LOCAL_FILE");
+        resource.setStorageType("OBJECT_STORAGE");
         resource.setStorageKey("uploads/" + resourceId);
         resource.setViewUrl("/api/chat/resources/" + resourceId + "/content");
         resource.setDownloadUrl("/api/chat/resources/" + resourceId + "/download");

@@ -22,7 +22,7 @@ class GenerationTaskTest {
         task.recordProviderProgress("PROCESSING", NOW.plusSeconds(15), NOW.plusSeconds(5));
         task.startMaterialization("provider-file", NOW.plusSeconds(20));
         task.complete(new GeneratedArtifact(
-                "resource-1", "LOCAL_FILE", "generated-videos/video.mp4", "video/mp4", "video.mp4", 100L
+                "resource-1", "OBJECT_STORAGE", "generated-videos/video.mp4", "video/mp4", "video.mp4", 100L
         ), NOW.plusSeconds(30));
 
         assertEquals(GenerationStatus.SUCCEEDED, task.status());

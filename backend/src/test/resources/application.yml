@@ -1,0 +1,150 @@
+server:
+  http2:
+    enabled: true
+  port: 8081
+
+spring:
+  application:
+    name: backend
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
+    username: h_agent
+    password: h_agent
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-wait: -1ms
+          max-idle: 10
+          min-idle: 5
+        shutdown-timeout: 100ms
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # 把 MyBatis 日志桥接到当前 logback，参数化 SQL 由 StatementLogger (DEBUG) 打印
+    # 带 ? 的 PreparedStatement 与参数列表（Parameters、Updates 换行）会输出到 com.h.backend.mybatis.SqlLog logger
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+
+jwt:
+  secret: change-this-to-256-bit-secret-change-this
+  expiration-seconds: 7200
+
+langfuse:
+  enabled: false
+  otlp-endpoint: https://cloud.langfuse.com/api/public/otel
+  public-key: ""
+  secret-key: ""
+
+chat:
+  harness:
+    workspace-template: /tmp/h-agent/harness-workspace
+  subagent-catalog:
+    # 代码默认关闭（设计 Phase 5 滚动发布要求）；本地开发显式开启。
+    enabled: true
+  stream:
+    heartbeat-interval: 15s
+    max-concurrent-per-user: 100
+    max-concurrent-global: 100
+    permit-ttl: 10m
+  resources:
+    public-base-url: ""
+    upload:
+      allowed-mime-types: image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/wav,audio/webm
+      max-file-size: 10485760
+  filesystem:
+    base-dir: /tmp/h-agent/assistant-files
+    max-file-size-bytes: 10485760
+  skills:
+    enabled: true
+    directory: /Users/huajiang/Desktop/h-agent/backend/src/main/resources/skills
+  shell:
+    enabled: true
+    default-timeout-seconds: 30
+    max-timeout-seconds: 120
+    max-output-bytes: 100000
+    inherit-environment: false
+
+agents:
+  a2a:
+    other-agents:
+      enabled: false
+      base-url: http://localhost:8082
+  mcp:
+    other-agents:
+      enabled: false
+      url: http://localhost:8082/mcp
+      tool-execution-timeout-seconds: 4
+
+knowledge:
+  retriever:
+    max-results: 4
+    min-score: 0.6
+  split:
+    chunk-size: 300
+    chunk-overlap: 30
+  upload:
+    allowed-types:
+      - md
+      - markdown
+      - txt
+      - doc
+      - docx
+      - xls
+      - xlsx
+
+voice:
+  tts:
+    preview-max-text-length: 240
+    message-max-text-length: 5000
+    minimax:
+      base-url: https://api.minimaxi.com
+      api-key: ""
+      model: speech-2.8-turbo
+      voice-id: male-qn-qingse
+      format: mp3
+      sample-rate: 32000
+      bitrate: 128000
+      request-timeout-seconds: 60
+
+generation:
+  polling:
+    enabled: true
+    fixed-delay: 20s
+    batch-size: 20
+    queueing-delay: 10s
+    processing-delay: 15s
+    retry-delay: 30s
+  minimax:
+    base-url: https://api.minimaxi.com
+    api-key: ${MINIMAX_API_KEY:}
+  download:
+    max-file-size: 524288000
+
+# 测试上下文资源存储配置（新计划任务 2）：dummy 合法值。
+# 启动校验是纯配置校验（不联网、不 bucketExists），这些值仅需通过格式校验；
+# 真实资源操作只发生在任务 6 的 contract test 中。
+resource-storage:
+  absolute-max-bytes: 524288000
+  minio:
+    endpoint: http://127.0.0.1:9000
+    access-key: test-access-key
+    secret-key: test-secret-key
+    bucket: test-bucket
