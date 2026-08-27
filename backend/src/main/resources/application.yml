@@ -73,7 +73,7 @@ chat:
     max-file-size-bytes: 10485760
   skills:
     enabled: true
-    directory: /Users/huajiang/Desktop/h-agent/backend/src/main/resources/skills
+    directory: /Users/huajiang/Desktop/AI/h-agent/backend/src/main/resources/skills
   shell:
     enabled: true
     default-timeout-seconds: 30
