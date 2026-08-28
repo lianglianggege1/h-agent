@@ -6,7 +6,7 @@
 
 - 日期：2026-08-24
 - 设计确认：2026-08-26，经 grilling 逐项确认
-- 状态：待实施
+- 状态：资源存储代码已合并；开发受限账号验收、smoke test 与生产前置条件仍未完成
 - 本期部署范围：开发环境
 - 代码目标：具备生产质量，但生产启用受独立基础设施门槛约束
 
@@ -675,13 +675,14 @@ MinIO 运行故障时，资源操作按既定 404/413/503/500 语义失败；本
 
 ## 14. Skill 与日志的未来选型
 
+> 本节关于 Skill 的早期占位选型已被 `docs/superpowers/specs/2026-08-25-skill-git-version-platform-design.md` 取代。资源 `ResourceStorage` 的实现边界保持不变；System/User Skill 使用独立 MinIO Artifact 深模块，不能复用本计划的随机 key、无 SHA-256 和补偿删除语义。
+
 本节只记录选型，不产生本期任务：
 
 - 用户消息继续存 PostgreSQL；归档需求出现时，通过数据平台 ETL/CDC 设计，不由 Spring Boot 零散写 JSONL 对象。
 - `agent_runs` 在线摘要继续存 PostgreSQL；链路追踪使用 OpenTelemetry/Langfuse，分析进入数仓或湖仓。
-- 内置 Skill 源码继续存 Git/classpath。
-- Harness 可编辑 Skill 继续存 PostgreSQL `workspace_files`。
-- 只有未来正式发布含大型 assets 的不可变 Skill 版本包时，才考虑 PostgreSQL metadata + MinIO bytes。
+- Skill 最终方案以较新的 Skill 设计为准：Gitee 保存 User Skill 源码/历史，System/User Skill 均发布成独立 MinIO 不可变运行 Artifact。
+- 旧 classpath 与 Harness `workspace_files` Skill 采用 clean-slate 下线，不作为 ResourceStorage 或 Skill Artifact 的兼容来源。
 - Subagent Definition、Version、Session 和运行实例仍由 PostgreSQL Catalog 管理，MinIO 不能替代。
 
 ## 15. 拒绝方案

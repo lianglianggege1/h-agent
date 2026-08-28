@@ -2,7 +2,7 @@
 
 > 对应计划：`docs/superpowers/plans/2026-08-24-minio-object-storage-implementation.md`
 > 部署范围：**开发环境**。生产启用受 §8 前置条件约束，本期完成不等于生产启用。
-> 最后更新：2026-08-28（补充资源 Metrics、Agent Trace 与结构化日志的分工）
+> 最后更新：2026-08-28（补充资源/Skill Artifact 边界，以及资源 Metrics、Agent Trace 与结构化日志分工）
 
 ## 0. 部署前置环境变量（置顶清单）
 
@@ -29,6 +29,7 @@
 - 资源 URL 保持 `/api/chat/resources/{id}/content|download` 不变，owner 鉴权不依赖 object key。
 - 生产运行态**没有**本地回退、双写或双读（本地文件存储实现已于任务 5 删除）。
 - `chat.filesystem`（`AssistantFileStorage`，`/tmp/h-agent/assistant-files`）是 Agent 工作文件目录，**不属于资源存储**，本切换不涉及。
+- Skill 运行制品也**不属于本 `ResourceStorage`**。Skill 设计使用独立 System/User Artifact Bucket、账号和 `mediaType + size + SHA-256` 内容寻址协议；不得把 Skill bundle 当 `FILE` 写入 `resources/*`，也不得为此扩大当前资源账号权限。详见 `docs/superpowers/specs/2026-08-25-skill-git-version-platform-design.md` §8.2/§10。
 
 ## 2. 配置说明
 
