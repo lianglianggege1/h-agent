@@ -14,6 +14,8 @@ import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
 import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import com.h.backend.generation.interfaces.tool.ImageToVideoTool;
+import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
@@ -27,7 +29,6 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderResult;
 import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
-import dev.langchain4j.skills.Skills;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -80,6 +81,12 @@ public class ChatModelConfig {
     @Resource
     private HToolExecutionErrorHandler hToolExecutionErrorHandler;
 
+    @Resource
+    private SkillRuntimeService skillRuntimeService;
+
+    @Resource
+    private SkillRuntimeToolProvider skillRuntimeToolProvider;
+
     @Bean
     public StreamingChatModel streamingChatModel() {
         var environment = ChatModelEnvironment.load(Path.of(""));
@@ -124,13 +131,11 @@ public class ChatModelConfig {
     @Bean
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  RetrievalAugmentor knowledgeRetrievalAugmentor,
-                                 ObjectProvider<McpToolProvider> mcpToolProvider,
-                                 ObjectProvider<Skills> skillsProvider) {
-        Skills skills = skillsProvider.getIfAvailable();
+                                 ObjectProvider<McpToolProvider> mcpToolProvider) {
+        // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
+        // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
         List<ToolProvider> toolProviders = new ArrayList<>();
-        if (skills != null) {
-            toolProviders.add(skills.toolProvider());
-        }
+        toolProviders.add(skillRuntimeToolProvider);
         toolProviders.add(request -> {
             McpToolProvider provider = mcpToolProvider.getIfAvailable();
             if (provider == null) {
@@ -149,10 +154,11 @@ public class ChatModelConfig {
                     Long promptId = Long.valueOf(parts[1]);
 
                     String systemMessage = systemPromptService.getSystemPrompt(userId, promptId);
-                    if (skills == null) {
+                    String skillsSection = skillRuntimeService.skillsSystemMessage(memoryId.toString());
+                    if (skillsSection == null) {
                         return systemMessage;
                     }
-                    return systemMessage + "\n\n" + skillsSystemMessage(skills);
+                    return systemMessage + "\n\n" + skillsSection;
                 })
                 .tools(imageGenerationTool, textToVideoTool, imageToVideoTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
 //                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
@@ -168,13 +174,5 @@ public class ChatModelConfig {
                         .chatMemoryStore(redisChatMemoryStore)
                         .build())
                 .build();
-    }
-
-    private String skillsSystemMessage(Skills skills) {
-        return "You have access to the following skills:\n"
-                + skills.formatAvailableSkills()
-                + "\nWhen the user's request relates to one of these skills, first call `activate_skill` "
-                + "before following its instructions. Use `read_skill_resource` when a referenced resource is needed. "
-                + "Skill-provided scripts must not be executed.";
     }
 }

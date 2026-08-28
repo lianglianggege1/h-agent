@@ -8,7 +8,9 @@ spring:
     name: backend
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
+    # 本工作区使用独立 schema，避免与 h-agent / h-agent-ltm 共用 public 时 Flyway 版本互相污染；
+    # 保留 public 以便解析 pgvector 扩展类型（vector）
+    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db?currentSchema=skill_platform,public
     username: h_agent
     password: h_agent
   data:
@@ -72,9 +74,6 @@ chat:
   filesystem:
     base-dir: /tmp/h-agent/assistant-files
     max-file-size-bytes: 10485760
-  skills:
-    enabled: true
-    directory: /Users/huajiang/Desktop/AI/h-agent/backend/src/main/resources/skills
   shell:
     enabled: true
     default-timeout-seconds: 30
@@ -97,6 +96,39 @@ resource-storage:
     connect-timeout: 3s
     read-timeout: 60s
     part-size-bytes: 10485760
+
+# Skill 版本平台（设计 docs/superpowers/specs/2026-08-25-skill-git-version-platform-design.md）。
+# 制品 Bucket 与 resources 隔离；凭据只经环境变量注入，不写入仓库。
+skill-platform:
+  repository:
+    provider: gitee
+    clone-url: https://gitee.com/huajiangliangliang/hj-skill-repo.git
+    branch: master
+    credential-env: GITEE_TOKEN
+    api-base-url: https://gitee.com/api/v5
+  artifacts:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_SKILLS_ACCESS_KEY:${MINIO_ACCESS_KEY:I5PLCKEHQAPAMN9ON3I6}}
+    secret-key: ${MINIO_SKILLS_SECRET_KEY:${MINIO_SECRET_KEY:isAtBLmBTAYj2KmduHQ1nDGEyNxQZDFYqc5+eEEK}}
+    region: ${MINIO_REGION:us-east-1}
+    system-bucket: ${MINIO_SYSTEM_SKILLS_BUCKET:h-agent-skills}
+    user-bucket: ${MINIO_USER_SKILLS_BUCKET:h-agent-skills}
+    system-object-prefix: ${MINIO_SYSTEM_SKILLS_PREFIX:system/}
+    user-object-prefix: ${MINIO_USER_SKILLS_PREFIX:user/}
+    connect-timeout: 3s
+    read-timeout: 60s
+  validation:
+    max-user-skills: 20
+    max-file-bytes: 1048576
+    max-total-bytes: 10485760
+    max-files: 200
+    max-depth: 8
+  cache:
+    directory: /tmp/h-agent/skill-artifacts
+    max-bytes: 524288000
+    snapshot-ttl: 5m
+  runtime:
+    enabled: true
 
 agents:
   a2a:

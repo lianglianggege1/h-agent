@@ -25,6 +25,8 @@ import com.h.backend.chat.application.HarnessSubagentTurnStart;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
+import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.backend.skill.domain.SkillPlatformException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -53,6 +55,8 @@ public class ChatServiceImpl implements ChatService {
     private final ChatMemoryIdFactory chatMemoryIdFactory;
     private final HarnessCollaborationService harnessCollaborationService;
     private final Map<AgentRuntimeType, ChatAgentExecutor> executors;
+    /** Skill 快照固定点；为 null 时本次部署未启用 Skill Runtime。 */
+    private final SkillRuntimeService skillRuntimeService;
 
     @Autowired
     public ChatServiceImpl(
@@ -66,7 +70,8 @@ public class ChatServiceImpl implements ChatService {
             AgentRegistry agentRegistry,
             ChatMemoryIdFactory chatMemoryIdFactory,
             HarnessCollaborationService harnessCollaborationService,
-            List<ChatAgentExecutor> executors
+            List<ChatAgentExecutor> executors,
+            SkillRuntimeService skillRuntimeService
     ) {
         this.systemPromptService = systemPromptService;
         this.chatSessionService = chatSessionService;
@@ -79,6 +84,25 @@ public class ChatServiceImpl implements ChatService {
         this.chatMemoryIdFactory = chatMemoryIdFactory;
         this.harnessCollaborationService = harnessCollaborationService;
         this.executors = toExecutorMap(executors);
+        this.skillRuntimeService = skillRuntimeService;
+    }
+
+    public ChatServiceImpl(
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            AgentRegistry agentRegistry,
+            ChatMemoryIdFactory chatMemoryIdFactory,
+            HarnessCollaborationService harnessCollaborationService,
+            List<ChatAgentExecutor> executors
+    ) {
+        this(systemPromptService, chatSessionService, agentRunService, agentRunTelemetryService,
+                chatStreamExecutor, concurrencyGuard, imageGenerationService, agentRegistry,
+                chatMemoryIdFactory, harnessCollaborationService, executors, null);
     }
 
     public ChatServiceImpl(
@@ -358,6 +382,12 @@ public class ChatServiceImpl implements ChatService {
                     agent.agentId(),
                     telemetryRun.traceId()
             );
+            String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
+            // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
+            // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
+            if (skillRuntimeService != null && !address.subagent()) {
+                skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
+            }
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
             executor.execute(new ChatAgentExecutionCommand(
@@ -374,7 +404,7 @@ public class ChatServiceImpl implements ChatService {
                     address.subagentDefinitionBinding(),
                     userMessage,
                     resources,
-                    buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId()),
+                    memoryId,
                     agent,
                     runHandle,
                     telemetryRun,
@@ -409,7 +439,7 @@ public class ChatServiceImpl implements ChatService {
                 } else if (telemetryRun != null) {
                     agentRunTelemetryService.markFailure(telemetryRun, ex);
                 }
-                String publicMessage = ex instanceof BusinessException
+                String publicMessage = ex instanceof BusinessException || ex instanceof SkillPlatformException
                         ? ex.getMessage()
                         : "AI 服务调用失败";
                 emitAndCompleteIfActive(sink, new ChatStreamEvent("error", publicMessage));

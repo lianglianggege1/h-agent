@@ -8,7 +8,9 @@ spring:
     name: backend
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
+    # 独立 schema，与 h-agent / h-agent-ltm 工作区的 public 隔离，避免 Flyway 版本互相污染；
+    # 保留 public 以便解析 pgvector 扩展类型（vector）
+    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db?currentSchema=skill_platform,public
     username: h_agent
     password: h_agent
   data:
@@ -72,9 +74,6 @@ chat:
   filesystem:
     base-dir: /tmp/h-agent/assistant-files
     max-file-size-bytes: 10485760
-  skills:
-    enabled: true
-    directory: /Users/huajiang/Desktop/h-agent/backend/src/main/resources/skills
   shell:
     enabled: true
     default-timeout-seconds: 30
@@ -148,3 +147,36 @@ resource-storage:
     access-key: test-access-key
     secret-key: test-secret-key
     bucket: test-bucket
+
+# 测试上下文 Skill 平台配置：同样只做纯配置校验，不连接 Gitee / MinIO。
+skill-platform:
+  repository:
+    provider: gitee
+    clone-url: https://gitee.com/test/test-skill-repo.git
+    branch: master
+    credential-env: GITEE_TOKEN
+    api-base-url: https://gitee.com/api/v5
+  artifacts:
+    endpoint: http://127.0.0.1:9000
+    access-key: test-access-key
+    secret-key: test-secret-key
+    region: us-east-1
+    system-bucket: test-skill-bucket
+    user-bucket: test-skill-bucket
+    system-object-prefix: system/
+    user-object-prefix: user/
+    connect-timeout: 3s
+    read-timeout: 60s
+  cache:
+    directory: /tmp/h-agent/test-skill-artifacts
+    max-bytes: 52428800
+    snapshot-ttl: 5m
+  validation:
+    max-user-skills: 20
+    max-file-bytes: 1048576
+    max-total-bytes: 10485760
+    max-files: 200
+    max-depth: 8
+  runtime:
+    enabled: true
+  system-skills: []

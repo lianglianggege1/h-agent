@@ -51,6 +51,9 @@ export default function MePage() {
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/agents">
             领域 Agent 管理
           </Link>
+          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/skills">
+            我的 Skill（版本管理）
+          </Link>
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/chat">
             返回聊天
           </Link>
