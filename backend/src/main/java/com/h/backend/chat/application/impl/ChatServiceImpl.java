@@ -378,6 +378,7 @@ public class ChatServiceImpl implements ChatService {
                     agent,
                     runHandle,
                     telemetryRun,
+                    address.approvalMode(),
                     () -> releasePermitOnce(permit, permitReleased)
             ));
         } catch (Exception ex) {
@@ -426,7 +427,7 @@ public class ChatServiceImpl implements ChatService {
     ) {
         AgentDefinition agent = resolveAgent(agentId);
         if (agent.runtimeType() != AgentRuntimeType.HARNESS_STREAMING) {
-            return new ExecutionAddress(sessionId, sessionId, null, null, null, null, null);
+            return new ExecutionAddress(sessionId, sessionId, null, null, null, null, null, null);
         }
         if (harnessCollaborationService == null) {
             throw new IllegalStateException("HarnessCollaborationService is required for subagent turns");
@@ -439,7 +440,8 @@ public class ChatServiceImpl implements ChatService {
                 resolved.subagentAgentId(),
                 resolved.parentSessionId(),
                 resolved.assignment(),
-                resolved.definitionBinding()
+                resolved.definitionBinding(),
+                resolved.approvalMode()
         );
     }
 
@@ -451,7 +453,8 @@ public class ChatServiceImpl implements ChatService {
             String subagentAgentId,
             String subagentParentSessionId,
             String subagentAssignment,
-            com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding subagentDefinitionBinding
+            com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding subagentDefinitionBinding,
+            com.h.backend.chat.domain.approval.ApprovalMode approvalMode
     ) {
         private boolean subagent() {
             return gatewaySubagentId != null;

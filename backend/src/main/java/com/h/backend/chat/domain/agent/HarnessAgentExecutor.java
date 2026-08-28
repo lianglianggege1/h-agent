@@ -150,7 +150,12 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));
         try {
             reactor.core.publisher.Flux<AgentEvent> events = parentTurn
-                    ? harnessRuntime.streamParent(command.agent().agentBean(), command.userMessage(), runtimeContext)
+                    ? harnessRuntime.streamParent(
+                            command.agent().agentBean(),
+                            command.userMessage(),
+                            runtimeContext,
+                            command.approvalMode()
+                    )
                     : harnessRuntime.streamSubagent(
                             command.agent().agentBean(),
                             new HarnessSubagentContext(
@@ -162,7 +167,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentExecutionId(),
                                     command.subagentDefinitionBinding()
                             ),
-                            command.userMessage()
+                            command.userMessage(),
+                            command.approvalMode()
                     );
             Disposable subscription = events
                     .subscribe(execution::onEvent, execution::onError, execution::onComplete);

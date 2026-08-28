@@ -5,6 +5,7 @@ import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import reactor.core.publisher.FluxSink;
 
 import java.util.List;
@@ -34,6 +35,7 @@ public record ChatAgentExecutionCommand(
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
         AgentRunTelemetryService.TelemetryRun telemetryRun,
+        ApprovalMode approvalMode,
         Runnable onTerminal
 ) {
     public ChatAgentExecutionCommand(
@@ -51,7 +53,7 @@ public record ChatAgentExecutionCommand(
     ) {
         this(sink, userId, resolvedPromptId, sessionId, sessionId, null, null, null, null, null, null,
                 userMessage, resources, memoryId,
-                agent, runHandle, telemetryRun, onTerminal);
+                agent, runHandle, telemetryRun, null, onTerminal);
     }
 
     /** 兼容无 Catalog 绑定的旧全参构造。 */
@@ -77,6 +79,33 @@ public record ChatAgentExecutionCommand(
         this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
                 subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
                 null, userMessage, resources, memoryId,
-                agent, runHandle, telemetryRun, onTerminal);
+                agent, runHandle, telemetryRun, null, onTerminal);
+    }
+
+    /** 兼容新增批准模式前的全参调用。 */
+    public ChatAgentExecutionCommand(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            Long resolvedPromptId,
+            String sessionId,
+            String rootSessionId,
+            String gatewaySubagentId,
+            String subagentAgentId,
+            String subagentParentSessionId,
+            String subagentAssignment,
+            String subagentExecutionId,
+            DefinitionBinding subagentDefinitionBinding,
+            String userMessage,
+            List<ChatMessageResourceUseDto> resources,
+            String memoryId,
+            AgentDefinition agent,
+            AgentRunService.AgentRunHandle runHandle,
+            AgentRunTelemetryService.TelemetryRun telemetryRun,
+            Runnable onTerminal
+    ) {
+        this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
+                subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
+                subagentDefinitionBinding, userMessage, resources, memoryId, agent, runHandle,
+                telemetryRun, null, onTerminal);
     }
 }

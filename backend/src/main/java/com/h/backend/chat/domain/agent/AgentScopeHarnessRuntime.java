@@ -3,6 +3,7 @@ package com.h.backend.chat.domain.agent;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
@@ -12,6 +13,7 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.DefaultAgentManager;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -29,18 +31,49 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
 
     private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
     private final ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider;
+    private final AgentScopeApprovalAdapter approvalAdapter;
+
+    @Autowired
+    public AgentScopeHarnessRuntime(
+            ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
+            ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider,
+            AgentScopeApprovalAdapter approvalAdapter
+    ) {
+        this.subagentCatalogProvider = subagentCatalogProvider;
+        this.subagentRuntimeFactoryProvider = subagentRuntimeFactoryProvider;
+        this.approvalAdapter = approvalAdapter;
+    }
 
     public AgentScopeHarnessRuntime(
             ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
             ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider
     ) {
-        this.subagentCatalogProvider = subagentCatalogProvider;
-        this.subagentRuntimeFactoryProvider = subagentRuntimeFactoryProvider;
+        this(subagentCatalogProvider, subagentRuntimeFactoryProvider,
+                new AgentScopeApprovalAdapter("/tmp/h-agent/harness-workspace"));
     }
 
     @Override
     public Flux<AgentEvent> streamParent(Object agentBean, String message, RuntimeContext context) {
-        return requireHarnessAgent(agentBean).streamEvents(message, context);
+        return streamParent(agentBean, message, context, null);
+    }
+
+    @Override
+    public Flux<AgentEvent> streamParent(
+            Object agentBean,
+            String message,
+            RuntimeContext context,
+            ApprovalMode approvalMode
+    ) {
+        HarnessAgent harnessAgent = requireHarnessAgent(agentBean);
+        if (approvalMode != null) {
+            approvalAdapter.applyMode(
+                    harnessAgent.getDelegate(),
+                    context.getUserId(),
+                    context.getSessionId(),
+                    approvalMode
+            );
+        }
+        return harnessAgent.streamEvents(message, context);
     }
 
     @Override
@@ -49,6 +82,16 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
             HarnessSubagentContext context,
             String message
     ) {
+        return streamSubagent(agentBean, context, message, null);
+    }
+
+    @Override
+    public Flux<AgentEvent> streamSubagent(
+            Object agentBean,
+            HarnessSubagentContext context,
+            String message,
+            ApprovalMode approvalMode
+    ) {
         Msg userMessage = Msg.builder()
                 .name("user")
                 .role(MsgRole.USER)
@@ -56,6 +99,14 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                 .build();
         ReActAgent child = materializeSubagent(agentBean, context);
         ensureAssignment(child, context);
+        if (approvalMode != null) {
+            approvalAdapter.applyMode(
+                    child,
+                    context.userId(),
+                    context.sessionId(),
+                    approvalMode
+            );
+        }
         RuntimeContext runtimeContext = RuntimeContext.builder()
                 .userId(context.userId())
                 .sessionId(context.sessionId())

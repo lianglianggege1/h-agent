@@ -1,9 +1,12 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.DefaultAgentManager;
@@ -18,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,7 +53,12 @@ class AgentScopeHarnessRuntimeTest {
                 .thenReturn(Flux.empty());
 
         AgentScopeHarnessRuntime runtime = new AgentScopeHarnessRuntime(null, null);
-        runtime.streamSubagent(parent, context, "再补充两个来源").collectList().block();
+        runtime.streamSubagent(
+                parent,
+                context,
+                "再补充两个来源",
+                ApprovalMode.EXPLORE
+        ).collectList().block();
 
         assertEquals(1, state.getContext().size());
         Msg assignment = state.getContext().getFirst();
@@ -57,6 +66,15 @@ class AgentScopeHarnessRuntimeTest {
         assertEquals("parent_assignment", assignment.getName());
         assertEquals("收集并整理官方资料", assignment.getTextContent());
         verify(child).saveAgentState("42", "child-session");
+
+        ArgumentCaptor<PermissionContextState> permissionCaptor =
+                ArgumentCaptor.forClass(PermissionContextState.class);
+        var order = inOrder(child);
+        order.verify(child).replacePermissionContext(
+                eq("42"), eq("child-session"), permissionCaptor.capture());
+        order.verify(child).streamEvents(anyList(),
+                org.mockito.ArgumentMatchers.any(RuntimeContext.class));
+        assertEquals(PermissionMode.EXPLORE, permissionCaptor.getValue().getMode());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Msg>> messageCaptor = ArgumentCaptor.forClass(List.class);

@@ -1,5 +1,6 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import reactor.core.publisher.Flux;
@@ -9,7 +10,25 @@ public interface HarnessRuntime {
 
     Flux<AgentEvent> streamParent(Object agentBean, String message, RuntimeContext context);
 
+    default Flux<AgentEvent> streamParent(
+            Object agentBean,
+            String message,
+            RuntimeContext context,
+            ApprovalMode approvalMode
+    ) {
+        return streamParent(agentBean, message, context);
+    }
+
     /** 使用同一用户与子 Session 恢复上下文，然后追加本轮用户消息。 */
     Flux<AgentEvent> streamSubagent(Object agentBean, HarnessSubagentContext context, String message);
+
+    default Flux<AgentEvent> streamSubagent(
+            Object agentBean,
+            HarnessSubagentContext context,
+            String message,
+            ApprovalMode approvalMode
+    ) {
+        return streamSubagent(agentBean, context, message);
+    }
 
 }
