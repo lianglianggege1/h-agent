@@ -66,6 +66,14 @@ _Avoid_: 默认全采集、黑白名单
 观测数据允许因关闭、过载、大小限制或观测平台故障而缺失，但这些情况不改变业务行为。
 _Avoid_: 可靠业务事件、审计台账
 
+**Trace 派生分析**：
+Langfuse 对已采样并成功送达的 Trace、Observation 和 Score 做出的数量、延迟、成本与质量聚合。
+_Avoid_: 资源运行指标、准确业务计数、OTLP Metrics
+
+**资源运行指标**：
+对资源存储操作的次数、错误、延迟、字节量和补偿结果进行不依赖 Agent Trace 采样的聚合测量。
+_Avoid_: Trace 派生分析、单次执行日志、Artifact Reference
+
 **语义内容**：
 框架无关且保持原始角色和内容块结构的 Agent 输入输出表示，包括文本、思考、工具调用、工具结果和 Artifact 引用。
 _Avoid_: 任意对象字符串、完整会话快照
@@ -76,8 +84,12 @@ _Avoid_: 任意对象字符串、完整会话快照
 Agent 执行消费或产生的文件、图片、音频或视频业务资源；其二进制内容由业务资源系统拥有。
 _Avoid_: Trace 附件副本、Span attribute
 
+**业务资源引用**：
+产品中对一个 Artifact 的可鉴权、可绑定身份；同一个 Artifact 可以因消息复用拥有多个业务资源引用。
+_Avoid_: MinIO 对象键、Artifact Reference、内容哈希
+
 **Artifact Reference**：
-Observation 中对 Artifact 的逻辑引用，描述资源身份、语义角色、媒体类型、大小和执行血缘，但不拥有资源内容。
+Observation 中对本次操作实际使用的业务资源引用所做的有界快照，描述语义用途、媒体类型、大小和执行血缘，但不拥有资源内容。
 _Avoid_: 对象存储 Key、临时下载地址、Langfuse Media 副本
 
 **Artifact Role**：

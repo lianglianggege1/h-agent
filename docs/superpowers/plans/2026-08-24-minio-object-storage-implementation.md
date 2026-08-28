@@ -1,6 +1,8 @@
 # h-agent MinIO 资源对象存储实施计划
 
 > **面向 AI 代理的工作者：** 按任务顺序实施，使用复选框（`- [ ]`）跟踪进度。每项任务先写失败测试，再写最小实现；未通过真实 MinIO contract test，不得把 MinIO 接入标记为完成。
+>
+> **2026-08-28 后续决定：** 本计划任务 6 的进程内 `ResourceStorageMetrics` LongAdder/snapshot 方案已被 [ADR-0005](../../adr/0005-separate-agent-traces-from-resource-metrics.md) 取代，后续实现使用 Micrometer → Prometheus；Langfuse 只承担 Agent Trace。其余 MinIO Interface、事务补偿、内容安全和存储生命周期决定保持有效。
 
 - 日期：2026-08-24
 - 设计确认：2026-08-26，经 grilling 逐项确认

@@ -2,7 +2,7 @@
 
 > 对应计划：`docs/superpowers/plans/2026-08-24-minio-object-storage-implementation.md`
 > 部署范围：**开发环境**。生产启用受 §8 前置条件约束，本期完成不等于生产启用。
-> 最后更新：2026-08-27（审查修复轮：HTTP 错误映射接入、四写入点签名校验、m4a 互认）
+> 最后更新：2026-08-28（补充资源 Metrics、Agent Trace 与结构化日志的分工）
 
 ## 0. 部署前置环境变量（置顶清单）
 
@@ -199,9 +199,19 @@ SELECT
 - **开放流量前**（开发数据清理或 smoke test 失败）：可恢复 §3.2 备份行并回退旧构建。
 - **开放流量后**：只允许 **roll-forward**——修复配置、MinIO、权限或代码并恢复资源能力。**禁止**恢复切换前的 PostgreSQL 快照（会丢失切换后的聊天、运行和资源 metadata）。
 
-### 5.4 存储可观测性（任务 6：进程内计数与告警）
+### 5.4 存储运行指标与 Agent Trace
 
-- `ResourceStorageMetrics`（Spring Bean）对 save/open/discard 成功/失败做进程内 LongAdder 计数（失败按四类错误细分），另有 Coordinator 事务回滚补偿 discard 的成功/失败计数。不引入 micrometer/actuator/health（计划 §1.2 明确不实施）；计数仅供排障与测试断言，不对外暴露端点。
+统一 Trace 设计已明确三种信号各自负责不同问题（见 [`H Agent 统一 Langfuse Trace 详细设计`](../superpowers/specs/2026-08-26-unified-agent-langfuse-trace-design.md#106-tracemetricslogs-三信号分工)）：
+
+- MinIO 运行指标：`ResourceStorageMetrics` 的进程内 LongAdder/snapshot 将由 Micrometer `ResourceStorageMeters` 替换，通过 Prometheus scrape 形成不依赖 Trace 采样的次数、错误率、延迟、字节量和补偿结果。
+- Agent Trace：Langfuse 只接收与 Agent 语义有关的 ArtifactReference 和可选 `materialize-artifact` 阶段，不展开 stat/get/put/multipart/discard 内部 Span。
+- 结构化日志：保留稀有且需要人工处理的补偿删除失败现场。
+
+Prometheus 不可用或未抓取不得影响应用启动、资源调用或 health/readiness；MinIO 仍不注册 HealthIndicator。Metrics label 只允许 operation/outcome/error.kind 等有界枚举，禁止 resourceId、storageKey、bucket、userId、sessionId 和 endpoint。
+
+Langfuse 的 Metrics API 是对已摄取 Trace/Observation 的派生分析，不是 OTLP Metrics 接收端，不能作为 MinIO 运行指标或 SLO 真相源。
+
+- **补偿删除失败日志告警**（ERROR 级，需人工关注孤儿对象）：
 - **补偿删除失败告警**（ERROR 级，需人工关注孤儿对象）：
 
   ```text

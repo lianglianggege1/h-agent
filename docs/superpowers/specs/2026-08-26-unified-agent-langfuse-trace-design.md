@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-08-27
+last_updated: 2026-08-28
 ---
 
 # H Agent 统一 Langfuse Trace 详细设计
@@ -33,6 +34,7 @@ H Agent 使用 OpenTelemetry 建立统一 Agent Trace，并通过 OTLP/HTTP 直�
 7. 图片、视频、音频和文件只在业务 MinIO 中保存一份，Trace 记录语义引用。
 8. Langfuse 未配置、不可用、拥塞或内容处理失败时业务保持原样。
 9. 配置、属性和测试能够支撑后续升级 LangChain4j、AgentScope、A2A SDK 和 OTel。
+10. Agent Trace、运行指标与结构化日志各自使用适合的信号，不把 Langfuse 当作通用 Metrics 后端。
 
 ### 2.2 非目标
 
@@ -45,6 +47,7 @@ H Agent 使用 OpenTelemetry 建立统一 Agent Trace，并通过 OTLP/HTTP 直�
 7. 不复制业务 MinIO 对象到 Langfuse Media。
 8. 不为观测执行 OCR、文档解析、转码、抽帧或音频转写。
 9. 不承诺观测数据百分之百交付。
+10. 不通过 Langfuse Observation 计数替代 MinIO 的不采样运行指标和告警。
 
 ## 3. 当前项目契合度与一次性改造
 
@@ -68,7 +71,8 @@ H Agent 使用 OpenTelemetry 建立统一 Agent Trace，并通过 OTLP/HTTP 直�
 | 子 Agent 新建空 `RuntimeContext` | 从父 `RuntimeContext` 派生 |
 | `AgenticServices.a2aBuilder` 隐藏 Transport 配置 | 项目自有 A2A Remote Agent Module |
 | MCP Transport 无动态传播 | 使用每请求 `McpHeadersSupplier` |
-| 业务资源保存在 Local File | `ResourceStorage` 增加 MinIO Adapter |
+| MinIO-only `ResourceStorage` 与事务补偿已落地 | 复用现有业务资源结果，只增加无 I/O 的 Artifact 映射 |
+| `ResourceStorageMetrics` 仅进程内 LongAdder、不可被运维系统采集 | 用 Micrometer Timer/Counter 替换并由 Prometheus 抓取 |
 | Trace Artifact Store | 删除；业务 MinIO 是唯一二进制真相源 |
 
 旧测试中围绕 `AgentRunTelemetryService.TelemetryRun` 的 Mock 直接删除并按新 Interface 重写，不进行双写或兼容层叠加。
@@ -124,6 +128,8 @@ h-agent/
 
 - A2A HTTP 服务端提取和异步响应生命周期。
 - MCP WebFlux 服务端提取、Reactor Context bridge 和 Tool Callback 观测。
+
+MinIO 运行指标属于 `backend` 资源存储 Module，不进入 `agent-observability`。共享 Trace Module 不依赖 Micrometer、Prometheus、MinIO SDK 或 `ResourceStorageMetrics`；这避免 Agent Trace 与基础设施监控互相控制生命周期。
 
 ### 4.3 Maven 构建契约
 
@@ -394,105 +400,181 @@ artifacts.mode = REFERENCE_FIRST
 - `DROPPED_OVERLOAD`
 - `CAPTURE_ERROR`
 
-达到技术限额时保留 schema、原始大小、可用 hash、预览和明确状态。不得因为超限回退为 Base64 attribute。
+达到技术限额时保留 schema、原始大小、已有业务元数据、预览和明确状态。不得因为超限回退为 Base64 attribute，也不得为了补齐 Trace 临时计算内容 hash。
 
-## 9. Artifact 与 MinIO
+## 9. Artifact 与已落地 MinIO Module
 
-### 9.1 所有权
+### 9.1 当前代码事实与所有权
 
-业务资源模块拥有 Artifact 的二进制、身份和生命周期。MinIO 是业务二进制唯一真相源；Langfuse 只保存执行时的语义引用。
+MinIO 已经是唯一生产 `ResourceStorage` Adapter，不再是本设计的待实现项。现有 Module 职责如下：
+
+| Module/存储 | 已有职责 | Langfuse 是否参与 |
+|---|---|---|
+| `ResourceStorage` | `save/open/discard` 字节能力与稳定错误语义 | 否 |
+| `ResourceWriteCoordinator` | 对象先写、PostgreSQL 后挂接、回滚时 best-effort `discard` | 否 |
+| PostgreSQL | resourceId、owner、类型/角色、MIME、文件名、尺寸、应用 URL、storage key | 只消费已有业务视图 |
+| MinIO | 私有业务二进制与少量技术 metadata | 否 |
+| Langfuse | Agent 执行时的 Artifact 语义引用 | 不拥有二进制或生命周期 |
+
+MinIO 是资源业务的依赖，不是观测依赖。MinIO 故障可以按现有 `ResourceStorageException` 语义使资源操作失败；Langfuse 故障不得进一步改变该结果。
+
+### 9.2 业务资源引用不是对象身份
+
+一次 `ResourceStorage.save` 生成的 UUID 同时成为初始业务 resourceId 和 object key 尾段。但 `ChatMessageResourceBinder` 在资源复用时允许创建新的消息资源行，并继续指向同一个 `storageKey`。因此：
+
+- resourceId 表示某次业务资源引用身份，不是内容 hash。
+- 多个 resourceId 可以指向同一个 MinIO 对象。
+- `storageKey` 是基础设施定位信息，不是 Observation 身份。
+- 不按 `storageKey`、文件名、MIME + size 或 MinIO ETag 在 Trace 中去重。
+- 有明确 `sourceResourceId` 时可以记录业务血缘，但不得通过查询 MinIO 推断血缘。
+
+Observation 记录当前操作实际消费或产生的 resourceId。它不试图创造一个当前业务模型中不存在的“全局 Artifact ID”。
+
+### 9.3 ArtifactReference schema
 
 ```java
 public record ArtifactReference(
-        String artifactId,
+        String resourceId,
+        String sourceResourceId,
         ArtifactKind kind,
-        ArtifactRole role,
+        ArtifactUse use,
+        String businessRole,
         String mimeType,
         Long byteSize,
-        String sha256,
         Integer width,
         Integer height,
-        Long durationMillis,
         String fileName,
-        String stableViewUrl,
-        ArtifactCaptureState captureState
+        String applicationViewUrl
 ) {}
 ```
 
-`artifactId` 使用业务 `resourceId`。Observation 不以 MinIO bucket、object key 或预签名 URL 作为资源身份。
+字段语义：
 
-### 9.2 存储流程
+| 字段 | 来源/规则 |
+|---|---|
+| `resourceId` | `ChatMessageResourceDto.id` 或 `GeneratedArtifact.resourceId` |
+| `sourceResourceId` | 只接受业务已经给出的复用/来源血缘，可空 |
+| `kind` | 由资源 `type` 归一为 IMAGE/VIDEO/AUDIO/FILE/DOCUMENT |
+| `use` | 由 Observation 接缝赋值，如 MODEL_INPUT、MODEL_OUTPUT、TOOL_INPUT、TOOL_OUTPUT、REMOTE_INPUT、REMOTE_OUTPUT、SOURCE |
+| `businessRole` | 已有产品分类，如 ATTACHMENT、GENERATED；不可替代 `use` |
+| MIME/size/dimensions/fileName | 只使用业务结果中已有值 |
+| `applicationViewUrl` | 已有受鉴权应用 URL，可空；它不是 MinIO URL，也不是 Langfuse Media URL |
 
-```text
-业务接收或生成文件
-  -> ResourceStorage.save
-  -> MinIO 写入
-  -> 业务资源元数据持久化
-  -> 产生 ArtifactReference
-  -> Observation 记录引用
-```
+当前实现明确不计算自定义 SHA-256，也不能把 multipart ETag 当成内容 hash，因此 schema 不包含 `sha256`。当前没有类型化 duration 字段，不能从任意 `metadata_json` 猜测；未来确有需要时通过 schema version 增加显式字段。
 
-禁止：
+### 9.4 映射接缝
 
-```text
-Observation
-  -> ResourceStorage.open
-  -> 重新下载 MinIO 对象
-  -> 上传 Langfuse Media
-  -> 等待上传结果
-```
-
-### 9.3 元数据
-
-业务资源应在首次上传流中产生：
-
-- `resourceId`
-- MIME
-- byte size
-- SHA-256
-- filename
-- width/height
-- duration（适用时）
-- storage type/key（仅业务基础设施使用）
-
-SHA-256 在写入流中增量计算，观测阶段不重新读取对象。
-
-### 9.4 预览
-
-优先级：
-
-1. Langfuse 只展示 Artifact 元数据和 resourceId。
-2. 如果应用提供浏览器可访问的稳定资源 URL，则记录该 URL 供外部渲染。
-3. 不持久化 MinIO 预签名 URL。
-4. 不为了 Langfuse 预览公开或复制业务对象。
-5. 资源按业务规则过期后，历史 Trace 允许显示不可用；Trace 不延长资源寿命。
-
-### 9.5 Langfuse 自身对象存储
-
-Langfuse 可以使用同一个 MinIO 集群，但必须使用独立 bucket 和凭据：
+`backend` 增加具体的 `BusinessArtifactReferenceMapper`，但不为它额外抽象一个只有单一实现的 Port。共享 `agent-observability` Module 只拥有 `ArtifactReference` 值类型；应用本地 Mapper 负责从已经在当前调用链中的业务对象映射：
 
 ```text
-MinIO
-├── h-agent-assets       # 业务所有
-├── langfuse-events      # Langfuse 内部事件
-└── langfuse-media       # 可选临时媒体/评估样本
+ChatMessageResourceDto + ArtifactUse -> ArtifactReference
+GeneratedArtifact + ArtifactUse + applicationViewUrl -> ArtifactReference
+StoredResource + 已提交的业务挂接结果 -> ArtifactReference
 ```
 
-禁止 Langfuse 对 `h-agent-assets` 获得删除或生命周期管理职责。
+Mapper 必须是纯映射：
 
-### 9.6 不同来源
+- 不依赖 `ResourceStorage`、MinIO SDK、Mapper/Repository 或 HTTP Client。
+- 不调用 `open/stat` 验证对象是否存在。
+- 不解析任意 `metadata_json`；只接受调用方显式提供的受控血缘字段。
+- 不输出 `storageType`、`storageKey`、bucket、endpoint、凭据或预签名 URL。
+- 映射失败返回受限的 `CAPTURE_ERROR` 内容状态，不抛向业务。
 
-| 来源 | 业务资源 | Observation |
+### 9.5 写入终态与 Observation 时机
+
+Artifact 不是在 `ResourceStorage.save` 返回时就成为可观测业务输出，而是在业务挂接成功后才成立：
+
+```text
+ResourceWriteCoordinator.saveAndAttach
+  -> MinIO save
+  -> PostgreSQL attachment
+  -> transaction commit/业务成功结果
+  -> ArtifactReference 进入拥有它的 Tool/Workflow 输出
+```
+
+规则：
+
+1. 不装饰 `ResourceStorage.save/open/discard` 生成 Langfuse Observation。
+2. 不在 `save` 成功但数据库挂接尚未成功时记录 Artifact 输出。
+3. 挂接失败时，拥有该操作的 Tool/Workflow 记录失败；不输出一个随后被补偿删除的成功 Artifact。
+4. `discard` 及补偿失败由资源运行指标和结构化日志处理，不创建新 Agent Trace。
+5. 若 Agent 场景确实需要展示“生成物落库”阶段，只在应用用例接缝创建一个 `persistence` Observation（如 `materialize-artifact`），不展开 MinIO stat/put/multipart 内部调用。
+
+用户在 Agent Run 之前独立上传的资源不创建 Agent Trace；后续 Agent 输入通过 ArtifactReference 表达它。异步视频物化没有存续的 Agent Context 时，不能为了连线而把 OTel Context 塞进资源表；它保留 generation task/session 业务关联，只有业务本来就持有合法 Trace Context 时才建立因果关系。
+
+### 9.6 预览与访问
+
+当前 `ChatResourceUrls` 产生 `/api/chat/resources/{id}/content|download`，Bucket 私有且应用端点要求 owner 鉴权。这些 URL 的规则是：
+
+1. `applicationViewUrl` 只作为 Trace 中的业务定位元数据。
+2. 不把受鉴权 URL 编码成 Langfuse multimodal media block，因为 Langfuse 服务端无法获得产品用户凭证。
+3. 不把相对 URL 描述为公开、永久或由 Langfuse 可抓取。
+4. 不持久化 MinIO 预签名 URL。
+5. 不为 Langfuse 预览公开 Bucket、绕过 owner 鉴权或复制业务对象。
+
+未来若业务正式提供独立、稳定、可由观测平台读取的资源访问能力，必须作为资源 Module 的新 Interface 另行设计；不能让观测 Adapter 自行签名 URL。
+
+### 9.7 内容策略与观测策略
+
+`ResourceContentPolicy` 对 MIME/签名和 inline preview 的允许列表属于业务内容安全规则，不是 Langfuse 内容采集黑白名单。两者保持独立：
+
+- 业务内容策略决定资源能否保存、预览或必须下载。
+- `ContentCaptureMode` 决定 Trace 是否记录正文和 Artifact 元数据。
+- 观测不得放宽或再次执行业务内容检查。
+
+`ResourceStorageException` 进入 Trace 时只记录稳定 `error.kind`：NOT_FOUND、SIZE_LIMIT、UNAVAILABLE、IO_ERROR。不得记录 cause 中的 SDK 消息、完整 object key、bucket 或 endpoint。
+
+### 9.8 MinIO 与 Langfuse 对象存储隔离
+
+当前开发环境允许业务使用已有 bucket 的 `resources/` 前缀，不要求为了接入 Langfuse 迁移现有对象。隔离规则：
+
+```text
+MinIO Cluster
+├── business bucket / resources/*     # H Agent ResourceStorage
+├── langfuse event bucket/prefix       # Langfuse 内部事件
+└── langfuse media bucket/prefix       # 可选临时媒体/评估样本
+```
+
+- 生产环境优先使用独立 bucket 和独立凭据。
+- 开发环境若共享 bucket，至少使用互斥 prefix 和互不越权的凭据。
+- H Agent 观测进程不需要业务 MinIO 凭据。
+- Langfuse 不获得业务 `resources/*` 的读取、删除或生命周期管理权限。
+
+### 9.9 不同来源
+
+| 来源 | 业务资源处理 | Observation |
 |---|---|---|
-| 用户上传 | 先存 MinIO | 引用 resourceId |
-| 模型消费已有图片 | 从 MinIO 读取 | 记录实际输入 Artifact |
-| 生成图片/视频 | provider 结果先存 MinIO | 记录输出 Artifact 与来源 |
-| 文档解析 | 原文件在 MinIO | 同时记录源 Artifact 与模型实际看到的文本 |
-| A2A Artifact | 产品需要时存 MinIO | 记录 A2A 血缘与 resourceId |
-| MCP Resource | 产品需要时存 MinIO | 记录 MCP 工具与 resourceId |
-| 临时 Base64 | 不自动进入业务 MinIO | 元数据或可选异步 Media |
+| 用户上传 | 现有 Coordinator 落 MinIO + PostgreSQL | 后续 Agent 输入引用实际 resourceId；不追溯创建上传 Trace |
+| 模型消费已有图片 | 业务 Resolver 已按 owner 读取 | Model 输入记录 ArtifactReference；观测不再次读取 |
+| 同步生成图片 | `saveAndAttach` 成功后进入消息 | Generation/Tool 输出记录 GENERATED 引用 |
+| 异步生成视频 | generation task 物化并投影聊天消息 | 物化成功后记录引用；无 Context 时不伪造父 Trace |
+| Agent 交付文件 | FileDelivery Tool 经 Coordinator 保存 | Tool 输出记录 TOOL_OUTPUT 引用 |
+| 文档解析 | 原文件仍为业务资源 | 同时表达 SOURCE 引用与模型实际看到的文本 |
+| A2A Artifact | 产品需要时才业务物化 | 记录 REMOTE_* 血缘和业务 resourceId |
+| MCP Resource | 产品需要时才业务物化 | 记录 Tool/MCP 血缘和业务 resourceId |
+| 临时 Base64 | 不自动进入业务 MinIO | 元数据或可选异步 Langfuse Media；不进 Span attribute |
 
 观测模块不能为了获得更完整 Trace 而擅自把远程附件变成业务资源。
+
+### 9.10 保留与孤儿对象
+
+当前 MinIO Module 尚未实现用户删除、未绑定资源 TTL、引用计数、对象 inventory 或自动 GC；消息/会话 metadata 删除也不等于对象删除。Trace 必须如实接受这个业务现状：
+
+- Langfuse 不是对象引用账本或孤儿对象对账系统。
+- Trace 保留期不控制业务对象保留期，业务对象保留期也不反向控制 Trace。
+- 历史 ArtifactReference 允许因为业务 metadata 或对象变化而不可访问。
+- `discard` 只服务挂接失败补偿，观测不得调用它清理 Trace 关联对象。
+- 正式生产前的资源删除与保留设计属于资源 Module，不并入 Agent observability。
+
+### 9.11 Langfuse 成本约束
+
+每个 ArtifactReference 是有界小 JSON，不包含二进制和任意业务 metadata。记录规则：
+
+- 最近直接消费/产生 Artifact 的 Observation 记录完整引用。
+- 根 Agent 输出仅在 Artifact 确实是最终产品结果时再次表达。
+- 不在每个 workflow/relay/持久化父节点机械重复同一引用。
+- 单 Observation 的引用数量受 `max-collection-elements` 和总字节上限约束。
+- 业务 MinIO Artifact 不进入 `STRUCTURED_WITH_MEDIA` 镜像队列。
 
 ## 10. Langfuse 与 OTel 数据平面
 
@@ -570,6 +652,100 @@ com.h.agent.observability
 - 调用方 Agent、service 和 actor 作为 metadata，不混入 user id。
 
 不把 Langfuse Project ID 作为第一版必需配置。当前前端没有 Trace 跳转消费方，trace ID 只用于关联和排障。
+
+### 10.6 Trace、Metrics、Logs 三信号分工
+
+Langfuse 文档中的 Metrics 是对已摄取 Trace/Observation/Score 的聚合查询和告警，不是 OTLP Metrics 接收端。Langfuse 当前公开的有效 OTLP 写入口是 `/api/public/otel/v1/traces`；`GET /api/public/v2/metrics` 是读取 Langfuse 观测数据的分析接口，二者不能混为一谈。部分 Langfuse 版本虽然暴露 `/api/public/otel/v1/metrics` dummy route 并返回成功，却不处理请求体；任何 Metrics exporter 都禁止指向该地址，避免静默丢数。
+
+`ResourceStorageMetrics` 不能由 Langfuse 取代，原因是：
+
+1. Agent Trace 可采样、可丢弃，不能作为准确请求数和错误率分母。
+2. 用户上传、预览、下载和事务补偿不一定处于 Agent Trace 内。
+3. Langfuse 不接收标准 OTLP Metrics 数据点。
+4. 为每次 MinIO stat/get/put 创建 Span 会污染 Agent 因果树并增加平台存储成本。
+5. 补偿删除失败需要不采样告警；Observation count 无法提供相同保证。
+
+采用三个独立信号：
+
+| 信号 | 技术路径 | 回答的问题 | 完整性 |
+|---|---|---|---|
+| Agent Trace | OTel Span -> Langfuse | 某次 Agent 为什么这样执行/失败 | 可采样、best-effort |
+| 资源 Metrics | Micrometer -> Prometheus scrape | MinIO 整体错误率、吞吐和延迟是否异常 | 不做 Trace 采样 |
+| 结构化 Logs | SLF4J -> 现有日志系统 | 稀有故障的安全现场证据 | 按日志策略保留 |
+
+不把 `trace_id`、resourceId、storageKey、userId 或 sessionId 放进 Metrics label。需要单次调用上下文时查 Trace/Log，需要总体趋势时查 Metrics。
+
+### 10.7 ResourceStorageMetrics 演进
+
+删除自制 LongAdder + `snapshot()` 形态，用 Micrometer `MeterRegistry` 重建为 `ResourceStorageMeters`。Spring Boot 的标准指标入口是 Micrometer；生产默认选择 Prometheus pull，未来也可以把同一 Meter 通过 Micrometer OTLP 发往专用 Metrics backend，但不能发往 Langfuse traces endpoint。
+
+建议 Meter：
+
+| Meter name | 类型 | Tags | 语义 |
+|---|---|---|---|
+| `h.agent.resource.storage.operation.duration` | Timer/Histogram，单位秒 | `operation`、`outcome`、`error.kind` | save/open/discard 次数、延迟与失败分布 |
+| `h.agent.resource.storage.object.size` | DistributionSummary，单位 byte | `operation=save` | save 成功后确认的实际对象字节量 |
+| `h.agent.resource.storage.compensation` | Counter | `outcome`、`error.kind` | 回滚补偿删除成功/失败 |
+
+Tag 取值必须是有界枚举：
+
+```text
+operation  = save | open | discard
+outcome    = success | failure | rejected
+error.kind = none | not_found | size_limit | unavailable | io_error | range
+```
+
+基数是设计约束，不允许在运行时扩展动态标签。Timer 的 count 已经提供操作次数，不再额外维护一组同义 Counter。`ResourceRangeException` 可以记为 `outcome=rejected,error.kind=range`，但不计入 MinIO availability 失败率。
+
+`ResourceStorageMeters` 是具体 Module，不增加只有一个实现的业务 Port。它隐藏 Meter 名称、Timer 缓存、tag 归一化、首个终态和计时细节；调用处只开始一次测量并以 success/failure/rejected 结束。测量方法必须 no-throw，MeterRegistry/Prometheus 不可用不得改变资源操作结果。Metrics 被显式关闭时由空 `CompositeMeterRegistry` 提供进程内 no-op 行为，不要求调用方判空或分支。
+
+建议 Interface：
+
+```java
+public final class ResourceStorageMeters {
+
+    public StorageMeasurement start(StorageOperation operation);
+
+    public void recordCompensationSuccess();
+
+    public void recordCompensationFailure(ResourceStorageErrorKind kind);
+}
+
+public interface StorageMeasurement extends AutoCloseable {
+
+    void success();
+
+    void success(long actualBytes);
+
+    void failure(ResourceStorageErrorKind kind);
+
+    void rejected(StorageRejectionKind kind);
+
+    @Override
+    void close();
+}
+```
+
+`StorageMeasurement` 使用单调时钟并保证终态 first-wins；遗漏终态时以 `failure/io_error` 安全结束。save 在确认实际写入大小后调用 `success(actualBytes)`；open/discard 调用无字节参数的 `success()`。`MinioResourceStorage` 在公开 `save/open/discard` 的单一出口结束 measurement，`TransactionalResourceWriteCoordinator` 只记录 compensation Meter。生产类不再暴露计数 getter 或 `snapshot()`，测试通过注入 `SimpleMeterRegistry` 查询 Meter 结果。
+
+当前 open Timer 的结束点是 `stat/getObject` 返回 `GetObjectResponse`，表示“对象流建立成功”，不表示 HTTP 客户端已读完。第一版不记录 open 实际传输字节；未来需要时必须在 `ResourceContent` 流的 EOF/close/error 接缝单独设计 completed/cancelled/error measurement，不能把 `responseLength` 冒充已传输量。
+
+物理 `discard` Timer 与 compensation Counter 可以同时增加：前者衡量一次 MinIO 删除调用，后者衡量事务回滚清理工作流。两者不能相加为同一 attempts 分母。没有对象扫描、确认和 resolved 状态源前，不创建 `orphan.count` Gauge；补偿失败只代表“可能存在孤儿对象”。
+
+### 10.8 Metrics 导出与告警
+
+`backend` 增加 Spring Boot Actuator 与 Prometheus registry，只暴露 Prometheus scrape 所需端点。Prometheus 缺失、未抓取或暂时不可用不影响应用启动、资源调用和 health/readiness。
+
+首批告警：
+
+- compensation failure 在窗口内增加：需要人工检查孤儿对象，最高优先级。
+- `error.kind=unavailable` 错误率超过阈值且请求量达到最小门槛。
+- save/open 的 p95/p99 延迟持续超阈值。
+- SIZE_LIMIT/IO_ERROR 的异常增幅用于容量或内容链路排障，不直接等价于 MinIO 宕机。
+
+补偿失败继续输出一条脱敏 ERROR 日志；Metrics 不取代日志。成功操作不写日志。Langfuse 可以对 sampled `materialize-artifact` Observation 做产品体验分析，但该 Dashboard 必须标注为 Trace-derived，不作为 MinIO SLO 或告警真相源。
+
+第一版不要求引入 OTel Collector：Trace 继续直接发送 Langfuse，Prometheus 直接 scrape Micrometer。未来统一传输时可引入 Collector，把 traces 和 metrics 路由到不同后端，但仍不合并两种信号的语义。
 
 ## 11. LangChain4j Adapter
 
@@ -807,8 +983,9 @@ Spring WebFlux MCP 服务端增加：
 6. 内容编码器限制深度、元素数和字节数，避免无界遍历。
 7. Artifact 引用不触发 MinIO I/O。
 8. 队列满时允许丢弃观测数据。
-9. 配置错误产生 no-op，不阻止 Spring Context 启动。
+9. Langfuse 配置错误产生 no-op，不阻止 Spring Context 启动。
 10. shutdown 最多执行一次有截止时间的 bounded flush。
+11. Micrometer 记录只更新进程内 Meter；不得在资源调用线程同步访问 Prometheus 或 Langfuse。
 
 ### 16.2 故障矩阵
 
@@ -818,16 +995,18 @@ Spring WebFlux MCP 服务端增加：
 | 部分 key/URL 错误 | DEGRADED 配置状态、no-op | 正常启动 |
 | OTLP 超时/拒绝 | exporter 记录受限错误 | 不等待、不失败 |
 | Batch 队列满 | 丢 Span、增加内部计数 | 不反压 |
+| Prometheus 未部署/未抓取 | Metrics 暂不可查询 | 资源与 Agent 正常 |
+| Meter 记录内部异常 | 丢本次 measurement、受限日志 | 原资源结果不变 |
 | 内容序列化异常 | `CAPTURE_ERROR` 或省略内容 | 原调用继续 |
 | 内容超限 | 截断/引用状态 | 原调用继续 |
 | 非法跨服务 Context | 忽略 parent、新根 | 协议继续 |
-| MinIO 资源过期 | Artifact 不可预览 | 历史 Trace 仍可读 |
+| MinIO metadata/对象不可用 | Artifact 不可预览 | 历史 Trace 仍可读 |
 | 媒体复制失败 | 可选 capture event 失败 | Agent/Run 不降级 |
 | 应用关闭 flush 超时 | 放弃未发送数据 | 关闭继续 |
 
 ### 16.3 运行状态
 
-不为了观测引入 Actuator。提供可测试的 `LangfuseRuntimeStatus` Bean 和结构化启动日志：
+Actuator 只承担 Micrometer/Prometheus 指标暴露，不给 Langfuse 或 MinIO 注册会影响 readiness/liveness 的 HealthIndicator。Langfuse 仍提供可测试的 `LangfuseRuntimeStatus` Bean 和结构化启动日志：
 
 - `ACTIVE`
 - `DISABLED_EXPLICITLY`
@@ -870,6 +1049,16 @@ agent-observability:
     schedule-delay: 1s
     timeout: 5s
     shutdown-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 ```
 
 `enabled=auto`：
@@ -880,6 +1069,8 @@ agent-observability:
 - 显式 `false` 是运行期开关。
 
 两个应用必须以同一种机制加载仓库根 `.env`，不能由 `other-agents` 手工解析而 `backend` 依赖工作目录。密钥只进入 Spring Environment，不写日志或 Trace。
+
+Prometheus 配置与 `LANGFUSE_*` 完全独立。禁用 Prometheus export 只停止运行指标输出，不切换到 Langfuse Observation 计数兜底。
 
 ## 18. 数据持久化
 
@@ -903,7 +1094,7 @@ trace_id VARCHAR(32) NULL
 
 `trace_id` 只表示本次执行生成的 W3C Trace 身份，不表示该 Trace 被采样、成功送达或仍被 Langfuse 保留。根采样决定为“不记录”时也可能存在有效 trace ID，因此业务和前端不得据此承诺平台可查询。
 
-业务资源表继续保存 `storage_type`、`storage_key` 和资源元数据；观测只消费逻辑 resourceId，不在 Agent Run 中复制 Artifact 字段。
+业务资源表继续保存 `storage_type`、`storage_key` 和资源元数据；观测 Mapper 只消费调用链中已有的 `ChatMessageResourceDto`、`GeneratedArtifact` 或已提交业务结果，不在 Agent Run 中复制 Artifact 字段，也不为映射反查资源表。
 
 ## 19. 测试策略
 
@@ -970,13 +1161,35 @@ trace_id VARCHAR(32) NULL
 
 - 用户上传资源只保存一次。
 - 生成图片/视频先业务落库再记录引用。
+- 资源复用产生新 resourceId、共享同一 storageKey 时，两次引用身份正确且 Trace 不暴露 storageKey。
+- schema 不要求 SHA-256，不把 multipart ETag 当 hash。
 - Data URI 不进入 attribute。
 - PDF 源 Artifact 与模型实际文本同时表达。
 - MinIO open 未被观测模块调用。
-- 资源过期只影响预览。
+- 受鉴权应用 URL 只作 metadata，不编码成 Langfuse Media。
+- 业务挂接回滚时不输出成功 Artifact，补偿失败不改变原业务异常。
+- 资源 metadata/对象不可用只影响预览，不改变历史 Trace。
 - transient media queue full 不影响业务。
 
-### 19.7 真实 Langfuse smoke
+### 19.7 Resource Metrics
+
+使用 `SimpleMeterRegistry` 验证：
+
+- save/open/discard 的 Timer count、duration 和有界 tag。
+- success/failure/rejected 只结束一次。
+- NOT_FOUND/SIZE_LIMIT/UNAVAILABLE/IO_ERROR 映射稳定。
+- Range 不可满足记 rejected，不进入 availability 失败率。
+- open success 只表示响应流建立，不产生虚假的 completed-download bytes。
+- compensation success/failure Counter。
+- 物理 discard Timer 与 compensation Counter 分属不同语义，不做求和。
+- 补偿失败同时产生脱敏 ERROR 日志。
+- 没有 reconciliation 状态源时不存在 orphan Gauge。
+- Meter 中不存在 resourceId、storageKey、userId、sessionId、bucket 或 endpoint。
+- 删除旧 `snapshot()` 测试；测试通过 MeterRegistry 查询公开指标结果。
+
+使用 Prometheus registry 验证 scrape 文本包含预期 Meter；不要求 Langfuse 可用，也不向 Langfuse `/v1/traces` 或 dummy `/v1/metrics` 发送 Metrics payload。
+
+### 19.8 真实 Langfuse smoke
 
 可选集成测试连接本地 Langfuse：
 
@@ -999,9 +1212,10 @@ Smoke test 由显式 profile 启用，不成为普通单元测试前置条件。
 7. 实现 Primary/Maintenance 阶段协调。
 8. 替换 A2A builder，完成 client/server 标准传播。
 9. 完成 MCP client/server 动态传播和 Reactor bridge。
-10. 接入 MinIO 元数据映射，确保 Observation 不读二进制。
-11. 删除旧 telemetry config、旧 Mock 和旧字段。
-12. 执行跨服务与真实 Langfuse smoke test。
+10. 用 Micrometer `ResourceStorageMeters` 替换旧 LongAdder/snapshot，并增加 Prometheus scrape 与告警规则。
+11. 接入已有 MinIO 业务结果的 Artifact 映射，确保 Observation 不读二进制、不反查数据库。
+12. 删除旧 telemetry config、旧 Mock、旧字段和旧 Metrics snapshot 测试。
+13. 执行跨服务、Prometheus scrape 与真实 Langfuse smoke test。
 
 每一步先以 no-op/内存 exporter 测试，不要求 Langfuse 可用才能完成业务测试。
 
@@ -1019,9 +1233,13 @@ Smoke test 由显式 profile 启用，不成为普通单元测试前置条件。
 10. Span attribute 中没有 Base64、byte[]、InputStream 或无界 JSON。
 11. 观测失败不产生业务 degraded 状态。
 12. 本地数据库除 nullable trace ID 外没有观测状态机。
+13. MinIO 运行指标由 Micrometer/Prometheus 不采样记录，Langfuse Observation count 不承担 SLO 或告警。
+14. Metrics label 没有 resourceId、storageKey、userId、sessionId 等高基数值。
 
 ## 22. 参考规范
 
+- [ResourceStorageMetrics 与 Langfuse 边界研究](../../research/2026-08-28-resource-storage-metrics-langfuse-assessment.md)
+- [MinIO 资源对象存储运行手册](../../runbooks/minio-resource-storage.md)
 - [W3C Trace Context](https://www.w3.org/TR/trace-context/)
 - [OpenTelemetry Context Propagation](https://opentelemetry.io/docs/concepts/context-propagation/)
 - [OpenTelemetry Trace SDK](https://opentelemetry.io/docs/specs/otel/trace/sdk/)
@@ -1030,6 +1248,12 @@ Smoke test 由显式 profile 启用，不成为普通单元测试前置条件。
 - [A2A Protocol Specification](https://a2a-protocol.org/latest/specification)
 - [MCP Streamable HTTP Transport](https://modelcontextprotocol.io/specification/draft/basic/transports)
 - [Langfuse OpenTelemetry Ingestion](https://langfuse.com/docs/api-and-data-platform/features/public-api)
+- [Langfuse Metrics Overview](https://langfuse.com/docs/metrics/overview)
+- [Langfuse Metrics API](https://langfuse.com/docs/metrics/features/metrics-api)
 - [Langfuse Sampling](https://langfuse.com/docs/observability/features/sampling)
 - [Langfuse Multi-Modality](https://langfuse.com/docs/observability/features/multi-modality)
 - [Langfuse Blob Storage](https://langfuse.com/self-hosting/deployment/infrastructure/blobstorage)
+- [OpenTelemetry Metrics](https://opentelemetry.io/docs/concepts/signals/metrics/)
+- [Spring Boot Metrics and Micrometer](https://docs.spring.io/spring-boot/reference/actuator/metrics.html)
+- [Spring Boot Observability Signal Guidance](https://docs.spring.io/spring-boot/reference/actuator/observability.html)
+- [Prometheus Instrumentation Best Practices](https://prometheus.io/docs/practices/instrumentation/)

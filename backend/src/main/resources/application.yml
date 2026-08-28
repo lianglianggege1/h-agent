@@ -88,12 +88,12 @@ chat:
 resource-storage:
   absolute-max-bytes: 524288000
   minio:
-    endpoint: ${MINIO_ENDPOINT:}
-    access-key: ${MINIO_ACCESS_KEY:}
-    secret-key: ${MINIO_SECRET_KEY:}
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:I5PLCKEHQAPAMN9ON3I6}
+    secret-key: ${MINIO_SECRET_KEY:isAtBLmBTAYj2KmduHQ1nDGEyNxQZDFYqc5+eEEK}
     region: ${MINIO_REGION:us-east-1}
-    bucket: ${MINIO_RESOURCES_BUCKET:}
-    object-prefix: ${MINIO_RESOURCES_PREFIX:resources/}
+    bucket: ${MINIO_RESOURCES_BUCKET:huajiang}
+    object-prefix: ${MINIO_RESOURCES_PREFIX:h-agent/}
     connect-timeout: 3s
     read-timeout: 60s
     part-size-bytes: 10485760
