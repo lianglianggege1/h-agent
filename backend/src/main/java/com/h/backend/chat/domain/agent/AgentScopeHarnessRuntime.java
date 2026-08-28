@@ -115,6 +115,41 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
         return child.streamEvents(List.of(userMessage), runtimeContext);
     }
 
+    @Override
+    public Flux<AgentEvent> resumeParent(
+            Object agentBean,
+            RuntimeContext context,
+            List<String> toolCallIds,
+            boolean approved
+    ) {
+        HarnessAgent parent = requireHarnessAgent(agentBean);
+        Msg confirmation = approvalAdapter.confirmationMessage(
+                parent.getDelegate(), context.getUserId(), context.getSessionId(),
+                toolCallIds, approved
+        );
+        return parent.streamEvents(List.of(confirmation), context);
+    }
+
+    @Override
+    public Flux<AgentEvent> resumeSubagent(
+            Object agentBean,
+            HarnessSubagentContext context,
+            List<String> toolCallIds,
+            boolean approved
+    ) {
+        ReActAgent child = materializeSubagent(agentBean, context);
+        ensureAssignment(child, context);
+        Msg confirmation = approvalAdapter.confirmationMessage(
+                child, context.userId(), context.sessionId(), toolCallIds, approved
+        );
+        RuntimeContext runtimeContext = RuntimeContext.builder()
+                .userId(context.userId())
+                .sessionId(context.sessionId())
+                .build();
+        HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
+        return child.streamEvents(List.of(confirmation), runtimeContext);
+    }
+
     private ReActAgent materializeSubagent(Object agentBean, HarnessSubagentContext context) {
         HarnessAgent parent = requireHarnessAgent(agentBean);
         RuntimeContext parentContext = RuntimeContext.builder()

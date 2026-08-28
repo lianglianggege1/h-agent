@@ -4,6 +4,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.AgentRunEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.domain.model.AgentRunSummary;
 import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -59,6 +60,25 @@ public class AgentRunServiceImpl implements AgentRunService {
     }
 
     @Override
+    public void bindApprovalContext(Long runId, ApprovalMode approvalMode, String traceParent) {
+        agentRunMapper.bindApprovalContext(
+                runId,
+                approvalMode == null ? null : approvalMode.name(),
+                traceParent
+        );
+    }
+
+    @Override
+    public boolean hasOpenRun(String sessionId) {
+        return agentRunMapper.existsOpenRun(sessionId);
+    }
+
+    @Override
+    public boolean transitionStatus(Long runId, String expectedStatus, String nextStatus) {
+        return agentRunMapper.transitionStatus(runId, expectedStatus, nextStatus) == 1;
+    }
+
+    @Override
     public void recordToolUsage(Long runId, String toolName) {
         AgentRunEntity entity = agentRunMapper.selectById(runId);
         LinkedHashSet<String> names = readToolNames(entity.getToolNamesJson());
@@ -101,7 +121,15 @@ public class AgentRunServiceImpl implements AgentRunService {
                 entity.getToolCount() == null ? 0 : entity.getToolCount(),
                 entity.getToolNamesJson(),
                 entity.getErrorMessage(),
-                entity.getCompletedAt()
+                entity.getCompletedAt(),
+                entity.getSessionId(),
+                entity.getUserId(),
+                entity.getPromptId(),
+                entity.getUserMessageId(),
+                entity.getModelName(),
+                entity.getApprovalModeSnapshot() == null
+                        ? null : ApprovalMode.valueOf(entity.getApprovalModeSnapshot()),
+                entity.getTraceParent()
         );
     }
 

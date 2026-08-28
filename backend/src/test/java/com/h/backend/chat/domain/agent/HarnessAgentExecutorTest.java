@@ -7,6 +7,9 @@ import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
+import com.h.backend.chat.application.ApprovalRequestService;
+import com.h.backend.chat.domain.approval.ApprovalMode;
+import com.h.backend.chat.domain.approval.ApprovalRequestStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
@@ -22,8 +25,10 @@ import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.event.SubagentExposedEvent;
 import io.agentscope.core.event.ToolCallDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
+import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,9 +53,61 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class HarnessAgentExecutorTest {
+
+    @Test
+    void shouldEndStreamWithActionRequiredWithoutPersistingAssistantReply() {
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        HarnessRuntime runtime = mock(HarnessRuntime.class);
+        ApprovalRequestService approvalService = mock(ApprovalRequestService.class);
+        AgentScopeApprovalAdapter approvalAdapter =
+                new AgentScopeApprovalAdapter("/tmp/h-agent/harness-workspace");
+        HarnessAgentExecutor executor = new HarnessAgentExecutor(
+                chatSessionService, agentRunService, telemetryService,
+                new HarnessEventMapper(), runtime, null, new HarnessSubagentEventRelay(),
+                null, null, approvalService, approvalAdapter
+        );
+        Object harnessBean = new Object();
+        AgentDefinition definition = new AgentDefinition(
+                "harness-agent", "协作 Agent", "协作", List.of("协作"),
+                "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
+        );
+        ToolUseBlock toolCall = new ToolUseBlock("call-1", "shell", java.util.Map.of("command", "pwd"));
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), eq(ApprovalMode.DEFAULT)))
+                .thenReturn(Flux.just(
+                        new RequireUserConfirmEvent("reply-ask", List.of(toolCall)),
+                        new AgentResultEvent(Msg.builder().role(MsgRole.ASSISTANT).textContent("permission asking").build()),
+                        new AgentEndEvent("reply-ask")
+                ));
+        var request = new com.h.backend.chat.interfaces.dto.ApprovalRequestDto(
+                "approval-1", 55L, "session-1", "session-1", null,
+                ApprovalMode.DEFAULT, List.of(), ApprovalRequestStatus.PENDING, null,
+                0, LocalDateTime.now(), null
+        );
+        when(approvalService.suspend(any())).thenReturn(request);
+
+        List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
+                new ChatAgentExecutionCommand(
+                        sink, 1L, null, "session-1", "session-1", null,
+                        null, null, null, null, null, "solve it", null, "memory",
+                        definition, new AgentRunService.AgentRunHandle(55L),
+                        new AgentRunTelemetryService.TelemetryRun(null, "trace-55"),
+                        ApprovalMode.DEFAULT, () -> { }
+                )
+        )).collectList().block();
+
+        assertEquals("action_required", events.getLast().type());
+        assertEquals(request, events.getLast().payload());
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+        verify(agentRunService, never()).completeRun(any(), any());
+        verify(agentRunService, never()).failRun(any(), any());
+        verify(telemetryService).markPaused(any());
+    }
 
     @Test
     void shouldCompleteClientStreamAtParentAgentEndWithoutWaitingForPostProcessing() throws Exception {

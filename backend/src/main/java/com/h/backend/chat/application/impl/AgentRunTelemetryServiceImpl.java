@@ -28,6 +28,19 @@ public class AgentRunTelemetryServiceImpl implements AgentRunTelemetryService {
     }
 
     @Override
+    public TelemetryRun resumeRun(String sessionId, Long userId, Long promptId, String traceParent) {
+        Span span = tracer.spanBuilder("chat.agent.run.resume")
+                .setAttribute("chat.session_id", sessionId)
+                .setAttribute("chat.user_id", userId == null ? -1L : userId)
+                .setAttribute("chat.prompt_id", promptId == null ? -1L : promptId)
+                .setAttribute("chat.hitl.resumed", true)
+                .setAttribute("chat.hitl.trace_parent", traceParent == null ? "" : traceParent)
+                .startSpan();
+        String traceId = span.getSpanContext().isValid() ? span.getSpanContext().getTraceId() : null;
+        return new TelemetryRun(span, traceId);
+    }
+
+    @Override
     public void markSuccess(TelemetryRun telemetryRun) {
         if (telemetryRun == null || telemetryRun.span() == null) {
             return;
@@ -47,6 +60,16 @@ public class AgentRunTelemetryServiceImpl implements AgentRunTelemetryService {
         } else {
             telemetryRun.span().setStatus(StatusCode.ERROR);
         }
+        telemetryRun.span().end();
+    }
+
+    @Override
+    public void markPaused(TelemetryRun telemetryRun) {
+        if (telemetryRun == null || telemetryRun.span() == null) {
+            return;
+        }
+        telemetryRun.span().setAttribute("chat.hitl.paused", true);
+        telemetryRun.span().setStatus(StatusCode.UNSET);
         telemetryRun.span().end();
     }
 }

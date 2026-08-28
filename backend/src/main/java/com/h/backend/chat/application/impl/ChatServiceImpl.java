@@ -316,6 +316,9 @@ public class ChatServiceImpl implements ChatService {
                     promptIdForSessionValidation,
                     agent.agentId()
             );
+            if (agentRunService.hasOpenRun(address.sessionId())) {
+                throw new BusinessException(40901, "当前会话仍有运行中或待审批任务，请先处理后再发送消息");
+            }
 
             Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
             if (standardChat && isImageCommand(userMessage)) {
@@ -357,6 +360,9 @@ public class ChatServiceImpl implements ChatService {
                     userMessageId,
                     agent.agentId(),
                     telemetryRun.traceId()
+            );
+            agentRunService.bindApprovalContext(
+                    runHandle.id(), address.approvalMode(), telemetryRun.traceId()
             );
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());

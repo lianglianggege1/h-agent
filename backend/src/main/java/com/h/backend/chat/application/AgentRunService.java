@@ -1,6 +1,7 @@
 package com.h.backend.chat.application;
 
 import com.h.backend.chat.domain.model.AgentRunSummary;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 
 public interface AgentRunService {
 
@@ -14,6 +15,17 @@ public interface AgentRunService {
     );
 
     void updateTraceId(Long runId, String langfuseTraceId);
+
+    default void bindApprovalContext(Long runId, ApprovalMode approvalMode, String traceParent) {
+    }
+
+    default boolean hasOpenRun(String sessionId) {
+        return false;
+    }
+
+    default boolean transitionStatus(Long runId, String expectedStatus, String nextStatus) {
+        return false;
+    }
 
     void recordToolUsage(Long runId, String toolName);
 

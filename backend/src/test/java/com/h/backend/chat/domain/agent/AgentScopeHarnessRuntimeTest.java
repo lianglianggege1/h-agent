@@ -5,6 +5,9 @@ import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.ToolCallState;
+import io.agentscope.core.message.ToolUseBlock;
+import io.agentscope.core.event.ConfirmResult;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;
@@ -26,6 +29,39 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentScopeHarnessRuntimeTest {
+
+    @Test
+    void shouldResumeParentWithConfirmationRecoveredFromAgentState() {
+        HarnessAgent parent = mock(HarnessAgent.class);
+        ReActAgent delegate = mock(ReActAgent.class);
+        ToolUseBlock asking = new ToolUseBlock(
+                "call-1", "shell", java.util.Map.of("command", "pwd"),
+                null, null, ToolCallState.ASKING
+        );
+        AgentState state = AgentState.builder()
+                .userId("42")
+                .sessionId("session-1")
+                .context(List.of(Msg.builder().role(MsgRole.ASSISTANT).content(asking).build()))
+                .build();
+        RuntimeContext context = RuntimeContext.builder()
+                .userId("42").sessionId("session-1").build();
+        when(parent.getDelegate()).thenReturn(delegate);
+        when(delegate.getAgentState("42", "session-1")).thenReturn(state);
+        when(parent.streamEvents(anyList(), eq(context))).thenReturn(Flux.empty());
+
+        new AgentScopeHarnessRuntime(null, null).resumeParent(
+                parent, context, List.of("call-1"), false
+        ).collectList().block();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Msg>> messages = ArgumentCaptor.forClass(List.class);
+        verify(parent).streamEvents(messages.capture(), eq(context));
+        @SuppressWarnings("unchecked")
+        List<ConfirmResult> results = (List<ConfirmResult>) messages.getValue().getFirst()
+                .getMetadata().get(Msg.METADATA_CONFIRM_RESULTS);
+        assertEquals(false, results.getFirst().isConfirmed());
+        assertEquals("call-1", results.getFirst().getToolCall().getId());
+    }
 
     @Test
     void shouldPersistAssignmentAndReuseTheOriginalUserSessionSlotForFollowUps() {
