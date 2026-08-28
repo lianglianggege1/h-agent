@@ -5,6 +5,7 @@ import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
@@ -58,6 +59,40 @@ class HarnessCollaborationSessionOpenIT {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void exposedSubagentInheritsHarnessApprovalMode() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(
+                user.getId(),
+                null,
+                ChatAgentIds.HARNESS,
+                ApprovalMode.ACCEPT_EDITS,
+                null
+        );
+
+        harnessCollaborationService.exposeSubagent(
+                user.getId(),
+                opened.session().sessionId(),
+                new HarnessSubagentExposure(
+                        "research",
+                        "research-agent",
+                        opened.session().sessionId(),
+                        "child-runtime-approval",
+                        "资料收集",
+                        "收集资料"
+                )
+        );
+
+        var child = agentSessionMapper.selectBySessionId("child-runtime-approval");
+        assertEquals(ApprovalMode.ACCEPT_EDITS, child.getApprovalMode());
+        assertEquals(
+                ApprovalMode.ACCEPT_EDITS,
+                harnessCollaborationService
+                        .resolveExecutionSession(user.getId(), child.getSessionId())
+                        .approvalMode()
+        );
+    }
 
     @Test
     void harnessSessionOpenIncludesEmptySubagentList() {

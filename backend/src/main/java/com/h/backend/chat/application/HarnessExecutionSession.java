@@ -1,5 +1,6 @@
 package com.h.backend.chat.application;
 
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 
 /**
@@ -21,7 +22,8 @@ public record HarnessExecutionSession(
         String parentSessionId,
         String subagentAgentId,
         String assignment,
-        DefinitionBinding definitionBinding
+        DefinitionBinding definitionBinding,
+        ApprovalMode approvalMode
 ) {
     public boolean subagent() {
         return gatewaySubagentId != null;
@@ -37,6 +39,20 @@ public record HarnessExecutionSession(
             String assignment
     ) {
         this(rootSessionId, sessionId, gatewaySubagentId, parentSessionId,
-                subagentAgentId, assignment, null);
+                subagentAgentId, assignment, null, null);
+    }
+
+    /** 兼容尚未传递批准模式的旧调用点。 */
+    public HarnessExecutionSession(
+            String rootSessionId,
+            String sessionId,
+            String gatewaySubagentId,
+            String parentSessionId,
+            String subagentAgentId,
+            String assignment,
+            DefinitionBinding definitionBinding
+    ) {
+        this(rootSessionId, sessionId, gatewaySubagentId, parentSessionId,
+                subagentAgentId, assignment, definitionBinding, null);
     }
 }

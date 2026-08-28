@@ -5,12 +5,14 @@ import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
+import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
@@ -29,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -47,6 +50,42 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatSessionServiceImplTest {
+
+    @Test
+    void createHarnessSessionPersistsAndReturnsSelectedApprovalMode() {
+        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);
+        AtomicReference<AgentSessionEntity> persistedRoot = new AtomicReference<>();
+        doAnswer(invocation -> {
+            persistedRoot.set(invocation.getArgument(0));
+            return 1;
+        }).when(agentSessionMapper).insert(any(AgentSessionEntity.class));
+        when(agentSessionMapper.selectBySessionId(any()))
+                .thenAnswer(invocation -> persistedRoot.get());
+        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
+                sessionMapper,
+                mock(ChatSessionMessageMapper.class),
+                mock(ChatMemorySnapshotService.class),
+                mock(SystemPromptService.class),
+                new ObjectMapper(),
+                testAgentRegistry(),
+                agentSessionMapper
+        );
+
+        var opened = service.createSession(
+                1L,
+                null,
+                ChatAgentIds.HARNESS,
+                ApprovalMode.ACCEPT_EDITS,
+                null
+        );
+
+        ArgumentCaptor<AgentSessionEntity> rootCaptor =
+                ArgumentCaptor.forClass(AgentSessionEntity.class);
+        verify(agentSessionMapper).insert(rootCaptor.capture());
+        assertEquals(ApprovalMode.ACCEPT_EDITS, rootCaptor.getValue().getApprovalMode());
+        assertEquals(ApprovalMode.ACCEPT_EDITS, opened.session().approvalMode());
+    }
 
     @Test
     void constructorDoesNotResolveAgentRegistryProvider() {

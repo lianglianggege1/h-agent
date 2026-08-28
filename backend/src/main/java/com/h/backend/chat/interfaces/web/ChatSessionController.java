@@ -51,12 +51,13 @@ public class ChatSessionController {
             @RequestBody(required = false) CreateChatSessionRequest request
     ) {
         CreateChatSessionRequest payload = request == null
-                ? new CreateChatSessionRequest(null, null, ChatAgentIds.STANDARD_CHAT)
+                ? new CreateChatSessionRequest(null, null, ChatAgentIds.STANDARD_CHAT, null)
                 : request;
         return ApiResponse.ok(chatSessionService.createSession(
                 principal.userId(),
                 payload.promptId(),
                 payload.agentId(),
+                payload.approvalMode(),
                 payload.currentSessionId()
         ));
     }

@@ -12,7 +12,7 @@ import java.util.List;
 public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
 
     @Select("""
-            SELECT id, session_id, parent_session_id, user_id, agent_id, gateway_subagent_id,
+            SELECT id, session_id, parent_session_id, user_id, agent_id, approval_mode, gateway_subagent_id,
                    agent_definition_id, agent_definition_version,
                    display_order, message_count, created_at, updated_at
             FROM agent_sessions
@@ -22,7 +22,7 @@ public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
     AgentSessionEntity selectBySessionId(@Param("sessionId") String sessionId);
 
     @Select("""
-            SELECT id, session_id, parent_session_id, user_id, agent_id, gateway_subagent_id,
+            SELECT id, session_id, parent_session_id, user_id, agent_id, approval_mode, gateway_subagent_id,
                    agent_definition_id, agent_definition_version,
                    display_order, message_count, created_at, updated_at
             FROM agent_sessions

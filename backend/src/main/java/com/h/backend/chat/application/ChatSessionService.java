@@ -10,6 +10,7 @@ import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionSummaryDto;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 
 import java.util.List;
 import java.util.Map;
@@ -18,7 +19,22 @@ public interface ChatSessionService {
 
     ChatSessionBootstrapDto bootstrap(Long userId);
 
-    ChatSessionOpenDto createSession(Long userId, Long promptId, String agentId, String currentSessionId);
+    ChatSessionOpenDto createSession(
+            Long userId,
+            Long promptId,
+            String agentId,
+            ApprovalMode approvalMode,
+            String currentSessionId
+    );
+
+    default ChatSessionOpenDto createSession(
+            Long userId,
+            Long promptId,
+            String agentId,
+            String currentSessionId
+    ) {
+        return createSession(userId, promptId, agentId, null, currentSessionId);
+    }
 
     ChatSessionOpenDto chooseActiveSession(Long userId, String selectedSessionId);
 
