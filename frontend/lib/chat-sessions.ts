@@ -1,5 +1,6 @@
 import { apiFetch } from "./http";
 import type { HarnessSubagentSummary } from "./harness-subagent-types";
+import type { ApprovalMode } from "./harness-approval";
 
 export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO";
 
@@ -49,6 +50,7 @@ export type ChatSessionSummary = {
   agentDisplayName: string;
   agentDomain: string;
   runtimeType: string;
+  approvalMode: ApprovalMode | null;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +65,7 @@ export type ChatSessionMeta = {
   agentDisplayName: string;
   agentDomain: string;
   runtimeType: string;
+  approvalMode: ApprovalMode | null;
   messageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -96,13 +99,16 @@ export function createChatSession(payload?: {
   currentSessionId?: string | null;
   promptId?: number | null;
   agentId?: string | null;
+  approvalMode?: ApprovalMode | null;
 }) {
+  const agentId = payload?.agentId ?? "standard-chat";
   return apiFetch<ChatSessionOpen>("/api/chat/sessions/create", {
     method: "POST",
     body: JSON.stringify({
       currentSessionId: payload?.currentSessionId ?? null,
       promptId: payload?.promptId ?? null,
-      agentId: payload?.agentId ?? "standard-chat",
+      agentId,
+      approvalMode: agentId === "harness-agent" ? (payload?.approvalMode ?? "DEFAULT") : null,
     }),
   });
 }

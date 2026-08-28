@@ -168,11 +168,13 @@ test("buildNewSessionPayload uses the selected target agent instead of the curre
       currentSessionId: "domain-session",
       targetAgentId: "harness-agent",
       promptId: 12,
+      approvalMode: "EXPLORE",
     }),
     {
       currentSessionId: "domain-session",
       agentId: "harness-agent",
       promptId: null,
+      approvalMode: "EXPLORE",
     },
   );
 });
