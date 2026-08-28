@@ -2,6 +2,7 @@ package com.h.backend.chat.infrastructure.ai.carrentalassistant.services;
 
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.V;
 
@@ -9,5 +10,5 @@ import dev.langchain4j.service.V;
 public interface CarRentalAssistant {
 
     @Agent(name = "租车助手")
-    ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("message") String message);
+    ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("message") String message, InvocationParameters parameters);
 }

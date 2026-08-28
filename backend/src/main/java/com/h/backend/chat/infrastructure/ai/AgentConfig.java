@@ -7,6 +7,7 @@ import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.*;
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
+import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentorFactory;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
 import dev.langchain4j.agentic.scope.AgenticScope;
@@ -42,6 +43,9 @@ public class AgentConfig {
     @Resource
     private ChatMemoryIdFactory chatMemoryIdFactory;
 
+    @Resource
+    private ConversationContextAugmentorFactory conversationContextAugmentorFactory;
+
     @Bean
     public ExportAssistant exportAssistant() {
         Agents.CategoryRouter categoryRouter = AgenticServices.agentBuilder(Agents.CategoryRouter.class)
@@ -53,6 +57,8 @@ public class AgentConfig {
         Agents.MedicalExpert medicalExpert = AgenticServices.agentBuilder(Agents.MedicalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .retrievalAugmentor(
+                        conversationContextAugmentorFactory.memoryOnly("export-assistant.medical-expert"))
                 .listener(agentStepListener)
                 .outputKey("response")
                 .build();
@@ -60,6 +66,8 @@ public class AgentConfig {
         Agents.LegalExpert legalExpert = AgenticServices.agentBuilder(Agents.LegalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .retrievalAugmentor(
+                        conversationContextAugmentorFactory.memoryOnly("export-assistant.legal-expert"))
                 .listener(agentStepListener)
                 .outputKey("response")
                 .build();
@@ -67,6 +75,8 @@ public class AgentConfig {
         Agents.TechnicalExpert technicalExpert = AgenticServices.agentBuilder(Agents.TechnicalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
+                .retrievalAugmentor(
+                        conversationContextAugmentorFactory.memoryOnly("export-assistant.technical-expert"))
                 .listener(agentStepListener)
                 .outputKey("response")
                 .build();
@@ -117,6 +127,8 @@ public class AgentConfig {
 
         ResponseGeneratorService responseGeneratorService = AgenticServices.agentBuilder(ResponseGeneratorService.class)
                 .chatModel(chatModel)
+                .retrievalAugmentor(
+                        conversationContextAugmentorFactory.memoryOnly("car-rental-assistant.response-generator"))
                 .listener(agentStepListener)
                 .outputKey("response")
                 .build();
@@ -273,6 +285,8 @@ public class AgentConfig {
 
         Agents.CreativeWriter creativeWriter = AgenticServices.agentBuilder(Agents.CreativeWriter.class)
                 .chatModel(chatModel)
+                .retrievalAugmentor(
+                        conversationContextAugmentorFactory.memoryOnly("story-chat-agent.creative-writer"))
                 .listener(agentStepListener)
                 .outputKey("story")
                 .build();

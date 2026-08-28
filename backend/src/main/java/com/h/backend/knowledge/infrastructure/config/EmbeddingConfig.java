@@ -71,16 +71,21 @@ public class EmbeddingConfig {
                 .maxResults(props.getRetriever().getMaxResults())
                 .minScore(props.getRetriever().getMinScore())
                 .dynamicFilter(query -> {
-                    Object mid = query.metadata() == null ? null : query.metadata().chatMemoryId();
-                    if (mid == null) {
+                    // 身份从服务端可信的 InvocationParameters 读取，缺失时返回空知识结果，不返回无过滤结果
+                    if (query.metadata() == null || query.metadata().invocationParameters() == null) {
                         return missingPromptScopeFilter();
                     }
-                    String[] parts = mid.toString().split(":", 3);
-                    if (parts.length < 2) {
+                    Object userId = query.metadata().invocationParameters()
+                            .get(com.h.backend.memory.domain.MemoryInvocationContext.INVOCATION_KEY);
+                    if (!(userId instanceof com.h.backend.memory.domain.MemoryInvocationContext context)
+                            || context.userId() == null
+                            || context.promptId() == null) {
                         return missingPromptScopeFilter();
                     }
-                    // promptId 以字符串存入 metadata（见任务 8），故按字符串过滤
-                    return metadataKey("promptId").isEqualTo(parts[1]);
+                    // metadata.userId = authenticated userId AND metadata.promptId = resolved promptId
+                    // promptId 以字符串存入 metadata，故按字符串过滤
+                    return metadataKey("userId").isEqualTo(String.valueOf(context.userId()))
+                            .and(metadataKey("promptId").isEqualTo(String.valueOf(context.promptId())));
                 })
                 .build();
     }

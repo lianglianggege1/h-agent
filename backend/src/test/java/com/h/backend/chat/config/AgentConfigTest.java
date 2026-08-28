@@ -6,6 +6,9 @@ import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRenta
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
+import com.h.backend.memory.application.NoopLongTermMemoryRuntime;
+import com.h.backend.memory.domain.AgentMemoryPolicyCatalog;
+import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentorFactory;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.model.chat.ChatModel;
@@ -46,6 +49,9 @@ class AgentConfigTest {
         ReflectionTestUtils.setField(config, "redisChatMemoryStore", mock(RedisChatMemoryStore.class));
         ReflectionTestUtils.setField(config, "agentStepListener", mock(AgentStepListener.class));
         ReflectionTestUtils.setField(config, "chatMemoryIdFactory", new ChatMemoryIdFactory());
+        ReflectionTestUtils.setField(config, "conversationContextAugmentorFactory",
+                new ConversationContextAugmentorFactory(
+                        new NoopLongTermMemoryRuntime(), new AgentMemoryPolicyCatalog()));
 
         CarRentalAssistant assistant = config.createAssistant();
         AgentInstance root = (AgentInstance) assistant;

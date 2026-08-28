@@ -5,36 +5,39 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.AgentRunTelemetryService;
-import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.memory.application.SuccessfulTurnCommitter;
+import com.h.backend.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
+import dev.langchain4j.invocation.InvocationParameters;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.FluxSink;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @Slf4j
 @Component
 public class AgenticSyncExecutor implements ChatAgentExecutor {
 
-    private static final String AGENT_CHAT_METHOD = "chat";
-
-    private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
     private final AgentRunTelemetryService agentRunTelemetryService;
     private final AgentStepEventBridge agentStepEventBridge;
+    private final SuccessfulTurnCommitter successfulTurnCommitter;
+    private final ConcurrentMap<Class<?>, Method> chatMethods = new ConcurrentHashMap<>();
 
     public AgenticSyncExecutor(
-            ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             AgentRunTelemetryService agentRunTelemetryService,
-            AgentStepEventBridge agentStepEventBridge
+            AgentStepEventBridge agentStepEventBridge,
+            SuccessfulTurnCommitter successfulTurnCommitter
     ) {
-        this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
         this.agentRunTelemetryService = agentRunTelemetryService;
         this.agentStepEventBridge = agentStepEventBridge;
+        this.successfulTurnCommitter = successfulTurnCommitter;
     }
 
     @Override
@@ -56,17 +59,8 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                 return;
             }
             emitIfActive(command.sink(), new ChatStreamEvent("chunk", reply));
-            Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                    command.userId(),
-                    command.sessionId(),
-                    reply
-            );
-            ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
-                    command.userId(),
-                    command.sessionId(),
-                    assistantMessageId
-            );
-            agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
+            // assistant message、run success 与 memory capture outbox 同一事务提交
+            ChatSessionMessageDto assistantMessage = successfulTurnCommitter.commit(command, reply);
             agentRunTelemetryService.markSuccess(command.telemetryRun());
             emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
         } catch (Exception ex) {
@@ -84,9 +78,11 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     private ResultWithAgenticScope<String> executeSelectedAgent(ChatAgentExecutionCommand command) {
         Object agentBean = command.agent().agentBean();
-        Method chatMethod = findAgentChatMethod(agentBean);
+        Method chatMethod = chatMethods.computeIfAbsent(agentBean.getClass(),
+                beanClass -> AgenticChatMethodResolver.requireChatMethod(agentBean));
         try {
-            Object result = chatMethod.invoke(agentBean, command.memoryId(), command.userMessage());
+            InvocationParameters parameters = memoryInvocationContext(command).toInvocationParameters();
+            Object result = chatMethod.invoke(agentBean, command.memoryId(), command.userMessage(), parameters);
             if (result == null) {
                 return null;
             }
@@ -112,26 +108,15 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
         }
     }
 
-    private Method findAgentChatMethod(Object agentBean) {
-        if (agentBean == null) {
-            throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: null");
-        }
-        try {
-            Method method = agentBean.getClass().getMethod(AGENT_CHAT_METHOD, String.class, String.class);
-            if (!ResultWithAgenticScope.class.isAssignableFrom(method.getReturnType())) {
-                throw new IllegalStateException("AGENTIC_SYNC agent chat method must return ResultWithAgenticScope: "
-                        + agentBean.getClass().getName());
-            }
-            return method;
-        } catch (NoSuchMethodException ex) {
-            throw new IllegalStateException("Unsupported AGENTIC_SYNC agent bean: "
-                    + agentBean.getClass().getName()
-                    + ". Expected method chat(String memoryId, String message)", ex);
-        }
-    }
-
-    private static Integer stateLength(Object state) {
-        return state == null ? null : String.valueOf(state).length();
+    private MemoryInvocationContext memoryInvocationContext(ChatAgentExecutionCommand command) {
+        return new MemoryInvocationContext(
+                command.userId(),
+                command.agent().agentId(),
+                command.rootSessionId(),
+                command.runHandle().id(),
+                command.sessionId(),
+                command.resolvedPromptId()
+        );
     }
 
     private void emitAgentStep(ChatAgentExecutionCommand command, AgentStepPayloadDto payload) {

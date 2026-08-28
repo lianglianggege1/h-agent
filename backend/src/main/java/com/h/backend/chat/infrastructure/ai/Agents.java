@@ -8,6 +8,7 @@ import dev.langchain4j.agentic.declarative.Output;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import dev.langchain4j.internal.Json;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -56,7 +57,7 @@ public class Agents {
                 """)
         @Tool("医疗专家")
         @Agent(name = "医疗专家", description = "医疗专家", outputKey = "response")
-        String medical(@MemoryId String memoryId, @V("request") String request);
+        String medical(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
 
     }
 
@@ -69,7 +70,7 @@ public class Agents {
                 """)
         @Tool("法律专家")
         @Agent(name = "法律专家", description = "法律专家", outputKey = "response")
-        String legal(@MemoryId String memoryId, @V("request") String request);
+        String legal(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
     }
 
     public interface TechnicalExpert {
@@ -81,7 +82,7 @@ public class Agents {
                 """)
         @Tool("技术专家")
         @Agent(name = "技术专家", description = "技术专家", outputKey = "response")
-        String technical(@MemoryId String memoryId, @V("request") String request);
+        String technical(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
     }
 
 
@@ -94,7 +95,7 @@ public class Agents {
                 主题：{{topic}}。
                 """)
         @Agent(name = "创意写作者", description = "根据指定主题生成故事", outputKey = "story")
-        String generateStory(@V("topic") String topic);
+        String generateStory(@V("topic") String topic, InvocationParameters parameters);
     }
 
     public interface AudienceEditor {
@@ -169,7 +170,8 @@ public class Agents {
 
         ResultWithAgenticScope<String> chat(
                 @MemoryId String memoryId,
-                @V("message") String message
+                @V("message") String message,
+                InvocationParameters parameters
         );
     }
 
@@ -185,7 +187,7 @@ public class Agents {
                 """
                         {{request}}
                         """)
-        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("request") String request);
+        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
     }
 
     public interface WithdrawAgent {
@@ -364,7 +366,7 @@ public class Agents {
     public interface EveningPlannerAgent {
 
         @Agent(name = "晚间活动规划师", description = "根据给定情绪推荐三部影片和三份餐食")
-        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("mood") String mood);
+        ResultWithAgenticScope<String> chat(@MemoryId String memoryId, @V("mood") String mood, InvocationParameters parameters);
     }
 
 

@@ -8,6 +8,8 @@ import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.memory.application.SuccessfulTurnCommitter;
+import com.h.backend.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
@@ -28,19 +30,22 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
     private final AgentRunService agentRunService;
     private final AgentRunTelemetryService agentRunTelemetryService;
     private final ChatStreamEventBridge chatStreamEventBridge;
+    private final SuccessfulTurnCommitter successfulTurnCommitter;
 
     public HAssistantStreamingExecutor(
             HAssistant hAssistant,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             AgentRunTelemetryService agentRunTelemetryService,
-            ChatStreamEventBridge chatStreamEventBridge
+            ChatStreamEventBridge chatStreamEventBridge,
+            SuccessfulTurnCommitter successfulTurnCommitter
     ) {
         this.hAssistant = hAssistant;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
         this.agentRunTelemetryService = agentRunTelemetryService;
         this.chatStreamEventBridge = chatStreamEventBridge;
+        this.successfulTurnCommitter = successfulTurnCommitter;
     }
 
     @Override
@@ -67,7 +72,11 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                         + "\n[系统：用户选择了一张参考图片（资源ID: " + referenceResourceId
                         + "）。请根据用户目标选择工具：生成或修改静态图片时调用 generateImage；让图片中的主体或环境运动，或生成动画、运镜、视频时调用 image_to_video；仅分析或描述图片时不调用生成工具。调用图片或视频生成工具时，将该资源ID作为 referenceResourceId 传入。]";
             }
-            hAssistant.streamChat(command.memoryId(), messageForLlm)
+            hAssistant.streamChat(
+                            command.memoryId(),
+                            messageForLlm,
+                            memoryInvocationContext(command).toInvocationParameters()
+                    )
                     .onPartialThinking(thinking -> {
                         String thinkingText = thinking == null ? "" : thinking.text();
                         if (thinkingText == null || thinkingText.isBlank()) {
@@ -139,6 +148,17 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 .orElse(null);
     }
 
+    private MemoryInvocationContext memoryInvocationContext(ChatAgentExecutionCommand command) {
+        return new MemoryInvocationContext(
+                command.userId(),
+                command.agent().agentId(),
+                command.rootSessionId(),
+                command.runHandle().id(),
+                command.sessionId(),
+                command.resolvedPromptId()
+        );
+    }
+
     private void completeSuccessfulStream(
             ChatAgentExecutionCommand command,
             StringBuilder reasoningBuilder,
@@ -163,17 +183,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         if (!reasoning.isBlank()) {
             chatSessionService.appendReasoningMessage(command.userId(), command.sessionId(), reasoning);
         }
-        Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                command.userId(),
-                command.sessionId(),
-                reply
-        );
-        ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
-                command.userId(),
-                command.sessionId(),
-                assistantMessageId
-        );
-        agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
+        // assistant message、run success 与 memory capture outbox 同一事务提交
+        ChatSessionMessageDto assistantMessage = successfulTurnCommitter.commit(command, reply);
         agentRunTelemetryService.markSuccess(command.telemetryRun());
         emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
     }

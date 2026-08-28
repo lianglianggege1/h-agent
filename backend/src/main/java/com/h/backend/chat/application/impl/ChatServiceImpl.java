@@ -183,6 +183,41 @@ public class ChatServiceImpl implements ChatService {
             List<ChatAgentExecutor> executors
     ) {
         this(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                agentRunTelemetryService,
+                chatStreamExecutor,
+                concurrencyGuard,
+                imageGenerationService,
+                chatStreamEventBridge,
+                agentRegistry,
+                executors,
+                new com.h.backend.memory.application.SuccessfulTurnCommitter(
+                        chatSessionService,
+                        agentRunService,
+                        new com.h.backend.memory.application.NoopLongTermMemoryRuntime(),
+                        new com.h.backend.memory.domain.AgentMemoryPolicyCatalog()
+                )
+        );
+    }
+
+    public ChatServiceImpl(
+            HAssistant hAssistant,
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentRunTelemetryService agentRunTelemetryService,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            ChatStreamEventBridge chatStreamEventBridge,
+            AgentRegistry agentRegistry,
+            List<ChatAgentExecutor> executors,
+            com.h.backend.memory.application.SuccessfulTurnCommitter successfulTurnCommitter
+    ) {
+        this(
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
@@ -198,6 +233,7 @@ public class ChatServiceImpl implements ChatService {
                         agentRunService,
                         agentRunTelemetryService,
                         chatStreamEventBridge,
+                        successfulTurnCommitter,
                         executors
                 )
         );
@@ -378,7 +414,8 @@ public class ChatServiceImpl implements ChatService {
                     agent,
                     runHandle,
                     telemetryRun,
-                    () -> releasePermitOnce(permit, permitReleased)
+                    () -> releasePermitOnce(permit, permitReleased),
+                    userMessageId
             ));
         } catch (Exception ex) {
             try {
@@ -599,6 +636,7 @@ public class ChatServiceImpl implements ChatService {
             AgentRunService agentRunService,
             AgentRunTelemetryService agentRunTelemetryService,
             ChatStreamEventBridge chatStreamEventBridge,
+            com.h.backend.memory.application.SuccessfulTurnCommitter successfulTurnCommitter,
             List<ChatAgentExecutor> executors
     ) {
         List<ChatAgentExecutor> merged = new ArrayList<>(executors);
@@ -610,7 +648,8 @@ public class ChatServiceImpl implements ChatService {
                     chatSessionService,
                     agentRunService,
                     agentRunTelemetryService,
-                    chatStreamEventBridge
+                    chatStreamEventBridge,
+                    successfulTurnCommitter
             ));
         }
         return merged;
