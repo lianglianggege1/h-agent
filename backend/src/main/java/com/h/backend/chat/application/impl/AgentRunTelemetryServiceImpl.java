@@ -5,10 +5,29 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.api.trace.SpanBuilder;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import org.springframework.stereotype.Service;
+
+import java.util.Map;
 
 @Service
 public class AgentRunTelemetryServiceImpl implements AgentRunTelemetryService {
+
+    private static final TextMapGetter<Map<String, String>> TRACE_PARENT_GETTER =
+            new TextMapGetter<>() {
+                @Override
+                public Iterable<String> keys(Map<String, String> carrier) {
+                    return carrier.keySet();
+                }
+
+                @Override
+                public String get(Map<String, String> carrier, String key) {
+                    return carrier.get(key);
+                }
+            };
 
     private final Tracer tracer;
 
@@ -24,20 +43,35 @@ public class AgentRunTelemetryServiceImpl implements AgentRunTelemetryService {
                 .setAttribute("chat.prompt_id", promptId == null ? -1L : promptId)
                 .startSpan();
         String traceId = span.getSpanContext().isValid() ? span.getSpanContext().getTraceId() : null;
-        return new TelemetryRun(span, traceId);
+        return new TelemetryRun(span, traceId, toTraceParent(span));
     }
 
     @Override
     public TelemetryRun resumeRun(String sessionId, Long userId, Long promptId, String traceParent) {
-        Span span = tracer.spanBuilder("chat.agent.run.resume")
+        SpanBuilder builder = tracer.spanBuilder("chat.agent.run.resume")
                 .setAttribute("chat.session_id", sessionId)
                 .setAttribute("chat.user_id", userId == null ? -1L : userId)
                 .setAttribute("chat.prompt_id", promptId == null ? -1L : promptId)
                 .setAttribute("chat.hitl.resumed", true)
-                .setAttribute("chat.hitl.trace_parent", traceParent == null ? "" : traceParent)
-                .startSpan();
+                .setAttribute("chat.hitl.trace_parent", traceParent == null ? "" : traceParent);
+        if (traceParent != null && !traceParent.isBlank()) {
+            Context parent = W3CTraceContextPropagator.getInstance().extract(
+                    Context.root(), Map.of("traceparent", traceParent), TRACE_PARENT_GETTER
+            );
+            builder.setParent(parent);
+        }
+        Span span = builder.startSpan();
         String traceId = span.getSpanContext().isValid() ? span.getSpanContext().getTraceId() : null;
-        return new TelemetryRun(span, traceId);
+        return new TelemetryRun(span, traceId, toTraceParent(span));
+    }
+
+    private String toTraceParent(Span span) {
+        var context = span.getSpanContext();
+        if (!context.isValid()) {
+            return null;
+        }
+        return "00-" + context.getTraceId() + "-" + context.getSpanId() + "-"
+                + (context.isSampled() ? "01" : "00");
     }
 
     @Override

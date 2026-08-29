@@ -2,6 +2,8 @@ package com.h.backend.chat;
 
 import com.h.backend.chat.application.impl.AgentRunTelemetryServiceImpl;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,5 +35,23 @@ class AgentRunTelemetryServiceImplTest {
         service.markFailure(run, new RuntimeException("boom"));
 
         assertTrue(true);
+    }
+
+    @Test
+    void shouldResumeInsideTheOriginalW3cTrace() {
+        SdkTracerProvider tracerProvider = SdkTracerProvider.builder().build();
+        OpenTelemetrySdk openTelemetry = OpenTelemetrySdk.builder()
+                .setTracerProvider(tracerProvider)
+                .build();
+        AgentRunTelemetryServiceImpl service = new AgentRunTelemetryServiceImpl(openTelemetry);
+
+        var original = service.startRun("session-3", 5L, null);
+        service.markPaused(original);
+        var resumed = service.resumeRun("session-3", 5L, null, original.traceParent());
+
+        assertTrue(original.traceParent().matches("00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]"));
+        assertEquals(original.traceId(), resumed.traceId());
+        service.markSuccess(resumed);
+        tracerProvider.close();
     }
 }

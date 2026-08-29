@@ -16,6 +16,13 @@ public interface AgentRunTelemetryService {
         markSuccess(telemetryRun);
     }
 
-    record TelemetryRun(io.opentelemetry.api.trace.Span span, String traceId) {
+    record TelemetryRun(
+            io.opentelemetry.api.trace.Span span,
+            String traceId,
+            String traceParent
+    ) {
+        public TelemetryRun(io.opentelemetry.api.trace.Span span, String traceId) {
+            this(span, traceId, null);
+        }
     }
 }

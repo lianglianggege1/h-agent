@@ -362,7 +362,7 @@ public class ChatServiceImpl implements ChatService {
                     telemetryRun.traceId()
             );
             agentRunService.bindApprovalContext(
-                    runHandle.id(), address.approvalMode(), telemetryRun.traceId()
+                    runHandle.id(), address.approvalMode(), telemetryRun.traceParent()
             );
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
