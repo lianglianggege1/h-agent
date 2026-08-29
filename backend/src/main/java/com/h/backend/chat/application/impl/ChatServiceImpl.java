@@ -230,6 +230,12 @@ public class ChatServiceImpl implements ChatService {
                         chatSessionService,
                         agentRunService,
                         chatStreamEventBridge,
+                        new com.h.backend.memory.application.SuccessfulTurnCommitter(
+                                chatSessionService,
+                                agentRunService,
+                                new com.h.backend.memory.application.NoopLongTermMemoryRuntime(),
+                                new com.h.backend.memory.domain.AgentMemoryPolicyCatalog()
+                        ),
                         executors
                 )
         );
@@ -438,7 +444,8 @@ public class ChatServiceImpl implements ChatService {
                     agent,
                     runHandle,
                     observation,
-                    () -> releasePermitOnce(permit, permitReleased)
+                    () -> releasePermitOnce(permit, permitReleased),
+                    userMessageId
             ));
         } catch (Exception ex) {
             try {
@@ -681,6 +688,7 @@ public class ChatServiceImpl implements ChatService {
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             ChatStreamEventBridge chatStreamEventBridge,
+            com.h.backend.memory.application.SuccessfulTurnCommitter successfulTurnCommitter,
             List<ChatAgentExecutor> executors
     ) {
         List<ChatAgentExecutor> merged = new ArrayList<>(executors);
@@ -691,7 +699,8 @@ public class ChatServiceImpl implements ChatService {
                     hAssistant,
                     chatSessionService,
                     agentRunService,
-                    chatStreamEventBridge
+                    chatStreamEventBridge,
+                    successfulTurnCommitter
             ));
         }
         return merged;

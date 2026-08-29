@@ -157,6 +157,35 @@ agents:
       token: ${MCP_TEST1_TOKEN:dev-token-test1}
       tool-execution-timeout-seconds: 4
 
+# 长期记忆（LangChain4j + Mem0）：默认关闭，滚动发布。
+# enabled=true 时 Mem0 契约字段必须完整（URL/API key/contract version/openapi sha256），否则启动 fail-fast。
+memory:
+  long-term:
+    enabled: false
+    mem0:
+      base-url: ${MEM0_BASE_URL:}
+      api-key: ${MEM0_API_KEY:}
+      contract-version: ${MEM0_CONTRACT_VERSION:}
+      openapi-sha256: ${MEM0_OPENAPI_SHA256:}
+      connect-timeout: 300ms
+    recall:
+      response-timeout: 900ms
+      max-attempts: 1
+      top-k-per-scope: 4
+      max-total-results: 8
+      max-chars: 6000
+      circuit-breaker-enabled: true
+    capture:
+      outbox-enabled: true
+      max-attempts: 10
+      initial-delay: 5s
+      max-delay: 15m
+      multiplier: 2.0
+      jitter: 0.2
+    explicit-mutation:
+      response-timeout: 3s
+      max-attempts: 2
+
 knowledge:
   retriever:
     max-results: 4

@@ -1,6 +1,7 @@
 package com.h.backend.chat.infrastructure.ai.carrentalassistant.services;
 
 import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
@@ -33,6 +34,7 @@ public interface ResponseGeneratorService {
     String integrateResponses(
             @V("message") String message,
             @V("towingResponse") String towingResponse,
-            @V("emergencyResponse") String emergencyResponse
+            @V("emergencyResponse") String emergencyResponse,
+            InvocationParameters parameters
     );
 }

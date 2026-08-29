@@ -34,7 +34,9 @@ public record ChatAgentExecutionCommand(
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
         AgentExecutionObservation observation,
-        Runnable onTerminal
+        Runnable onTerminal,
+        /** 已持久化的用户消息 ID；成功 turn 提交与记忆 capture 的来源引用。 */
+        Long userMessageId
 ) {
     public ChatAgentExecutionCommand(
             FluxSink<ChatStreamEvent> sink,
@@ -51,7 +53,7 @@ public record ChatAgentExecutionCommand(
     ) {
         this(sink, userId, resolvedPromptId, sessionId, sessionId, null, null, null, null, null, null,
                 userMessage, resources, memoryId,
-                agent, runHandle, observation, onTerminal);
+                agent, runHandle, observation, onTerminal, null);
     }
 
     /** 兼容无 Catalog 绑定的旧全参构造。 */
@@ -77,6 +79,6 @@ public record ChatAgentExecutionCommand(
         this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
                 subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
                 null, userMessage, resources, memoryId,
-                agent, runHandle, observation, onTerminal);
+                agent, runHandle, observation, onTerminal, null);
     }
 }

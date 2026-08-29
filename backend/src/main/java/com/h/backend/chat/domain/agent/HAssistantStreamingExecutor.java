@@ -10,6 +10,8 @@ import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.memory.application.SuccessfulTurnCommitter;
+import com.h.backend.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
@@ -30,17 +32,20 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
     private final ChatStreamEventBridge chatStreamEventBridge;
+    private final SuccessfulTurnCommitter successfulTurnCommitter;
 
     public HAssistantStreamingExecutor(
             HAssistant hAssistant,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            ChatStreamEventBridge chatStreamEventBridge
+            ChatStreamEventBridge chatStreamEventBridge,
+            SuccessfulTurnCommitter successfulTurnCommitter
     ) {
         this.hAssistant = hAssistant;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
         this.chatStreamEventBridge = chatStreamEventBridge;
+        this.successfulTurnCommitter = successfulTurnCommitter;
     }
 
     @Override
@@ -70,7 +75,11 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把
             // Generation/Tool Span 挂到本次运行。后续轮次由流式回调中的观测作用域接管。
             try (ObservationScope ignored = command.observation().scope()) {
-                hAssistant.streamChat(command.memoryId(), messageForLlm)
+                hAssistant.streamChat(
+                                command.memoryId(),
+                                messageForLlm,
+                                memoryInvocationContext(command).toInvocationParameters()
+                        )
                         .onPartialThinking(thinking -> {
                             String thinkingText = thinking == null ? "" : thinking.text();
                             if (thinkingText == null || thinkingText.isBlank()) {
@@ -143,6 +152,17 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 .orElse(null);
     }
 
+    private MemoryInvocationContext memoryInvocationContext(ChatAgentExecutionCommand command) {
+        return new MemoryInvocationContext(
+                command.userId(),
+                command.agent().agentId(),
+                command.rootSessionId(),
+                command.runHandle().id(),
+                command.sessionId(),
+                command.resolvedPromptId()
+        );
+    }
+
     private void completeSuccessfulStream(
             ChatAgentExecutionCommand command,
             StringBuilder reasoningBuilder,
@@ -167,17 +187,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         if (!reasoning.isBlank()) {
             chatSessionService.appendReasoningMessage(command.userId(), command.sessionId(), reasoning);
         }
-        Long assistantMessageId = chatSessionService.appendAssistantMessage(
-                command.userId(),
-                command.sessionId(),
-                reply
-        );
-        ChatSessionMessageDto assistantMessage = chatSessionService.getOwnedMessage(
-                command.userId(),
-                command.sessionId(),
-                assistantMessageId
-        );
-        agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
+        // assistant message、run success 与 memory capture outbox 同一事务提交
+        ChatSessionMessageDto assistantMessage = successfulTurnCommitter.commit(command, reply);
         command.observation().succeed(assistantOutput(reply));
         emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
     }

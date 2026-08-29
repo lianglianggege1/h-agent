@@ -96,7 +96,7 @@ class ChatServiceImplTest {
                 .block();
 
         assertEquals(List.of(new ChatStreamEvent("error", "当前系统繁忙，请稍后再试")), events);
-        verify(hAssistant, never()).streamChat(any(), any());
+        verify(hAssistant, never()).streamChat(any(), any(), any());
         verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
@@ -212,7 +212,7 @@ class ChatServiceImplTest {
                 "一只白猫",
                 "COMMAND"
         ));
-        verify(hAssistant, never()).streamChat(any(), any());
+        verify(hAssistant, never()).streamChat(any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
         assertEquals(0, guardCalls.get());
     }
@@ -288,7 +288,7 @@ class ChatServiceImplTest {
                 "给我生成一张柴犬的图片",
                 "COMMAND"
         ));
-        verify(hAssistant, never()).streamChat(any(), any());
+        verify(hAssistant, never()).streamChat(any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
     }
 
@@ -320,7 +320,7 @@ class ChatServiceImplTest {
         when(observation.traceId()).thenReturn("trace-submit");
         when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-submit", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-submit"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-submit", "hello", null)
                 .collectList()
@@ -369,7 +369,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-call", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-call", "你好")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-call"), eq("你好"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, "standard-chat", "session-call", "你好", null)
                 .collectList()
@@ -408,7 +408,7 @@ class ChatServiceImplTest {
         when(chatSessionService.appendAssistantMessage(1L, "session-stream", "hello")).thenReturn(202L);
         when(agentRunService.createRun("session-stream", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-stream", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-stream"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-stream", "hello", null)
                 .collectList()
@@ -448,7 +448,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-cancel", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-cancel", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-cancel"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> receivedEvents = Collections.synchronizedList(new ArrayList<>());
         Disposable[] subscriptionRef = new Disposable[1];
@@ -501,7 +501,7 @@ class ChatServiceImplTest {
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any(), any());
         verify(observability, never()).start(any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
-        verify(hAssistant, never()).streamChat(any(), any());
+        verify(hAssistant, never()).streamChat(any(), any(), any());
     }
 
     @Test
@@ -528,7 +528,7 @@ class ChatServiceImplTest {
 
         assertEquals(List.of(new ChatStreamEvent("error", "AI 服务调用失败")), events);
         assertTrue(permit.released());
-        verify(hAssistant, never()).streamChat(any(), any());
+        verify(hAssistant, never()).streamChat(any(), any(), any());
     }
 
     @Test
@@ -746,7 +746,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-1"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello", null)
                 .collectList()
@@ -795,7 +795,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-log", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-log", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-log"), eq("hello"), any())).thenReturn(tokenStream);
 
         try {
             chatService.streamChat(1L, 2L, null, "session-log", "hello", null)
@@ -841,7 +841,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-2"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-2", "hello", null)
                 .collectList()
@@ -878,7 +878,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-1"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello", null)
                 .collectList()
@@ -922,7 +922,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-1"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello", null)
                 .collectList()
@@ -958,7 +958,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
-        when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-1"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-1", "hello", null)
                 .collectList()
@@ -1017,7 +1017,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-empty", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
-        when(hAssistant.streamChat("1:22:session-empty", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-empty"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-empty", "hello", null)
                 .collectList()
@@ -1070,7 +1070,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-image-tool", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
-        when(hAssistant.streamChat("1:22:session-image-tool", "画一只白猫")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-image-tool"), eq("画一只白猫"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-image-tool", "画一只白猫", null)
                 .collectList()
@@ -1117,7 +1117,7 @@ class ChatServiceImplTest {
                 message.contains("把背景色改为白色")
                         && message.contains("resource-attach-1")
                         && message.contains("generateImage")
-        ))).thenReturn(tokenStream);
+        ), any())).thenReturn(tokenStream);
 
         chatService.streamChat(1L, 2L, "standard-chat", "session-edit-image", "把背景色改为白色", resources)
                 .collectList()
@@ -1127,7 +1127,7 @@ class ChatServiceImplTest {
                 message.contains("把背景色改为白色")
                         && message.contains("resource-attach-1")
                         && message.contains("generateImage")
-        ));
+        ), any());
     }
 
     @Test
@@ -1155,7 +1155,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-blank", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(77L));
-        when(hAssistant.streamChat("1:22:session-blank", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-blank"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-blank", "hello", null)
                 .collectList()
@@ -1198,7 +1198,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:session-guardrail", "杀人")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-guardrail"), eq("杀人"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-guardrail", "杀人", null)
                 .collectList()
@@ -1240,7 +1240,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-create-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:session-create-guardrail", "杀人")).thenThrow(guardrailException);
+        when(hAssistant.streamChat(eq("1:22:session-create-guardrail"), eq("杀人"), any())).thenThrow(guardrailException);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-create-guardrail", "杀人", null)
                 .collectList()
@@ -1283,7 +1283,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-start-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:session-start-guardrail", "杀人")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-start-guardrail"), eq("杀人"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-start-guardrail", "杀人", null)
                 .collectList()
@@ -1322,7 +1322,7 @@ class ChatServiceImplTest {
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
-        when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
+        when(hAssistant.streamChat(eq("1:22:session-2"), eq("hello"), any())).thenReturn(tokenStream);
 
         List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-2", "hello", null)
                 .collectList()

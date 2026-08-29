@@ -1,7 +1,9 @@
 package com.h.backend.knowledge;
 
 import com.h.backend.knowledge.application.KnowledgeIngestService;
+import com.h.backend.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.query.Metadata;
@@ -11,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,9 +26,20 @@ class KnowledgeRagIntegrationTest {
     @Autowired
     private ContentRetriever knowledgeContentRetriever;
 
+    /** 知识检索身份取自 InvocationParameters 中的服务端可信上下文，与生产链路一致。 */
     private Query queryFor(String text, long userId, long promptId) {
-        String memoryId = userId + ":" + promptId + ":sess-test";
-        Metadata md = Metadata.from(UserMessage.from(text), memoryId, List.of());
+        MemoryInvocationContext context = new MemoryInvocationContext(
+                userId, "standard-chat", "root-" + promptId, 1L, "sess-test", promptId);
+        Metadata md = Metadata.builder()
+                .chatMessage(UserMessage.from(text))
+                .invocationContext(InvocationContext.builder()
+                        .invocationId(UUID.randomUUID())
+                        .interfaceName("test")
+                        .methodName("queryFor")
+                        .chatMemoryId(userId + ":" + promptId + ":sess-test")
+                        .invocationParameters(context.toInvocationParameters())
+                        .build())
+                .build();
         return Query.from(text, md);
     }
 

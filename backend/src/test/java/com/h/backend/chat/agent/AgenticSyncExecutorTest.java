@@ -6,20 +6,26 @@ import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.agent.observability.semantic.TextBlock;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.memory.application.SuccessfulTurnCommitter;
+import com.h.backend.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
+import dev.langchain4j.invocation.InvocationParameters;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,14 +34,14 @@ class AgenticSyncExecutorTest {
     @Test
     void shouldEmitAgentStepsFinalChunkAndDone() {
         CarRentalAssistant assistant = mock(CarRentalAssistant.class);
-        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        SuccessfulTurnCommitter committer = mock(SuccessfulTurnCommitter.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgentStepEventBridge bridge = new AgentStepEventBridge();
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
-                chatSessionService,
                 agentRunService,
-                bridge
+                bridge,
+                committer
         );
         AgentDefinition agent = new AgentDefinition(
                 "car-rental-assistant",
@@ -48,8 +54,9 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
+        ChatSessionMessageDto assistantMessage = assistantMessage("请先确认位置。");
 
-        when(assistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
+        when(assistant.chat(any(), any(), any()))
                 .thenAnswer(invocation -> {
                     bridge.emit(
                             "1:agent:car-rental-assistant:session-car",
@@ -67,7 +74,7 @@ class AgenticSyncExecutorTest {
                     );
                     return new ResultWithAgenticScope<>(mock(AgenticScope.class), "请先确认位置。");
                 });
-        when(chatSessionService.appendAssistantMessage(1L, "session-car", "请先确认位置。")).thenReturn(202L);
+        when(committer.commit(any(), any())).thenReturn(assistantMessage);
 
         List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
                         new ChatAgentExecutionCommand(
@@ -97,21 +104,20 @@ class AgenticSyncExecutorTest {
         assertEquals("chunk", events.get(1).type());
         assertEquals("请先确认位置。", events.get(1).content());
         assertEquals("done", events.get(2).type());
-        verify(chatSessionService).appendAssistantMessage(1L, "session-car", "请先确认位置。");
-        verify(agentRunService).completeRun(77L, 202L);
+        verify(committer).commit(any(), argThat(reply -> "请先确认位置。".equals(reply)));
         verify(observation).succeed(argThat(content -> assistantText(content).equals("请先确认位置。")));
     }
 
     @Test
-    void shouldInvokeSelectedAgentBeanFromCommand() {
+    void shouldPassTrustedMemoryInvocationParameters() {
         CarRentalAssistant selectedAssistant = mock(CarRentalAssistant.class);
-        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        SuccessfulTurnCommitter committer = mock(SuccessfulTurnCommitter.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
-                chatSessionService,
                 agentRunService,
-                new AgentStepEventBridge()
+                new AgentStepEventBridge(),
+                committer
         );
         AgentDefinition agent = new AgentDefinition(
                 "car-rental-assistant",
@@ -125,9 +131,9 @@ class AgenticSyncExecutorTest {
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
 
-        when(selectedAssistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
+        when(selectedAssistant.chat(any(), any(), any()))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "已联系拖车。"));
-        when(chatSessionService.appendAssistantMessage(1L, "session-car", "已联系拖车。")).thenReturn(202L);
+        when(committer.commit(any(), any())).thenReturn(assistantMessage("已联系拖车。"));
 
         Flux.<ChatStreamEvent>create(sink -> executor.execute(
                         new ChatAgentExecutionCommand(
@@ -148,19 +154,28 @@ class AgenticSyncExecutorTest {
                 .collectList()
                 .block();
 
-        verify(selectedAssistant).chat("1:agent:car-rental-assistant:session-car", "need towing");
+        ArgumentCaptor<InvocationParameters> parametersCaptor =
+                ArgumentCaptor.forClass(InvocationParameters.class);
+        verify(selectedAssistant).chat(any(), any(), parametersCaptor.capture());
+        MemoryInvocationContext context =
+                MemoryInvocationContext.from(parametersCaptor.getValue());
+        assertNotNull(context);
+        assertEquals(1L, context.userId());
+        assertEquals("car-rental-assistant", context.logicalAgentId());
+        assertEquals("session-car", context.memoryRunId());
+        assertEquals(77L, context.sourceExecutionId());
     }
 
     @Test
     void shouldInvokeAnyAgentBeanWithCompatibleChatMethod() {
         DynamicAgent assistant = mock(DynamicAgent.class);
-        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        SuccessfulTurnCommitter committer = mock(SuccessfulTurnCommitter.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
-                chatSessionService,
                 agentRunService,
-                new AgentStepEventBridge()
+                new AgentStepEventBridge(),
+                committer
         );
         AgentDefinition agent = new AgentDefinition(
                 "dynamic-agent",
@@ -174,9 +189,9 @@ class AgenticSyncExecutorTest {
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
 
-        when(assistant.chat("1:agent:dynamic-agent:session-dynamic", "hello"))
+        when(assistant.chat(any(), any(), any()))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "动态回复"));
-        when(chatSessionService.appendAssistantMessage(1L, "session-dynamic", "动态回复")).thenReturn(202L);
+        when(committer.commit(any(), any())).thenReturn(assistantMessage("动态回复"));
 
         List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
                         new ChatAgentExecutionCommand(
@@ -199,20 +214,20 @@ class AgenticSyncExecutorTest {
 
         assertEquals("chunk", events.get(0).type());
         assertEquals("动态回复", events.get(0).content());
-        verify(assistant).chat("1:agent:dynamic-agent:session-dynamic", "hello");
-        verify(agentRunService).completeRun(77L, 202L);
+        verify(assistant).chat(any(), any(), any());
+        verify(committer).commit(any(), argThat(reply -> "动态回复".equals(reply)));
     }
 
     @Test
     void shouldFailRunWhenAgenticReplyIsBlank() {
         CarRentalAssistant assistant = mock(CarRentalAssistant.class);
-        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        SuccessfulTurnCommitter committer = mock(SuccessfulTurnCommitter.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
         AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
-                chatSessionService,
                 agentRunService,
-                new AgentStepEventBridge()
+                new AgentStepEventBridge(),
+                committer
         );
         AgentDefinition agent = new AgentDefinition(
                 "car-rental-assistant",
@@ -225,7 +240,7 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
-        when(assistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
+        when(assistant.chat(any(), any(), any()))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "   "));
 
         List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
@@ -253,12 +268,21 @@ class AgenticSyncExecutorTest {
                 argThat(error -> error instanceof IllegalStateException
                         && "AI 未返回有效内容".equals(error.getMessage()))
         );
-        verify(chatSessionService, never()).appendAssistantMessage(
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any()
+        verify(committer, org.mockito.Mockito.never()).commit(any(), any());
+        verify(agentRunService, org.mockito.Mockito.never())
+                .completeRun(org.mockito.Mockito.any(), org.mockito.Mockito.any());
+    }
+
+    private static ChatSessionMessageDto assistantMessage(String content) {
+        return new ChatSessionMessageDto(
+                "202",
+                "assistant",
+                "TEXT",
+                content,
+                null,
+                List.of(),
+                LocalDateTime.now()
         );
-        verify(agentRunService, never()).completeRun(org.mockito.Mockito.any(), org.mockito.Mockito.any());
     }
 
     private static String assistantText(SemanticContent content) {
@@ -274,6 +298,6 @@ class AgenticSyncExecutorTest {
     }
 
     interface DynamicAgent {
-        ResultWithAgenticScope<String> chat(String memoryId, String message);
+        ResultWithAgenticScope<String> chat(String memoryId, String message, InvocationParameters parameters);
     }
 }

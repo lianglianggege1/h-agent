@@ -28,7 +28,6 @@ import dev.langchain4j.model.chat.DisabledChatModel;
 import dev.langchain4j.model.chat.DisabledStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.mcp.McpToolProvider;
-import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.AiServiceTool;
 import dev.langchain4j.service.tool.ToolProvider;
@@ -137,7 +136,7 @@ public class ChatModelConfig {
 
     @Bean
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
-                                 RetrievalAugmentor knowledgeRetrievalAugmentor,
+                                 com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentor standardChatContextAugmentor,
                                  ObjectProvider<McpToolProvider> mcpToolProvider,
                                  AgentObservability observability) {
         List<ToolProvider> toolProviders = new ArrayList<>();
@@ -160,7 +159,8 @@ public class ChatModelConfig {
 
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
-//                .retrievalAugmentor(knowledgeRetrievalAugmentor)
+                // 唯一 RetrievalAugmentor：长期记忆 + 知识库，两条链路独立预算与注入标记
+                .retrievalAugmentor(standardChatContextAugmentor)
                 // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> {
                     String[] parts = memoryId.toString().split(":", 3);

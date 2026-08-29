@@ -1,5 +1,6 @@
 package com.h.backend.chat.infrastructure.ai;
 
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.V;
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +12,8 @@ class AgentsTest {
 
     @Test
     void bankerAgentSeedsRequestStateForSupervisor() throws NoSuchMethodException {
-        Method chat = Agents.BankerAgent.class.getMethod("chat", String.class, String.class);
+        Method chat = Agents.BankerAgent.class.getMethod(
+                "chat", String.class, String.class, InvocationParameters.class);
 
         V request = chat.getParameters()[1].getAnnotation(V.class);
 
