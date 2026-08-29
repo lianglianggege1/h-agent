@@ -1,5 +1,8 @@
 package com.h.backend.chat.infrastructure.ai;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.langchain4j.ObservingAgentListener;
+import com.h.agent.observability.langchain4j.PlatformAgentListener;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.CustomerInfo;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.Emergencies;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
@@ -9,6 +12,7 @@ import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
+import dev.langchain4j.agentic.observability.AgentListener;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.supervisor.SupervisorAgent;
 import dev.langchain4j.agentic.supervisor.SupervisorContextStrategy;
@@ -42,39 +46,53 @@ public class AgentConfig {
     @Resource
     private ChatMemoryIdFactory chatMemoryIdFactory;
 
+    @Resource
+    private AgentObservability agentObservability;
+
+    /** 必须是同一实例：框架按实例去重继承的 listener，重复实例会导致事件双发。 */
+    private AgentListener platformListener;
+
+    private AgentListener platformListener() {
+        if (platformListener == null) {
+            platformListener = new PlatformAgentListener(agentStepListener,
+                    new ObservingAgentListener(agentObservability));
+        }
+        return platformListener;
+    }
+
     @Bean
     public ExportAssistant exportAssistant() {
         Agents.CategoryRouter categoryRouter = AgenticServices.agentBuilder(Agents.CategoryRouter.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("category")
                 .build();
 
         Agents.MedicalExpert medicalExpert = AgenticServices.agentBuilder(Agents.MedicalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .build();
 
         Agents.LegalExpert legalExpert = AgenticServices.agentBuilder(Agents.LegalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .build();
 
         Agents.TechnicalExpert technicalExpert = AgenticServices.agentBuilder(Agents.TechnicalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .build();
 
         UntypedAgent expertsAgent = AgenticServices.conditionalBuilder()
                 .name("router")
                 .outputKey("response")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(
                         "Medical request",
                         scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.MEDICAL,
@@ -92,7 +110,7 @@ public class AgentConfig {
         return AgenticServices.sequenceBuilder(
                         ExportAssistant.class)
                 .subAgents(categoryRouter, expertsAgent)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .build();
 
@@ -104,42 +122,42 @@ public class AgentConfig {
         CustomerInfoExtractionService customerInfoExtraction = AgenticServices.agentBuilder(
                         CustomerInfoExtractionService.class
                 ).chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .chatMemoryProvider(scopedMemoryProvider("customer-info-extractor"))
                 .outputKey("customerInfo")
                 .build();
 
         TowingAgentService towingAgentService = AgenticServices.agentBuilder(TowingAgentService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("towingResponse")
                 .build();
 
         ResponseGeneratorService responseGeneratorService = AgenticServices.agentBuilder(ResponseGeneratorService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .build();
 
         HumanInTheLoop customerInfoClarifier = AgenticServices.humanInTheLoopBuilder()
                 .description("向用户追问缺失的租车救援客户信息")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .responseProvider(scope -> customerInfoClarification((CustomerInfo) scope.readState("customerInfo")))
                 .build();
 
         UntypedAgent businessFlow = AgenticServices.sequenceBuilder()
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(
                         towingAgentService,
-                        emergencyService(chatModel, redisChatMemoryStore, agentStepListener),
+                        emergencyService(chatModel, redisChatMemoryStore, platformListener()),
                         responseGeneratorService
                 )
                 .outputKey("response")
                 .build();
 
         UntypedAgent customerInfoGate = AgenticServices.conditionalBuilder()
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(
                         "customer info is incomplete",
                         agenticScope -> !hasCompleteCustomerInfo(agenticScope),
@@ -150,7 +168,7 @@ public class AgentConfig {
                 .build();
 
         return AgenticServices.sequenceBuilder(CarRentalAssistant.class)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .beforeCall(agenticScope -> {
                     if (agenticScope.readState("customerInfo") == null) {
                         agenticScope.writeState("customerInfo", new CustomerInfo());
@@ -204,37 +222,37 @@ public class AgentConfig {
                 .build();
     }
 
-    private static UntypedAgent emergencyService(ChatModel chatModel, RedisChatMemoryStore redisChatMemoryStore, AgentStepListener agentStepListener) {
+    private static UntypedAgent emergencyService(ChatModel chatModel, RedisChatMemoryStore redisChatMemoryStore, AgentListener listener) {
         EmergencyExtractorService emergencyExtractor = AgenticServices.agentBuilder(EmergencyExtractorService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(listener)
                 .outputKey("emergencies")
                 .build();
 
         EmergencyResponseService emergencyResponseService = AgenticServices.agentBuilder(EmergencyResponseService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(listener)
                 .outputKey("emergencyResponse")
                 .build();
 
         FireAgentService fireAgent = AgenticServices.agentBuilder(FireAgentService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(listener)
                 .outputKey("fireResponse")
                 .build();
         MedicalAgentService medicalAgent = AgenticServices.agentBuilder(MedicalAgentService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(listener)
                 .outputKey("medicalResponse")
                 .build();
         PoliceAgentService policeAgent = AgenticServices.agentBuilder(PoliceAgentService.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(listener)
                 .outputKey("policeResponse")
                 .build();
 
         UntypedAgent emergencyExperts = AgenticServices.conditionalBuilder()
-                .listener(agentStepListener)
+                .listener(listener)
                 .beforeCall(agenticScope -> {
                     Emergencies emergencies = (Emergencies) agenticScope.readState("emergencies");
                     writeEmergency(agenticScope, emergencies.getFire(), "fire");
@@ -247,7 +265,7 @@ public class AgentConfig {
                 .build();
 
         return AgenticServices.sequenceBuilder()
-                .listener(agentStepListener)
+                .listener(listener)
                 .subAgents(emergencyExtractor, emergencyExperts, emergencyResponseService)
                 .outputKey("emergencyResponse")
                 .build();
@@ -266,39 +284,39 @@ public class AgentConfig {
     public Agents.StoryChatAgent storyChat() {
         Agents.StoryInfoAgent storyInfoAgent = AgenticServices.agentBuilder(Agents.StoryInfoAgent.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .chatMemoryProvider(scopedMemoryProvider("story-info-extractor"))
                 .outputKey("storyInfo")
                 .build();
 
         Agents.CreativeWriter creativeWriter = AgenticServices.agentBuilder(Agents.CreativeWriter.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         Agents.AudienceEditor audienceEditor = AgenticServices.agentBuilder(Agents.AudienceEditor.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         Agents.StyleEditor styleEditor = AgenticServices.agentBuilder(Agents.StyleEditor.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         Agents.StyleScorer styleScorer = AgenticServices.agentBuilder(Agents.StyleScorer.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("score")
                 .build();
 
         UntypedAgent storyCreator = AgenticServices.sequenceBuilder()
                 .name("故事创作")
                 .description("根据主题、风格和受众创作故事")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(creativeWriter, audienceEditor)
                 .outputKey("story")
                 .build();
@@ -306,7 +324,7 @@ public class AgentConfig {
         UntypedAgent styleReviewLoop = AgenticServices.loopBuilder()
                 .name("故事审核")
                 .description("审核并评分给定故事以确保其与指定风格一致")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(styleEditor, styleScorer)
                 .maxIterations(5)
                 .exitCondition(scope -> {
@@ -319,14 +337,14 @@ public class AgentConfig {
         UntypedAgent storyCreatorWithReview = AgenticServices.sequenceBuilder()
                 .name("审核后的故事创作")
                 .description("根据主题、风格和受众创作故事并进行审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(storyCreator, styleReviewLoop)
                 .outputKey("story")
                 .build();
 
         HumanInTheLoop storyInfoClarifier = AgenticServices.humanInTheLoopBuilder()
                 .description("向用户追问缺失的故事创作信息")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .responseProvider(scope -> storyInfoClarification((StoryInfo) scope.readState("storyInfo")))
                 .build();
@@ -336,7 +354,7 @@ public class AgentConfig {
         UntypedAgent storyCreationFlow = AgenticServices.sequenceBuilder()
                 .name("故事创作流程")
                 .description("映射故事信息并执行故事创作审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(storyInfoMapper, storyCreatorWithReview)
                 .output(scope -> scope.readState("story"))
                 .outputKey("response")
@@ -345,7 +363,7 @@ public class AgentConfig {
         UntypedAgent storyInfoGate = AgenticServices.conditionalBuilder()
                 .name("故事信息完整性网关")
                 .description("故事信息完整则进入创作流程，否则向用户追问缺失信息")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(
                         "故事创作信息不完整",
                         scope -> !hasCompleteStoryInfo(scope),
@@ -362,7 +380,7 @@ public class AgentConfig {
         return AgenticServices.sequenceBuilder(Agents.StoryChatAgent.class)
                 .name("故事创作代理")
                 .description("根据主题、风格和受众创作故事并进行审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(storyInfoAgent, storyInfoGate)
                 .output(scope -> scope.readState("response"))
                 .outputKey("response")
@@ -399,14 +417,14 @@ public class AgentConfig {
         Agents.BankTool bankTool = new Agents.BankTool();
         Agents.WithdrawAgent withdrawAgent = AgenticServices.agentBuilder(Agents.WithdrawAgent.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .tools(bankTool)
                 .outputKey("balance")
                 .build();
 
         Agents.CreditAgent creditAgent = AgenticServices.agentBuilder(Agents.CreditAgent.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .tools(bankTool)
                 .outputKey("balance")
                 .build();
@@ -414,7 +432,7 @@ public class AgentConfig {
         SupervisorAgent bankSupervisor = AgenticServices.supervisorBuilder()
                 .name("银行柜员")
                 .description("负责执行用户账户美元(USD)存入或支取操作")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .chatModel(chatModel)
                 .contextGenerationStrategy(SupervisorContextStrategy.CHAT_MEMORY)
                 .responseStrategy(SupervisorResponseStrategy.SUMMARY)
@@ -426,7 +444,7 @@ public class AgentConfig {
         return AgenticServices.sequenceBuilder(Agents.BankerAgent.class)
                 .name("银行代理")
                 .description("负责执行用户账户美元(USD)存入或支取操作")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(bankSupervisor)
                 .outputKey("balance")
                 .build();
@@ -437,19 +455,19 @@ public class AgentConfig {
     public Agents.EveningPlannerAgent eveningPlannerAgent() {
         Agents.FoodExpert foodExpert = AgenticServices.agentBuilder(Agents.FoodExpert.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("meals")
                 .build();
 
         Agents.MovieExpert movieExpert = AgenticServices.agentBuilder(Agents.MovieExpert.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("movies")
                 .build();
         return AgenticServices.parallelBuilder(Agents.EveningPlannerAgent.class)
                 .name("晚间活动规划代理")
                 .description("根据给定情绪推荐三部影片和三份餐食")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .executor(Executors.newFixedThreadPool(2)) // Use a fixed thread pool with 2 threads
                 .subAgents(foodExpert, movieExpert)
                 .output(scope -> Agents.EveningPlannerAgentWithOutput.createPlans(scope.readState("movies", List.of()), scope.readState("meals", List.of())))

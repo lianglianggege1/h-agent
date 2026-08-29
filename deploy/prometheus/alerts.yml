@@ -1,0 +1,70 @@
+# h-agent backend 资源存储首批告警规则（统一 Trace 设计 §10.8）。
+#
+# 指标来源：backend /actuator/prometheus（Micrometer ResourceStorageMeters，不采样、
+# 不依赖 Agent Trace）。规则只做趋势与异常检测；单次调用的上下文（resourceId、
+# object key）查结构化日志或 Langfuse Trace，不进入 Metrics label。
+#
+# 指标名对照（Micrometer → Prometheus）：
+#   h.agent.resource.storage.operation.duration  → h_agent_resource_storage_operation_duration_seconds_{count,bucket,sum,max}
+#     labels: operation = save|open|discard, outcome = success|failure|rejected,
+#             error_kind = none|not_found|size_limit|unavailable|io_error|range
+#   h.agent.resource.storage.object.size         → h_agent_resource_storage_object_size_{count,sum,max} (byte)
+#   h.agent.resource.storage.compensation        → h_agent_resource_storage_compensation_total
+#     labels: outcome = success|failure, error_kind 同上
+groups:
+  - name: h-agent-resource-storage
+    rules:
+      # 最高优先级：数据库事务回滚后的补偿删除失败，可能残留孤儿对象，需人工检查。
+      # 物理 discard Timer 与 compensation Counter 不能相加为同一 attempts 分母。
+      - alert: HAgentResourceStorageCompensationFailure
+        expr: increase(h_agent_resource_storage_compensation_total{outcome="failure"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "资源补偿删除失败（可能残留孤儿对象）"
+          description: >-
+            15 分钟内事务回滚补偿删除出现失败。按 ERROR 日志中的 resourceId 在
+            MinIO 检索对应对象，人工确认并删除（本期无 orphan 自动清理）。
+
+      # MinIO 可用性失败率（连接/超时/5xx/凭证类），要求请求量达到最小门槛避免小流量误报。
+      # 注意 error_kind=range（Range 语义拒绝）与 not_found 不计入本失败率。
+      - alert: HAgentResourceStorageUnavailableRateHigh
+        expr: >-
+          sum(rate(h_agent_resource_storage_operation_duration_seconds_count{error_kind="unavailable"}[5m]))
+            / sum(rate(h_agent_resource_storage_operation_duration_seconds_count[5m])) > 0.05
+          and sum(rate(h_agent_resource_storage_operation_duration_seconds_count[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO 可用性错误率超过 5%（请求量已过门槛）"
+          description: >-
+            核对 MINIO_ENDPOINT 可达性、凭证有效期与账号 Policy；持续超阈值说明
+            对象存储整体不可用，影响上传/预览/下载等资源业务。
+
+      # save/open 成功路径 p95 延迟持续超阈值（open 的计时终点是对象流建立，不含客户端读完）。
+      - alert: HAgentResourceStorageP95LatencyHigh
+        expr: >-
+          histogram_quantile(0.95,
+            sum(rate(h_agent_resource_storage_operation_duration_seconds_bucket{outcome="success"}[5m])) by (le, operation))
+            > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "资源存储 {{ $labels.operation }} p95 延迟持续超过 10s"
+          description: >-
+            结合网络、MinIO 服务端负载与对象大小（object_size_sum/count）判断；
+            大对象 multipart 上传在慢速网络下延迟升高属预期，不直接等价于故障。
+
+      # SIZE_LIMIT/IO_ERROR 异常增幅：容量或内容链路排障信号，不直接等价于 MinIO 宕机。
+      - alert: HAgentResourceStorageErrorSpike
+        expr: >-
+          increase(h_agent_resource_storage_operation_duration_seconds_count{error_kind=~"size_limit|io_error"}[1h]) > 20
+        labels:
+          severity: warning
+        annotations:
+          summary: "资源存储 size_limit/io_error 一小时内异常增幅"
+          description: >-
+            size_limit 增幅通常指向超大上传或上限配置变化；io_error 增幅指向流中断
+            或协议问题。查服务端异常链 cause 与结构化日志定位。

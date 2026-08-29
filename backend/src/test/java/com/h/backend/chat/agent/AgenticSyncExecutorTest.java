@@ -1,10 +1,13 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.lifecycle.AgentExecutionObservation;
+import com.h.agent.observability.semantic.SemanticContent;
+import com.h.agent.observability.semantic.SemanticMessage;
+import com.h.agent.observability.semantic.TextBlock;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.CarRentalAssistant;
 import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
@@ -27,12 +30,11 @@ class AgenticSyncExecutorTest {
         CarRentalAssistant assistant = mock(CarRentalAssistant.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgentStepEventBridge bridge = new AgentStepEventBridge();
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 bridge
         );
         AgentDefinition agent = new AgentDefinition(
@@ -46,8 +48,6 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-agentic");
 
         when(assistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
                 .thenAnswer(invocation -> {
@@ -80,7 +80,7 @@ class AgenticSyncExecutorTest {
                                 "1:agent:car-rental-assistant:session-car",
                                 agent,
                                 runHandle,
-                                telemetryRun,
+                                observation,
                                 () -> {
                                 }
                         )
@@ -99,7 +99,7 @@ class AgenticSyncExecutorTest {
         assertEquals("done", events.get(2).type());
         verify(chatSessionService).appendAssistantMessage(1L, "session-car", "请先确认位置。");
         verify(agentRunService).completeRun(77L, 202L);
-        verify(telemetryService).markSuccess(telemetryRun);
+        verify(observation).succeed(argThat(content -> assistantText(content).equals("请先确认位置。")));
     }
 
     @Test
@@ -107,11 +107,10 @@ class AgenticSyncExecutorTest {
         CarRentalAssistant selectedAssistant = mock(CarRentalAssistant.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new AgentStepEventBridge()
         );
         AgentDefinition agent = new AgentDefinition(
@@ -125,8 +124,6 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-agentic");
 
         when(selectedAssistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "已联系拖车。"));
@@ -143,7 +140,7 @@ class AgenticSyncExecutorTest {
                                 "1:agent:car-rental-assistant:session-car",
                                 agent,
                                 runHandle,
-                                telemetryRun,
+                                observation,
                                 () -> {
                                 }
                         )
@@ -159,11 +156,10 @@ class AgenticSyncExecutorTest {
         DynamicAgent assistant = mock(DynamicAgent.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new AgentStepEventBridge()
         );
         AgentDefinition agent = new AgentDefinition(
@@ -177,8 +173,6 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-agentic");
 
         when(assistant.chat("1:agent:dynamic-agent:session-dynamic", "hello"))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "动态回复"));
@@ -195,7 +189,7 @@ class AgenticSyncExecutorTest {
                                 "1:agent:dynamic-agent:session-dynamic",
                                 agent,
                                 runHandle,
-                                telemetryRun,
+                                observation,
                                 () -> {
                                 }
                         )
@@ -214,11 +208,10 @@ class AgenticSyncExecutorTest {
         CarRentalAssistant assistant = mock(CarRentalAssistant.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         AgenticSyncExecutor executor = new AgenticSyncExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new AgentStepEventBridge()
         );
         AgentDefinition agent = new AgentDefinition(
@@ -232,8 +225,6 @@ class AgenticSyncExecutorTest {
                 true
         );
         AgentRunService.AgentRunHandle runHandle = new AgentRunService.AgentRunHandle(77L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-agentic");
         when(assistant.chat("1:agent:car-rental-assistant:session-car", "need towing"))
                 .thenReturn(new ResultWithAgenticScope<>(mock(AgenticScope.class), "   "));
 
@@ -248,7 +239,7 @@ class AgenticSyncExecutorTest {
                                 "1:agent:car-rental-assistant:session-car",
                                 agent,
                                 runHandle,
-                                telemetryRun,
+                                observation,
                                 () -> {
                                 }
                         )
@@ -258,8 +249,7 @@ class AgenticSyncExecutorTest {
 
         assertEquals(List.of(new ChatStreamEvent("error", "AI 未返回有效内容")), events);
         verify(agentRunService).failRun(77L, "AI 未返回有效内容");
-        verify(telemetryService).markFailure(
-                org.mockito.Mockito.eq(telemetryRun),
+        verify(observation).fail(
                 argThat(error -> error instanceof IllegalStateException
                         && "AI 未返回有效内容".equals(error.getMessage()))
         );
@@ -269,6 +259,18 @@ class AgenticSyncExecutorTest {
                 org.mockito.Mockito.any()
         );
         verify(agentRunService, never()).completeRun(org.mockito.Mockito.any(), org.mockito.Mockito.any());
+    }
+
+    private static String assistantText(SemanticContent content) {
+        if (content == null || content.messages() == null || content.messages().isEmpty()) {
+            return "";
+        }
+        SemanticMessage message = content.messages().get(0);
+        if (message.blocks() == null || message.blocks().isEmpty()
+                || !(message.blocks().get(0) instanceof TextBlock textBlock)) {
+            return "";
+        }
+        return textBlock.text();
     }
 
     interface DynamicAgent {

@@ -1,8 +1,11 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.minio.MinioClient;
 import io.minio.ObjectWriteArgs;
 import okhttp3.OkHttpClient;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -53,13 +56,25 @@ public class ResourceStorageConfiguration {
                 .build();
     }
 
+    /**
+     * 资源存储运行指标（统一 Trace 设计 §10.7/§10.8）：注入 Actuator 提供的
+     * {@link MeterRegistry}（生产为 Prometheus registry 的 composite）。上下文无
+     * registry（如未启用 actuator 的测试上下文）或 Metrics 显式关闭时，退化为空
+     * {@link CompositeMeterRegistry} 的进程内 no-op——调用方不判空、不分支，
+     * Prometheus 缺失或未抓取不影响资源操作结果。
+     */
+    @Bean
+    public ResourceStorageMeters resourceStorageMeters(ObjectProvider<MeterRegistry> meterRegistry) {
+        return new ResourceStorageMeters(meterRegistry.getIfAvailable(CompositeMeterRegistry::new));
+    }
+
     @Bean
     public MinioResourceStorage minioResourceStorage(
             MinioClient minioClient,
             ResourceStorageProperties properties,
-            ResourceStorageMetrics metrics
+            ResourceStorageMeters meters
     ) {
-        return new MinioResourceStorage(minioClient, properties, metrics);
+        return new MinioResourceStorage(minioClient, properties, meters);
     }
 
     // ------------------------------------------------------------------

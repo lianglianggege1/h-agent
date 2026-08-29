@@ -3,7 +3,7 @@ package com.h.backend.chat.domain.agent;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
+import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 import reactor.core.publisher.FluxSink;
 
@@ -33,7 +33,7 @@ public record ChatAgentExecutionCommand(
         String memoryId,
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
-        AgentRunTelemetryService.TelemetryRun telemetryRun,
+        AgentExecutionObservation observation,
         Runnable onTerminal
 ) {
     public ChatAgentExecutionCommand(
@@ -46,12 +46,12 @@ public record ChatAgentExecutionCommand(
             String memoryId,
             AgentDefinition agent,
             AgentRunService.AgentRunHandle runHandle,
-            AgentRunTelemetryService.TelemetryRun telemetryRun,
+            AgentExecutionObservation observation,
             Runnable onTerminal
     ) {
         this(sink, userId, resolvedPromptId, sessionId, sessionId, null, null, null, null, null, null,
                 userMessage, resources, memoryId,
-                agent, runHandle, telemetryRun, onTerminal);
+                agent, runHandle, observation, onTerminal);
     }
 
     /** 兼容无 Catalog 绑定的旧全参构造。 */
@@ -71,12 +71,12 @@ public record ChatAgentExecutionCommand(
             String memoryId,
             AgentDefinition agent,
             AgentRunService.AgentRunHandle runHandle,
-            AgentRunTelemetryService.TelemetryRun telemetryRun,
+            AgentExecutionObservation observation,
             Runnable onTerminal
     ) {
         this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
                 subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
                 null, userMessage, resources, memoryId,
-                agent, runHandle, telemetryRun, onTerminal);
+                agent, runHandle, observation, onTerminal);
     }
 }

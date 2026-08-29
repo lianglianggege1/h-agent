@@ -1,5 +1,7 @@
 package com.h.backend.chat.infrastructure.tools;
 
+import com.h.agent.observability.semantic.ArtifactUse;
+import com.h.agent.observability.semantic.ToolArtifactCollector;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatStreamEventBridge;
@@ -11,6 +13,7 @@ import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
 import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.observability.BusinessArtifactReferenceMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
@@ -100,6 +103,7 @@ public class FileDeliveryTool {
         // 挂接回调在 Coordinator 事务内（rollback 时对象被补偿），
         // 流事件在 saveAndAttach 返回（挂接事务已提交）后才发布。
         // 保存流使用回放流（头字节已缓冲 + 剩余原流），不二次读源。
+        ChatMessageResourceDto[] delivered = new ChatMessageResourceDto[1];
         ChatSessionMessageDto chatMessage = writeCoordinator.saveAndAttach(
                 ResourceSaveCommand.fromStream(
                         resourceType,
@@ -124,6 +128,7 @@ public class FileDeliveryTool {
                             stored.storageType(),
                             stored.storageKey()
                     );
+                    delivered[0] = resource;
                     return chatSessionService.appendResourceMessage(
                             context.userId(),
                             context.sessionId(),
@@ -133,6 +138,10 @@ public class FileDeliveryTool {
                     );
                 }
         );
+        // Artifact 在挂接事务提交后才成立（设计 §9.5）：saveAndAttach 正常返回即提交，
+        // 此处只做已持有业务结果的纯映射，进入所属工具 Observation 的 TOOL_OUTPUT。
+        ToolArtifactCollector.record(BusinessArtifactReferenceMapper.from(
+                delivered[0], ArtifactUse.TOOL_OUTPUT, null));
         chatStreamEventBridge.publishMessage(memoryId, chatMessage);
         return "文件已发送到聊天中。";
     }

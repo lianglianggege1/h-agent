@@ -1,7 +1,12 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.NoopAgentObservability;
+import com.h.agent.observability.lifecycle.AgentExecutionStart;
+import com.h.agent.observability.lifecycle.ExecutionObservationCarrier;
+import com.h.agent.observability.semantic.SemanticContent;
+import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
@@ -34,10 +39,10 @@ import reactor.core.publisher.FluxSink;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,72 +60,71 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
 
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
-    private final AgentRunTelemetryService agentRunTelemetryService;
     private final HarnessEventMapper eventMapper;
     private final HarnessRuntime harnessRuntime;
     private final HarnessCollaborationService harnessCollaborationService;
     private final HarnessSubagentEventRelay subagentEventRelay;
     private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
     private final ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider;
+    private final AgentObservability observability;
 
     @Autowired
     public HarnessAgentExecutor(
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper,
             HarnessRuntime harnessRuntime,
             HarnessCollaborationService harnessCollaborationService,
             HarnessSubagentEventRelay subagentEventRelay,
             ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
-            ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider
+            ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider,
+            ObjectProvider<AgentObservability> observabilityProvider
     ) {
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
         this.eventMapper = eventMapper;
         this.harnessRuntime = harnessRuntime;
         this.harnessCollaborationService = harnessCollaborationService;
         this.subagentEventRelay = subagentEventRelay;
         this.subagentCatalogProvider = subagentCatalogProvider;
         this.subagentCatalogPropertiesProvider = subagentCatalogPropertiesProvider;
+        this.observability = observabilityProvider != null
+                ? observabilityProvider.getIfAvailable(NoopAgentObservability::getInstance)
+                : NoopAgentObservability.getInstance();
     }
 
     public HarnessAgentExecutor(
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper,
             HarnessRuntime harnessRuntime,
             HarnessCollaborationService harnessCollaborationService
     ) {
-        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
+        this(chatSessionService, agentRunService, eventMapper,
                 harnessRuntime, harnessCollaborationService, new HarnessSubagentEventRelay(),
-                null, null);
+                null, null, null);
     }
 
     public HarnessAgentExecutor(
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper,
             HarnessRuntime harnessRuntime,
             HarnessCollaborationService harnessCollaborationService,
             HarnessSubagentEventRelay subagentEventRelay
     ) {
-        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
-                harnessRuntime, harnessCollaborationService, subagentEventRelay, null, null);
+        this(chatSessionService, agentRunService, eventMapper,
+                harnessRuntime, harnessCollaborationService, subagentEventRelay, null, null, null);
     }
 
     public HarnessAgentExecutor(
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             HarnessEventMapper eventMapper
     ) {
-        this(chatSessionService, agentRunService, agentRunTelemetryService, eventMapper,
+        this(chatSessionService, agentRunService, eventMapper,
                 new AgentScopeHarnessRuntime(null, null), null, new HarnessSubagentEventRelay(),
-                null, null);
+                null, null, null);
     }
 
     @Override
@@ -136,16 +140,23 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         // 父 turn 开始时生成不可变 Catalog 快照（设计 7.1）：定义在 turn 中途发布或停用
         // 不影响本轮执行；Execution 持有同一 snapshot 用于 exposure 版本固定。
         SubagentTurnSnapshot snapshot = parentTurn ? snapshotForTurn(command.userId()) : null;
+        // 观测阶段载体（设计 7.3）：PRIMARY 在产品结果提交后原子结束，之后的后置工作
+        // （记忆提取/整理/Hook）延迟创建并进入 Maintenance trace。
+        ExecutionObservationCarrier carrier = new ExecutionObservationCarrier(
+                observability, command.observation(), maintenanceStart(command));
         RuntimeContext.Builder contextBuilder = RuntimeContext.builder()
                 .userId(String.valueOf(command.userId()))
                 .sessionId(command.sessionId())
                 // Harness 2.0.1 只有显式打开该上下文标记才会发 SUBAGENT_EXPOSED。
-                .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true);
+                .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
+                // 类型化观测阶段载体（设计 7.3 / 12.4）：观测 middleware 与 SDK 子 Agent
+                // 派生上下文据此挂到本轮 trace，并在响应提交后切换 Maintenance。
+                .put(ExecutionObservationCarrier.class, carrier);
         if (snapshot != null) {
             contextBuilder.put(SubagentTurnSnapshot.class, snapshot);
         }
         RuntimeContext runtimeContext = contextBuilder.build();
-        Execution execution = new Execution(command, snapshot);
+        Execution execution = new Execution(command, snapshot, carrier);
 
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));
         try {
@@ -162,9 +173,16 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentExecutionId(),
                                     command.subagentDefinitionBinding()
                             ),
-                            command.userMessage()
+                            command.userMessage(),
+                            carrier
                     );
+            // 阶段协调（设计 7.3）：装饰原始 Publisher 且在产品订阅之前建立，不额外
+            // subscribe——产品的订阅、取消与背压仍是唯一驱动力。Publisher 终止即结束
+            // Maintenance trace；不依赖 onEvent 投影（responseTerminal 后它会忽略事件）。
             Disposable subscription = events
+                    .doOnComplete(carrier::executionCompleted)
+                    .doOnError(carrier::executionFailed)
+                    .doOnCancel(carrier::executionCancelled)
                     .subscribe(execution::onEvent, execution::onError, execution::onComplete);
             execution.attachSubscription(subscription);
             if (command.sink().isCancelled()) {
@@ -173,6 +191,25 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         } catch (RuntimeException ex) {
             execution.onError(ex);
         }
+    }
+
+    /**
+     * Maintenance trace 的启动元数据（设计 7.3 规则 4）：沿用产品 Session、rootRunId
+     * 与环境标签，只把 entry_kind 标为 maintenance。
+     */
+    private static AgentExecutionStart maintenanceStart(ChatAgentExecutionCommand command) {
+        return new AgentExecutionStart(
+                "agent.maintenance",
+                command.rootSessionId(),
+                command.userId(),
+                command.agent().agentId(),
+                command.sessionId(),
+                "maintenance",
+                String.valueOf(command.runHandle().id()),
+                List.of(),
+                Map.of(),
+                null
+        );
     }
 
     /**
@@ -202,6 +239,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         private final ChatAgentExecutionCommand command;
         /** 父 turn 的不可变 Catalog 快照；exposure 用它把 agent_id 固定到 Definition Version。 */
         private final SubagentTurnSnapshot snapshot;
+        /** 观测阶段载体（设计 7.3）：Primary 终态与 Maintenance 生命周期都经由它协调。 */
+        private final ExecutionObservationCarrier carrier;
         private final AtomicLong sequence = new AtomicLong();
         // 用户可见响应与 Harness 后置维护是两个终态；父响应结束后仍允许记忆任务继续运行。
         private final AtomicBoolean responseTerminal = new AtomicBoolean();
@@ -222,9 +261,14 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         // 原始事件的稳定身份；按它去重，避免父时间线双发，同时保留 relay 的后台续传能力。
         private final Set<String> observedEventIds = new HashSet<>();
 
-        private Execution(ChatAgentExecutionCommand command, SubagentTurnSnapshot snapshot) {
+        private Execution(
+                ChatAgentExecutionCommand command,
+                SubagentTurnSnapshot snapshot,
+                ExecutionObservationCarrier carrier
+        ) {
             this.command = command;
             this.snapshot = snapshot;
+            this.carrier = carrier;
             agentSessionIdBySource.put("", command.sessionId());
         }
 
@@ -477,7 +521,9 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                     assistantMessageId = completion.assistantMessageId();
                 }
                 agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
-                agentRunTelemetryService.markSuccess(command.telemetryRun());
+                // 产品结果与 Run 已提交：原子结束 Primary 并切入 MAINTENANCE（设计 7.3 规则 1）。
+                carrier.completePrimary(SemanticContent.ofMessages(
+                        List.of(SemanticMessage.of("assistant", reply))));
                 log.info("[HarnessExecutor] Agent执行完成 userId={}, sessionId={}, runId={}, replyLength={}",
                         command.userId(), command.sessionId(), command.runHandle().id(), reply.length());
                 releaseExecution();
@@ -528,7 +574,6 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             if (current != null && !current.isDisposed()) {
                 current.dispose();
             }
-            CancellationException error = new CancellationException(reason);
             try {
                 if (command.gatewaySubagentId() != null && harnessCollaborationService != null) {
                     // 当前运行记录按失败收尾；同步回收产品状态，避免断流后协作者永久停在 RUNNING。
@@ -539,7 +584,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                             reason
                     );
                 }
-                failAfterResponseClaim(error, false);
+                agentRunService.failRun(command.runHandle().id(), reason);
+                carrier.cancelPrimary(reason);
             } finally {
                 releaseExecution();
             }
@@ -557,7 +603,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                     command.userId(), command.sessionId(), command.runHandle().id(), error.getMessage(), error);
             String detail = error.getMessage() == null ? "AI 服务调用失败" : error.getMessage();
             agentRunService.failRun(command.runHandle().id(), detail);
-            agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+            carrier.failPrimary(error);
             if (emitError) {
                 emit(new ChatStreamEvent("error", "AI 服务调用失败"));
                 completeSink();

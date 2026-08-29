@@ -1,6 +1,7 @@
 package com.h.backend.chat.infrastructure.config;
 
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;
 import com.h.backend.chat.domain.agent.HarnessSubagentLifecycleMiddleware;
 import com.h.backend.chat.domain.agent.HarnessSubagentEventRelay;
@@ -337,6 +338,7 @@ public class HarnessAgentConfig {
             BuiltinSubagentDeclarations builtinSubagentDeclarations,
             SubagentCatalogProperties subagentCatalogProperties,
             ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactory,
+            AgentScopeObservationInstaller observationInstaller,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         RemoteFilesystemSpec filesystem = subagentCatalogProperties.isEnabled()
@@ -376,6 +378,8 @@ public class HarnessAgentConfig {
                 .middleware(assignmentMiddleware)
                 // 子 Agent 无论同步完成还是超时转后台，都在自己的完成边界实时写产品聊天记录。
                 .middleware(lifecycleMiddleware)
+                // 统一观测（设计 12.3）：普通 MiddlewareBase 会被 SDK 复制给静态/声明式子 Agent。
+                .middleware(observationInstaller.middleware())
                 .disableShellTool()
                 .enableSkillManageTool(true)
                 .enablePlanMode(true);

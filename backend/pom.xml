@@ -76,6 +76,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.h</groupId>
+            <artifactId>agent-observability</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
@@ -90,6 +95,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- 资源存储运行指标（统一 Trace 设计 §10.7/§10.8）：Micrometer + Prometheus scrape -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- Spring Boot 4.x 将 Flyway auto-configuration 拆分到独立 starter，必须显式引入才能触发 schema 迁移 -->
         <dependency>
@@ -229,6 +244,12 @@
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-exporter-otlp</artifactId>
             <version>1.51.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
+            <version>1.51.0</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- MinIO 对象存储 SDK：固定版本，计划 §技术栈 -->

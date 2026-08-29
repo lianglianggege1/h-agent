@@ -204,7 +204,7 @@ SELECT
 
 统一 Trace 设计已明确三种信号各自负责不同问题（见 [`H Agent 统一 Langfuse Trace 详细设计`](../superpowers/specs/2026-08-26-unified-agent-langfuse-trace-design.md#106-tracemetricslogs-三信号分工)）：
 
-- MinIO 运行指标：`ResourceStorageMetrics` 的进程内 LongAdder/snapshot 将由 Micrometer `ResourceStorageMeters` 替换，通过 Prometheus scrape 形成不依赖 Trace 采样的次数、错误率、延迟、字节量和补偿结果。
+- MinIO 运行指标：已由 Micrometer `ResourceStorageMeters` 落地（替换原进程内 LongAdder/snapshot），经 `/actuator/prometheus` 被 Prometheus scrape，形成不依赖 Trace 采样的次数、错误率、延迟、字节量和补偿结果。Meter 一览：`h.agent.resource.storage.operation.duration`（Timer，tags operation/outcome/error.kind）、`h.agent.resource.storage.object.size`（DistributionSummary，save 实际字节量）、`h.agent.resource.storage.compensation`（Counter，事务补偿结果）。抓取配置与首批告警规则见 `deploy/prometheus/scrape-config.yml` 与 `deploy/prometheus/alerts.yml`。
 - Agent Trace：Langfuse 只接收与 Agent 语义有关的 ArtifactReference 和可选 `materialize-artifact` 阶段，不展开 stat/get/put/multipart/discard 内部 Span。
 - 结构化日志：保留稀有且需要人工处理的补偿删除失败现场。
 
@@ -212,7 +212,6 @@ Prometheus 不可用或未抓取不得影响应用启动、资源调用或 healt
 
 Langfuse 的 Metrics API 是对已摄取 Trace/Observation 的派生分析，不是 OTLP Metrics 接收端，不能作为 MinIO 运行指标或 SLO 真相源。
 
-- **补偿删除失败日志告警**（ERROR 级，需人工关注孤儿对象）：
 - **补偿删除失败告警**（ERROR 级，需人工关注孤儿对象）：
 
   ```text

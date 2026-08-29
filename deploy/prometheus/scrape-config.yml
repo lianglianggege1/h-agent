@@ -1,0 +1,12 @@
+# h-agent backend Prometheus 抓取配置片段（统一 Trace 设计 §10.8）。
+#
+# backend 暴露 /actuator/prometheus（management.endpoints.web.exposure.include=health,prometheus）。
+# Prometheus 缺失、未抓取或暂时不可用不影响应用启动、资源调用与 health/readiness；
+# 告警规则见同目录 alerts.yml。
+scrape_configs:
+  - job_name: h-agent-backend
+    scrape_interval: 15s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "localhost:8081"

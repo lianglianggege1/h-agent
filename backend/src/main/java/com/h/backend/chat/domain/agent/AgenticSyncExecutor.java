@@ -1,10 +1,12 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.lifecycle.ObservationScope;
+import com.h.agent.observability.semantic.SemanticContent;
+import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.interfaces.dto.AgentStepPayloadDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +15,7 @@ import reactor.core.publisher.FluxSink;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.List;
 
 @Slf4j
 @Component
@@ -22,18 +25,15 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
-    private final AgentRunTelemetryService agentRunTelemetryService;
     private final AgentStepEventBridge agentStepEventBridge;
 
     public AgenticSyncExecutor(
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             AgentStepEventBridge agentStepEventBridge
     ) {
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
         this.agentStepEventBridge = agentStepEventBridge;
     }
 
@@ -46,12 +46,17 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
     public void execute(ChatAgentExecutionCommand command) {
         agentStepEventBridge.register(command.memoryId(), payload -> emitAgentStep(command, payload));
         try {
-            ResultWithAgenticScope<String> result = executeSelectedAgent(command);
+            // agent 调用链在当前线程同步执行；执行观测作用域把 Agent/Generation/Tool Span
+            // 挂到本次运行。
+            ResultWithAgenticScope<String> result;
+            try (ObservationScope ignored = command.observation().scope()) {
+                result = executeSelectedAgent(command);
+            }
             String reply = result == null || result.result() == null ? "" : result.result();
             if (reply.isBlank()) {
                 IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
                 agentRunService.failRun(command.runHandle().id(), error.getMessage());
-                agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+                command.observation().fail(error);
                 emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 未返回有效内容"));
                 return;
             }
@@ -67,14 +72,15 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                     assistantMessageId
             );
             agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
-            agentRunTelemetryService.markSuccess(command.telemetryRun());
+            command.observation().succeed(SemanticContent.ofMessages(
+                    List.of(SemanticMessage.of("assistant", reply))));
             emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
         } catch (Exception ex) {
             log.error("Error executing agentic chat", ex);
             agentRunService.failRun(command.runHandle().id(), ex.getMessage() == null
                     ? "AI 服务调用失败"
                     : ex.getMessage());
-            agentRunTelemetryService.markFailure(command.telemetryRun(), ex);
+            command.observation().fail(ex);
             emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 服务调用失败"));
         } finally {
             agentStepEventBridge.unregister(command.memoryId());

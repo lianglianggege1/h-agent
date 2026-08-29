@@ -1,5 +1,6 @@
 package com.h.otheragents.mcp;
 
+import com.h.agent.observability.AgentObservability;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,11 +23,12 @@ public class McpEndpointConfig {
     @Bean(destroyMethod = "close")
     McpEndpointServers mcpEndpointServers(McpEndpointProperties properties,
                                           AdditionMcpTool additionMcpTool,
-                                          MultiplicationMcpTool multiplicationMcpTool) {
+                                          MultiplicationMcpTool multiplicationMcpTool,
+                                          AgentObservability observability) {
         Map<String, List<Object>> toolGroups = Map.of(
                 "test1", List.of(additionMcpTool),
                 "test2", List.of(multiplicationMcpTool));
-        return McpEndpointServers.build(properties, toolGroups);
+        return McpEndpointServers.build(properties, toolGroups, observability);
     }
 
     @Bean

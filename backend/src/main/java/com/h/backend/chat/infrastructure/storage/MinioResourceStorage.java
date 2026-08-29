@@ -48,9 +48,11 @@ import java.util.UUID;
  * <p>日志纪律（计划不变量 17）：不输出 secret、endpoint、完整 object key、
  * SDK 异常全文；定位信息最多使用 resourceId。
  *
- * <p>可观测性（新计划任务 6）：save/open/discard 成功失败埋点统一上报
- * {@link ResourceStorageMetrics}（失败按 kind 细分）；416 Range 语义错误
- * 未发生存储读失败，不计入 open 失败。本类自身不打日志，告警统一由 metrics 发出。
+ * <p>可观测性（统一 Trace 设计 §10.7）：save/open/discard 经
+ * {@link ResourceStorageMeters} 计时（operation.duration Timer，失败按
+ * error.kind 细分，save 成功后确认实际字节量）；416 Range 语义错误记为
+ * outcome=rejected/error.kind=range，不计入 open 失败（不影响 MinIO 可用性
+ * 失败率）。本类自身不打日志，补偿告警由 Coordinator 发出。
  */
 public class MinioResourceStorage implements ResourceStorage {
 
@@ -66,16 +68,16 @@ public class MinioResourceStorage implements ResourceStorage {
 
     private final MinioClient minioClient;
     private final ResourceStorageProperties properties;
-    private final ResourceStorageMetrics metrics;
+    private final ResourceStorageMeters meters;
 
     public MinioResourceStorage(
             MinioClient minioClient,
             ResourceStorageProperties properties,
-            ResourceStorageMetrics metrics
+            ResourceStorageMeters meters
     ) {
         this.minioClient = Objects.requireNonNull(minioClient, "minioClient must not be null");
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
-        this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
+        this.meters = Objects.requireNonNull(meters, "meters must not be null");
     }
 
     // ------------------------------------------------------------------
@@ -85,6 +87,7 @@ public class MinioResourceStorage implements ResourceStorage {
     @Override
     public StoredResource save(ResourceSaveCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        StorageMeasurement measurement = meters.start(StorageOperation.SAVE);
 
         String resourceId = UUID.randomUUID().toString();
         String objectKey = buildObjectKey(command.resourceType(), command.extension(), resourceId);
@@ -113,7 +116,7 @@ public class MinioResourceStorage implements ResourceStorage {
                     .stream(limited, declaredSize == null ? -1L : declaredSize, partSizeBytes)
                     .build());
             long transferred = limited.transferredBytes();
-            metrics.recordSaveSuccess();
+            measurement.success(transferred);
             return new StoredResource(
                     resourceId,
                     ResourceStorageType.OBJECT_STORAGE.value(),
@@ -124,26 +127,26 @@ public class MinioResourceStorage implements ResourceStorage {
                     null,
                     null);
         } catch (ResourceStorageException exception) {
-            handleSaveFailure(exception, bucket, objectKey, resourceId, putAttempted);
+            handleSaveFailure(measurement, exception, bucket, objectKey, resourceId, putAttempted);
             throw exception;
         } catch (Exception exception) {
             // multipart 路径（unknown-size 或 size>partSize）下 SDK 会把流读取中抛出的
             // RSE（含 SIZE_LIMIT）包成 IllegalStateException 上抛，toStorageException
             // 解包还原后同样走统一失败出口（审查修复：半写清理不再仅限第一分支）。
             ResourceStorageException mapped = toStorageException(exception, "资源写入失败");
-            handleSaveFailure(mapped, bucket, objectKey, resourceId, putAttempted);
+            handleSaveFailure(measurement, mapped, bucket, objectKey, resourceId, putAttempted);
             throw mapped;
         }
     }
 
     /**
-     * save 统一失败出口（两分支共用）：计数埋点 + SIZE_LIMIT 半写对象 best-effort 清理。
-     * 清理失败只记 debug 日志，不覆盖原错误（计划任务 2）。
+     * save 统一失败出口（两分支共用）：测量以 failure 终结 + SIZE_LIMIT 半写对象
+     * best-effort 清理。清理失败只记 debug 日志，不覆盖原错误（计划任务 2）。
      */
     private void handleSaveFailure(
-            ResourceStorageException failure, String bucket, String objectKey,
-            String resourceId, boolean putAttempted) {
-        metrics.recordSaveFailure(failure.kind());
+            StorageMeasurement measurement, ResourceStorageException failure,
+            String bucket, String objectKey, String resourceId, boolean putAttempted) {
+        measurement.failure(failure.kind());
         if (failure.kind() == ResourceStorageErrorKind.SIZE_LIMIT && putAttempted) {
             bestEffortDelete(bucket, objectKey, resourceId);
         }
@@ -157,6 +160,7 @@ public class MinioResourceStorage implements ResourceStorage {
     public ResourceContent open(String storageKey, ResourceRange range) {
         Objects.requireNonNull(storageKey, "storageKey must not be null");
         Objects.requireNonNull(range, "range must not be null");
+        StorageMeasurement measurement = meters.start(StorageOperation.OPEN);
         String bucket = properties.getMinio().getBucket();
 
         StatObjectResponse stat;
@@ -167,7 +171,7 @@ public class MinioResourceStorage implements ResourceStorage {
                     .build());
         } catch (Exception exception) {
             ResourceStorageException mapped = toStorageException(exception, "资源读取失败");
-            metrics.recordOpenFailure(mapped.kind());
+            measurement.failure(mapped.kind());
             throw mapped;
         }
 
@@ -176,8 +180,15 @@ public class MinioResourceStorage implements ResourceStorage {
                 ? DEFAULT_MIME_TYPE
                 : stat.contentType();
 
-        // 416 语义（不可满足）原样上抛，由 Controller 层生成 Content-Range。
-        ResourceRange.Resolved resolved = range.resolve(totalSize);
+        ResourceRange.Resolved resolved;
+        try {
+            // 416 语义（不可满足）原样上抛，由 Controller 层生成 Content-Range。
+            resolved = range.resolve(totalSize);
+        } catch (ResourceRangeException exception) {
+            // Range 语义拒绝：未发生存储读失败，记 outcome=rejected，不算 open 失败。
+            measurement.rejected(StorageRejectionKind.RANGE);
+            throw exception;
+        }
 
         try {
             GetObjectArgs.Builder builder = GetObjectArgs.builder()
@@ -187,7 +198,8 @@ public class MinioResourceStorage implements ResourceStorage {
                 builder.offset(resolved.offset()).length(resolved.length());
             }
             GetObjectResponse response = minioClient.getObject(builder.build());
-            metrics.recordOpenSuccess();
+            // 结束点是"对象流建立成功"（stat/getObject 返回），不代表客户端已读完。
+            measurement.success();
             return new ResourceContent(
                     response,
                     mimeType,
@@ -197,7 +209,7 @@ public class MinioResourceStorage implements ResourceStorage {
                     resolved.partial());
         } catch (Exception exception) {
             ResourceStorageException mapped = toStorageException(exception, "资源读取失败");
-            metrics.recordOpenFailure(mapped.kind());
+            measurement.failure(mapped.kind());
             throw mapped;
         }
     }
@@ -209,20 +221,21 @@ public class MinioResourceStorage implements ResourceStorage {
     @Override
     public void discard(String storageKey) {
         Objects.requireNonNull(storageKey, "storageKey must not be null");
+        StorageMeasurement measurement = meters.start(StorageOperation.DISCARD);
         try {
             minioClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(properties.getMinio().getBucket())
                     .object(storageKey)
                     .build());
-            metrics.recordDiscardSuccess();
+            measurement.success();
         } catch (Exception exception) {
             ResourceStorageException mapped = toStorageException(exception, "资源删除失败");
             if (mapped.kind() == ResourceStorageErrorKind.NOT_FOUND) {
                 // 幂等：对象不存在视为删除成功（计划 §4.1）。
-                metrics.recordDiscardSuccess();
+                measurement.success();
                 return;
             }
-            metrics.recordDiscardFailure(mapped.kind());
+            measurement.failure(mapped.kind());
             throw mapped;
         }
     }

@@ -1,5 +1,7 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -23,26 +25,29 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>事务创建或同步器注册失败（hook 尚未生效）时在异常路径立即 discard；
  *       挂接回调失败时由 rollback 的 afterCompletion 补偿——两条路径互斥，
  *       保证每个失败场景 discard 恰好一次。</li>
- *   <li>discard 失败只记计数与 ERROR 级脱敏告警（新计划任务 6：
- *       {@link ResourceStorageMetrics#recordCompensatedDiscardFailure}，
- *       只含 resourceId + key 尾段 + 错误类别，不含完整 key、secret、endpoint
- *       或 SDK 异常消息），绝不覆盖原始数据库异常。</li>
+ *   <li>discard 失败只记 compensation Meter（统一 Trace 设计 §10.7：
+ *       {@link ResourceStorageMeters#recordCompensationFailure}）并输出一条
+ *       ERROR 级脱敏告警（只含 resourceId + key 尾段 + 错误类别，不含完整 key、
+ *       secret、endpoint 或 SDK 异常消息；计划不变量 17），绝不覆盖原始数据库
+ *       异常。成功操作不写日志，避免刷屏。</li>
  * </ol>
  */
 @Component
 public class TransactionalResourceWriteCoordinator implements ResourceWriteCoordinator {
 
+    private static final Logger log = LoggerFactory.getLogger(TransactionalResourceWriteCoordinator.class);
+
     private final ResourceStorage resourceStorage;
     private final TransactionTemplate transactionTemplate;
-    private final ResourceStorageMetrics metrics;
+    private final ResourceStorageMeters meters;
 
     public TransactionalResourceWriteCoordinator(
             ResourceStorage resourceStorage,
             PlatformTransactionManager transactionManager,
-            ResourceStorageMetrics metrics
+            ResourceStorageMeters meters
     ) {
         this.resourceStorage = resourceStorage;
-        this.metrics = metrics;
+        this.meters = meters;
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
         this.transactionTemplate = template;
@@ -75,25 +80,28 @@ public class TransactionalResourceWriteCoordinator implements ResourceWriteCoord
         }
     }
 
-    /** 补偿删除成功次数（包内访问，供测试断言；实际计数在 metrics）。 */
-    long compensatedDiscardCount() {
-        return metrics.compensatedDiscardSuccessCount();
-    }
-
-    /** 补偿删除失败次数（包内访问，供测试断言；实际计数与告警在 metrics）。 */
-    long discardFailureCount() {
-        return metrics.compensatedDiscardFailureCount();
-    }
-
     private void discardQuietly(StoredResource stored) {
         try {
             resourceStorage.discard(stored.storageKey());
-            metrics.recordCompensatedDiscardSuccess();
+            meters.recordCompensationSuccess();
         } catch (RuntimeException | Error ex) {
-            // 告警与计数统一在 metrics（ERROR 级脱敏日志），不覆盖原始事务异常。
-            metrics.recordCompensatedDiscardFailure(
-                    stored.id(), keySuffix(stored.storageKey()), ex);
+            ResourceStorageErrorKind kind = kindOf(ex);
+            // Meter 不取代日志（统一 Trace 设计 §10.8）：补偿失败继续输出脱敏 ERROR 告警，
+            // 不覆盖原始事务异常。
+            meters.recordCompensationFailure(kind);
+            String keySuffix = keySuffix(stored.storageKey());
+            log.error(
+                    "资源补偿删除失败，需人工关注孤儿对象 operation=discard errorKind={} resourceId={} storageKeySuffix={}",
+                    kind,
+                    stored.id() == null ? "-" : stored.id(),
+                    keySuffix == null || keySuffix.isBlank() ? "-" : keySuffix);
         }
+    }
+
+    private static ResourceStorageErrorKind kindOf(Throwable failure) {
+        return failure instanceof ResourceStorageException storageException
+                ? storageException.kind()
+                : ResourceStorageErrorKind.IO_ERROR;
     }
 
     /** 只保留 key 的最后一段（uuid.ext），完整 key 不进日志（不变量 17）。 */

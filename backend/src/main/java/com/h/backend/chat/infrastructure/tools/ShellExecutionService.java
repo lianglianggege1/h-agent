@@ -3,7 +3,9 @@ package com.h.backend.chat.infrastructure.tools;
 import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -42,18 +44,30 @@ public class ShellExecutionService {
             configureEnvironment(processBuilder, workDir);
 
             Process process = processBuilder.start();
+            // 管道缓冲区有限（macOS 约 64KB）：必须在 waitFor 的同时并发排空输出流，
+            // 否则大输出子进程阻塞在管道写入上，waitFor 永远等不到进程结束。
+            ByteArrayOutputStream stdoutBytes = new ByteArrayOutputStream();
+            ByteArrayOutputStream stderrBytes = new ByteArrayOutputStream();
+            Thread stdoutDrainer = drainAsync(process.getInputStream(), stdoutBytes);
+            Thread stderrDrainer = drainAsync(process.getErrorStream(), stderrBytes);
             boolean finished = process.waitFor(effectiveTimeout, TimeUnit.SECONDS);
             if (!finished) {
+                // 先杀进程再 join：进程死亡关闭管道，读取线程才能等到 EOF 退出。
                 process.destroyForcibly();
+                joinQuietly(stdoutDrainer);
+                joinQuietly(stderrDrainer);
                 return formatResult(
                         "Error: Command timed out after " + effectiveTimeout + " seconds.",
                         124,
                         false
                 );
             }
+            // join 设上限：后台孙进程可能仍持有管道写端，不能让读取线程悬挂主线程。
+            joinQuietly(stdoutDrainer);
+            joinQuietly(stderrDrainer);
 
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            String stdout = stdoutBytes.toString(StandardCharsets.UTF_8);
+            String stderr = stderrBytes.toString(StandardCharsets.UTF_8);
             String output = combineOutput(stdout, stderr);
             OutputLimit limited = limitOutput(output.isBlank() ? "<no output>" : output);
             return formatResult(limited.output(), process.exitValue(), limited.truncated());
@@ -184,6 +198,27 @@ public class ShellExecutionService {
             result.append("\n(output was truncated)");
         }
         return result.toString();
+    }
+
+    private static Thread drainAsync(InputStream stream, ByteArrayOutputStream target) {
+        Thread thread = new Thread(() -> {
+            try {
+                stream.transferTo(target);
+            } catch (IOException ignored) {
+                // 进程被强杀导致流中断时，保留已读取内容即可。
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+
+    private static void joinQuietly(Thread drainer) {
+        try {
+            drainer.join(TimeUnit.SECONDS.toMillis(2));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private record OutputLimit(String output, boolean truncated) {

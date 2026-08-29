@@ -1,5 +1,6 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.lifecycle.ExecutionObservationCarrier;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
@@ -49,6 +50,16 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
             HarnessSubagentContext context,
             String message
     ) {
+        return streamSubagent(agentBean, context, message, null);
+    }
+
+    @Override
+    public Flux<AgentEvent> streamSubagent(
+            Object agentBean,
+            HarnessSubagentContext context,
+            String message,
+            ExecutionObservationCarrier carrier
+    ) {
         Msg userMessage = Msg.builder()
                 .name("user")
                 .role(MsgRole.USER)
@@ -56,10 +67,15 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                 .build();
         ReActAgent child = materializeSubagent(agentBean, context);
         ensureAssignment(child, context);
-        RuntimeContext runtimeContext = RuntimeContext.builder()
+        RuntimeContext.Builder contextBuilder = RuntimeContext.builder()
                 .userId(context.userId())
-                .sessionId(context.sessionId())
-                .build();
+                .sessionId(context.sessionId());
+        if (carrier != null) {
+            // 类型化阶段载体（设计 7.3 / 12.4）：子 Agent 的观测 middleware 据此挂到本轮
+            // 执行 trace，且响应提交后的后置工作进入 Maintenance trace。
+            contextBuilder.put(ExecutionObservationCarrier.class, carrier);
+        }
+        RuntimeContext runtimeContext = contextBuilder.build();
         HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
         return child.streamEvents(List.of(userMessage), runtimeContext);
     }
