@@ -4,6 +4,7 @@ import com.h.backend.skill.domain.SkillPlatformErrorKind;
 import com.h.backend.skill.domain.SkillPlatformException;
 import com.h.backend.skill.infrastructure.config.SkillPlatformProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,6 +30,8 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
     private final String owner;
     private final String repo;
 
+    // 存在两个构造器时 Spring 无法隐式选择，必须用 @Autowired 指定注入用哪一个
+    @Autowired
     public GiteeRestSkillRepository(SkillPlatformProperties properties, Environment environment) {
         this(properties, environment, RestClient.builder().requestFactory(requestFactory()));
     }

@@ -3,6 +3,7 @@ package com.h.backend.skill.infrastructure.gitee;
 import com.h.backend.skill.domain.SkillPlatformException;
 import com.h.backend.skill.infrastructure.config.SkillPlatformProperties;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -78,6 +79,17 @@ class GiteeRestSkillRepositoryTest {
         assertThat(fixture.repository.putFile("skills/demo/SKILL.md", "branch-x", "aGVsbG8=", "init SKILL.md"))
                 .isEqualTo("def456");
         fixture.server.verify();
+    }
+
+    @Test
+    void springContextCanInstantiateRepositoryWithAnnotatedConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(SkillPlatformProperties.class);
+            context.registerBean(GiteeRestSkillRepository.class);
+            context.refresh();
+
+            assertThat(context.getBean(GiteeRestSkillRepository.class)).isNotNull();
+        }
     }
 
     private record Fixture(GiteeRestSkillRepository repository, MockRestServiceServer server) {
