@@ -1,6 +1,14 @@
 package com.h.backend.chat.application.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.lifecycle.AgentExecutionObservation;
+import com.h.agent.observability.lifecycle.AgentExecutionStart;
+import com.h.agent.observability.semantic.ArtifactReferenceBlock;
+import com.h.agent.observability.semantic.ArtifactUse;
+import com.h.agent.observability.semantic.ContentCaptureState;
+import com.h.agent.observability.semantic.SemanticContent;
+import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
@@ -8,12 +16,12 @@ import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.domain.agent.ChatAgentExecutor;
 import com.h.backend.chat.domain.agent.HAssistantStreamingExecutor;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
@@ -25,6 +33,7 @@ import com.h.backend.chat.application.HarnessSubagentTurnStart;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
+import com.h.backend.observability.BusinessArtifactReferenceMapper;
 import com.h.backend.skill.application.SkillRuntimeService;
 import com.h.backend.skill.domain.SkillPlatformException;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +56,7 @@ public class ChatServiceImpl implements ChatService {
     private final SystemPromptService systemPromptService;
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
-    private final AgentRunTelemetryService agentRunTelemetryService;
+    private final AgentObservability observability;
     private final ExecutorService chatStreamExecutor;
     private final ChatStreamConcurrencyGuard concurrencyGuard;
     private final ImageGenerationService imageGenerationService;
@@ -63,7 +72,7 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -76,7 +85,7 @@ public class ChatServiceImpl implements ChatService {
         this.systemPromptService = systemPromptService;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
+        this.observability = observability;
         this.chatStreamExecutor = chatStreamExecutor;
         this.concurrencyGuard = concurrencyGuard;
         this.imageGenerationService = imageGenerationService;
@@ -91,7 +100,24 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
+            ExecutorService chatStreamExecutor,
+            ChatStreamConcurrencyGuard concurrencyGuard,
+            ImageGenerationService imageGenerationService,
+            AgentRegistry agentRegistry,
+            ChatMemoryIdFactory chatMemoryIdFactory,
+            List<ChatAgentExecutor> executors
+    ) {
+        this(systemPromptService, chatSessionService, agentRunService, observability,
+                chatStreamExecutor, concurrencyGuard, imageGenerationService, agentRegistry,
+                chatMemoryIdFactory, null, executors, null);
+    }
+
+    public ChatServiceImpl(
+            SystemPromptService systemPromptService,
+            ChatSessionService chatSessionService,
+            AgentRunService agentRunService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -100,26 +126,9 @@ public class ChatServiceImpl implements ChatService {
             HarnessCollaborationService harnessCollaborationService,
             List<ChatAgentExecutor> executors
     ) {
-        this(systemPromptService, chatSessionService, agentRunService, agentRunTelemetryService,
+        this(systemPromptService, chatSessionService, agentRunService, observability,
                 chatStreamExecutor, concurrencyGuard, imageGenerationService, agentRegistry,
                 chatMemoryIdFactory, harnessCollaborationService, executors, null);
-    }
-
-    public ChatServiceImpl(
-            SystemPromptService systemPromptService,
-            ChatSessionService chatSessionService,
-            AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
-            ExecutorService chatStreamExecutor,
-            ChatStreamConcurrencyGuard concurrencyGuard,
-            ImageGenerationService imageGenerationService,
-            AgentRegistry agentRegistry,
-            ChatMemoryIdFactory chatMemoryIdFactory,
-            List<ChatAgentExecutor> executors
-    ) {
-        this(systemPromptService, chatSessionService, agentRunService, agentRunTelemetryService,
-                chatStreamExecutor, concurrencyGuard, imageGenerationService, agentRegistry,
-                chatMemoryIdFactory, null, executors);
     }
 
     public ChatServiceImpl(
@@ -127,7 +136,7 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard
     ) {
@@ -136,7 +145,7 @@ public class ChatServiceImpl implements ChatService {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 null,
@@ -149,7 +158,7 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService
@@ -159,7 +168,7 @@ public class ChatServiceImpl implements ChatService {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,
@@ -172,7 +181,7 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -183,7 +192,7 @@ public class ChatServiceImpl implements ChatService {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,
@@ -198,7 +207,7 @@ public class ChatServiceImpl implements ChatService {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -210,7 +219,7 @@ public class ChatServiceImpl implements ChatService {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,
@@ -220,7 +229,6 @@ public class ChatServiceImpl implements ChatService {
                         hAssistant,
                         chatSessionService,
                         agentRunService,
-                        agentRunTelemetryService,
                         chatStreamEventBridge,
                         executors
                 )
@@ -324,7 +332,7 @@ public class ChatServiceImpl implements ChatService {
     ) {
         // permit 由当前准备阶段或后续 executor 任一方释放，但整个请求只能释放一次。
         AtomicBoolean permitReleased = new AtomicBoolean();
-        AgentRunTelemetryService.TelemetryRun telemetryRun = null;
+        AgentExecutionObservation observation = null;
         AgentRunService.AgentRunHandle runHandle = null;
         boolean subagentTurnStarted = false;
         String subagentExecutionId = null;
@@ -372,21 +380,43 @@ public class ChatServiceImpl implements ChatService {
             ChatSessionMessageDto persistedUserMessage =
                     chatSessionService.getOwnedMessage(userId, address.rootSessionId(), userMessageId);
             emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
-            // run 和遥测都归属实际执行会话，不能写成 rootSessionId，否则无法区分各子 Agent 的运行记录。
-            telemetryRun = agentRunTelemetryService.startRun(address.sessionId(), userId, resolvedPromptId);
+            // run 和观测都归属实际执行会话，不能写成 rootSessionId，否则无法区分各子 Agent 的运行记录。
+            // 固定顺序（设计 7.1）：先创建 trace_id 为空的 Run，再开始 Observation，最后尽力回写 trace ID。
             runHandle = agentRunService.createRun(
                     address.sessionId(),
                     userId,
                     resolvedPromptId,
                     userMessageId,
                     agent.agentId(),
-                    telemetryRun.traceId()
+                    null
             );
             String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
             // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
             // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
             if (skillRuntimeService != null && !address.subagent()) {
                 skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
+            }
+            observation = observability.start(new AgentExecutionStart(
+                    "agent.run",
+                    address.rootSessionId(),
+                    userId,
+                    agent.agentId(),
+                    address.sessionId(),
+                    address.subagent() ? "subagent" : "chat",
+                    String.valueOf(runHandle.id()),
+                    List.of(),
+                    Map.of(),
+                    agentInputContent(persistedUserMessage, userMessage)
+            ));
+            try {
+                String traceId = observation.traceId();
+                if (traceId != null) {
+                    agentRunService.updateTraceId(runHandle.id(), traceId);
+                }
+            } catch (RuntimeException traceWriteError) {
+                // 回写失败只记录受限日志；Agent 继续执行，观测不改变业务行为。
+                log.warn("Failed to write trace id back to agent run runId={}: {}",
+                        runHandle.id(), traceWriteError.getMessage());
             }
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
@@ -407,7 +437,7 @@ public class ChatServiceImpl implements ChatService {
                     memoryId,
                     agent,
                     runHandle,
-                    telemetryRun,
+                    observation,
                     () -> releasePermitOnce(permit, permitReleased)
             ));
         } catch (Exception ex) {
@@ -430,14 +460,14 @@ public class ChatServiceImpl implements ChatService {
                     }
                 }
                 // run 可能尚未创建成功；按已经拿到的资源分别收尾，避免错误处理掩盖原异常。
-                if (runHandle != null && telemetryRun != null) {
+                if (runHandle != null) {
                     agentRunService.failRun(
                             runHandle.id(),
                             ex.getMessage() == null ? "AI 服务调用失败" : ex.getMessage()
                     );
-                    agentRunTelemetryService.markFailure(telemetryRun, ex);
-                } else if (telemetryRun != null) {
-                    agentRunTelemetryService.markFailure(telemetryRun, ex);
+                }
+                if (observation != null) {
+                    observation.fail(ex);
                 }
                 String publicMessage = ex instanceof BusinessException || ex instanceof SkillPlatformException
                         ? ex.getMessage()
@@ -563,6 +593,29 @@ public class ChatServiceImpl implements ChatService {
                 .orElse(null);
     }
 
+    /**
+     * Agent 输入语义内容：用户消息正文 + 已落库资源引用（设计 §9.9：用户上传资源在
+     * 后续 Agent 输入中引用实际 resourceId，观测不读二进制、不反查数据库）。
+     * 含 artifact 引用时 captureState=REFERENCE；映射全部失败时受限 CAPTURE_ERROR。
+     */
+    private static SemanticContent agentInputContent(ChatSessionMessageDto message, String userMessage) {
+        List<ChatMessageResourceDto> resources =
+                message == null || message.resources() == null ? List.of() : message.resources();
+        if (resources.isEmpty()) {
+            return SemanticContent.ofMessages(List.of(SemanticMessage.of("user", userMessage)));
+        }
+        List<ArtifactReferenceBlock> artifacts =
+                BusinessArtifactReferenceMapper.referenceBlocks(resources, ArtifactUse.MODEL_INPUT);
+        ContentCaptureState state = artifacts.isEmpty()
+                ? ContentCaptureState.CAPTURE_ERROR
+                : ContentCaptureState.REFERENCE;
+        return new SemanticContent(
+                List.of(SemanticMessage.of("user", userMessage)),
+                List.copyOf(artifacts),
+                state
+        );
+    }
+
     private void releasePermitOnce(ChatStreamConcurrencyGuard.Permit permit, AtomicBoolean released) {
         if (released.compareAndSet(false, true)) {
             permit.release();
@@ -627,7 +680,6 @@ public class ChatServiceImpl implements ChatService {
             HAssistant hAssistant,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             ChatStreamEventBridge chatStreamEventBridge,
             List<ChatAgentExecutor> executors
     ) {
@@ -639,7 +691,6 @@ public class ChatServiceImpl implements ChatService {
                     hAssistant,
                     chatSessionService,
                     agentRunService,
-                    agentRunTelemetryService,
                     chatStreamEventBridge
             ));
         }

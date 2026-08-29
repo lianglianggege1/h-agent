@@ -28,7 +28,6 @@ class ResourceStorageConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(ResourceStorageConfiguration.class)
-            .withBean(ResourceStorageMetrics.class)
             .withPropertyValues(baseProperties());
 
     @Test
@@ -41,6 +40,19 @@ class ResourceStorageConfigurationTest {
             assertThat(context).hasSingleBean(ResourceStorage.class);
             assertThat(context.getBean(ResourceStorage.class))
                     .isInstanceOf(MinioResourceStorage.class);
+        });
+    }
+
+    @Test
+    void metersBeanDegradesToNoOpWithoutMeterRegistry() {
+        // 上下文无 MeterRegistry bean（未启用 actuator 的场景）时退化为空
+        // CompositeMeterRegistry 的 no-op，不阻塞装配（统一 Trace 设计 §10.7）。
+        contextRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasSingleBean(ResourceStorageMeters.class);
+            ResourceStorageMeters meters = context.getBean(ResourceStorageMeters.class);
+            meters.recordCompensationSuccess();
+            meters.start(StorageOperation.SAVE).success(1L);
         });
     }
 
@@ -174,7 +186,6 @@ class ResourceStorageConfigurationTest {
         properties.removeIf(property -> property.startsWith(excludedPropertyPrefix + "="));
         return new ApplicationContextRunner()
                 .withUserConfiguration(ResourceStorageConfiguration.class)
-                .withBean(ResourceStorageMetrics.class)
                 .withPropertyValues(properties.toArray(String[]::new));
     }
 

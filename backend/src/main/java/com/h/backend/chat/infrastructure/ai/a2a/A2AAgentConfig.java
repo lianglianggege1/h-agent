@@ -1,5 +1,8 @@
 package com.h.backend.chat.infrastructure.ai.a2a;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.langchain4j.ObservingAgentListener;
+import com.h.agent.observability.langchain4j.PlatformAgentListener;
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.infrastructure.ai.Agents;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
@@ -7,6 +10,7 @@ import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
+import dev.langchain4j.agentic.observability.AgentListener;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.workflow.HumanInTheLoop;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
@@ -39,30 +43,47 @@ public class A2AAgentConfig {
     @Resource
     private com.h.backend.chat.infrastructure.config.OtherAgentsA2AProperties otherAgentsA2AProperties;
 
+    @Resource
+    private AgentObservability agentObservability;
+
+    /** 必须是同一实例：框架按实例去重继承的 listener，重复实例会导致事件双发。 */
+    private AgentListener platformListener;
+
+    private AgentListener platformListener() {
+        if (platformListener == null) {
+            platformListener = new PlatformAgentListener(agentStepListener,
+                    new ObservingAgentListener(agentObservability));
+        }
+        return platformListener;
+    }
+
 
     @Bean
     public A2AStoryAssistant a2aStoryAssistant() {
+        // 必须在 a2aBuilder 构造 A2A Client（内部经 A2AHttpClientFactory 选型）之前完成初始化。
+        com.h.backend.observability.a2a.ObservingA2AHttpClientProvider.initialize(agentObservability);
+
         A2ARemoteAgents.CreativeWriter creativeWriter = AgenticServices
                 .a2aBuilder(otherAgentsA2AProperties.agentUrl("creative-writer"), A2ARemoteAgents.CreativeWriter.class)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         A2ARemoteAgents.AudienceEditor audienceEditor = AgenticServices
                 .a2aBuilder(otherAgentsA2AProperties.agentUrl("audience-editor"), A2ARemoteAgents.AudienceEditor.class)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         A2ARemoteAgents.StyleEditor styleEditor = AgenticServices
                 .a2aBuilder(otherAgentsA2AProperties.agentUrl("style-editor"), A2ARemoteAgents.StyleEditor.class)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("story")
                 .build();
 
         Agents.StoryInfoAgent storyInfoAgent = AgenticServices.agentBuilder(Agents.StoryInfoAgent.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .chatMemoryProvider(scopedMemoryProvider("story-info-extractor"))
                 .outputKey("storyInfo")
                 .build();
@@ -70,14 +91,14 @@ public class A2AAgentConfig {
 
         Agents.StyleScorer styleScorer = AgenticServices.agentBuilder(Agents.StyleScorer.class)
                 .chatModel(chatModel)
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("score")
                 .build();
 
         UntypedAgent storyCreator = AgenticServices.sequenceBuilder()
                 .name("故事创作")
                 .description("根据主题、风格和受众创作故事")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(creativeWriter, audienceEditor)
                 .outputKey("story")
                 .build();
@@ -85,7 +106,7 @@ public class A2AAgentConfig {
         UntypedAgent styleReviewLoop = AgenticServices.loopBuilder()
                 .name("故事审核")
                 .description("审核并评分给定故事以确保其与指定风格一致")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(styleEditor, styleScorer)
                 .maxIterations(5)
                 .exitCondition(scope -> {
@@ -98,14 +119,14 @@ public class A2AAgentConfig {
         UntypedAgent storyCreatorWithReview = AgenticServices.sequenceBuilder()
                 .name("审核后的故事创作")
                 .description("根据主题、风格和受众创作故事并进行审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(storyCreator, styleReviewLoop)
                 .outputKey("story")
                 .build();
 
         HumanInTheLoop storyInfoClarifier = AgenticServices.humanInTheLoopBuilder()
                 .description("向用户追问缺失的故事创作信息")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .outputKey("response")
                 .responseProvider(scope -> storyInfoClarification((StoryInfo) scope.readState("storyInfo")))
                 .build();
@@ -113,7 +134,7 @@ public class A2AAgentConfig {
         UntypedAgent storyCreationFlow = AgenticServices.sequenceBuilder()
                 .name("故事创作流程")
                 .description("映射故事信息并执行故事创作审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(Agents.StoryInfoMapper.class, storyCreatorWithReview)
                 .output(scope -> scope.readState("story"))
                 .outputKey("response")
@@ -122,7 +143,7 @@ public class A2AAgentConfig {
         UntypedAgent storyInfoGate = AgenticServices.conditionalBuilder()
                 .name("故事信息完整性网关")
                 .description("故事信息完整则进入创作流程，否则向用户追问缺失信息")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(
                         "故事创作信息不完整",
                         scope -> !hasCompleteStoryInfo(scope),
@@ -139,7 +160,7 @@ public class A2AAgentConfig {
         return AgenticServices.sequenceBuilder(A2AStoryAssistant.class)
                 .name("A2A故事创作代理")
                 .description("根据主题、风格和受众创作故事并进行审核")
-                .listener(agentStepListener)
+                .listener(platformListener())
                 .subAgents(storyInfoAgent, storyInfoGate)
                 .output(scope -> scope.readState("response"))
                 .outputKey("response")

@@ -1,12 +1,19 @@
 package com.h.backend.chat.infrastructure.tools;
 
+import com.h.agent.observability.semantic.ArtifactReference;
+import com.h.agent.observability.semantic.ArtifactUse;
+import com.h.agent.observability.semantic.ToolArtifactCollector;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ImageSubAgentService;
+import com.h.backend.observability.BusinessArtifactReferenceMapper;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class ImageGenerationTool {
@@ -34,6 +41,14 @@ public class ImageGenerationTool {
                         "GENERATE"
                 )
         );
+        // 同步生成图片已随 generateImage 提交（设计 §9.9）：只做已持有业务结果的纯映射。
+        List<ChatMessageResourceDto> resources =
+                message == null || message.resources() == null ? List.of() : message.resources();
+        for (ChatMessageResourceDto resource : resources) {
+            ArtifactReference reference = BusinessArtifactReferenceMapper.from(
+                    resource, ArtifactUse.TOOL_OUTPUT, null);
+            ToolArtifactCollector.record(reference);
+        }
         chatStreamEventBridge.publishImage(memoryId, message);
         return "图片已生成并发送到聊天中。";
     }

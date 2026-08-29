@@ -1,5 +1,6 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
 import io.minio.HeadObjectResponse;
@@ -55,7 +56,7 @@ class MinioResourceStorageTest {
 
     private MinioClient minioClient;
     private ResourceStorageProperties properties;
-    private ResourceStorageMetrics metrics;
+    private SimpleMeterRegistry registry;
     private MinioResourceStorage storage;
 
     @BeforeEach
@@ -63,8 +64,9 @@ class MinioResourceStorageTest {
         minioClient = mock(MinioClient.class);
         properties = new ResourceStorageProperties();
         properties.getMinio().setBucket(BUCKET);
-        metrics = new ResourceStorageMetrics();
-        storage = new MinioResourceStorage(minioClient, properties, metrics);
+        registry = new SimpleMeterRegistry();
+        storage = new MinioResourceStorage(
+                minioClient, properties, new ResourceStorageMeters(registry));
     }
 
     // ------------------------------------------------------------------
@@ -562,14 +564,14 @@ class MinioResourceStorageTest {
     }
 
     // ------------------------------------------------------------------
-    // 可观测性埋点（新计划任务 6）：成功/失败计数与按 kind 细分
+    // 可观测性埋点（统一 Trace 设计 §10.7）：operation.duration Timer 按有界 tag 细分
     // ------------------------------------------------------------------
 
     @Test
-    void instrumentationCountsSaveOpenDiscardSuccessAndFailureByKind() throws Exception {
+    void instrumentationTimesSaveOpenDiscardSuccessAndFailureByKind() throws Exception {
         // save 成功
         stubPutConsumingStream();
-        storage.save(command("IMAGE", new byte[]{1}, "image/webp", "webp"));
+        storage.save(command("IMAGE", new byte[]{1, 2, 3}, "image/webp", "webp"));
         // save 失败：declaredSize 超限 → SIZE_LIMIT（未发 putObject）
         assertThatThrownBy(() -> storage.save(ResourceSaveCommand.fromStream(
                 "FILE", new ByteArrayInputStream(new byte[10]), 6L, "application/pdf", "pdf", 5)))
@@ -598,33 +600,40 @@ class MinioResourceStorageTest {
         assertThatThrownBy(() -> storage.discard("resources/v1/files/2026/08/x.pdf"))
                 .isInstanceOf(ResourceStorageException.class);
 
-        ResourceStorageMetrics.StorageMetricsSnapshot snapshot = metrics.snapshot();
-        assertThat(snapshot.saveSuccess()).isEqualTo(1L);
-        assertThat(snapshot.saveFailuresByKind())
-                .containsEntry(ResourceStorageErrorKind.SIZE_LIMIT, 1L)
-                .hasSize(1);
-        assertThat(snapshot.openSuccess()).isEqualTo(1L);
-        assertThat(snapshot.openFailuresByKind())
-                .containsEntry(ResourceStorageErrorKind.NOT_FOUND, 1L)
-                .hasSize(1);
-        assertThat(snapshot.discardSuccess()).isEqualTo(2L);
-        assertThat(snapshot.discardFailuresByKind())
-                .containsEntry(ResourceStorageErrorKind.UNAVAILABLE, 1L)
-                .hasSize(1);
-        assertThat(snapshot.compensatedDiscardSuccess()).isZero();
-        assertThat(snapshot.compensatedDiscardFailure()).isZero();
+        assertThat(operationTimerCount("save", "success", "none")).isEqualTo(1L);
+        assertThat(operationTimerCount("save", "failure", "size_limit")).isEqualTo(1L);
+        assertThat(operationTimerCount("open", "success", "none")).isEqualTo(1L);
+        assertThat(operationTimerCount("open", "failure", "not_found")).isEqualTo(1L);
+        assertThat(operationTimerCount("discard", "success", "none")).isEqualTo(2L);
+        assertThat(operationTimerCount("discard", "failure", "unavailable")).isEqualTo(1L);
+        // save 成功后确认的实际字节量进入 object.size（Timer count 即操作次数，无同义 Counter）
+        assertThat(registry.get(ResourceStorageMeters.OBJECT_SIZE).summary().count()).isEqualTo(1L);
+        assertThat(registry.get(ResourceStorageMeters.OBJECT_SIZE).summary().totalAmount()).isEqualTo(3L);
+        // compensation Counter 是 Coordinator 专属，Adapter 不记录
+        assertThat(registry.find(ResourceStorageMeters.COMPENSATION).counters()).isEmpty();
     }
 
     @Test
-    void unsatisfiableRangeIsNotCountedAsStorageFailure() throws Exception {
+    void unsatisfiableRangeIsRecordedAsRejectedNotStorageFailure() throws Exception {
         when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(statResponse(100L, "video/mp4"));
 
         assertThatThrownBy(() -> storage.open(
                 "resources/v1/videos/2026/08/x.mp4", ResourceRange.fromHeader("bytes=100-")))
                 .isInstanceOf(ResourceRangeException.class);
 
-        // 416 是 Range 语义错误（未发生存储读失败），不计入 open 失败
-        assertThat(metrics.snapshot().openFailureTotal()).isZero();
+        // 416 是 Range 语义拒绝（未发生存储读失败）：outcome=rejected/error.kind=range，
+        // 不计入 MinIO 可用性失败率（设计 §10.7）
+        assertThat(operationTimerCount("open", "rejected", "range")).isEqualTo(1L);
+        assertThat(registry.find(ResourceStorageMeters.OPERATION_DURATION).timers())
+                .allMatch(timer -> !"failure".equals(timer.getId().getTag("outcome")));
+    }
+
+    private long operationTimerCount(String operation, String outcome, String errorKind) {
+        return registry.get(ResourceStorageMeters.OPERATION_DURATION)
+                .tag("operation", operation)
+                .tag("outcome", outcome)
+                .tag("error.kind", errorKind)
+                .timer().count();
     }
 
     // ------------------------------------------------------------------

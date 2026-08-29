@@ -1,5 +1,7 @@
 package com.h.otheragents.a2a.config;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.langchain4j.ObservingAgentListener;
 import com.h.otheragents.a2a.infrastructure.ai.Agents;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.model.chat.ChatModel;
@@ -10,25 +12,28 @@ import org.springframework.context.annotation.Configuration;
 public class A2AAgentConfig {
 
     @Bean
-    public Agents.CreativeWriter creativeWriter(ChatModel chatModel) {
+    public Agents.CreativeWriter creativeWriter(ChatModel chatModel, AgentObservability observability) {
         return AgenticServices.agentBuilder(Agents.CreativeWriter.class)
                 .chatModel(chatModel)
+                .listener(new ObservingAgentListener(observability))
                 .outputKey("story")
                 .build();
     }
 
     @Bean
-    public Agents.AudienceEditor audienceEditor(ChatModel chatModel) {
+    public Agents.AudienceEditor audienceEditor(ChatModel chatModel, AgentObservability observability) {
         return AgenticServices.agentBuilder(Agents.AudienceEditor.class)
                 .chatModel(chatModel)
+                .listener(new ObservingAgentListener(observability))
                 .outputKey("story")
                 .build();
     }
 
     @Bean
-    public Agents.StyleEditor styleEditor(ChatModel chatModel) {
+    public Agents.StyleEditor styleEditor(ChatModel chatModel, AgentObservability observability) {
         return AgenticServices.agentBuilder(Agents.StyleEditor.class)
                 .chatModel(chatModel)
+                .listener(new ObservingAgentListener(observability))
                 .outputKey("story")
                 .build();
     }

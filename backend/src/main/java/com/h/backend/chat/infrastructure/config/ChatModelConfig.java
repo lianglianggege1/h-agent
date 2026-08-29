@@ -1,5 +1,9 @@
 package com.h.backend.chat.infrastructure.config;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.langchain4j.ObservingChatModel;
+import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
+import com.h.agent.observability.langchain4j.ObservingToolProvider;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import com.h.backend.chat.application.SystemPromptService;
@@ -26,9 +30,10 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.tool.AiServiceTool;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderResult;
-import dev.langchain4j.service.tool.search.simple.SimpleToolSearchStrategy;
+import dev.langchain4j.service.tool.ToolService;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -88,13 +93,13 @@ public class ChatModelConfig {
     private SkillRuntimeToolProvider skillRuntimeToolProvider;
 
     @Bean
-    public StreamingChatModel streamingChatModel() {
+    public StreamingChatModel streamingChatModel(AgentObservability observability) {
         var environment = ChatModelEnvironment.load(Path.of(""));
         if (environment.isEmpty()) {
             return new DisabledStreamingChatModel();
         }
         ChatModelEnvironment settings = environment.orElseThrow();
-        return AnthropicStreamingChatModel.builder()
+        StreamingChatModel delegate = AnthropicStreamingChatModel.builder()
                 .apiKey(settings.apiKey())
                 .baseUrl(settings.baseUrl())
                 .modelName(settings.modelName())
@@ -106,16 +111,17 @@ public class ChatModelConfig {
                 .logResponses(true)
                 .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
                 .build();
+        return new ObservingStreamingChatModel(delegate, observability, "anthropic");
     }
 
     @Bean
-    public ChatModel chatModel() {
+    public ChatModel chatModel(AgentObservability observability) {
         var environment = ChatModelEnvironment.load(Path.of(""));
         if (environment.isEmpty()) {
             return new DisabledChatModel();
         }
         ChatModelEnvironment settings = environment.orElseThrow();
-        return AnthropicChatModel.builder()
+        ChatModel delegate = AnthropicChatModel.builder()
                 .apiKey(settings.apiKey())
                 .baseUrl(settings.baseUrl())
                 .modelName(settings.modelName())
@@ -126,23 +132,31 @@ public class ChatModelConfig {
                 .logResponses(true)
                 .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
                 .build();
+        return new ObservingChatModel(delegate, observability, "anthropic");
     }
 
     @Bean
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  RetrievalAugmentor knowledgeRetrievalAugmentor,
-                                 ObjectProvider<McpToolProvider> mcpToolProvider) {
+                                 ObjectProvider<McpToolProvider> mcpToolProvider,
+                                 AgentObservability observability) {
+        List<ToolProvider> toolProviders = new ArrayList<>();
+        // 静态工具走 provider 接缝注册：观测装饰器在每次请求构建时捕获当前观测上下文，
+        // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
+        // 在该路径不可用（当前工具集未使用）。
+        toolProviders.add(staticToolsProvider(observability, List.of(
+                imageGenerationTool, textToVideoTool, imageToVideoTool,
+                filesystemTool, fileDeliveryTool, shellTool, webSearchTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
-        List<ToolProvider> toolProviders = new ArrayList<>();
-        toolProviders.add(skillRuntimeToolProvider);
-        toolProviders.add(request -> {
+        toolProviders.add(new ObservingToolProvider(skillRuntimeToolProvider, observability, "langchain4j"));
+        toolProviders.add(new ObservingToolProvider(request -> {
             McpToolProvider provider = mcpToolProvider.getIfAvailable();
             if (provider == null) {
                 return ToolProviderResult.builder().build();
             }
             return provider.provideTools(request);
-        });
+        }, observability, "langchain4j"));
 
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
@@ -160,8 +174,6 @@ public class ChatModelConfig {
                     }
                     return systemMessage + "\n\n" + skillsSection;
                 })
-                .tools(imageGenerationTool, textToVideoTool, imageToVideoTool, filesystemTool, fileDeliveryTool, shellTool, webSearchTool)
-//                .toolSearchStrategy(SimpleToolSearchStrategy.builder().build())
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
                 .executeToolsConcurrently() // 并发调用工具
@@ -174,5 +186,13 @@ public class ChatModelConfig {
                         .chatMemoryStore(redisChatMemoryStore)
                         .build())
                 .build();
+    }
+
+    private static ToolProvider staticToolsProvider(AgentObservability observability, List<Object> toolObjects) {
+        List<AiServiceTool> tools = new ArrayList<>();
+        for (Object toolObject : toolObjects) {
+            tools.addAll(ToolService.findTools(toolObject));
+        }
+        return new ObservingToolProvider(request -> new ToolProviderResult(tools), observability, "langchain4j");
     }
 }

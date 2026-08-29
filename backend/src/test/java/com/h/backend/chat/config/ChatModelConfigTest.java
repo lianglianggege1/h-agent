@@ -1,5 +1,7 @@
 package com.h.backend.chat.infrastructure.config;
 
+import com.h.agent.observability.NoopAgentObservability;
+import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -33,8 +35,9 @@ class ChatModelConfigTest {
 
         ChatModelConfig config = new ChatModelConfig();
 
-        StreamingChatModel streamingChatModel = config.streamingChatModel();
-        AnthropicStreamingChatModel model = assertInstanceOf(AnthropicStreamingChatModel.class, streamingChatModel);
+        StreamingChatModel streamingChatModel = config.streamingChatModel(NoopAgentObservability.getInstance());
+        ObservingStreamingChatModel observingModel = assertInstanceOf(ObservingStreamingChatModel.class, streamingChatModel);
+        AnthropicStreamingChatModel model = assertInstanceOf(AnthropicStreamingChatModel.class, observingModel.delegate());
 
         Object client = readField(model, "client");
         Object httpClient = readField(client, "httpClient");

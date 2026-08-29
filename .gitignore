@@ -1,5 +1,5 @@
 # Build outputs
-backend/target/
+target/
 frontend/.next/
 frontend/out/
 frontend/dist/

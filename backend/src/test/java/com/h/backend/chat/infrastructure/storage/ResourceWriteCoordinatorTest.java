@@ -1,8 +1,16 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
@@ -54,13 +62,16 @@ class ResourceWriteCoordinatorTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private long baseCompensatedDiscardCount;
-    private long baseDiscardFailureCount;
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    private double baseCompensationSuccess;
+    private double baseCompensationFailure;
 
     @BeforeEach
     void recordCounterBaseline() {
-        baseCompensatedDiscardCount = coordinator.compensatedDiscardCount();
-        baseDiscardFailureCount = coordinator.discardFailureCount();
+        baseCompensationSuccess = compensationSuccessCount();
+        baseCompensationFailure = compensationFailureTotal();
     }
 
     @AfterEach
@@ -82,7 +93,7 @@ class ResourceWriteCoordinatorTest {
         assertEquals("attached", result);
         assertTrue(ranInsideTransaction[0], "挂接回调必须在活动事务内执行");
         verify(resourceStorage, never()).discard(any());
-        assertEquals(0L, coordinator.discardFailureCount());
+        assertEquals(0.0d, compensationFailureTotal() - baseCompensationFailure);
         assertTrue(rowExists("res-commit"), "commit 后数据库行必须存在");
     }
 
@@ -100,7 +111,7 @@ class ResourceWriteCoordinatorTest {
         assertSame(boom, thrown, "必须上抛原始数据库异常");
         verify(resourceStorage, times(1)).discard("key-cb-fail");
         assertFalse(rowExists("res-cb-fail"), "回调失败的行必须随事务回滚");
-        assertEquals(1L, coordinator.compensatedDiscardCount() - baseCompensatedDiscardCount);
+        assertEquals(1.0d, compensationSuccessCount() - baseCompensationSuccess);
     }
 
     @Test
@@ -147,19 +158,41 @@ class ResourceWriteCoordinatorTest {
     @Test
     void discardFailureIsLoggedCountedAndDoesNotOverrideOriginalException() {
         when(resourceStorage.save(any(ResourceSaveCommand.class))).thenReturn(stored("res-discard-fail", "key-df"));
-        doThrow(new ResourceStorageException(ResourceStorageErrorKind.UNAVAILABLE, "对象存储暂时不可用"))
-                .when(resourceStorage).discard("key-df");
+        ResourceStorageException storageFailure =
+                new ResourceStorageException(ResourceStorageErrorKind.UNAVAILABLE, "对象存储暂时不可用");
+        doThrow(storageFailure).when(resourceStorage).discard("key-df");
         IllegalStateException boom = new IllegalStateException("attach failed");
 
-        IllegalStateException thrown = assertThrows(IllegalStateException.class,
-                () -> coordinator.saveAndAttach(command(), stored -> {
-                    throw boom;
-                }));
+        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(TransactionalResourceWriteCoordinator.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        coordinatorLogger.addAppender(appender);
+        try {
+            IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                    () -> coordinator.saveAndAttach(command(), stored -> {
+                        throw boom;
+                    }));
 
-        assertSame(boom, thrown, "discard 失败不得覆盖原始数据库异常");
-        verify(resourceStorage, times(1)).discard("key-df");
-        assertEquals(1L, coordinator.discardFailureCount() - baseDiscardFailureCount);
-        assertEquals(0L, coordinator.compensatedDiscardCount() - baseCompensatedDiscardCount);
+            assertSame(boom, thrown, "discard 失败不得覆盖原始数据库异常");
+            verify(resourceStorage, times(1)).discard("key-df");
+            assertEquals(1.0d, compensationFailureTotal() - baseCompensationFailure);
+            assertEquals(0.0d, compensationSuccessCount() - baseCompensationSuccess);
+
+            // 脱敏 ERROR 告警（不变量 17）：只含 errorKind、resourceId 与 key 尾段，
+            // 不含 SDK 异常消息或完整 key（Metrics 不取代日志）
+            assertEquals(1, appender.list.size());
+            ILoggingEvent event = appender.list.get(0);
+            assertEquals(Level.ERROR, event.getLevel());
+            String message = event.getFormattedMessage();
+            assertTrue(message.contains("operation=discard"), message);
+            assertTrue(message.contains("errorKind=UNAVAILABLE"), message);
+            assertTrue(message.contains("res-discard-fail"), message);
+            assertTrue(message.contains("key-df"), message);
+            assertFalse(message.contains("对象存储暂时不可用"), message);
+        } finally {
+            coordinatorLogger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -179,15 +212,19 @@ class ResourceWriteCoordinatorTest {
         PlatformTransactionManager failingManager = mock(PlatformTransactionManager.class);
         when(failingManager.getTransaction(any(org.springframework.transaction.TransactionDefinition.class)))
                 .thenThrow(new CannotCreateTransactionException("simulated transaction begin failure"));
-        TransactionalResourceWriteCoordinator local =
-                new TransactionalResourceWriteCoordinator(storage, failingManager, new ResourceStorageMetrics());
+        SimpleMeterRegistry localRegistry = new SimpleMeterRegistry();
+        TransactionalResourceWriteCoordinator local = new TransactionalResourceWriteCoordinator(
+                storage, failingManager, new ResourceStorageMeters(localRegistry));
         when(storage.save(any(ResourceSaveCommand.class))).thenReturn(stored("res-begin-fail", "key-bf"));
 
         assertThrows(CannotCreateTransactionException.class,
                 () -> local.saveAndAttach(command(), stored -> "attached"));
 
         verify(storage, times(1)).discard("key-bf");
-        assertEquals(1L, local.compensatedDiscardCount());
+        assertEquals(1.0d, localRegistry.get(ResourceStorageMeters.COMPENSATION)
+                .tag("outcome", "success")
+                .tag("error.kind", "none")
+                .counter().count());
     }
 
     @Test
@@ -203,6 +240,24 @@ class ResourceWriteCoordinatorTest {
 
     private StoredResource stored(String id, String key) {
         return new StoredResource(id, "OBJECT_STORAGE", key, "image/png", id + ".png", 3L, 1, 1);
+    }
+
+    /** 补偿删除成功计数（Coordinator 不再暴露 getter，经 MeterRegistry 查询；meter 未注册时为 0）。 */
+    private double compensationSuccessCount() {
+        Counter counter = meterRegistry.find(ResourceStorageMeters.COMPENSATION)
+                .tag("outcome", "success")
+                .tag("error.kind", "none")
+                .counter();
+        return counter == null ? 0.0d : counter.count();
+    }
+
+    /** 补偿删除失败计数总和（跨 error.kind）。 */
+    private double compensationFailureTotal() {
+        return meterRegistry.find(ResourceStorageMeters.COMPENSATION)
+                .tag("outcome", "failure")
+                .counters().stream()
+                .mapToDouble(Counter::count)
+                .sum();
     }
 
     private ResourceSaveCommand command() {

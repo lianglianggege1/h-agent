@@ -1,5 +1,8 @@
 package com.h.backend.chat.infrastructure.mcp;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.backend.observability.mcp.ObservingMcpHeadersSupplier;
+import com.h.backend.observability.mcp.ObservingMcpToolExecutor;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
 import dev.langchain4j.mcp.client.McpClient;
@@ -20,15 +23,17 @@ public class OtherAgentsMcpConfig {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "agents.mcp.other-agents", name = "enabled", havingValue = "true")
-    McpClient otherAgentsMcpClient(OtherAgentsMcpProperties properties) {
+    McpClient otherAgentsMcpClient(OtherAgentsMcpProperties properties, AgentObservability observability) {
         StreamableHttpMcpTransport.Builder transportBuilder = new StreamableHttpMcpTransport.Builder()
                 .url(properties.getUrl());
         String token = properties.getToken();
+        Supplier<Map<String, String>> authHeaders = null;
         if (token != null && !token.isBlank()) {
             // other-agents 的每个 MCP endpoint 都要求 Authorization: Bearer <token>
-            Supplier<Map<String, String>> authHeaders = () -> Map.of("Authorization", "Bearer " + token);
-            transportBuilder.customHeaders(authHeaders);
+            authHeaders = () -> Map.of("Authorization", "Bearer " + token);
         }
+        // 每次构造 POST 时动态注入 W3C Context（设计 14.1），Authorization 等基础 Header 一并合并
+        transportBuilder.customHeaders(new ObservingMcpHeadersSupplier(observability, authHeaders));
         McpTransport transport = transportBuilder.build();
         return new DefaultMcpClient.Builder()
                 .transport(transport)
@@ -38,9 +43,10 @@ public class OtherAgentsMcpConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "agents.mcp.other-agents", name = "enabled", havingValue = "true")
-    McpToolProvider otherAgentsMcpToolProvider(McpClient otherAgentsMcpClient) {
+    McpToolProvider otherAgentsMcpToolProvider(McpClient otherAgentsMcpClient, AgentObservability observability) {
         return McpToolProvider.builder()
                 .mcpClients(otherAgentsMcpClient)
+                .toolWrapper(executor -> new ObservingMcpToolExecutor(observability, executor))
                 .build();
     }
 }

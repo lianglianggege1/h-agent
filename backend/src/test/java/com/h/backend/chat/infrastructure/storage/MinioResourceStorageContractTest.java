@@ -111,7 +111,7 @@ class MinioResourceStorageContractTest {
     private static MinioClient appClient;
     private static MinioResourceStorage storage;
     private static ResourceStorageProperties properties;
-    private static ResourceStorageMetrics metrics;
+    private static ResourceStorageMeters meters;
 
     /** 测试期间写入的全部 object key（含跨前缀探针），AfterAll 逐一幂等删除。 */
     private static final List<String> createdObjectKeys =
@@ -162,8 +162,8 @@ class MinioResourceStorageContractTest {
         properties.getMinio().setReadTimeout(Duration.ofSeconds(300));
 
         appClient = buildClient(endpoint, accessKey, secretKey, region);
-        metrics = new ResourceStorageMetrics();
-        storage = new MinioResourceStorage(appClient, properties, metrics);
+        meters = new ResourceStorageMeters(new io.micrometer.core.instrument.composite.CompositeMeterRegistry());
+        storage = new MinioResourceStorage(appClient, properties, meters);
     }
 
     // ------------------------------------------------------------------
@@ -355,7 +355,7 @@ class MinioResourceStorageContractTest {
                 .region(region)
                 .build();
         MinioResourceStorage anonymousStorage =
-                new MinioResourceStorage(anonymousClient, properties, metrics);
+                new MinioResourceStorage(anonymousClient, properties, meters);
 
         assertThatThrownBy(() -> anonymousStorage.open(stored.storageKey(), ResourceRange.fullRead()))
                 .as("私有 Bucket 匿名读取必须被拒绝（AccessDenied 类错误）")

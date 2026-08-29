@@ -1,7 +1,8 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.lifecycle.AgentExecutionObservation;
+import com.h.agent.observability.semantic.SemanticContent;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
@@ -46,6 +47,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,11 +59,10 @@ class HarnessAgentExecutorTest {
         HarnessAgent harnessAgent = mock(HarnessAgent.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new HarnessEventMapper()
         );
         AgentDefinition definition = definition(harnessAgent);
@@ -84,7 +86,7 @@ class HarnessAgentExecutorTest {
                 .thenReturn(harnessEvents);
         AtomicInteger terminalCount = new AtomicInteger();
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, terminalCount)
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, terminalCount)
                 .takeUntil(event -> "done".equals(event.type()))
                 .collectList()
                 .block(Duration.ofSeconds(1));
@@ -99,15 +101,62 @@ class HarnessAgentExecutorTest {
     }
 
     @Test
+    void shouldEndPrimaryObservationAtSubmissionWithoutWaitingForPostWork() throws Exception {
+        HarnessAgent harnessAgent = mock(HarnessAgent.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        HarnessAgentExecutor executor = new HarnessAgentExecutor(
+                chatSessionService,
+                agentRunService,
+                new HarnessEventMapper()
+        );
+        AgentDefinition definition = definition(harnessAgent);
+        Msg finalReply = finalReply();
+        ChatSessionMessageDto persisted = persistedReply();
+        stubPersistence(chatSessionService, persisted);
+
+        Sinks.Empty<Void> postProcessing = Sinks.empty();
+        CountDownLatch harnessCompleted = new CountDownLatch(1);
+        Flux<AgentEvent> harnessEvents = Flux.concat(
+                        Flux.just(
+                                new AgentResultEvent(finalReply),
+                                new AgentEndEvent("reply-parent")
+                        ),
+                        postProcessing.asMono().thenMany(Flux.empty())
+                )
+                .doOnComplete(harnessCompleted::countDown);
+        when(harnessAgent.streamEvents(eq("solve it"), any(RuntimeContext.class)))
+                .thenReturn(harnessEvents);
+
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
+                .takeUntil(event -> "done".equals(event.type()))
+                .collectList()
+                .block(Duration.ofSeconds(1));
+
+        assertEquals("done", events.getLast().type());
+        // 产品结果提交点即原子结束 Primary（设计 7.3 规则 1），不等后置维护。
+        ArgumentCaptor<SemanticContent> output = ArgumentCaptor.forClass(SemanticContent.class);
+        verify(observation).succeed(output.capture());
+        assertTrue(output.getValue().toString().contains("parent final"));
+        verify(observation, never()).fail(any());
+        verify(observation, never()).cancel(any());
+
+        // Publisher 终止且无新 Observation：Maintenance 从未创建，Primary 只结束一次。
+        postProcessing.tryEmitEmpty();
+        assertTrue(harnessCompleted.await(1, TimeUnit.SECONDS));
+        verify(observation, times(1)).succeed(any());
+    }
+
+    @Test
     void shouldIgnoreChildAgentEndWhenCompletingParentStream() {
         HarnessAgent harnessAgent = mock(HarnessAgent.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new HarnessEventMapper()
         );
         AgentDefinition definition = definition(harnessAgent);
@@ -124,7 +173,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
 
@@ -143,11 +192,10 @@ class HarnessAgentExecutorTest {
         HarnessAgent harnessAgent = mock(HarnessAgent.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new HarnessEventMapper()
         );
         AgentDefinition definition = definition(harnessAgent);
@@ -156,13 +204,13 @@ class HarnessAgentExecutorTest {
                 .thenReturn(Flux.<AgentEvent>never().doOnCancel(harnessCancelled::countDown));
         AtomicInteger terminalCount = new AtomicInteger();
 
-        Disposable client = clientEvents(executor, definition, terminalCount).subscribe();
+        Disposable client = clientEvents(executor, definition, observation, terminalCount).subscribe();
         client.dispose();
 
         assertTrue(harnessCancelled.await(1, TimeUnit.SECONDS));
         assertEquals(1, terminalCount.get());
         verify(agentRunService).failRun(55L, "客户端已断开");
-        verify(telemetryService).markFailure(any(), any());
+        verify(observation).cancel("客户端已断开");
     }
 
     @Test
@@ -170,11 +218,10 @@ class HarnessAgentExecutorTest {
         HarnessAgent harnessAgent = mock(HarnessAgent.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new HarnessEventMapper()
         );
         AgentDefinition definition = new AgentDefinition(
@@ -234,7 +281,7 @@ class HarnessAgentExecutorTest {
                                 "unused-by-harness",
                                 definition,
                                 new AgentRunService.AgentRunHandle(55L),
-                                new AgentRunTelemetryService.TelemetryRun(null, "trace-55"),
+                                observation,
                                 terminalCount::incrementAndGet
                         )
                 ))
@@ -266,7 +313,7 @@ class HarnessAgentExecutorTest {
         persistenceOrder.verify(chatSessionService).appendReasoningMessage(1L, "session-1", "parent think");
         persistenceOrder.verify(chatSessionService).appendAssistantMessage(1L, "session-1", "parent final");
         verify(agentRunService).completeRun(55L, 202L);
-        verify(telemetryService).markSuccess(any());
+        verify(observation).succeed(any());
     }
 
     @Test
@@ -275,11 +322,10 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
                 chatSessionService,
                 agentRunService,
-                telemetryService,
                 new HarnessEventMapper(),
                 runtime,
                 collaborationService
@@ -296,12 +342,13 @@ class HarnessAgentExecutorTest {
                 .textContent("补充了三条官方来源。")
                 .build();
         when(runtime.streamSubagent(
-                harnessBean,
-                new HarnessSubagentContext(
+                eq(harnessBean),
+                eq(new HarnessSubagentContext(
                         "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
                         "execution-targeted"
-                ),
-                "补充官方来源"
+                )),
+                eq("补充官方来源"),
+                any()
         ))
                 .thenReturn(Flux.just(new AgentResultEvent(result), new AgentEndEvent("reply-child-2")));
         HarnessSubagentSummaryDto completed = new HarnessSubagentSummaryDto(
@@ -323,7 +370,7 @@ class HarnessAgentExecutorTest {
                                 "补充官方来源", null,
                                 "unused-by-harness", definition,
                                 new AgentRunService.AgentRunHandle(55L),
-                                new AgentRunTelemetryService.TelemetryRun(null, "trace-55"),
+                                observation,
                                 () -> { }
                         )
                 ))
@@ -332,12 +379,13 @@ class HarnessAgentExecutorTest {
 
         assertEquals("done", events.getLast().type());
         verify(runtime).streamSubagent(
-                harnessBean,
-                new HarnessSubagentContext(
+                eq(harnessBean),
+                eq(new HarnessSubagentContext(
                         "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
                         "execution-targeted"
-                ),
-                "补充官方来源"
+                )),
+                eq("补充官方来源"),
+                any()
         );
         verify(runtime, org.mockito.Mockito.never()).streamParent(any(), any(), any());
         verify(collaborationService).completeSubagent(
@@ -354,9 +402,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -380,7 +428,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        clientEvents(executor, definition, new AtomicInteger()).collectList().block();
+        clientEvents(executor, definition, observation, new AtomicInteger()).collectList().block();
 
         verify(collaborationService).exposeSubagent(
                 1L,
@@ -402,9 +450,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -435,7 +483,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        clientEvents(executor, definition, new AtomicInteger()).collectList().block();
+        clientEvents(executor, definition, observation, new AtomicInteger()).collectList().block();
 
         var order = inOrder(collaborationService);
         order.verify(collaborationService).exposeSubagent(
@@ -460,9 +508,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -513,7 +561,7 @@ class HarnessAgentExecutorTest {
                 0, LocalDateTime.now()
         )));
 
-        clientEvents(executor, definition, new AtomicInteger()).collectList().block();
+        clientEvents(executor, definition, observation, new AtomicInteger()).collectList().block();
 
         verify(collaborationService).markRunning(
                 1L, "session-1", "child-runtime-2", "reply-child-3"
@@ -529,10 +577,10 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessSubagentEventRelay relay = new HarnessSubagentEventRelay();
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService, relay
         );
         Object harnessBean = new Object();
@@ -575,7 +623,7 @@ class HarnessAgentExecutorTest {
                     sink.complete();
                 }));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
 
@@ -610,10 +658,10 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessSubagentEventRelay relay = new HarnessSubagentEventRelay();
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService, relay
         );
         Object harnessBean = new Object();
@@ -662,7 +710,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
         var latestStatuses = new java.util.HashMap<String, HarnessSubagentStatus>();
@@ -685,9 +733,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -741,7 +789,7 @@ class HarnessAgentExecutorTest {
                         })
                 ));
 
-        clientEvents(executor, definition, new AtomicInteger()).collectList().block();
+        clientEvents(executor, definition, observation, new AtomicInteger()).collectList().block();
 
         verify(collaborationService).completeSubagent(
                 1L, "session-1", "child-runtime-end", "reply-child-end", "子任务完成结果。"
@@ -754,9 +802,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -809,7 +857,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
 
@@ -829,9 +877,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -893,7 +941,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
 
@@ -912,9 +960,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -943,7 +991,7 @@ class HarnessAgentExecutorTest {
                         new AgentEndEvent("reply-parent")
                 ));
 
-        List<ChatStreamEvent> events = clientEvents(executor, definition, new AtomicInteger())
+        List<ChatStreamEvent> events = clientEvents(executor, definition, observation, new AtomicInteger())
                 .collectList()
                 .block();
 
@@ -958,9 +1006,9 @@ class HarnessAgentExecutorTest {
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService telemetryService = mock(AgentRunTelemetryService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         HarnessAgentExecutor executor = new HarnessAgentExecutor(
-                chatSessionService, agentRunService, telemetryService,
+                chatSessionService, agentRunService,
                 new HarnessEventMapper(), runtime, collaborationService
         );
         Object harnessBean = new Object();
@@ -969,12 +1017,13 @@ class HarnessAgentExecutorTest {
                 "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
         );
         when(runtime.streamSubagent(
-                harnessBean,
-                new HarnessSubagentContext(
+                eq(harnessBean),
+                eq(new HarnessSubagentContext(
                         "research-agent", "1", "session-1", "child-runtime-1", "资料收集",
                         "execution-error"
-                ),
-                "补充来源"
+                )),
+                eq("补充来源"),
+                any()
         ))
                 .thenReturn(Flux.error(new IllegalStateException("child unavailable")));
 
@@ -986,7 +1035,7 @@ class HarnessAgentExecutorTest {
                         "补充来源", null,
                         "unused", definition,
                         new AgentRunService.AgentRunHandle(55L),
-                        new AgentRunTelemetryService.TelemetryRun(null, "trace-55"),
+                        observation,
                         () -> { }
                 )))
                 .collectList()
@@ -1001,6 +1050,7 @@ class HarnessAgentExecutorTest {
     private Flux<ChatStreamEvent> clientEvents(
             HarnessAgentExecutor executor,
             AgentDefinition definition,
+            AgentExecutionObservation observation,
             AtomicInteger terminalCount
     ) {
         return Flux.create(sink -> executor.execute(new ChatAgentExecutionCommand(
@@ -1013,7 +1063,7 @@ class HarnessAgentExecutorTest {
                 "unused-by-harness",
                 definition,
                 new AgentRunService.AgentRunHandle(55L),
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-55"),
+                observation,
                 terminalCount::incrementAndGet
         )));
     }

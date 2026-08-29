@@ -2,6 +2,7 @@ package com.h.backend.chat.infrastructure.subagent;
 
 import com.h.backend.chat.domain.agent.HarnessSubagentLifecycleMiddleware;
 import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;
+import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import com.h.backend.chat.domain.subagentdefinition.SubagentCapabilityPolicy;
 import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
 import com.h.backend.chat.domain.subagentdefinition.model.CompiledSubagentDefinition;
@@ -90,6 +91,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
     private final SubagentCapabilityPolicy capabilityPolicy;
     private final ParentAssignmentSystemPromptMiddleware assignmentMiddleware;
     private final HarnessSubagentLifecycleMiddleware lifecycleMiddleware;
+    private final AgentScopeObservationInstaller observationInstaller;
     private final Path workspaceRoot;
 
     public AgentScopeSubagentRuntimeFactory(
@@ -97,12 +99,14 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
             SubagentCapabilityPolicy capabilityPolicy,
             ParentAssignmentSystemPromptMiddleware assignmentMiddleware,
             HarnessSubagentLifecycleMiddleware lifecycleMiddleware,
+            AgentScopeObservationInstaller observationInstaller,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         this.harnessAgentProvider = harnessAgentProvider;
         this.capabilityPolicy = capabilityPolicy;
         this.assignmentMiddleware = assignmentMiddleware;
         this.lifecycleMiddleware = lifecycleMiddleware;
+        this.observationInstaller = observationInstaller;
         this.workspaceRoot = Path.of(workspace);
     }
 
@@ -201,7 +205,9 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
                 .disableSessionPersistence()
                 // 与 SDK 声明式 child 一致：继承父显式 middleware（委托合并 + 生命周期投影）。
                 .middleware(assignmentMiddleware)
-                .middleware(lifecycleMiddleware);
+                .middleware(lifecycleMiddleware)
+                // 统一观测（设计 12.3 / 12.5）：USER 动态子 Agent 不走父 builder 复制路径，必须显式安装。
+                .middleware(observationInstaller.middleware());
 
         HarnessAgent child = sub.build();
         log.debug("Materialized USER subagent agentId={} definitionId={} version={} tools={}",

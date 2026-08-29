@@ -1,11 +1,13 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.agent.observability.lifecycle.ObservationScope;
+import com.h.agent.observability.semantic.SemanticContent;
+import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import dev.langchain4j.guardrail.InputGuardrailException;
@@ -16,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.FluxSink;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -26,20 +29,17 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
     private final HAssistant hAssistant;
     private final ChatSessionService chatSessionService;
     private final AgentRunService agentRunService;
-    private final AgentRunTelemetryService agentRunTelemetryService;
     private final ChatStreamEventBridge chatStreamEventBridge;
 
     public HAssistantStreamingExecutor(
             HAssistant hAssistant,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
             ChatStreamEventBridge chatStreamEventBridge
     ) {
         this.hAssistant = hAssistant;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
-        this.agentRunTelemetryService = agentRunTelemetryService;
         this.chatStreamEventBridge = chatStreamEventBridge;
     }
 
@@ -67,40 +67,44 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                         + "\n[系统：用户选择了一张参考图片（资源ID: " + referenceResourceId
                         + "）。请根据用户目标选择工具：生成或修改静态图片时调用 generateImage；让图片中的主体或环境运动，或生成动画、运镜、视频时调用 image_to_video；仅分析或描述图片时不调用生成工具。调用图片或视频生成工具时，将该资源ID作为 referenceResourceId 传入。]";
             }
-            hAssistant.streamChat(command.memoryId(), messageForLlm)
-                    .onPartialThinking(thinking -> {
-                        String thinkingText = thinking == null ? "" : thinking.text();
-                        if (thinkingText == null || thinkingText.isBlank()) {
-                            return;
-                        }
-                        reasoningBuilder.append(thinkingText);
-                        emitIfActive(command.sink(), new ChatStreamEvent("reasoning", thinkingText));
-                    })
-                    .onPartialResponse(chunk -> {
-                        replyBuilder.append(chunk);
-                        emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
-                    })
-                    .onToolExecuted(toolExecution -> {
-                        recordToolUsage(command.runHandle().id(), toolExecution);
-                    })
-                    .onCompleteResponse(ignored -> {
-                        try {
-                            logCompletedStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
-                            completeSuccessfulStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
-                        } finally {
-                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
-                            command.onTerminal().run();
-                        }
-                    })
-                    .onError(error -> {
-                        try {
-                            emitFailureEvent(command.sink(), command, error);
-                        } finally {
-                            chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
-                            command.onTerminal().run();
-                        }
-                    })
-                    .start();
+            // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把
+            // Generation/Tool Span 挂到本次运行。后续轮次由流式回调中的观测作用域接管。
+            try (ObservationScope ignored = command.observation().scope()) {
+                hAssistant.streamChat(command.memoryId(), messageForLlm)
+                        .onPartialThinking(thinking -> {
+                            String thinkingText = thinking == null ? "" : thinking.text();
+                            if (thinkingText == null || thinkingText.isBlank()) {
+                                return;
+                            }
+                            reasoningBuilder.append(thinkingText);
+                            emitIfActive(command.sink(), new ChatStreamEvent("reasoning", thinkingText));
+                        })
+                        .onPartialResponse(chunk -> {
+                            replyBuilder.append(chunk);
+                            emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
+                        })
+                        .onToolExecuted(toolExecution -> {
+                            recordToolUsage(command.runHandle().id(), toolExecution);
+                        })
+                        .onCompleteResponse(ignoredResponse -> {
+                            try {
+                                logCompletedStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
+                                completeSuccessfulStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
+                            } finally {
+                                chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
+                                command.onTerminal().run();
+                            }
+                        })
+                        .onError(error -> {
+                            try {
+                                emitFailureEvent(command.sink(), command, error);
+                            } finally {
+                                chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
+                                command.onTerminal().run();
+                            }
+                        })
+                        .start();
+            }
         } catch (Exception ex) {
             try {
                 chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
@@ -149,13 +153,13 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         if (reply.isBlank()) {
             if (imageEmitted.get()) {
                 agentRunService.completeRun(command.runHandle().id(), null);
-                agentRunTelemetryService.markSuccess(command.telemetryRun());
+                command.observation().succeed(null);
                 emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", ""));
                 return;
             }
             IllegalStateException error = new IllegalStateException("AI 未返回有效内容");
             agentRunService.failRun(command.runHandle().id(), error.getMessage());
-            agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+            command.observation().fail(error);
             emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 未返回有效内容"));
             return;
         }
@@ -174,8 +178,12 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 assistantMessageId
         );
         agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
-        agentRunTelemetryService.markSuccess(command.telemetryRun());
+        command.observation().succeed(assistantOutput(reply));
         emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("done", "", assistantMessage));
+    }
+
+    private static SemanticContent assistantOutput(String reply) {
+        return SemanticContent.ofMessages(List.of(SemanticMessage.of("assistant", reply)));
     }
 
     private void emitFailureEvent(
@@ -186,7 +194,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         log.error("Error streaming chat", error);
         if (error instanceof ModelDisabledException) {
             agentRunService.failRun(command.runHandle().id(), "AI 服务未配置 OPENAI_API_KEY");
-            agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+            command.observation().fail(error);
             emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务未配置 OPENAI_API_KEY"));
             return;
         }
@@ -194,7 +202,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             String cleanMessage = cleanGuardrailMessage(error.getMessage());
             chatSessionService.appendBlockedMessage(command.userId(), command.sessionId(), cleanMessage);
             agentRunService.failRun(command.runHandle().id(), cleanMessage);
-            agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+            command.observation().fail(error);
             emitAndCompleteIfActive(sink, new ChatStreamEvent("blocked", cleanMessage));
             return;
         }
@@ -202,7 +210,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 command.runHandle().id(),
                 error.getMessage() == null ? "AI 服务调用失败" : error.getMessage()
         );
-        agentRunTelemetryService.markFailure(command.telemetryRun(), error);
+        command.observation().fail(error);
         emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
     }
 

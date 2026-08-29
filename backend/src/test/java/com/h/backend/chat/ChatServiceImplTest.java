@@ -16,8 +16,9 @@ import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.AgentRunTelemetryService;
 import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ChatSessionService;
@@ -79,13 +80,13 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RejectedPermit("当前系统繁忙，请稍后再试")
         );
@@ -107,14 +108,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RecordingPermit permit = new RecordingPermit();
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> permit
         );
@@ -128,7 +129,7 @@ class ChatServiceImplTest {
         assertEquals(false, permit.released());
         verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
-        verify(agentRunTelemetryService, never()).markFailure(any(), any());
+        verify(observability, never()).start(any());
     }
 
     @Test
@@ -137,7 +138,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
         AtomicInteger guardCalls = new AtomicInteger();
         ChatServiceImpl chatService = createChatService(
@@ -145,7 +146,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> {
                     guardCalls.incrementAndGet();
@@ -222,7 +223,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ImageGenerationService imageGenerationService = mock(ImageGenerationService.class);
         AtomicInteger guardCalls = new AtomicInteger();
         ChatServiceImpl chatService = createChatService(
@@ -230,7 +231,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> {
                     guardCalls.incrementAndGet();
@@ -297,7 +298,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
         RecordingDirectExecutorService executor = new RecordingDirectExecutorService();
         RecordingPermit permit = new RecordingPermit();
@@ -306,7 +307,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 executor,
                 (sessionId, userId) -> permit
         );
@@ -314,10 +315,10 @@ class ChatServiceImplTest {
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-submit"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-submit", "hello")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-submit");
-        when(agentRunTelemetryService.startRun("session-submit", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", "trace-submit"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(observation.traceId()).thenReturn("trace-submit");
+        when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-submit", "hello")).thenReturn(tokenStream);
 
@@ -331,6 +332,7 @@ class ChatServiceImplTest {
         ), eventsAfterUserMessage(events));
         assertEquals(1, executor.submittedCount());
         assertTrue(permit.released());
+        verify(agentRunService).updateTraceId(55L, "trace-submit");
     }
 
     @Test
@@ -339,14 +341,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("你好呀");
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RecordingPermit()
         );
@@ -363,9 +365,9 @@ class ChatServiceImplTest {
         when(chatSessionService.getOwnedMessage(1L, "session-call", 101L)).thenReturn(userMessage);
         when(chatSessionService.appendAssistantMessage(1L, "session-call", "你好呀")).thenReturn(202L);
         when(chatSessionService.getOwnedMessage(1L, "session-call", 202L)).thenReturn(assistantMessage);
-        when(agentRunTelemetryService.startRun("session-call", 1L, 22L))
-                .thenReturn(new AgentRunTelemetryService.TelemetryRun(null, "trace-call"));
-        when(agentRunService.createRun("session-call", 1L, 22L, 101L, "standard-chat", "trace-call"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-call", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-call", "你好")).thenReturn(tokenStream);
 
@@ -386,7 +388,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("he").emitText("llo");
         RecordingPermit permit = new RecordingPermit();
         ChatServiceImpl chatService = createChatService(
@@ -394,18 +396,17 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> permit
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-stream");
-        when(agentRunTelemetryService.startRun("session-stream", 1L, 22L)).thenReturn(telemetryRun);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-stream"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-stream", "hello")).thenReturn(202L);
-        when(agentRunService.createRun("session-stream", 1L, 22L, 101L, "standard-chat", "trace-stream"))
+        when(agentRunService.createRun("session-stream", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-stream", "hello")).thenReturn(tokenStream);
 
@@ -427,7 +428,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ControlledAsyncTokenStream tokenStream = new ControlledAsyncTokenStream("hello");
         RecordingPermit permit = new RecordingPermit();
         ChatServiceImpl chatService = createChatService(
@@ -435,7 +436,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> permit
         );
@@ -443,10 +444,9 @@ class ChatServiceImplTest {
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-cancel"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-cancel", "hello")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-cancel");
-        when(agentRunTelemetryService.startRun("session-cancel", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-cancel", 1L, 22L, 101L, "standard-chat", "trace-cancel"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-cancel", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-cancel", "hello")).thenReturn(tokenStream);
 
@@ -464,7 +464,7 @@ class ChatServiceImplTest {
         tokenStream.finishSuccessfully();
 
         verify(agentRunService, org.mockito.Mockito.timeout(1000)).completeRun(55L, 202L);
-        verify(agentRunTelemetryService, org.mockito.Mockito.timeout(1000)).markSuccess(telemetryRun);
+        verify(observation, org.mockito.Mockito.timeout(1000)).succeed(any());
         verify(chatSessionService, org.mockito.Mockito.timeout(1000))
                 .appendAssistantMessage(1L, "session-cancel", "hello");
         assertTrue(tokenStream.awaitCompletion(1, TimeUnit.SECONDS));
@@ -481,14 +481,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RecordingExecutorService executor = new RecordingExecutorService();
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 executor,
                 (sessionId, userId) -> new RecordingPermit()
         );
@@ -499,7 +499,7 @@ class ChatServiceImplTest {
         verify(chatSessionService, never()).assertActiveSession(any(), any(), any(), any());
         verify(systemPromptService, never()).resolvePromptId(any(), any());
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any(), any());
-        verify(agentRunTelemetryService, never()).startRun(any(), any(), any());
+        verify(observability, never()).start(any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
         verify(hAssistant, never()).streamChat(any(), any());
     }
@@ -510,14 +510,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RecordingPermit permit = new RecordingPermit();
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new RejectingExecutorService(),
                 (sessionId, userId) -> permit
         );
@@ -537,14 +537,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RecordingChatAgentExecutor agenticExecutor = new RecordingChatAgentExecutor(AgentRuntimeType.AGENTIC_SYNC);
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RecordingPermit(),
                 null,
@@ -553,10 +553,9 @@ class ChatServiceImplTest {
         );
 
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-car"), eq("need towing"), any())).thenReturn(101L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-car");
-        when(agentRunTelemetryService.startRun("session-car", 1L, null)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-car", 1L, null, 101L, "car-rental-assistant", "trace-car"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-car", 1L, null, 101L, "car-rental-assistant", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
 
         List<ChatStreamEvent> events = chatService
@@ -571,7 +570,7 @@ class ChatServiceImplTest {
         verify(chatSessionService).assertActiveSession(1L, "session-car", null, "car-rental-assistant");
         verify(systemPromptService, never()).resolvePromptId(any(), any());
         verify(chatSessionService).appendUserMessage(eq(1L), eq("session-car"), eq("need towing"), any());
-        verify(agentRunService).createRun("session-car", 1L, null, 101L, "car-rental-assistant", "trace-car");
+        verify(agentRunService).createRun("session-car", 1L, null, 101L, "car-rental-assistant", null);
         verifyNoInteractions(hAssistant);
         assertEquals(
                 "exec:v2:user:1:session:session-car:agent:car-rental-assistant",
@@ -585,7 +584,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         RecordingChatAgentExecutor harnessExecutor =
                 new RecordingChatAgentExecutor(AgentRuntimeType.HARNESS_STREAMING);
@@ -605,7 +604,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> {
                     guardedSessionId.set(sessionId);
@@ -633,11 +632,10 @@ class ChatServiceImplTest {
         when(collaborationService.beginSubagentTurn(
                 1L, "session-harness", "child-runtime-research", "补充官方来源", resources
         )).thenReturn(new HarnessSubagentTurnStart(301L, "execution-child", running));
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-child");
-        when(agentRunTelemetryService.startRun("child-runtime-research", 1L, null)).thenReturn(telemetryRun);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun(
-                "child-runtime-research", 1L, null, 301L, "harness-agent", "trace-child"
+                "child-runtime-research", 1L, null, 301L, "harness-agent", null
         )).thenReturn(new AgentRunService.AgentRunHandle(55L));
 
         chatService.streamChat(
@@ -663,7 +661,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         HarnessCollaborationService collaborationService = mock(HarnessCollaborationService.class);
         RecordingChatAgentExecutor harnessExecutor =
                 new RecordingChatAgentExecutor(AgentRuntimeType.HARNESS_STREAMING);
@@ -681,7 +679,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RecordingPermit(),
                 null,
@@ -703,11 +701,8 @@ class ChatServiceImplTest {
         when(collaborationService.beginSubagentTurn(
                 1L, "session-harness", "child-runtime-research", "补充官方来源", null
         )).thenReturn(new HarnessSubagentTurnStart(301L, "execution-preparation", running));
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-child");
-        when(agentRunTelemetryService.startRun("child-runtime-research", 1L, null)).thenReturn(telemetryRun);
         when(agentRunService.createRun(
-                "child-runtime-research", 1L, null, 301L, "harness-agent", "trace-child"
+                "child-runtime-research", 1L, null, 301L, "harness-agent", null
         )).thenThrow(new IllegalStateException("run persistence unavailable"));
 
         List<ChatStreamEvent> events = chatService.streamChat(
@@ -729,7 +724,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitThinking("先明确目标。")
                 .emitThinking("再列实现步骤。")
@@ -740,17 +735,16 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。")).thenReturn(201L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "最终答案")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-reasoning");
-        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-reasoning"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
@@ -770,7 +764,7 @@ class ChatServiceImplTest {
         inOrder.verify(chatSessionService).appendReasoningMessage(1L, "session-1", "先明确目标。再列实现步骤。");
         inOrder.verify(chatSessionService).appendAssistantMessage(1L, "session-1", "最终答案");
         verify(agentRunService).completeRun(55L, 202L);
-        verify(agentRunTelemetryService).markSuccess(telemetryRun);
+        verify(observation).succeed(any());
     }
 
     @Test
@@ -779,7 +773,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitThinking("推理")
                 .emitText("最终")
@@ -789,7 +783,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
         ListAppender<ILoggingEvent> appender = attachListAppender(HAssistantStreamingExecutor.class);
 
@@ -797,10 +791,9 @@ class ChatServiceImplTest {
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-log"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendReasoningMessage(1L, "session-log", "推理")).thenReturn(201L);
         when(chatSessionService.appendAssistantMessage(1L, "session-log", "最终答案")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-log");
-        when(agentRunTelemetryService.startRun("session-log", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-log", 1L, 22L, 101L, "standard-chat", "trace-log"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-log", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-log", "hello")).thenReturn(tokenStream);
 
@@ -829,7 +822,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RuntimeException runtimeException = new RuntimeException("boom");
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitThinking("先分析")
@@ -839,15 +832,14 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-2"), eq("hello"), any())).thenReturn(111L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-error");
-        when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", "trace-error"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
@@ -869,23 +861,22 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("he").emitText("llo");
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "hello")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-1");
-        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
@@ -899,11 +890,11 @@ class ChatServiceImplTest {
                 new ChatStreamEvent("done", "")
         ), eventsAfterUserMessage(events));
         verify(chatSessionService).appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any());
-        verify(agentRunTelemetryService).startRun("session-1", 1L, 22L);
-        verify(agentRunService).createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1");
+        verify(observability).start(any());
+        verify(agentRunService).createRun("session-1", 1L, 22L, 101L, "standard-chat", null);
         verify(chatSessionService).appendAssistantMessage(1L, "session-1", "hello");
         verify(agentRunService).completeRun(55L, 202L);
-        verify(agentRunTelemetryService).markSuccess(telemetryRun);
+        verify(observation).succeed(any());
     }
 
     @Test
@@ -912,7 +903,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream()
                 .emitTool("search_web")
                 .emitText("hello");
@@ -921,16 +912,15 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
         when(chatSessionService.appendAssistantMessage(1L, "session-1", "hello")).thenReturn(202L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-1");
-        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-1"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
@@ -952,22 +942,21 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(new ModelDisabledException("disabled"));
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-1"), eq("hello"), any())).thenReturn(101L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-2");
-        when(agentRunTelemetryService.startRun("session-1", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", "trace-2"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-1", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
         when(hAssistant.streamChat("1:22:session-1", "hello")).thenReturn(tokenStream);
 
@@ -980,7 +969,7 @@ class ChatServiceImplTest {
                 eventsAfterUserMessage(events)
         );
         verify(agentRunService).failRun(55L, "AI 服务未配置 OPENAI_API_KEY");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, tokenStream.error);
+        verify(observation).fail(tokenStream.error);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -990,19 +979,19 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         chatService.streamChat(1L, 2L, null, "session-lazy", "hello", null);
 
         verify(chatSessionService, never()).appendUserMessage(any(), any(), any(), any());
-        verify(agentRunTelemetryService, never()).startRun(any(), any(), any());
+        verify(observability, never()).start(any());
         verify(agentRunService, never()).createRun(any(), any(), any(), any(), any(), any());
     }
 
@@ -1012,22 +1001,21 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream();
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-empty"), eq("hello"), any())).thenReturn(121L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-empty");
-        when(agentRunTelemetryService.startRun("session-empty", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-empty", 1L, 22L, 121L, "standard-chat", "trace-empty"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-empty", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
         when(hAssistant.streamChat("1:22:session-empty", "hello")).thenReturn(tokenStream);
 
@@ -1040,8 +1028,7 @@ class ChatServiceImplTest {
                 eventsAfterUserMessage(events)
         );
         verify(agentRunService).failRun(88L, "AI 未返回有效内容");
-        verify(agentRunTelemetryService).markFailure(
-                org.mockito.Mockito.eq(telemetryRun),
+        verify(observation).fail(
                 argThat(error -> error instanceof IllegalStateException
                         && "AI 未返回有效内容".equals(error.getMessage()))
         );
@@ -1054,7 +1041,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         ChatStreamEventBridge chatStreamEventBridge = new ChatStreamEventBridge();
         ChatSessionMessageDto imageMessage = new ChatSessionMessageDto(
                 "501",
@@ -1073,16 +1060,15 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamEventBridge
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-image-tool"), eq("画一只白猫"), any())).thenReturn(121L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-image-tool");
-        when(agentRunTelemetryService.startRun("session-image-tool", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-image-tool", 1L, 22L, 121L, "standard-chat", "trace-image-tool"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-image-tool", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
         when(hAssistant.streamChat("1:22:session-image-tool", "画一只白猫")).thenReturn(tokenStream);
 
@@ -1096,7 +1082,7 @@ class ChatServiceImplTest {
         ), eventsAfterUserMessage(events));
         verify(agentRunService).recordToolUsage(88L, "generateImage");
         verify(agentRunService).completeRun(88L, null);
-        verify(agentRunTelemetryService).markSuccess(telemetryRun);
+        verify(observation).succeed(any());
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
         verify(agentRunService, never()).failRun(any(), any());
     }
@@ -1107,14 +1093,14 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         FakeTokenStream tokenStream = new FakeTokenStream().emitText("好的");
         ChatServiceImpl chatService = createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
         List<ChatMessageResourceUseDto> resources = List.of(
                 new ChatMessageResourceUseDto("resource-attach-1", "ATTACHMENT", "UPLOAD")
@@ -1123,10 +1109,9 @@ class ChatServiceImplTest {
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-edit-image"), eq("把背景色改为白色"), any()))
                 .thenReturn(121L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-edit-image");
-        when(agentRunTelemetryService.startRun("session-edit-image", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-edit-image", 1L, 22L, 121L, "standard-chat", "trace-edit-image"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-edit-image", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
         when(hAssistant.streamChat(eq("1:22:session-edit-image"), argThat(message ->
                 message.contains("把背景色改为白色")
@@ -1151,7 +1136,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         InputGuardrailException guardrailException = new InputGuardrailException("   ");
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(guardrailException);
         ChatServiceImpl chatService = createChatService(
@@ -1159,17 +1144,16 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-blank"), eq("hello"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。"))
                 .thenReturn(303L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-blank");
-        when(agentRunTelemetryService.startRun("session-blank", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-blank", 1L, 22L, 111L, "standard-chat", "trace-blank"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-blank", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(77L));
         when(hAssistant.streamChat("1:22:session-blank", "hello")).thenReturn(tokenStream);
 
@@ -1183,7 +1167,7 @@ class ChatServiceImplTest {
         );
         verify(chatSessionService).appendBlockedMessage(1L, "session-blank", "平台检测到您的消息不符合使用规范，已自动拦截。");
         verify(agentRunService).failRun(77L, "平台检测到您的消息不符合使用规范，已自动拦截。");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(observation).fail(guardrailException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -1193,7 +1177,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
                 "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
@@ -1203,17 +1187,16 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-guardrail");
-        when(agentRunTelemetryService.startRun("session-guardrail", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-guardrail", 1L, 22L, 111L, "standard-chat", "trace-guardrail"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-guardrail", "杀人")).thenReturn(tokenStream);
 
@@ -1227,7 +1210,7 @@ class ChatServiceImplTest {
         );
         verify(chatSessionService).appendBlockedMessage(1L, "session-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(observation).fail(guardrailException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -1237,7 +1220,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
                 "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
@@ -1246,17 +1229,16 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-create-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-create-guardrail");
-        when(agentRunTelemetryService.startRun("session-create-guardrail", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-create-guardrail", 1L, 22L, 111L, "standard-chat", "trace-create-guardrail"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-create-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-create-guardrail", "杀人")).thenThrow(guardrailException);
 
@@ -1270,7 +1252,7 @@ class ChatServiceImplTest {
         );
         verify(chatSessionService).appendBlockedMessage(1L, "session-create-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(observation).fail(guardrailException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -1280,7 +1262,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         InputGuardrailException guardrailException = new InputGuardrailException(
                 "The guardrail com.h.backend.chat.domain.guardrail.ViolenceInputGuardrail failed with this message: 系统提醒您：请勿使用暴力"
         );
@@ -1290,17 +1272,16 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-start-guardrail"), eq("杀人"), any())).thenReturn(111L);
         when(chatSessionService.appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力"))
                 .thenReturn(303L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-start-guardrail");
-        when(agentRunTelemetryService.startRun("session-start-guardrail", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-start-guardrail", 1L, 22L, 111L, "standard-chat", "trace-start-guardrail"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-start-guardrail", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-start-guardrail", "杀人")).thenReturn(tokenStream);
 
@@ -1314,7 +1295,7 @@ class ChatServiceImplTest {
         );
         verify(chatSessionService).appendBlockedMessage(1L, "session-start-guardrail", "系统提醒您：请勿使用暴力");
         verify(agentRunService).failRun(66L, "系统提醒您：请勿使用暴力");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, guardrailException);
+        verify(observation).fail(guardrailException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -1324,7 +1305,7 @@ class ChatServiceImplTest {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
         AgentRunService agentRunService = mock(AgentRunService.class);
-        AgentRunTelemetryService agentRunTelemetryService = mock(AgentRunTelemetryService.class);
+        AgentObservability observability = mock(AgentObservability.class);
         RuntimeException runtimeException = new RuntimeException("boom");
         FakeTokenStream tokenStream = new FakeTokenStream().emitError(runtimeException);
         ChatServiceImpl chatService = createChatService(
@@ -1332,15 +1313,14 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService
+                observability
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-2"), eq("hello"), any())).thenReturn(111L);
-        AgentRunTelemetryService.TelemetryRun telemetryRun =
-                new AgentRunTelemetryService.TelemetryRun(null, "trace-3");
-        when(agentRunTelemetryService.startRun("session-2", 1L, 22L)).thenReturn(telemetryRun);
-        when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", "trace-3"))
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(agentRunService.createRun("session-2", 1L, 22L, 111L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(66L));
         when(hAssistant.streamChat("1:22:session-2", "hello")).thenReturn(tokenStream);
 
@@ -1353,7 +1333,7 @@ class ChatServiceImplTest {
                 eventsAfterUserMessage(events)
         );
         verify(agentRunService).failRun(66L, "boom");
-        verify(agentRunTelemetryService).markFailure(telemetryRun, runtimeException);
+        verify(observation).fail(runtimeException);
         verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
     }
 
@@ -1362,14 +1342,14 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService
+            AgentObservability observability
     ) {
         return createChatService(
                 hAssistant,
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RecordingPermit()
         );
@@ -1380,7 +1360,7 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ChatStreamEventBridge chatStreamEventBridge
     ) {
         return createChatService(
@@ -1388,7 +1368,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 new DirectExecutorService(),
                 (sessionId, userId) -> new RecordingPermit(),
                 null,
@@ -1401,7 +1381,7 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard
     ) {
@@ -1410,7 +1390,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 null
@@ -1422,7 +1402,7 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService
@@ -1432,7 +1412,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,
@@ -1445,7 +1425,7 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -1456,7 +1436,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,
@@ -1469,7 +1449,7 @@ class ChatServiceImplTest {
             SystemPromptService systemPromptService,
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
-            AgentRunTelemetryService agentRunTelemetryService,
+            AgentObservability observability,
             ExecutorService chatStreamExecutor,
             ChatStreamConcurrencyGuard concurrencyGuard,
             ImageGenerationService imageGenerationService,
@@ -1503,7 +1483,7 @@ class ChatServiceImplTest {
                 systemPromptService,
                 chatSessionService,
                 agentRunService,
-                agentRunTelemetryService,
+                observability,
                 chatStreamExecutor,
                 concurrencyGuard,
                 imageGenerationService,

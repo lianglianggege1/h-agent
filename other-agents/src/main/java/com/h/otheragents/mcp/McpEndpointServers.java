@@ -1,12 +1,14 @@
 package com.h.otheragents.mcp;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.otheragents.observability.ObservedMcpToolSpecifications;
+import com.h.otheragents.observability.ObservingMcpTransportContextExtractor;
 import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.McpToolUtils;
 import org.springframework.ai.mcp.server.webflux.transport.WebFluxStreamableServerTransportProvider;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -37,8 +39,10 @@ public class McpEndpointServers implements AutoCloseable {
 
     /**
      * 按配置构建全部 endpoint。工具组由代码驱动（endpointId -> toolObjects），配置只声明路径与凭证。
+     * observability 提供 server-side Tool Observation 与 W3C 传播桥（可为 null 表示不观测）。
      */
-    public static McpEndpointServers build(McpEndpointProperties properties, Map<String, List<Object>> toolGroups) {
+    public static McpEndpointServers build(McpEndpointProperties properties, Map<String, List<Object>> toolGroups,
+                                           AgentObservability observability) {
         List<McpAsyncServer> servers = new ArrayList<>();
         RouterFunction<? extends ServerResponse> merged = null;
 
@@ -51,14 +55,19 @@ public class McpEndpointServers implements AutoCloseable {
                 throw new IllegalStateException("No tool group registered for MCP endpoint: " + endpointId);
             }
 
-            WebFluxStreamableServerTransportProvider transportProvider =
+            WebFluxStreamableServerTransportProvider.Builder transportProviderBuilder =
                     WebFluxStreamableServerTransportProvider.builder()
                             .messageEndpoint(endpoint.getPath())
-                            .securityValidator(new BearerTokenMcpSecurityValidator(endpoint.getToken()))
-                            .build();
+                            .securityValidator(new BearerTokenMcpSecurityValidator(endpoint.getToken()));
+            if (observability != null) {
+                transportProviderBuilder.contextExtractor(new ObservingMcpTransportContextExtractor());
+            }
+            WebFluxStreamableServerTransportProvider transportProvider = transportProviderBuilder.build();
 
             List<McpServerFeatures.AsyncToolSpecification> toolSpecifications =
-                    McpToolUtils.toAsyncToolSpecifications(toToolCallbacks(toolObjects));
+                    observability == null
+                            ? org.springframework.ai.mcp.McpToolUtils.toAsyncToolSpecifications(toToolCallbacks(toolObjects))
+                            : ObservedMcpToolSpecifications.observing(observability, toToolCallbacks(toolObjects));
 
             McpAsyncServer server = McpServer.async(transportProvider)
                     .serverInfo(serverName(endpointId, endpoint), serverVersion(endpoint))
