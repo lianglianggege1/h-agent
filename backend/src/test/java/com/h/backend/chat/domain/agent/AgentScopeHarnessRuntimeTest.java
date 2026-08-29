@@ -1,9 +1,15 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.ToolCallState;
+import io.agentscope.core.message.ToolUseBlock;
+import io.agentscope.core.event.ConfirmResult;
+import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.DefaultAgentManager;
@@ -18,10 +24,44 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentScopeHarnessRuntimeTest {
+
+    @Test
+    void shouldResumeParentWithConfirmationRecoveredFromAgentState() {
+        HarnessAgent parent = mock(HarnessAgent.class);
+        ReActAgent delegate = mock(ReActAgent.class);
+        ToolUseBlock asking = new ToolUseBlock(
+                "call-1", "shell", java.util.Map.of("command", "pwd"),
+                null, null, ToolCallState.ASKING
+        );
+        AgentState state = AgentState.builder()
+                .userId("42")
+                .sessionId("session-1")
+                .context(List.of(Msg.builder().role(MsgRole.ASSISTANT).content(asking).build()))
+                .build();
+        RuntimeContext context = RuntimeContext.builder()
+                .userId("42").sessionId("session-1").build();
+        when(parent.getDelegate()).thenReturn(delegate);
+        when(delegate.getAgentState("42", "session-1")).thenReturn(state);
+        when(parent.streamEvents(anyList(), eq(context))).thenReturn(Flux.empty());
+
+        new AgentScopeHarnessRuntime(null, null).resumeParent(
+                parent, context, List.of("call-1"), false
+        ).collectList().block();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Msg>> messages = ArgumentCaptor.forClass(List.class);
+        verify(parent).streamEvents(messages.capture(), eq(context));
+        @SuppressWarnings("unchecked")
+        List<ConfirmResult> results = (List<ConfirmResult>) messages.getValue().getFirst()
+                .getMetadata().get(Msg.METADATA_CONFIRM_RESULTS);
+        assertEquals(false, results.getFirst().isConfirmed());
+        assertEquals("call-1", results.getFirst().getToolCall().getId());
+    }
 
     @Test
     void shouldPersistAssignmentAndReuseTheOriginalUserSessionSlotForFollowUps() {
@@ -49,7 +89,12 @@ class AgentScopeHarnessRuntimeTest {
                 .thenReturn(Flux.empty());
 
         AgentScopeHarnessRuntime runtime = new AgentScopeHarnessRuntime(null, null);
-        runtime.streamSubagent(parent, context, "再补充两个来源").collectList().block();
+        runtime.streamSubagent(
+                parent,
+                context,
+                "再补充两个来源",
+                ApprovalMode.EXPLORE
+        ).collectList().block();
 
         assertEquals(1, state.getContext().size());
         Msg assignment = state.getContext().getFirst();
@@ -57,6 +102,15 @@ class AgentScopeHarnessRuntimeTest {
         assertEquals("parent_assignment", assignment.getName());
         assertEquals("收集并整理官方资料", assignment.getTextContent());
         verify(child).saveAgentState("42", "child-session");
+
+        ArgumentCaptor<PermissionContextState> permissionCaptor =
+                ArgumentCaptor.forClass(PermissionContextState.class);
+        var order = inOrder(child);
+        order.verify(child).replacePermissionContext(
+                eq("42"), eq("child-session"), permissionCaptor.capture());
+        order.verify(child).streamEvents(anyList(),
+                org.mockito.ArgumentMatchers.any(RuntimeContext.class));
+        assertEquals(PermissionMode.EXPLORE, permissionCaptor.getValue().getMode());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Msg>> messageCaptor = ArgumentCaptor.forClass(List.class);

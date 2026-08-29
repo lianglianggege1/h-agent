@@ -150,6 +150,36 @@ test("apiStream dispatches blocked events without throwing", async () => {
   }
 });
 
+test("apiStream dispatches action_required as a successful terminal event", async () => {
+  const originalFetch = globalThis.fetch;
+  const approval = { approvalId: "approval-1", status: "PENDING", actions: [] };
+  let received;
+  globalThis.fetch = async () => new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          "event: action_required\n"
+            + `data: ${JSON.stringify({ type: "action_required", content: "", payload: approval })}\n\n`,
+        ));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+
+  try {
+    await apiStream("/api/chat/messages/stream", { method: "POST" }, {
+      onChunk() {},
+      onActionRequired(payload) {
+        received = payload;
+      },
+    });
+    assert.deepEqual(received, approval);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("apiStream dispatches reasoning events without affecting chunk flow", async () => {
   const originalFetch = globalThis.fetch;
   const events = [];

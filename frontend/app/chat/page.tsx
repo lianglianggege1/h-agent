@@ -64,6 +64,14 @@ import {
   observeHarnessSubagentEvents,
 } from "@/lib/harness-subagent-api";
 import type { HarnessSubagentStatus } from "@/lib/harness-subagent-types";
+import {
+  approvalDecisionPath,
+  approvalModeOptions,
+  getPendingApproval,
+  type ApprovalDecision,
+  type ApprovalMode,
+  type ApprovalRequest,
+} from "@/lib/harness-approval";
 import { MarkdownContent } from "./markdown-content";
 import {
   bootstrapChatSession,
@@ -179,6 +187,59 @@ function AssistantMessageContent({ content }: { content: string }) {
         );
       })}
     </div>
+  );
+}
+
+function ApprovalCard({
+  request,
+  deciding,
+  onDecision,
+}: {
+  request: ApprovalRequest;
+  deciding: boolean;
+  onDecision: (decision: ApprovalDecision) => void;
+}) {
+  return (
+    <article className="flex justify-start" aria-live="polite">
+      <div className="w-full rounded-[1.5rem] border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-stone-700 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">需要你的批准</p>
+            <p className="mt-2 font-semibold text-stone-900">Agent 请求执行以下操作</p>
+          </div>
+          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-stone-500">
+            {approvalModeOptions.find((item) => item.value === request.approvalMode)?.label ?? request.approvalMode}
+          </span>
+        </div>
+        <div className="mt-3 space-y-2">
+          {request.actions.map((action) => (
+            <div key={action.toolCallId} className="rounded-xl border border-amber-200 bg-white/80 px-3 py-2">
+              <p className="font-mono text-xs font-semibold text-stone-800">{action.toolName}</p>
+              <p className="mt-1 text-xs leading-5 text-stone-500">{action.summary}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-stone-500">参数内容已由服务端隐藏；批准或拒绝后会继续同一个运行。</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            className="h-11 rounded-full border border-stone-300 bg-white font-semibold text-stone-700 disabled:opacity-50"
+            disabled={deciding}
+            onClick={() => onDecision("DENY")}
+          >
+            {deciding ? "处理中..." : "拒绝"}
+          </button>
+          <button
+            type="button"
+            className="h-11 rounded-full bg-stone-900 font-semibold text-white disabled:opacity-50"
+            disabled={deciding}
+            onClick={() => onDecision("APPROVE")}
+          >
+            {deciding ? "处理中..." : "允许执行"}
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -361,7 +422,8 @@ function ChatPageContent() {
   const [currentRuntimeType, setCurrentRuntimeType] = useState(STANDARD_RUNTIME_TYPE);
   const [agentCatalog, setAgentCatalog] = useState<AgentSummary[]>([]);
   const [showNewSessionPicker, setShowNewSessionPicker] = useState(false);
-  const [newSessionPickerStep, setNewSessionPickerStep] = useState<"types" | "domain">("types");
+  const [newSessionPickerStep, setNewSessionPickerStep] = useState<"types" | "domain" | "approval">("types");
+  const [selectedApprovalMode, setSelectedApprovalMode] = useState<ApprovalMode>("DEFAULT");
   const [domainAgentSearch, setDomainAgentSearch] = useState("");
   const [selectedAgentDomain, setSelectedAgentDomain] = useState("全部");
   const [creatingNewAgentId, setCreatingNewAgentId] = useState<string | null>(null);
@@ -376,6 +438,9 @@ function ChatPageContent() {
   const [pendingResources, setPendingResources] = useState<UploadedResource[]>([]);
   const [subagentPendingResourcesBySession, setSubagentPendingResourcesBySession] = useState<Record<string, UploadedResource[]>>({});
   const [uploading, setUploading] = useState(false);
+  const [currentApprovalMode, setCurrentApprovalMode] = useState<ApprovalMode | null>(null);
+  const [pendingApprovalBySession, setPendingApprovalBySession] = useState<Record<string, ApprovalRequest | null>>({});
+  const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [attachmentMenuMode, setAttachmentMenuMode] = useState<"menu" | "history">("menu");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -449,6 +514,10 @@ function ChatPageContent() {
   const subagentUploading = activeSubagentSessionId
     ? Boolean(subagentUploadingBySession[activeSubagentSessionId])
     : false;
+  const rootPendingApproval = sessionId ? pendingApprovalBySession[sessionId] ?? null : null;
+  const subagentPendingApproval = activeSubagentSessionId
+    ? pendingApprovalBySession[activeSubagentSessionId] ?? null
+    : null;
 
   useEffect(() => {
     if (!sessionId || streaming || !hasPendingVideoGeneration(messages)) {
@@ -606,14 +675,16 @@ function ChatPageContent() {
       && !streaming
       && !routeBootstrapping
       && !showSessionChooser
+      && !rootPendingApproval
       && !!sessionId,
-    [input, routeBootstrapping, sessionId, showSessionChooser, streaming],
+    [input, rootPendingApproval, routeBootstrapping, sessionId, showSessionChooser, streaming],
   );
 
   const canSubmitSubagent = Boolean(
     activeSubagent
       && subagentInput.trim().length > 0
       && !subagentStreaming
+      && !subagentPendingApproval
       && canSubmitSubagentStatus(activeSubagent.status),
   );
 
@@ -670,6 +741,29 @@ function ChatPageContent() {
       cancelled = true;
     };
   }, [activeSubagent, activeSubagentSessionId, routeBootstrapping, sessionId, usingHarnessAgent]);
+
+  useEffect(() => {
+    if (!usingHarnessAgent || routeBootstrapping || !sessionId) return;
+    let cancelled = false;
+    void getPendingApproval(sessionId)
+      .then((request) => {
+        if (!cancelled) setPendingApprovalBySession((current) => ({ ...current, [sessionId]: request }));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [routeBootstrapping, sessionId, usingHarnessAgent]);
+
+  useEffect(() => {
+    if (!usingHarnessAgent || routeBootstrapping || !activeSubagentSessionId) return;
+    const childSessionId = activeSubagentSessionId;
+    let cancelled = false;
+    void getPendingApproval(childSessionId)
+      .then((request) => {
+        if (!cancelled) setPendingApprovalBySession((current) => ({ ...current, [childSessionId]: request }));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [activeSubagentSessionId, routeBootstrapping, usingHarnessAgent]);
 
   useEffect(() => {
     if (!sessionId || !activeSubagent || routeBootstrapping || !usingHarnessAgent
@@ -745,6 +839,7 @@ function ChatPageContent() {
     setCurrentAgentId(agentId);
     setCurrentAgentName(detail.agentDisplayName || "通用助手");
     setCurrentRuntimeType(detail.runtimeType || STANDARD_RUNTIME_TYPE);
+    setCurrentApprovalMode(detail.approvalMode ?? null);
     setSelectedPromptId((current) =>
       nextSelectedPromptIdForHydratedSession({
         hydratedAgentId: agentId,
@@ -1061,12 +1156,16 @@ function ChatPageContent() {
     if (streaming) return;
     setDrawerOpen(false);
     setNewSessionPickerStep("types");
+    setSelectedApprovalMode("DEFAULT");
     setDomainAgentSearch("");
     setSelectedAgentDomain("全部");
     setShowNewSessionPicker(true);
   }
 
-  async function handleCreateNewSessionForAgent(targetAgentId: string) {
+  async function handleCreateNewSessionForAgent(
+    targetAgentId: string,
+    approvalMode?: ApprovalMode,
+  ) {
     if (streaming) return;
     setCreatingNewAgentId(targetAgentId);
     try {
@@ -1074,6 +1173,7 @@ function ChatPageContent() {
         currentSessionId: sessionId,
         targetAgentId,
         promptId: selectedPromptId,
+        approvalMode,
       }));
       hydrateSession(detail, selectedPromptId);
       setShowNewSessionPicker(false);
@@ -1198,6 +1298,11 @@ function ChatPageContent() {
           },
           onHarnessEvent(payload) {
             applyHarnessRuntimeEvent(payload);
+          },
+          onActionRequired(payload) {
+            const request = payload as ApprovalRequest;
+            setPendingApprovalBySession((current) => ({ ...current, [request.sessionId]: request }));
+            setMessages((current) => removeEmptyAssistantPlaceholders(current));
           },
           onDone(_content, message) {
             setMessages((current) => {
@@ -1339,6 +1444,11 @@ function ChatPageContent() {
           onHarnessEvent(payload) {
             applyHarnessRuntimeEvent(payload);
           },
+          onActionRequired(payload) {
+            const request = payload as ApprovalRequest;
+            setPendingApprovalBySession((current) => ({ ...current, [request.sessionId]: request }));
+            updateChild((current) => removeEmptyAssistantPlaceholders(current));
+          },
           onDone(_content, message) {
             if (!receivedDirectChunk && message?.content) {
               enqueueSubagentText(childSessionId, assistantMessage.id, message.content, false);
@@ -1378,6 +1488,108 @@ function ChatPageContent() {
     } finally {
       directSubagentStreamsRef.current.delete(childSessionId);
       setSubagentStreamingBySession((current) => ({ ...current, [childSessionId]: false }));
+    }
+  }
+
+  async function handleApprovalDecision(request: ApprovalRequest, decision: ApprovalDecision) {
+    if (decidingApprovalId || request.status !== "PENDING") return;
+    const child = request.sessionId !== sessionId;
+    const seed = Date.now();
+    const reasoningId = `approval-reasoning-${seed}`;
+    const assistantId = `approval-assistant-${seed}`;
+    const reasoningMessage: UiChatMessage = {
+      id: reasoningId, role: "assistant", messageType: "REASONING", content: "",
+    };
+    const assistantMessage: UiChatMessage = {
+      id: assistantId, role: "assistant", messageType: "AI", content: "", agentSteps: [],
+    };
+    const update = (mapper: (items: UiChatMessage[]) => UiChatMessage[]) => {
+      if (child) {
+        setSubagentMessagesBySession((current) => ({
+          ...current,
+          [request.sessionId]: mapper(current[request.sessionId] ?? []),
+        }));
+      } else {
+        setMessages(mapper);
+      }
+    };
+    setDecidingApprovalId(request.approvalId);
+    if (child) {
+      setSubagentStreamingBySession((current) => ({ ...current, [request.sessionId]: true }));
+    } else {
+      setStreaming(true);
+    }
+    update((current) => [...current, reasoningMessage, assistantMessage]);
+    try {
+      await apiStream(
+        approvalDecisionPath(request.approvalId),
+        { method: "POST", body: JSON.stringify({ decision }) },
+        {
+          onReasoning(chunk) {
+            update((current) => applyReasoningChunk(current, reasoningId, chunk));
+          },
+          onChunk(chunk) {
+            update((current) => applyAssistantChunk(current, assistantId, chunk));
+          },
+          onBlocked(message) {
+            update((current) => applyBlockedState(current, assistantId, message));
+          },
+          onImage(message) {
+            update((current) => applyImageMessage(current, assistantId, message));
+          },
+          onAgentStep(step) {
+            update((current) => applyAgentStep(current, assistantId, step));
+          },
+          onHarnessEvent(payload) {
+            applyHarnessRuntimeEvent(payload);
+          },
+          onActionRequired(payload) {
+            const next = payload as ApprovalRequest;
+            setPendingApprovalBySession((current) => ({ ...current, [next.sessionId]: next }));
+            update((current) => removeEmptyAssistantPlaceholders(current));
+          },
+          onDone(_content, message) {
+            setPendingApprovalBySession((current) => ({ ...current, [request.sessionId]: null }));
+            update((current) => removeEmptyAssistantPlaceholders(
+              message ? applyPersistedMessage(current, assistantId, message) : current,
+            ));
+          },
+          onError(message) {
+            if (child) {
+              setSubagentErrorBySession((current) => ({ ...current, [request.sessionId]: message }));
+            } else {
+              setError(message);
+            }
+          },
+        },
+      );
+      const page = await getChatSessionMessages(request.sessionId, 100);
+      if (child) {
+        setSubagentMessagesBySession((current) => ({
+          ...current,
+          [request.sessionId]: toUiChatMessages(page.messages),
+        }));
+      } else {
+        setMessages(toUiChatMessages(page.messages));
+      }
+      if (sessionId) await refreshHarnessState(sessionId);
+    } catch (decisionError) {
+      const message = decisionError instanceof Error ? decisionError.message : "审批处理失败";
+      if (child) {
+        setSubagentErrorBySession((current) => ({ ...current, [request.sessionId]: message }));
+      } else {
+        setError(message);
+      }
+      const latest = await getPendingApproval(request.sessionId).catch(() => request);
+      setPendingApprovalBySession((current) => ({ ...current, [request.sessionId]: latest }));
+      update((current) => removeEmptyAssistantPlaceholders(current));
+    } finally {
+      setDecidingApprovalId(null);
+      if (child) {
+        setSubagentStreamingBySession((current) => ({ ...current, [request.sessionId]: false }));
+      } else {
+        setStreaming(false);
+      }
     }
   }
 
@@ -1437,11 +1649,15 @@ function ChatPageContent() {
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-700">New Chat</p>
                 <h2 className="mt-1 text-xl font-semibold">
-                  {newSessionPickerStep === "types" ? "选择新会话" : "选择领域 Agent"}
+                  {newSessionPickerStep === "types"
+                    ? "选择新会话"
+                    : newSessionPickerStep === "approval"
+                      ? "选择批准模式"
+                      : "选择领域 Agent"}
                 </h2>
               </div>
               <div className="flex items-center gap-2">
-                {newSessionPickerStep === "domain" ? (
+                {newSessionPickerStep !== "types" ? (
                   <button
                     className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-600"
                     type="button"
@@ -1493,15 +1709,52 @@ function ChatPageContent() {
                   className="w-full rounded-2xl border border-amber-300 bg-amber-50/80 px-4 py-3 text-left transition hover:border-amber-500 disabled:opacity-60"
                   type="button"
                   disabled={creatingNewAgentId !== null}
-                  onClick={() => handleCreateNewSessionForAgent(HARNESS_AGENT_ID)}
+                  onClick={() => setNewSessionPickerStep("approval")}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-stone-900">协作 Agent</p>
                       <p className="mt-1 text-xs leading-5 text-stone-500">拆分复杂任务，组织多个 Agent 并行处理</p>
                     </div>
-                    {creatingNewAgentId === HARNESS_AGENT_ID ? <span className="shrink-0 text-xs text-amber-700">创建中...</span> : null}
+                    <span className="shrink-0 text-xs text-amber-700">继续 →</span>
                   </div>
+                </button>
+              </div>
+            ) : newSessionPickerStep === "approval" ? (
+              <div className="mt-5 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+                <p className="text-xs leading-5 text-stone-500">批准模式创建后固定在该会话及其子 Agent 上，避免运行途中安全语义漂移。</p>
+                {approvalModeOptions.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    disabled={creatingNewAgentId !== null}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left transition disabled:opacity-60 ${
+                      selectedApprovalMode === mode.value
+                        ? "border-stone-900 bg-stone-900 text-white"
+                        : mode.tone === "open"
+                          ? "border-red-200 bg-red-50 text-stone-800 hover:border-red-400"
+                          : "border-stone-200 bg-white text-stone-800 hover:border-amber-400"
+                    }`}
+                    onClick={() => setSelectedApprovalMode(mode.value)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{mode.label}</p>
+                        <p className={`mt-1 text-xs leading-5 ${selectedApprovalMode === mode.value ? "text-stone-300" : "text-stone-500"}`}>
+                          {mode.description}
+                        </p>
+                      </div>
+                      <span className="text-xs">{selectedApprovalMode === mode.value ? "已选择" : ""}</span>
+                    </div>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={creatingNewAgentId !== null}
+                  className="h-12 w-full rounded-full bg-amber-600 text-sm font-semibold text-white disabled:opacity-50"
+                  onClick={() => handleCreateNewSessionForAgent(HARNESS_AGENT_ID, selectedApprovalMode)}
+                >
+                  {creatingNewAgentId === HARNESS_AGENT_ID ? "创建中..." : "以此模式开始聊天"}
                 </button>
               </div>
             ) : (
@@ -1717,7 +1970,14 @@ function ChatPageContent() {
                         <p className="text-xs uppercase tracking-[0.2em] text-amber-700">协作进度</p>
                         <p className="mt-1 truncate text-sm font-semibold text-stone-800">{currentAgentName}</p>
                       </div>
-                      <span className="shrink-0 text-xs text-stone-500">{harnessSubagents.length} 位协作者</span>
+                      <div className="shrink-0 text-right text-xs text-stone-500">
+                        <p>{harnessSubagents.length} 位协作者</p>
+                        {currentApprovalMode ? (
+                          <p className="mt-1 text-amber-700">
+                            {approvalModeOptions.find((item) => item.value === currentApprovalMode)?.label}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                     {harnessSubagents.length > 0 && sessionId ? (
                       <div className="flex gap-3 overflow-x-auto pb-1">
@@ -1873,6 +2133,13 @@ function ChatPageContent() {
                 </div>
               </article>
             ))}
+            {rootPendingApproval ? (
+              <ApprovalCard
+                request={rootPendingApproval}
+                deciding={decidingApprovalId === rootPendingApproval.approvalId}
+                onDecision={(decision) => void handleApprovalDecision(rootPendingApproval, decision)}
+              />
+            ) : null}
             <div ref={messageEndRef} />
           </div>
         </div>
@@ -2138,6 +2405,13 @@ function ChatPageContent() {
                       </div>
                     </article>
                   ))}
+                  {subagentPendingApproval ? (
+                    <ApprovalCard
+                      request={subagentPendingApproval}
+                      deciding={decidingApprovalId === subagentPendingApproval.approvalId}
+                      onDecision={(decision) => void handleApprovalDecision(subagentPendingApproval, decision)}
+                    />
+                  ) : null}
                 </div>
               </div>
 

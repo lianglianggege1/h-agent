@@ -4,6 +4,7 @@ import com.h.agent.observability.lifecycle.ExecutionObservationCarrier;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
@@ -13,6 +14,7 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.DefaultAgentManager;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -30,18 +32,49 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
 
     private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
     private final ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider;
+    private final AgentScopeApprovalAdapter approvalAdapter;
+
+    @Autowired
+    public AgentScopeHarnessRuntime(
+            ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
+            ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider,
+            AgentScopeApprovalAdapter approvalAdapter
+    ) {
+        this.subagentCatalogProvider = subagentCatalogProvider;
+        this.subagentRuntimeFactoryProvider = subagentRuntimeFactoryProvider;
+        this.approvalAdapter = approvalAdapter;
+    }
 
     public AgentScopeHarnessRuntime(
             ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
             ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactoryProvider
     ) {
-        this.subagentCatalogProvider = subagentCatalogProvider;
-        this.subagentRuntimeFactoryProvider = subagentRuntimeFactoryProvider;
+        this(subagentCatalogProvider, subagentRuntimeFactoryProvider,
+                new AgentScopeApprovalAdapter("/tmp/h-agent/harness-workspace"));
     }
 
     @Override
     public Flux<AgentEvent> streamParent(Object agentBean, String message, RuntimeContext context) {
-        return requireHarnessAgent(agentBean).streamEvents(message, context);
+        return streamParent(agentBean, message, context, null);
+    }
+
+    @Override
+    public Flux<AgentEvent> streamParent(
+            Object agentBean,
+            String message,
+            RuntimeContext context,
+            ApprovalMode approvalMode
+    ) {
+        HarnessAgent harnessAgent = requireHarnessAgent(agentBean);
+        if (approvalMode != null) {
+            approvalAdapter.applyMode(
+                    harnessAgent.getDelegate(),
+                    context.getUserId(),
+                    context.getSessionId(),
+                    approvalMode
+            );
+        }
+        return harnessAgent.streamEvents(message, context);
     }
 
     @Override
@@ -50,7 +83,7 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
             HarnessSubagentContext context,
             String message
     ) {
-        return streamSubagent(agentBean, context, message, null);
+        return streamSubagent(agentBean, context, message, null, null);
     }
 
     @Override
@@ -58,7 +91,8 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
             Object agentBean,
             HarnessSubagentContext context,
             String message,
-            ExecutionObservationCarrier carrier
+            ExecutionObservationCarrier carrier,
+            ApprovalMode approvalMode
     ) {
         Msg userMessage = Msg.builder()
                 .name("user")
@@ -67,6 +101,14 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                 .build();
         ReActAgent child = materializeSubagent(agentBean, context);
         ensureAssignment(child, context);
+        if (approvalMode != null) {
+            approvalAdapter.applyMode(
+                    child,
+                    context.userId(),
+                    context.sessionId(),
+                    approvalMode
+            );
+        }
         RuntimeContext.Builder contextBuilder = RuntimeContext.builder()
                 .userId(context.userId())
                 .sessionId(context.sessionId());
@@ -78,6 +120,45 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
         RuntimeContext runtimeContext = contextBuilder.build();
         HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
         return child.streamEvents(List.of(userMessage), runtimeContext);
+    }
+
+    @Override
+    public Flux<AgentEvent> resumeParent(
+            Object agentBean,
+            RuntimeContext context,
+            List<String> toolCallIds,
+            boolean approved
+    ) {
+        HarnessAgent parent = requireHarnessAgent(agentBean);
+        Msg confirmation = approvalAdapter.confirmationMessage(
+                parent.getDelegate(), context.getUserId(), context.getSessionId(),
+                toolCallIds, approved
+        );
+        return parent.streamEvents(List.of(confirmation), context);
+    }
+
+    @Override
+    public Flux<AgentEvent> resumeSubagent(
+            Object agentBean,
+            HarnessSubagentContext context,
+            List<String> toolCallIds,
+            boolean approved,
+            ExecutionObservationCarrier carrier
+    ) {
+        ReActAgent child = materializeSubagent(agentBean, context);
+        ensureAssignment(child, context);
+        Msg confirmation = approvalAdapter.confirmationMessage(
+                child, context.userId(), context.sessionId(), toolCallIds, approved
+        );
+        RuntimeContext.Builder contextBuilder = RuntimeContext.builder()
+                .userId(context.userId())
+                .sessionId(context.sessionId());
+        if (carrier != null) {
+            contextBuilder.put(ExecutionObservationCarrier.class, carrier);
+        }
+        RuntimeContext runtimeContext = contextBuilder.build();
+        HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
+        return child.streamEvents(List.of(confirmation), runtimeContext);
     }
 
     private ReActAgent materializeSubagent(Object agentBean, HarnessSubagentContext context) {

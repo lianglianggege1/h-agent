@@ -12,6 +12,8 @@ import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
+import com.h.backend.chat.application.ApprovalRequestService;
+import com.h.backend.chat.domain.approval.ApprovalEpisode;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
@@ -28,6 +30,7 @@ import io.agentscope.core.event.AgentStartEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.event.SubagentExposedEvent;
+import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.harness.agent.tool.AgentSpawnTool;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +70,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     private final ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider;
     private final ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider;
     private final AgentObservability observability;
+    private final ApprovalRequestService approvalRequestService;
+    private final AgentScopeApprovalAdapter approvalAdapter;
 
     @Autowired
     public HarnessAgentExecutor(
@@ -78,7 +83,9 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessSubagentEventRelay subagentEventRelay,
             ObjectProvider<SubagentDefinitionCatalog> subagentCatalogProvider,
             ObjectProvider<SubagentCatalogProperties> subagentCatalogPropertiesProvider,
-            ObjectProvider<AgentObservability> observabilityProvider
+            ObjectProvider<AgentObservability> observabilityProvider,
+            ApprovalRequestService approvalRequestService,
+            AgentScopeApprovalAdapter approvalAdapter
     ) {
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
@@ -91,6 +98,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         this.observability = observabilityProvider != null
                 ? observabilityProvider.getIfAvailable(NoopAgentObservability::getInstance)
                 : NoopAgentObservability.getInstance();
+        this.approvalRequestService = approvalRequestService;
+        this.approvalAdapter = approvalAdapter;
     }
 
     public HarnessAgentExecutor(
@@ -102,7 +111,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     ) {
         this(chatSessionService, agentRunService, eventMapper,
                 harnessRuntime, harnessCollaborationService, new HarnessSubagentEventRelay(),
-                null, null, null);
+                null, null, null, null, null);
     }
 
     public HarnessAgentExecutor(
@@ -114,7 +123,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             HarnessSubagentEventRelay subagentEventRelay
     ) {
         this(chatSessionService, agentRunService, eventMapper,
-                harnessRuntime, harnessCollaborationService, subagentEventRelay, null, null, null);
+                harnessRuntime, harnessCollaborationService, subagentEventRelay,
+                null, null, null, null, null);
     }
 
     public HarnessAgentExecutor(
@@ -124,7 +134,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
     ) {
         this(chatSessionService, agentRunService, eventMapper,
                 new AgentScopeHarnessRuntime(null, null), null, new HarnessSubagentEventRelay(),
-                null, null, null);
+                null, null, null, null, null);
     }
 
     @Override
@@ -161,7 +171,12 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));
         try {
             reactor.core.publisher.Flux<AgentEvent> events = parentTurn
-                    ? harnessRuntime.streamParent(command.agent().agentBean(), command.userMessage(), runtimeContext)
+                    ? harnessRuntime.streamParent(
+                            command.agent().agentBean(),
+                            command.userMessage(),
+                            runtimeContext,
+                            command.approvalMode()
+                    )
                     : harnessRuntime.streamSubagent(
                             command.agent().agentBean(),
                             new HarnessSubagentContext(
@@ -174,23 +189,76 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentDefinitionBinding()
                             ),
                             command.userMessage(),
-                            carrier
+                            carrier,
+                            command.approvalMode()
                     );
-            // 阶段协调（设计 7.3）：装饰原始 Publisher 且在产品订阅之前建立，不额外
-            // subscribe——产品的订阅、取消与背压仍是唯一驱动力。Publisher 终止即结束
-            // Maintenance trace；不依赖 onEvent 投影（responseTerminal 后它会忽略事件）。
-            Disposable subscription = events
-                    .doOnComplete(carrier::executionCompleted)
-                    .doOnError(carrier::executionFailed)
-                    .doOnCancel(carrier::executionCancelled)
-                    .subscribe(execution::onEvent, execution::onError, execution::onComplete);
-            execution.attachSubscription(subscription);
-            if (command.sink().isCancelled()) {
-                execution.cancel("客户端已断开");
-            }
+            subscribe(command, execution, events, carrier);
         } catch (RuntimeException ex) {
             execution.onError(ex);
         }
+    }
+
+    /** 继续同一个 run；确认消息由运行时从 AgentState 的 ASKING 工具重建。 */
+    public void resumeApproval(
+            ChatAgentExecutionCommand command,
+            java.util.List<String> toolCallIds,
+            boolean approved
+    ) {
+        log.info("[HarnessExecutor] Agent审批后恢复 userId={}, sessionId={}, runId={}, approved={}",
+                command.userId(), command.sessionId(), command.runHandle().id(), approved);
+        boolean parentTurn = command.gatewaySubagentId() == null;
+        ExecutionObservationCarrier carrier = carrierFor(command);
+        RuntimeContext runtimeContext = RuntimeContext.builder()
+                .userId(String.valueOf(command.userId()))
+                .sessionId(command.sessionId())
+                .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
+                .put(ExecutionObservationCarrier.class, carrier)
+                .build();
+        Execution execution = new Execution(command, null, carrier);
+        command.sink().onCancel(() -> execution.cancel("客户端已断开"));
+        try {
+            reactor.core.publisher.Flux<AgentEvent> events = parentTurn
+                    ? harnessRuntime.resumeParent(
+                            command.agent().agentBean(), runtimeContext, toolCallIds, approved
+                    )
+                    : harnessRuntime.resumeSubagent(
+                            command.agent().agentBean(),
+                            new HarnessSubagentContext(
+                                    command.subagentAgentId(), String.valueOf(command.userId()),
+                                    command.subagentParentSessionId(), command.sessionId(),
+                                    command.subagentAssignment(), command.subagentExecutionId(),
+                                    command.subagentDefinitionBinding()
+                            ),
+                            toolCallIds,
+                            approved,
+                            carrier
+                    );
+            subscribe(command, execution, events, carrier);
+        } catch (RuntimeException error) {
+            execution.onError(error);
+        }
+    }
+
+    private void subscribe(
+            ChatAgentExecutionCommand command,
+            Execution execution,
+            reactor.core.publisher.Flux<AgentEvent> events,
+            ExecutionObservationCarrier carrier
+    ) {
+        Disposable subscription = events
+                .doOnComplete(carrier::executionCompleted)
+                .doOnError(carrier::executionFailed)
+                .doOnCancel(carrier::executionCancelled)
+                .subscribe(execution::onEvent, execution::onError, execution::onComplete);
+        execution.attachSubscription(subscription);
+        if (command.sink().isCancelled()) {
+            execution.cancel("客户端已断开");
+        }
+    }
+
+    private ExecutionObservationCarrier carrierFor(ChatAgentExecutionCommand command) {
+        return new ExecutionObservationCarrier(
+                observability, command.observation(), maintenanceStart(command));
     }
 
     /**
@@ -248,6 +316,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         private final AtomicBoolean cancelRequested = new AtomicBoolean();
         private final AtomicBoolean emittedParentText = new AtomicBoolean();
         private final AtomicReference<Msg> parentResult = new AtomicReference<>();
+        private final AtomicReference<ApprovalEpisode> pendingApproval = new AtomicReference<>();
         private final AtomicReference<Disposable> subscription = new AtomicReference<>();
         private final StringBuilder parentReasoning = new StringBuilder();
         private final Map<String, String> agentSessionIdBySource = new HashMap<>();
@@ -412,8 +481,11 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 emit(new ChatStreamEvent("reasoning", thinkingEvent.getDelta()));
             } else if (isParent(event) && event instanceof AgentResultEvent resultEvent) {
                 parentResult.set(resultEvent.getResult());
+            } else if (isParent(event) && event instanceof RequireUserConfirmEvent confirmEvent
+                    && approvalAdapter != null) {
+                pendingApproval.compareAndSet(null, approvalAdapter.capture(confirmEvent));
             } else if (isParent(event) && event instanceof AgentEndEvent) {
-                completeSuccessfulResponse();
+                completeResponse();
             }
         }
 
@@ -476,7 +548,49 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             if (responseTerminal.get()) {
                 return;
             }
-            completeSuccessfulResponse();
+            completeResponse();
+        }
+
+        private void completeResponse() {
+            if (pendingApproval.get() != null) {
+                suspendForApproval();
+            } else {
+                completeSuccessfulResponse();
+            }
+        }
+
+        private void suspendForApproval() {
+            if (!responseTerminal.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                if (approvalRequestService == null || command.approvalMode() == null) {
+                    throw new IllegalStateException("HITL approval service is unavailable");
+                }
+                var request = approvalRequestService.suspend(
+                        new ApprovalRequestService.SuspendApprovalCommand(
+                                command.runHandle().id(),
+                                command.userId(),
+                                command.rootSessionId(),
+                                command.sessionId(),
+                                command.subagentExecutionId(),
+                                command.approvalMode(),
+                                pendingApproval.get()
+                        )
+                );
+                // 审批点结束当前 Primary observation；恢复阶段使用持久化的 traceparent
+                // 在同一 trace 下创建新的 Primary observation。
+                carrier.completePrimary(null);
+                releaseExecution();
+                emit(new ChatStreamEvent("action_required", "", null, request));
+                completeSink();
+                log.info("[HarnessExecutor] Agent等待人工审批 userId={}, sessionId={}, runId={}, approvalId={}",
+                        command.userId(), command.sessionId(), command.runHandle().id(), request.approvalId());
+            } catch (RuntimeException error) {
+                failAfterResponseClaim(error, true);
+            } finally {
+                releaseExecution();
+            }
         }
 
         private void completeSuccessfulResponse() {

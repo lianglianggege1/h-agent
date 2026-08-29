@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 
 import java.time.LocalDateTime;
 
@@ -34,6 +35,9 @@ public class AgentSessionEntity {
 
     @TableField("agent_id")
     private String agentId;
+
+    @TableField("approval_mode")
+    private ApprovalMode approvalMode;
 
     @TableField("gateway_subagent_id")
     private String gatewaySubagentId;

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatMessagePayloadDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
@@ -184,7 +185,13 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public ChatSessionOpenDto createSession(Long userId, Long promptId, String agentId, String currentSessionId) {
+    public ChatSessionOpenDto createSession(
+            Long userId,
+            Long promptId,
+            String agentId,
+            ApprovalMode approvalMode,
+            String currentSessionId
+    ) {
         archiveExpiredSessionsForUser(userId);
         if (StringUtils.isNotBlank(currentSessionId)) {
             ChatSessionEntity current = requireOwnedSession(userId, currentSessionId);
@@ -192,6 +199,12 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
 
         String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
+        ApprovalMode resolvedApprovalMode;
+        try {
+            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, approvalMode);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(40009, ex.getMessage());
+        }
         Long resolvedPromptId = ChatAgentIds.STANDARD_CHAT.equals(resolvedAgentId)
                 ? systemPromptService.resolvePromptId(userId, promptId)
                 : null;
@@ -208,7 +221,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         entity.setLastActiveAt(now);
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
-        registerRootAgentSession(entity, now);
+        registerRootAgentSession(entity, resolvedApprovalMode, now);
         chatSessionMapper.insert(entity);
         chatMemorySnapshotService.markResident(entity.getSessionId());
         return toOpen(entity, DEFAULT_MESSAGE_PAGE_SIZE, null);
@@ -743,12 +756,17 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     /** 将顶级聊天页面登记为统一 Agent Session 树的根节点。 */
-    private void registerRootAgentSession(ChatSessionEntity chatSession, LocalDateTime now) {
+    private void registerRootAgentSession(
+            ChatSessionEntity chatSession,
+            ApprovalMode approvalMode,
+            LocalDateTime now
+    ) {
         AgentSessionEntity root = new AgentSessionEntity();
         root.setSessionId(chatSession.getSessionId());
         root.setParentSessionId(null);
         root.setUserId(chatSession.getUserId());
         root.setAgentId(chatSession.getAgentId());
+        root.setApprovalMode(approvalMode);
         root.setGatewaySubagentId(null);
         root.setDisplayOrder(null);
         root.setMessageCount(0);
@@ -813,6 +831,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 agentMetadata.displayName(),
                 agentMetadata.domain(),
                 agentMetadata.runtimeType(),
+                approvalModeOf(session.getSessionId()),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
@@ -832,11 +851,17 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 agentMetadata.displayName(),
                 agentMetadata.domain(),
                 agentMetadata.runtimeType(),
+                approvalModeOf(session.getSessionId()),
                 session.getMessageCount() == null ? 0 : session.getMessageCount(),
                 session.getCreatedAt(),
                 session.getUpdatedAt(),
                 !STATUS_ACTIVE.equals(session.getStatus())
         );
+    }
+
+    private ApprovalMode approvalModeOf(String sessionId) {
+        AgentSessionEntity agentSession = agentSessionMapper.selectBySessionId(sessionId);
+        return agentSession == null ? null : agentSession.getApprovalMode();
     }
 
     private AgentMetadata resolveAgentMetadata(String agentId) {

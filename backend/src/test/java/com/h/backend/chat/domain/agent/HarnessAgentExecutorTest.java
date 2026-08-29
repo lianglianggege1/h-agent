@@ -8,6 +8,9 @@ import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentCompletion;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
+import com.h.backend.chat.application.ApprovalRequestService;
+import com.h.backend.chat.domain.approval.ApprovalMode;
+import com.h.backend.chat.domain.approval.ApprovalRequestStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
@@ -23,8 +26,10 @@ import io.agentscope.core.event.ThinkingBlockDeltaEvent;
 import io.agentscope.core.event.SubagentExposedEvent;
 import io.agentscope.core.event.ToolCallDeltaEvent;
 import io.agentscope.core.event.ToolCallEndEvent;
+import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -53,6 +59,56 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class HarnessAgentExecutorTest {
+
+    @Test
+    void shouldEndStreamWithActionRequiredWithoutPersistingAssistantReply() {
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        HarnessRuntime runtime = mock(HarnessRuntime.class);
+        ApprovalRequestService approvalService = mock(ApprovalRequestService.class);
+        AgentScopeApprovalAdapter approvalAdapter =
+                new AgentScopeApprovalAdapter("/tmp/h-agent/harness-workspace");
+        HarnessAgentExecutor executor = new HarnessAgentExecutor(
+                chatSessionService, agentRunService, new HarnessEventMapper(), runtime,
+                null, new HarnessSubagentEventRelay(), null, null, null,
+                approvalService, approvalAdapter
+        );
+        Object harnessBean = new Object();
+        AgentDefinition definition = new AgentDefinition(
+                "harness-agent", "协作 Agent", "协作", List.of("协作"),
+                "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
+        );
+        ToolUseBlock toolCall = new ToolUseBlock("call-1", "shell", java.util.Map.of("command", "pwd"));
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), eq(ApprovalMode.DEFAULT)))
+                .thenReturn(Flux.just(
+                        new RequireUserConfirmEvent("reply-ask", List.of(toolCall)),
+                        new AgentResultEvent(Msg.builder().role(MsgRole.ASSISTANT).textContent("permission asking").build()),
+                        new AgentEndEvent("reply-ask")
+                ));
+        var request = new com.h.backend.chat.interfaces.dto.ApprovalRequestDto(
+                "approval-1", 55L, "session-1", "session-1", null,
+                ApprovalMode.DEFAULT, List.of(), ApprovalRequestStatus.PENDING, null,
+                0, LocalDateTime.now(), null
+        );
+        when(approvalService.suspend(any())).thenReturn(request);
+
+        List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
+                new ChatAgentExecutionCommand(
+                        sink, 1L, null, "session-1", "session-1", null,
+                        null, null, null, null, null, "solve it", null, "memory",
+                        definition, new AgentRunService.AgentRunHandle(55L),
+                        observation, ApprovalMode.DEFAULT, () -> { }, null
+                )
+        )).collectList().block();
+
+        assertEquals("action_required", events.getLast().type());
+        assertEquals(request, events.getLast().payload());
+        verify(chatSessionService, never()).appendAssistantMessage(any(), any(), any());
+        verify(agentRunService, never()).completeRun(any(), any());
+        verify(agentRunService, never()).failRun(any(), any());
+        verify(observation).succeed(null);
+    }
 
     @Test
     void shouldCompleteClientStreamAtParentAgentEndWithoutWaitingForPostProcessing() throws Exception {
@@ -348,7 +404,8 @@ class HarnessAgentExecutorTest {
                         "execution-targeted"
                 )),
                 eq("补充官方来源"),
-                any()
+                any(),
+                isNull()
         ))
                 .thenReturn(Flux.just(new AgentResultEvent(result), new AgentEndEvent("reply-child-2")));
         HarnessSubagentSummaryDto completed = new HarnessSubagentSummaryDto(
@@ -385,9 +442,10 @@ class HarnessAgentExecutorTest {
                         "execution-targeted"
                 )),
                 eq("补充官方来源"),
-                any()
+                any(),
+                isNull()
         );
-        verify(runtime, org.mockito.Mockito.never()).streamParent(any(), any(), any());
+        verify(runtime, org.mockito.Mockito.never()).streamParent(any(), any(), any(), any());
         verify(collaborationService).completeSubagent(
                 1L, "session-1", "child-runtime-1", "execution-targeted",
                 "补充了三条官方来源。"
@@ -414,7 +472,7 @@ class HarnessAgentExecutorTest {
         );
         ChatSessionMessageDto persisted = persistedReply();
         stubPersistence(chatSessionService, persisted);
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         new ToolCallDeltaEvent(
                                 "reply-parent", "spawn-1", "agent_spawn",
@@ -461,7 +519,7 @@ class HarnessAgentExecutorTest {
                 "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
         );
         stubPersistence(chatSessionService, persistedReply());
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         new ToolCallDeltaEvent(
                                 "reply-parent", "spawn-1", "agent_spawn",
@@ -534,7 +592,7 @@ class HarnessAgentExecutorTest {
         childResult.withSource("parent/research-agent");
         AgentEndEvent childEnd = new AgentEndEvent("reply-child-3");
         childEnd.withSource("parent/research-agent");
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         new SubagentExposedEvent(
                                 "research-child-2", "research-agent", "child-runtime-2", "资料收集"
@@ -607,7 +665,7 @@ class HarnessAgentExecutorTest {
         TextBlockDeltaEvent childDelta = new TextBlockDeltaEvent(
                 "reply-child-relay", "block-relay", "正在实时生成"
         );
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.create(sink -> {
                     sink.next(new SubagentExposedEvent(
                             "child-relay", "general-purpose",
@@ -701,7 +759,7 @@ class HarnessAgentExecutorTest {
                             HarnessSubagentStatus.RUNNING, order, LocalDateTime.now()
                     );
                 });
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         new SubagentExposedEvent("child-race-0", "general-purpose", "sub-race-0", "协作者-0"),
                         new SubagentExposedEvent("child-race-1", "general-purpose", "sub-race-1", "协作者-1"),
@@ -766,7 +824,7 @@ class HarnessAgentExecutorTest {
         when(collaborationService.completeSubagent(
                 1L, "session-1", "child-runtime-end", "reply-child-end", "子任务完成结果。"
         )).thenReturn(new HarnessSubagentCompletion(403L, completed));
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.concat(
                         Flux.just(
                                 new SubagentExposedEvent(
@@ -842,7 +900,7 @@ class HarnessAgentExecutorTest {
         when(collaborationService.completeSubagent(
                 1L, "session-1", "child-runtime-wrapper", "reply-child-wrapper", "子任务已完成。"
         )).thenReturn(new HarnessSubagentCompletion(404L, completed));
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         new SubagentExposedEvent(
                                 "general-child", "general-purpose",
@@ -929,7 +987,7 @@ class HarnessAgentExecutorTest {
                 "child-runtime-intj", "session-1", "INTJ 日志", "写 INTJ 日志",
                 HarnessSubagentStatus.COMPLETED, 1, LocalDateTime.now()
         )));
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         firstStart,
                         secondStart,
@@ -983,7 +1041,7 @@ class HarnessAgentExecutorTest {
                 HarnessSubagentFailureReason.PROTOCOL_INCOMPLETE,
                 "AGENT_END arrived without AGENT_RESULT"
         )).thenThrow(new IllegalStateException("projection storage unavailable"));
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class)))
+        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), any()))
                 .thenReturn(Flux.just(
                         failedChildStart,
                         failedChildEnd,
@@ -1023,7 +1081,8 @@ class HarnessAgentExecutorTest {
                         "execution-error"
                 )),
                 eq("补充来源"),
-                any()
+                any(),
+                isNull()
         ))
                 .thenReturn(Flux.error(new IllegalStateException("child unavailable")));
 

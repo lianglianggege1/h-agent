@@ -1,10 +1,11 @@
 package com.h.backend.chat.domain.agent;
 
-import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.application.AgentRunService;
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
+import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import reactor.core.publisher.FluxSink;
 
 import java.util.List;
@@ -22,7 +23,7 @@ public record ChatAgentExecutionCommand(
         /** 子 Agent 类型、直接父节点和不可覆盖的原始委托；父请求为空。 */
         String subagentAgentId,
         String subagentParentSessionId,
-        /** 原始任务委托（assignment）文本  */
+        /** 原始任务委托（assignment）文本。 */
         String subagentAssignment,
         /** 用户直达子 Agent 时由服务端生成的执行代次；父请求为空。 */
         String subagentExecutionId,
@@ -34,6 +35,7 @@ public record ChatAgentExecutionCommand(
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
         AgentExecutionObservation observation,
+        ApprovalMode approvalMode,
         Runnable onTerminal,
         /** 已持久化的用户消息 ID；成功 turn 提交与记忆 capture 的来源引用。 */
         Long userMessageId
@@ -52,11 +54,10 @@ public record ChatAgentExecutionCommand(
             Runnable onTerminal
     ) {
         this(sink, userId, resolvedPromptId, sessionId, sessionId, null, null, null, null, null, null,
-                userMessage, resources, memoryId,
-                agent, runHandle, observation, onTerminal, null);
+                userMessage, resources, memoryId, agent, runHandle, observation, null, onTerminal, null);
     }
 
-    /** 兼容无 Catalog 绑定的旧全参构造。 */
+    /** 兼容无 Catalog 绑定、批准模式与持久化用户消息 ID 的旧全参构造。 */
     public ChatAgentExecutionCommand(
             FluxSink<ChatStreamEvent> sink,
             Long userId,
@@ -78,7 +79,35 @@ public record ChatAgentExecutionCommand(
     ) {
         this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
                 subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
-                null, userMessage, resources, memoryId,
-                agent, runHandle, observation, onTerminal, null);
+                null, userMessage, resources, memoryId, agent, runHandle, observation, null,
+                onTerminal, null);
+    }
+
+    /** 兼容尚未传递批准模式的 Catalog 调用。 */
+    public ChatAgentExecutionCommand(
+            FluxSink<ChatStreamEvent> sink,
+            Long userId,
+            Long resolvedPromptId,
+            String sessionId,
+            String rootSessionId,
+            String gatewaySubagentId,
+            String subagentAgentId,
+            String subagentParentSessionId,
+            String subagentAssignment,
+            String subagentExecutionId,
+            DefinitionBinding subagentDefinitionBinding,
+            String userMessage,
+            List<ChatMessageResourceUseDto> resources,
+            String memoryId,
+            AgentDefinition agent,
+            AgentRunService.AgentRunHandle runHandle,
+            AgentExecutionObservation observation,
+            Runnable onTerminal,
+            Long userMessageId
+    ) {
+        this(sink, userId, resolvedPromptId, sessionId, rootSessionId, gatewaySubagentId,
+                subagentAgentId, subagentParentSessionId, subagentAssignment, subagentExecutionId,
+                subagentDefinitionBinding, userMessage, resources, memoryId, agent, runHandle,
+                observation, null, onTerminal, userMessageId);
     }
 }

@@ -146,6 +146,7 @@ export async function apiStream(
     onImage?: (message: ChatSessionMessage) => void;
     onAgentStep?: (payload: AgentStepPayload) => void;
     onHarnessEvent?: (payload: HarnessAgentEvent) => void;
+    onActionRequired?: (payload: unknown) => void;
     onBlocked?: (message: string) => void;
     onError?: (message: string) => void;
   },
@@ -234,6 +235,9 @@ export async function apiStream(
           handlers.onAgentStep?.(payload.payload as AgentStepPayload);
         } else if (eventType === "harness_event" && payload.payload) {
           handlers.onHarnessEvent?.(payload.payload as HarnessAgentEvent);
+        } else if (eventType === "action_required" && payload.payload) {
+          terminalEventReceived = true;
+          handlers.onActionRequired?.(payload.payload);
         } else if (eventType === "blocked") {
           terminalEventReceived = true;
           handlers.onBlocked?.(payload.content);

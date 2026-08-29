@@ -76,6 +76,7 @@ export function buildNewSessionPayload(input: {
   currentSessionId: string | null | undefined;
   targetAgentId: string | null | undefined;
   promptId: number | null;
+  approvalMode?: import("./harness-approval").ApprovalMode;
 }) {
   const targetAgentId = input.targetAgentId || STANDARD_AGENT_ID;
   const standard = isStandardAgent(targetAgentId);
@@ -83,6 +84,9 @@ export function buildNewSessionPayload(input: {
     currentSessionId: input.currentSessionId ?? null,
     promptId: standard ? input.promptId : null,
     agentId: standard ? STANDARD_AGENT_ID : targetAgentId,
+    ...(targetAgentId === HARNESS_AGENT_ID
+      ? { approvalMode: input.approvalMode ?? "DEFAULT" }
+      : {}),
   };
 }
 

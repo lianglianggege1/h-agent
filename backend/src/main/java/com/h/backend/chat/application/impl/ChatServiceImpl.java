@@ -354,6 +354,9 @@ public class ChatServiceImpl implements ChatService {
                     promptIdForSessionValidation,
                     agent.agentId()
             );
+            if (agentRunService.hasOpenRun(address.sessionId())) {
+                throw new BusinessException(40901, "当前会话仍有运行中或待审批任务，请先处理后再发送消息");
+            }
 
             Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
             if (standardChat && isImageCommand(userMessage)) {
@@ -419,6 +422,11 @@ public class ChatServiceImpl implements ChatService {
                 if (traceId != null) {
                     agentRunService.updateTraceId(runHandle.id(), traceId);
                 }
+                Map<String, String> propagationHeaders = new java.util.HashMap<>();
+                observability.inject(observation.observationContext(), propagationHeaders);
+                agentRunService.bindApprovalContext(
+                        runHandle.id(), address.approvalMode(), propagationHeaders.get("traceparent")
+                );
             } catch (RuntimeException traceWriteError) {
                 // 回写失败只记录受限日志；Agent 继续执行，观测不改变业务行为。
                 log.warn("Failed to write trace id back to agent run runId={}: {}",
@@ -444,6 +452,7 @@ public class ChatServiceImpl implements ChatService {
                     agent,
                     runHandle,
                     observation,
+                    address.approvalMode(),
                     () -> releasePermitOnce(permit, permitReleased),
                     userMessageId
             ));
@@ -493,7 +502,7 @@ public class ChatServiceImpl implements ChatService {
     ) {
         AgentDefinition agent = resolveAgent(agentId);
         if (agent.runtimeType() != AgentRuntimeType.HARNESS_STREAMING) {
-            return new ExecutionAddress(sessionId, sessionId, null, null, null, null, null);
+            return new ExecutionAddress(sessionId, sessionId, null, null, null, null, null, null);
         }
         if (harnessCollaborationService == null) {
             throw new IllegalStateException("HarnessCollaborationService is required for subagent turns");
@@ -506,7 +515,8 @@ public class ChatServiceImpl implements ChatService {
                 resolved.subagentAgentId(),
                 resolved.parentSessionId(),
                 resolved.assignment(),
-                resolved.definitionBinding()
+                resolved.definitionBinding(),
+                resolved.approvalMode()
         );
     }
 
@@ -518,7 +528,8 @@ public class ChatServiceImpl implements ChatService {
             String subagentAgentId,
             String subagentParentSessionId,
             String subagentAssignment,
-            com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding subagentDefinitionBinding
+            com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding subagentDefinitionBinding,
+            com.h.backend.chat.domain.approval.ApprovalMode approvalMode
     ) {
         private boolean subagent() {
             return gatewaySubagentId != null;

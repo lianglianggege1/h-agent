@@ -116,7 +116,8 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
                 requested.getParentSessionId(),
                 requested.getAgentId(),
                 subagent == null ? null : subagent.getAssignment(),
-                binding
+                binding,
+                requested.getApprovalMode()
         );
     }
 
@@ -294,6 +295,9 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
             // 首次 exposure 将它提升为用户可寻址协作者，同时保留原消息和拓扑。
             existing.setGatewaySubagentId(exposure.gatewaySubagentId());
             existing.setAgentId(exposure.agentId());
+            if (existing.getApprovalMode() == null) {
+                existing.setApprovalMode(parent.getApprovalMode());
+            }
             existing.setUpdatedAt(LocalDateTime.now());
             agentSessionMapper.updateById(existing);
             HarnessSubagentEntity promoted = new HarnessSubagentEntity();
@@ -318,6 +322,7 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         session.setParentSessionId(parent.getSessionId());
         session.setUserId(userId);
         session.setAgentId(exposure.agentId());
+        session.setApprovalMode(parent.getApprovalMode());
         session.setGatewaySubagentId(exposure.gatewaySubagentId());
         // 版本固定：Catalog 子会话从此固定到 exposure 时的 Definition Version（设计 7.5）。
         if (exposure.definitionBinding() != null) {

@@ -40,6 +40,12 @@ public class AgentRunEntity {
     @TableField("langfuse_trace_id")
     private String langfuseTraceId;
 
+    @TableField("approval_mode_snapshot")
+    private String approvalModeSnapshot;
+
+    @TableField("trace_parent")
+    private String traceParent;
+
     @TableField("tool_count")
     private Integer toolCount;
 

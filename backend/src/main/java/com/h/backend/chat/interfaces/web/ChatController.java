@@ -82,7 +82,8 @@ public class ChatController {
                         .takeUntil(event -> event.event() != null
                                 && ("done".equals(event.event())
                                 || "error".equals(event.event())
-                                || "blocked".equals(event.event())))
+                                || "blocked".equals(event.event())
+                                || "action_required".equals(event.event())))
         );
     }
 }

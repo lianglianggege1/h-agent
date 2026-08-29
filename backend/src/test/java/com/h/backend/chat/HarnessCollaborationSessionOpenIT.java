@@ -4,7 +4,12 @@ import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.application.ApprovalRequestService;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.approval.ApprovalDecision;
+import com.h.backend.chat.domain.approval.ApprovalEpisode;
+import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
@@ -45,6 +50,12 @@ class HarnessCollaborationSessionOpenIT {
     private AgentSessionMapper agentSessionMapper;
 
     @Autowired
+    private AgentRunService agentRunService;
+
+    @Autowired
+    private ApprovalRequestService approvalRequestService;
+
+    @Autowired
     private ChatSessionMessageMapper chatSessionMessageMapper;
 
     @Autowired
@@ -58,6 +69,82 @@ class HarnessCollaborationSessionOpenIT {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void exposedSubagentInheritsHarnessApprovalMode() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(
+                user.getId(),
+                null,
+                ChatAgentIds.HARNESS,
+                ApprovalMode.ACCEPT_EDITS,
+                null
+        );
+
+        harnessCollaborationService.exposeSubagent(
+                user.getId(),
+                opened.session().sessionId(),
+                new HarnessSubagentExposure(
+                        "research",
+                        "research-agent",
+                        opened.session().sessionId(),
+                        "child-runtime-approval",
+                        "资料收集",
+                        "收集资料"
+                )
+        );
+
+        var child = agentSessionMapper.selectBySessionId("child-runtime-approval");
+        assertEquals(ApprovalMode.ACCEPT_EDITS, child.getApprovalMode());
+        assertEquals(
+                ApprovalMode.ACCEPT_EDITS,
+                harnessCollaborationService
+                        .resolveExecutionSession(user.getId(), child.getSessionId())
+                        .approvalMode()
+        );
+    }
+
+    @Test
+    void approvalRequestPausesAndResumesTheOriginalRunIdempotently() {
+        UserEntity user = createUser();
+        var opened = chatSessionService.createSession(
+                user.getId(), null, ChatAgentIds.HARNESS, ApprovalMode.DEFAULT, null
+        );
+        String sessionId = opened.session().sessionId();
+        Long userMessageId = chatSessionService.appendUserMessage(
+                user.getId(), sessionId, "执行需要确认的操作", java.util.List.of()
+        );
+        AgentRunService.AgentRunHandle run = agentRunService.createRun(
+                sessionId, user.getId(), null, userMessageId,
+                ChatAgentIds.HARNESS, "trace-approval"
+        );
+        agentRunService.bindApprovalContext(run.id(), ApprovalMode.DEFAULT, "trace-approval");
+        ApprovalEpisode episode = new ApprovalEpisode(
+                "request-key-1", "reply-1",
+                java.util.List.of(new ApprovalEpisode.ToolCall(
+                        "call-1", "shell", "请求执行 shell（1 个参数，内容已隐藏）"
+                ))
+        );
+        var command = new ApprovalRequestService.SuspendApprovalCommand(
+                run.id(), user.getId(), sessionId, sessionId, null,
+                ApprovalMode.DEFAULT, episode
+        );
+
+        var first = approvalRequestService.suspend(command);
+        var duplicate = approvalRequestService.suspend(command);
+
+        assertEquals(first.approvalId(), duplicate.approvalId());
+        assertEquals("WAITING_APPROVAL", agentRunService.getById(run.id()).status());
+        assertEquals(first.approvalId(),
+                approvalRequestService.findPending(user.getId(), sessionId).approvalId());
+
+        var resolution = approvalRequestService.decide(
+                user.getId(), first.approvalId(), ApprovalDecision.APPROVE
+        );
+        assertTrue(resolution.approved());
+        assertEquals(java.util.List.of("call-1"), resolution.toolCallIds());
+        assertEquals("RUNNING", agentRunService.getById(run.id()).status());
+    }
 
     @Test
     void harnessSessionOpenIncludesEmptySubagentList() {
