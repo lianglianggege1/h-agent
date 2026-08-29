@@ -4,6 +4,7 @@ import com.h.backend.skill.domain.SkillPlatformErrorKind;
 import com.h.backend.skill.domain.SkillPlatformException;
 import com.h.backend.skill.infrastructure.config.SkillPlatformProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -24,17 +25,20 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
 
     private final SkillPlatformProperties.Repository config;
     private final RestClient restClient;
+    private final Environment environment;
     private final String owner;
     private final String repo;
 
-    public GiteeRestSkillRepository(SkillPlatformProperties properties) {
+    public GiteeRestSkillRepository(SkillPlatformProperties properties, Environment environment) {
+        this(properties, environment, RestClient.builder().requestFactory(requestFactory()));
+    }
+
+    GiteeRestSkillRepository(SkillPlatformProperties properties, Environment environment, RestClient.Builder builder) {
         this.config = properties.getRepository();
+        this.environment = environment;
         this.owner = config.owner();
         this.repo = config.repo();
-        this.restClient = RestClient.builder()
-                .baseUrl(config.getApiBaseUrl())
-                .requestFactory(requestFactory())
-                .build();
+        this.restClient = builder.baseUrl(config.getApiBaseUrl()).build();
     }
 
     private static JdkClientHttpRequestFactory requestFactory() {
@@ -48,12 +52,16 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
     }
 
     private String token() {
-        String token = System.getenv(config.getCredentialEnv());
+        return resolveToken(environment, config.getCredentialEnv());
+    }
+
+    static String resolveToken(Environment environment, String credentialEnv) {
+        String token = environment.getProperty(credentialEnv);
         if (token == null || token.isBlank()) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.CREDENTIAL_UNAVAILABLE,
-                    "源码仓库 Token 未配置（环境变量 " + config.getCredentialEnv() + "）");
+                    "源码仓库 Token 未配置（环境变量或 .env 中的 " + credentialEnv + "）");
         }
-        return token;
+        return token.trim();
     }
 
     private String apiRoot() {
@@ -179,19 +187,36 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
         } catch (GiteeNotFoundException ex) {
             existingSha = null;
         }
-        final String shaForWrite = existingSha;
-        JsonNode body = execute(() -> restClient.put()
-                .uri(apiRoot() + "/contents/" + path)
-                .headers(this::authHeaders)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new FileWriteRequest(contentBase64, message, branch, shaForWrite))
-                .retrieve()
-                .body(JsonNode.class));
+        JsonNode body = existingSha == null
+                ? createFile(path, branch, contentBase64, message)
+                : updateFile(path, branch, contentBase64, message, existingSha);
         String sha = body == null ? null : body.path("commit").path("sha").asText(null);
         if (sha == null || sha.isBlank()) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_UNAVAILABLE, "写入文件未返回 commit");
         }
         return sha;
+    }
+
+    // Gitee 与 GitHub 的 contents API 语义不同：PUT /contents 一律要求 sha（更新文件），
+    // 新建文件必须走 POST /contents，否则 Gitee 返回 400 {"messages":["sha is empty"]}。
+    private JsonNode createFile(String path, String branch, String contentBase64, String message) {
+        return execute(() -> restClient.post()
+                .uri(apiRoot() + "/contents/" + path)
+                .headers(this::authHeaders)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new FileCreateRequest(contentBase64, message, branch))
+                .retrieve()
+                .body(JsonNode.class));
+    }
+
+    private JsonNode updateFile(String path, String branch, String contentBase64, String message, String sha) {
+        return execute(() -> restClient.put()
+                .uri(apiRoot() + "/contents/" + path)
+                .headers(this::authHeaders)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new FileWriteRequest(contentBase64, message, branch, sha))
+                .retrieve()
+                .body(JsonNode.class));
     }
 
     @Override
@@ -303,6 +328,7 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
         try {
             return call.invoke();
         } catch (RestClientResponseException ex) {
+            log.error("错误日志：",ex);
             if (ex.getStatusCode().value() == 404) {
                 throw new GiteeNotFoundException(ex.getMessage());
             }
@@ -312,8 +338,10 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
             }
             throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_UNAVAILABLE, "源码仓库请求失败", ex);
         } catch (SkillPlatformException ex) {
+            log.error("错误日志：",ex);
             throw ex;
         } catch (RuntimeException ex) {
+            log.error("错误日志：",ex);
             throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_UNAVAILABLE, "源码仓库不可用", ex);
         }
     }
@@ -331,6 +359,9 @@ public class GiteeRestSkillRepository implements GiteeSkillRepository {
     }
 
     private record BranchCreateRequest(String branch_name, String refs) {
+    }
+
+    private record FileCreateRequest(String content, String message, String branch) {
     }
 
     private record FileWriteRequest(String content, String message, String branch, String sha) {
