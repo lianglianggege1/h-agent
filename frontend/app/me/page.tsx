@@ -42,7 +42,8 @@ export default function MePage() {
         </header>
 
         <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
-          <Link className="block rounded-2xl bg-stone-900 px-4 py-4 text-sm font-semibold text-white" href="/me/system-prompts">
+          <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">基础能力</p>
+          <Link className="mt-2 block rounded-2xl bg-stone-900 px-4 py-4 text-sm font-semibold text-white" href="/me/system-prompts">
             SystemPrompt 管理
           </Link>
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/knowledge">
@@ -54,7 +55,14 @@ export default function MePage() {
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/skills">
             我的 Skill（版本管理）
           </Link>
-          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/chat">
+
+          <p className="mt-6 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Harness Agent 能力</p>
+          <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/me/memory">
+            <span className="block text-sm font-semibold text-stone-700">用户长期记忆</span>
+            <span className="mt-1 block text-xs text-stone-400">查看和编辑 Harness Agent 的长期记忆</span>
+          </Link>
+
+          <Link className="mt-6 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/chat">
             返回聊天
           </Link>
           <button

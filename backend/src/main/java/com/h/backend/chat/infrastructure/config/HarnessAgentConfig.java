@@ -155,21 +155,28 @@ public class HarnessAgentConfig {
             - 每条记录保持独立完整，支持单独检索。
             """;
 
+    @Bean("harnessWorkspaceStore")
+    public BaseStore harnessWorkspaceStore(DataSource dataSource) {
+        // BaseStore 的 CAS version 支持多个应用实例并发更新同一逻辑文件；
+        // 该 Bean 由 Harness DistributedStore 与用户长期记忆管理模块共享同一实例。
+        return PostgresBaseStore.builder(dataSource)
+                .schemaName("public")
+                .tableName("workspace_files")
+                .initializeSchema(false)
+                .build();
+    }
+
     @Bean("harnessDistributedStore")
-    public DistributedStore harnessDistributedStore(DataSource dataSource) {
+    public DistributedStore harnessDistributedStore(
+            DataSource dataSource,
+            @Qualifier("harnessWorkspaceStore") BaseStore workspaceStore
+    ) {
         // PostgreSQL 是 AgentState 的唯一恢复真相，任意应用实例都可按同一 user/session 继续执行。
         AgentStateStore stateStore = PostgresAgentStateStore.builder(dataSource)
                 .schemaName("public")
                 .tableName("agent_state_snapshots")
                 // 生产环境由 Flyway 统一管理结构，避免多实例启动时并发执行 DDL。
                 .createIfNotExist(false)
-                .build();
-
-        // BaseStore 的 CAS version 支持多个应用实例并发更新同一逻辑文件。
-        BaseStore workspaceStore = PostgresBaseStore.builder(dataSource)
-                .schemaName("public")
-                .tableName("workspace_files")
-                .initializeSchema(false)
                 .build();
 
         // 统一通过官方接口交给 Harness；Gateway 会据此启用可跨节点恢复的子 Agent 注册表。

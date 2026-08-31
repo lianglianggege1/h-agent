@@ -11,6 +11,7 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.memory.MemoryConfig;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
 import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
+import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -37,6 +38,10 @@ class BackendApplicationTests {
     @Autowired
     @Qualifier("harnessDistributedStore")
     private DistributedStore harnessDistributedStore;
+
+    @Autowired
+    @Qualifier("harnessWorkspaceStore")
+    private BaseStore harnessWorkspaceStore;
 
     @Autowired
     private HarnessAgent harnessAgent;
@@ -70,6 +75,11 @@ class BackendApplicationTests {
     @Test
     void shouldGiveHarnessAndGatewayOneDistributedStore() {
         assertSame(harnessDistributedStore, harnessAgent.getDistributedStore());
+    }
+
+    @Test
+    void shouldShareWorkspaceStoreBetweenHarnessAndMemoryManagement() {
+        assertSame(harnessWorkspaceStore, harnessDistributedStore.baseStore());
     }
 
     @Test

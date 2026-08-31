@@ -72,7 +72,7 @@ import {
   type ApprovalMode,
   type ApprovalRequest,
 } from "@/lib/harness-approval";
-import { MarkdownContent } from "./markdown-content";
+import { MarkdownContent } from "@/components/markdown-content";
 import {
   bootstrapChatSession,
   ChatMessageResource,
