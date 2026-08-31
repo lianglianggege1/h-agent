@@ -368,8 +368,12 @@ public class SkillCatalogService {
         }
         Map<String, byte[]> contents = readBranchFiles(
                 gitDirectory(userId, definition.getSkillKey()), proposal.getBranchName());
-        SkillValidationResult result = validator.validate(
+        SkillValidationResult contentValidation = validator.validate(
                 SkillFileSet.of(contents), definition.getSkillKey(), reservedKeys());
+        SkillValidationResult result = contentValidation.valid()
+                ? SkillValidationResult.ok(contentValidation.warnings(), expectedHead)
+                : SkillValidationResult.invalid(
+                        contentValidation.errors(), contentValidation.warnings(), expectedHead);
         String json = toJson(Map.of(
                 "errors", result.errors(),
                 "warnings", result.warnings()));
@@ -503,7 +507,7 @@ public class SkillCatalogService {
             entity.setValidationSummaryJson(toJson(Map.of("warnings", revalidated.warnings())));
             entity.setStatus(SkillReleaseEntity.STATUS_AVAILABLE);
             entity.setCreatedBy(userId);
-            releaseMapper.insert(entity);
+            releaseMapper.insertRelease(entity);
 
             // 显示名称与说明可随新 Release 改变（设计不变量 4）
             String displayName = readSkillYamlField(contents, "displayName");
@@ -970,8 +974,9 @@ public class SkillCatalogService {
             logEntity.setFromStateJson(fromState == null ? null : toJson(fromState));
             logEntity.setToStateJson(toState == null ? null : toJson(toState));
             logEntity.setActorUserId(userId);
-            operationLogMapper.insert(logEntity);
+            operationLogMapper.insertLog(logEntity);
         } catch (RuntimeException ex) {
+            log.error(ex.getMessage());
             log.warn("写 Skill 操作日志失败 skillId={} operation={}", skillId, operation);
         }
     }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
-import { SkillSummary, createSkill, listSkills } from "@/lib/skills";
+import { SkillSummary, createSkill, listSkills, skillStatusLabel, skillStatusClassName } from "@/lib/skills";
 
 const DEFAULT_SKILL_MD = `---
 name: my-skill
@@ -238,15 +238,9 @@ export default function SkillsPage() {
                     <p className="mt-1 break-words font-mono text-xs text-stone-500">{skill.skillKey}</p>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${
-                      skill.archived
-                        ? "border-stone-300 bg-stone-100 text-stone-500"
-                        : skill.enabled
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
-                    }`}
+                    className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${skillStatusClassName(skill)}`}
                   >
-                    {skill.archived ? "已归档" : skill.enabled ? "已启用" : "已停用"}
+                    {skillStatusLabel(skill)}
                   </span>
                 </div>
 

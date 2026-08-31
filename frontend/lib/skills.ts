@@ -87,6 +87,21 @@ export type ValidationOutcome = {
   headCommitSha: string;
 };
 
+export function skillStatusLabel(skill: SkillSummary): string {
+  if (skill.archived) return "已归档";
+  if (skill.enabled) return "已启用";
+  if (skill.activeVersion) return "已停用";
+  if (skill.hasOpenProposal) return "草稿中";
+  return "未启用";
+}
+
+export function skillStatusClassName(skill: SkillSummary): string {
+  if (skill.archived) return "border-stone-300 bg-stone-100 text-stone-500";
+  if (skill.enabled) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (skill.activeVersion) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-stone-200 bg-white text-stone-500";
+}
+
 export type CreateSkillPayload = {
   skillKey: string;
   displayName: string;

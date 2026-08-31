@@ -2,7 +2,9 @@ package com.h.backend.skill.infrastructure.persistence.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillReleaseEntity;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -11,6 +13,22 @@ import java.util.List;
 
 @Mapper
 public interface SkillReleaseMapper extends BaseMapper<SkillReleaseEntity> {
+
+    /** JSONB 列不能用 BaseMapper 的隐式 insert（参数按 varchar 发送会被 PostgreSQL 拒绝），必须显式 cast。 */
+    @Insert("""
+            INSERT INTO skill_releases (skill_id, version_number, tag_name, commit_sha,
+                    artifact_store, artifact_object_key, artifact_object_version_id, artifact_media_type,
+                    artifact_digest, artifact_size, builder_version, validation_policy_version,
+                    security_policy_version, release_note, manifest_json, validation_summary_json,
+                    status, created_by)
+            VALUES (#{skillId}, #{versionNumber}, #{tagName}, #{commitSha},
+                    #{artifactStore}, #{artifactObjectKey}, #{artifactObjectVersionId}, #{artifactMediaType},
+                    #{artifactDigest}, #{artifactSize}, #{builderVersion}, #{validationPolicyVersion},
+                    #{securityPolicyVersion}, #{releaseNote}, #{manifestJson}::jsonb, #{validationSummaryJson}::jsonb,
+                    #{status}, #{createdBy})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertRelease(SkillReleaseEntity entity);
 
     @Select("""
             SELECT * FROM skill_releases

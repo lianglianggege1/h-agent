@@ -23,6 +23,8 @@ import {
   restoreSkill,
   saveProposal,
   setSkillEnabled,
+  skillStatusLabel,
+  skillStatusClassName,
   validateProposal,
 } from "@/lib/skills";
 
@@ -417,15 +419,9 @@ export default function SkillWorkspacePage() {
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <span
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                skill.archived
-                  ? "border-stone-300 bg-stone-100 text-stone-500"
-                  : skill.enabled
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700"
-              }`}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${skillStatusClassName(skill)}`}
             >
-              {skill.archived ? "已归档" : skill.enabled ? "已启用" : "已停用"}
+              {skillStatusLabel(skill)}
             </span>
             <span className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
               生效版本：{skill.activeVersion ? `v${skill.activeVersion}` : "未生效"}

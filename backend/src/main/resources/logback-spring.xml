@@ -29,6 +29,21 @@
     <!-- HarnessAgent 执行流程日志：启动、完成、取消、错误 -->
     <logger name="com.h.backend.chat.domain.agent.HarnessAgentExecutor" level="INFO"/>
 
+    <!-- MyBatis SQL：Mapper namespace、项目 SQL 拦截器和框架内部调试日志 -->
+    <logger name="com.h.backend.mybatis" level="DEBUG"/>
+    <logger name="com.h.backend.user.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.chat.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.chat.domain.agent.AgentTopologyMapper" level="DEBUG"/>
+    <logger name="com.h.backend.chat.domain.agent.HarnessEventMapper" level="DEBUG"/>
+    <logger name="com.h.backend.knowledge.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.generation.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.memory.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.skill.infrastructure.persistence.mapper" level="DEBUG"/>
+    <logger name="com.h.backend.observability.BusinessArtifactReferenceMapper" level="DEBUG"/>
+    <logger name="org.apache.ibatis" level="DEBUG"/>
+    <logger name="org.mybatis" level="DEBUG"/>
+    <logger name="com.baomidou.mybatisplus" level="DEBUG"/>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ROLLING_FILE"/>

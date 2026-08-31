@@ -332,7 +332,7 @@ class SkillCatalogServiceTest {
     }
 
     @Test
-    void validateProposalRecordsResultForMatchingHead() {
+    void validateProposalReturnsAndRecordsResultForMatchingHead() {
         SkillDefinitionEntity definition = ownedSkill(1);
         definition.setSkillKey("demo-skill");
         when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(definition);
@@ -341,8 +341,10 @@ class SkillCatalogServiceTest {
         when(gitee.listFilesUnder("users/7/skills/demo-skill", "refs/heads/p/1")).thenReturn(List.of());
         when(proposalMapper.recordValidation(eq(proposal.getId()), eq(HEAD), any(), any())).thenReturn(1);
 
-        service.validateProposal(USER_ID, SKILL_ID, HEAD);
+        var result = service.validateProposal(USER_ID, SKILL_ID, HEAD);
 
+        assertThat(result.validatedHeadSha()).isEqualTo(HEAD);
+        assertThat(SkillCatalogService.ValidationOutcomeView.from(result).headCommitSha()).isEqualTo(HEAD);
         verify(proposalMapper).recordValidation(eq(proposal.getId()), eq(HEAD),
                 eq(SkillProposalEntity.VALIDATION_INVALID), any());
     }

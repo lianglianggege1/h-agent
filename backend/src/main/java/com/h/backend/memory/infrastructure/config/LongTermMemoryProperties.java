@@ -40,7 +40,7 @@ public class LongTermMemoryProperties {
     }
 
     public static class Mem0 {
-        private String baseUrl = "http://mem0:8000";
+        private String baseUrl = "http://localhost:8888";
         private String apiKey = "";
         private String contractVersion = "";
         private String openapiSha256 = "";
