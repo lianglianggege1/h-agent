@@ -1,0 +1,203 @@
+/* h-agent 教学工作区共享样式 —— 所有 lesson 与 reference 链接此文件 */
+:root {
+  --ink: #1c1b18;
+  --paper: #fffdf8;
+  --muted: #6f6a60;
+  --rule: #e7e2d6;
+  --soft: #f6f3ec;
+  --brand: #4B3FE3;
+  --brand-ink: #1A1759;
+  --good: #1a7f4b;
+  --bad: #b3362b;
+  --serif: "Songti SC", "Noto Serif SC", Georgia, "Times New Roman", serif;
+  --sans: "PingFang SC", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.85 var(--serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 3.2rem 1.6rem 5rem;
+}
+
+h1, h2, h3, .kicker, .quiz-q {
+  font-family: var(--sans);
+  line-height: 1.35;
+}
+
+.kicker {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--brand);
+  text-transform: uppercase;
+  margin: 0 0 0.6rem;
+}
+
+h1 {
+  font-size: 1.55rem;
+  margin: 0 0 0.4rem;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0 0 1.8rem;
+}
+
+h2 {
+  font-size: 1.12rem;
+  margin: 2.6rem 0 0.9rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule);
+}
+
+h3 { font-size: 1rem; margin: 1.6rem 0 0.5rem; }
+
+p { margin: 0.6rem 0; }
+
+strong { font-weight: 700; }
+
+a { color: var(--brand); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: var(--brand-ink); }
+
+code, .mono {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--soft);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.08em 0.36em;
+}
+
+.goal {
+  background: var(--soft);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--brand);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 1.4rem 0;
+  font-size: 0.92rem;
+}
+
+.goal ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.goal li { margin: 0.15rem 0; }
+
+.fact {
+  background: var(--soft);
+  border: 1px dashed var(--rule);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.92rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  font-family: var(--sans);
+}
+
+th, td {
+  border: 1px solid var(--rule);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th { background: var(--soft); font-weight: 600; }
+td:first-child { white-space: nowrap; font-weight: 500; }
+
+figure { margin: 1.4rem 0; }
+figcaption {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  margin-top: 0.4rem;
+  text-align: center;
+}
+
+svg { max-width: 100%; height: auto; display: block; }
+
+.flow-node-title { font: 600 14px var(--sans); fill: var(--ink); }
+.flow-node-sub { font: 12px var(--mono); fill: var(--muted); }
+.flow-arrow { stroke: #a39d90; stroke-width: 1.4; fill: none; marker-end: url(#arrowhead); }
+.flow-panel { fill: var(--soft); stroke: var(--rule); }
+
+.quiz { margin: 1rem 0 0.4rem; }
+.quiz-q { font-size: 0.98rem; font-weight: 600; margin: 1.4rem 0 0.5rem; }
+.quiz-q::before { content: "Q · "; color: var(--brand); }
+
+.options { display: grid; gap: 0.5rem; }
+
+.option {
+  font-family: var(--sans);
+  font-size: 0.92rem;
+  text-align: left;
+  padding: 0.55rem 0.9rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.option:hover { border-color: var(--brand); }
+
+.option.correct {
+  border-color: var(--good);
+  background: #f0f7f1;
+  color: var(--good);
+  font-weight: 600;
+  cursor: default;
+}
+
+.option.wrong {
+  border-color: var(--bad);
+  background: #faf1f0;
+  color: var(--bad);
+}
+
+.option:disabled { cursor: default; }
+
+.explain {
+  display: none;
+  font-size: 0.88rem;
+  font-family: var(--sans);
+  border-left: 3px solid var(--good);
+  background: var(--soft);
+  padding: 0.6rem 0.9rem;
+  border-radius: 0 8px 8px 0;
+  margin-top: 0.6rem;
+}
+
+.explain.show { display: block; }
+
+.cite { font-size: 0.8rem; color: var(--muted); font-family: var(--sans); }
+.footer-note {
+  margin-top: 2.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-family: var(--sans);
+}
+
+@media print {
+  body { background: #fff; font-size: 11.5pt; }
+  .page { max-width: none; padding: 0; }
+  .quiz, .footer-note { display: none; }
+}

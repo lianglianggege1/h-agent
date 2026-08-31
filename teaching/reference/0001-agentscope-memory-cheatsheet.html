@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>速查表 · AgentScope 记忆体系（h-agent）</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="page">
+
+<p class="kicker">Reference 0001 · 打印友好</p>
+<h1>AgentScope 记忆体系速查表</h1>
+<p class="subtitle">h-agent 里三套记忆并存：本文一句话定位每一套</p>
+
+<h2>三套记忆，一张地图</h2>
+<table>
+<tr><th>记忆</th><th>归属</th><th>载体</th><th>当前状态</th></tr>
+<tr><td>Harness 内建记忆</td><td><code>agentscope-harness</code> SDK</td><td>Markdown 文件 → PostgreSQL <code>workspace_files</code></td><td>启用（默认开启）</td></tr>
+<tr><td>自建长期记忆模块</td><td><code>com.h.backend.memory</code></td><td>Mem0 服务 + PG 控制索引/outbox</td><td>装配完成，<code>enabled=false</code></td></tr>
+<tr><td>会话短期记忆</td><td>LangChain4j</td><td>Redis / <code>chat_memory_snapshots</code></td><td>启用，与长期记忆无关</td></tr>
+</table>
+
+<h2>Harness 内建记忆 · 关键事实</h2>
+<table>
+<tr><th>部件</th><th>类 / 位置</th><th>职责</th></tr>
+<tr><td>抽取</td><td><code>MemoryFlushMiddleware</code></td><td>turn 结束用你配的 model 跑 flushPrompt，追加到日账本</td></tr>
+<tr><td>整理</td><td><code>MemoryMaintenanceMiddleware</code></td><td>周期把日账本合并去重、重写 MEMORY.md</td></tr>
+<tr><td>注入</td><td>WorkspaceContextMiddleware</td><td>MEMORY.md 全文注入 system prompt（受 token 截断）</td></tr>
+<tr><td>工具</td><td>内置注册</td><td><code>memory_search</code>（FTS5 关键词 ≤30 条）、<code>memory_get</code></td></tr>
+<tr><td>两层文件</td><td>workspace</td><td><code>memory/YYYY-MM-DD.md</code>（只追加）+ <code>MEMORY.md</code>（重写）</td></tr>
+<tr><td>关闭</td><td>Builder</td><td><code>disableMemoryHooks()</code>（关 flush+维护）/ <code>disableMemoryTools()</code></td></tr>
+</table>
+
+<h2>Mem0 扩展 · 关键事实</h2>
+<table>
+<tr><th>项</th><th>值</th></tr>
+<tr><td>接口</td><td><code>io.agentscope.core.memory.LongTermMemory</code>：<code>record(List&lt;Msg&gt;): Mono&lt;Void&gt;</code> + <code>retrieve(Msg): Mono&lt;String&gt;</code></td></tr>
+<tr><td>实现</td><td><code>Mem0LongTermMemory</code>（<code>agentscope-extensions-mem0</code>，薄同步 HTTP，60 s 超时）</td></tr>
+<tr><td>挂载点</td><td><code>ReActAgent.Builder</code>：<code>longTermMemory()</code> / <code>longTermMemoryMode()</code> / <code>longTermMemoryAsyncRecord()</code></td></tr>
+<tr><td>模式</td><td><code>AGENT_CONTROL</code>（工具自助）/ <code>STATIC_CONTROL</code>（钩子自动）/ <code>BOTH</code></td></tr>
+<tr><td>三层 ID</td><td><code>agentName</code> / <code>userId</code> / <code>runName</code>，至少一个，检索 AND 匹配</td></tr>
+<tr><td>部署</td><td><code>Mem0ApiType.PLATFORM</code>（SaaS，默认）/ <code>SELF_HOSTED</code></td></tr>
+</table>
+
+<h2>六维对比（速记）</h2>
+<table>
+<tr><th>维度</th><th>Harness Markdown</th><th>Mem0 扩展</th></tr>
+<tr><td>抽象层</td><td>harness middleware 子系统</td><td>core SPI 实现</td></tr>
+<tr><td>存储</td><td>PG 里的 Markdown 文件</td><td>Mem0 向量库</td></tr>
+<tr><td>检索</td><td>全文注入 + FTS5 关键词</td><td>语义 top-k</td></tr>
+<tr><td>抽取/去重</td><td>客户端模型（两段式）</td><td>服务端 LLM（单步 add）</td></tr>
+<tr><td>生命周期</td><td>90 天归档 / 180 天清理</td><td>无自动过期</td></tr>
+<tr><td>失败</td><td>本地事务，几乎不失败</td><td>同步 HTTP，无重试</td></tr>
+</table>
+
+<h2>挂载点验证命令（可复跑）</h2>
+<pre><code>M2=~/.m2/repository/io/agentscope
+
+# HarnessAgent.Builder 有没有 longTermMemory？
+javap -classpath "$M2/agentscope-harness/2.0.2/agentscope-harness-2.0.2.jar" \
+  'io.agentscope.harness.agent.HarnessAgent$Builder' | grep -i memory
+
+# ReActAgent.Builder 的挂载点
+javap -classpath "$M2/agentscope-core/2.0.2/agentscope-core-2.0.2.jar" \
+  'io.agentscope.core.ReActAgent$Builder' | grep -i longterm
+
+# Mem0LongTermMemory 实现的接口
+javap -classpath "$M2/agentscope-extensions-mem0/2.0.2/agentscope-extensions-mem0-2.0.2.jar" \
+  io.agentscope.core.memory.mem0.Mem0LongTermMemory | head -3</code></pre>
+<p class="cite">结论（2.0.1 与 2.0.2 均已验证，2026-08-31）：HarnessAgent.Builder 无 longTermMemory；绕行 = <code>HarnessAgent.Builder.fromAgent(ReActAgent)</code>（2.0.2 仍存在）。core SPI 接口 2.0.2 无变化。</p>
+
+<h2>项目落地状态</h2>
+<table>
+<tr><th>事实</th><th>位置</th></tr>
+<tr><td>mem0 扩展依赖零引用（死重）</td><td><code>backend/pom.xml:80</code></td></tr>
+<tr><td>Harness 记忆三 prompt + 全参数</td><td><code>HarnessAgentConfig.java</code>（flush/consolidation/summary）</td></tr>
+<tr><td>自建模块开关</td><td><code>application.yml</code> → <code>memory.long-term.enabled=false</code></td></tr>
+<tr><td>三层 ID 映射</td><td><code>h-agent:user:|agent:|run:</code> 前缀 + 业务 ID</td></tr>
+</table>
+
+<h2>设计文档索引</h2>
+<table>
+<tr><th>文档</th><th>地位</th></tr>
+<tr><td><code>docs/.../2026-08-23-harness-mem0-memory-design.md</code></td><td>历史：把 Harness 记忆迁 Mem0（路线 B 原稿，已废弃）</td></tr>
+<tr><td><code>docs/.../2026-08-27-langchain4j-mem0-long-term-memory-design.md</code></td><td>现行：LangChain4j 平行模块，不动 Harness</td></tr>
+</table>
+
+<p class="footer-note">生成于 2026-08-31 · 事实均经 javap 反编译本地 2.0.1 jar 验证 · 配套课程见 <a href="../lessons/0001-harness-markdown-memory-vs-mem0.html">Lesson 0001</a></p>
+</div>
+</body>
+</html>
