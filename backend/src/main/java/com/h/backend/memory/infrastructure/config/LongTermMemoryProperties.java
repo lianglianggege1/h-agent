@@ -1,11 +1,9 @@
 package com.h.backend.memory.infrastructure.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-@Component
 @ConfigurationProperties(prefix = "memory.long-term")
 public class LongTermMemoryProperties {
 

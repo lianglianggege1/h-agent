@@ -78,6 +78,7 @@ public class LongTermMemoryRuntimeImpl implements LongTermMemoryRuntime {
             return MemoryRecallResult.empty();
         }
         List<MemoryRecallResult.MemoryItem> items = recallScopes(command.context(), scopes, command.query());
+        log.info("Long-term memory recall completed scopes={} items={}", scopes, items.size());
         return new MemoryRecallResult(items);
     }
 

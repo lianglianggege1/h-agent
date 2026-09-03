@@ -141,6 +141,8 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
                     record.getId(), remoteMemoryId, record.getVersion(),
                     MemoryMutationResult.STATE_SUCCEEDED, null);
         } catch (Exception ex) {
+            log.error("Failed to save memory to Mem0 userId={} scope={} text={}",
+                    command.userId(), command.scope(), command.text(), ex);
             return handleMutationFailure(operation, ex, null, null, 0);
         }
     }
@@ -253,7 +255,7 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
                     mem0Gateway.get(record.getRemoteMemoryId(), ownerScopeOf(record));
             return memory == null ? null : memory.text();
         } catch (RuntimeException ex) {
-            log.warn("Failed to fetch memory text from Mem0 localId={} error={}",
+            log.error("Failed to fetch memory text from Mem0 localId={} error={}",
                     record.getId(), ex.toString());
             return null;
         }

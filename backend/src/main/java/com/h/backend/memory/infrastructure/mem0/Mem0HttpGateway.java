@@ -22,19 +22,18 @@ import java.util.Map;
 
 /**
  * 固定版本自托管 Mem0 HTTP Adapter。Mem0 URL、header、JSON 形状与外部错误
- * 只存在于本实现；调用方只见领域模型。日志不记录 API key、memory 正文或完整响应。
+ * 只存在于本实现；调用方只见领域模型。调试日志打印完整请求体与响应体（不含 API key）。
  */
 public class Mem0HttpGateway implements Mem0Gateway {
 
     private static final Logger log = LoggerFactory.getLogger(Mem0HttpGateway.class);
 
-    private static final String SEARCH_PATH = "/v2/memories/search/";
-    private static final String ADD_PATH = "/v1/memories/";
-    private static final String MEMORIES_ID_PATH = "/v2/memories/{memoryId}/";
-    private static final String ADD_INFER_PATH = "/v1/memories/";
-    private static final String UPDATE_PATH = "/v1/memories/{memoryId}/";
-    private static final String DELETE_PATH = "/v1/memories/{memoryId}/";
-    private static final String HISTORY_PATH = "/v2/memories/{memoryId}/history/";
+    private static final String SEARCH_PATH = "/search";
+    private static final String ADD_PATH = "/memories";
+    private static final String MEMORIES_ID_PATH = "/memories/{memoryId}";
+    private static final String UPDATE_PATH = "/memories/{memoryId}";
+    private static final String DELETE_PATH = "/memories/{memoryId}";
+    private static final String HISTORY_PATH = "/memories/{memoryId}/history";
 
     private final LongTermMemoryProperties properties;
     private final ObjectMapper objectMapper;
@@ -172,16 +171,21 @@ public class Mem0HttpGateway implements Mem0Gateway {
                 })
                 .header("X-API-Key", properties.getMem0().getApiKey())
                 .contentType(MediaType.APPLICATION_JSON);
+        long startNanos = System.nanoTime();
         String response = body == null
                 ? spec.retrieve().body(String.class)
                 : spec.body(body).retrieve().body(String.class);
+        log.info("Mem0 HTTP method={} path={} query={} request={} response={} costMs={}",
+                method, path, queryParams,
+                body == null ? "" : objectMapper.writeValueAsString(body),
+                response, Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
         if (response == null || response.isBlank()) {
             return null;
         }
         try {
             return objectMapper.readTree(response);
         } catch (RuntimeException ex) {
-            log.warn("Mem0 response is not valid JSON; path={}", path);
+            log.error("Mem0 response is not valid JSON; path={}", path, ex);
             throw new IllegalStateException("Invalid Mem0 response", ex);
         }
     }
@@ -210,7 +214,7 @@ public class Mem0HttpGateway implements Mem0Gateway {
         Map<String, Object> metadata = new HashMap<>();
         JsonNode metadataNode = node.get("metadata");
         if (metadataNode != null && metadataNode.isObject()) {
-            metadataNode.properties().forEach(entry -> metadata.put(entry.getKey(), entry.getValue().toString()));
+            metadataNode.properties().forEach(entry -> metadata.put(entry.getKey(), entry.getValue().asString()));
         }
         return new Mem0Models.Mem0Memory(
                 textOf(node.get("id")),

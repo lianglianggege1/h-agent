@@ -13,7 +13,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.h.backend.chat.infrastructure.persistence.mapper",
         "com.h.backend.knowledge.infrastructure.persistence.mapper",
         "com.h.backend.generation.infrastructure.persistence.mapper",
-        "com.h.backend.skill.infrastructure.persistence.mapper"
+        "com.h.backend.skill.infrastructure.persistence.mapper",
+        "com.h.backend.memory.infrastructure.persistence.mapper"
 })
 @SpringBootApplication
 @EnableScheduling

@@ -1,0 +1,219 @@
+{
+  "errCode": 0,
+  "errMessage": "success",
+  "data": {
+    "total": 100,
+    "pageNum": 1,
+    "pageSize": 20,
+    "data": [
+      {
+        "rank_num": 1,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "中国石油天然气集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 2,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "騰訊控股有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 3,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "华为投资控股有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 4,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 212807780,
+        "comp_id": "5bb78746a9ae9a0b3c1bf7c3",
+        "comp_name": "中国石油化工集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 5,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 250536731,
+        "comp_id": "5bb71525a9ae9a780e1cce55",
+        "comp_name": "中国远洋海运集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 6,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 149940386,
+        "comp_id": "5bb70200a9ae9a780edaf8c5",
+        "comp_name": "中国海洋石油集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 7,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 212808109,
+        "comp_id": "5bb6cb4da9ae9a74da8ce85a",
+        "comp_name": "国家电网有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 8,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "中国交通建设集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 9,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 248278091,
+        "comp_id": "5bb6c451a9ae9a74da6174d6",
+        "comp_name": "联想控股股份有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 10,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 286917072,
+        "comp_id": "5bb798d0a9ae9a0b3c442bd9",
+        "comp_name": "广州越秀集团股份有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 11,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "復星國際有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 12,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 186570205,
+        "comp_id": "5bb787d7a9ae9a0b3c1d6fb8",
+        "comp_name": "浙江吉利控股集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 13,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 216212058,
+        "comp_id": "5bb6c5b1a9ae9a74da6cbf4f",
+        "comp_name": "中国铝业集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 14,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "中国电力建设集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 15,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 218787440,
+        "comp_id": "5bb6c485a9ae9a74da648457",
+        "comp_name": "海尔集团公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 16,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_name": "中国兵器工业集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 17,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 249308855,
+        "comp_id": "5bb720e6a9ae9a780e3eadf0",
+        "comp_name": "中国建筑股份有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 18,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 253370364,
+        "comp_id": "6001d940ccd877131f231217",
+        "comp_name": "紫金矿业集团股份有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 19,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 77453505,
+        "comp_id": "5bb6c920a9ae9a74da8787d9",
+        "comp_name": "潍柴控股集团有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      },
+      {
+        "rank_num": 20,
+        "rank_name": "中国跨国公司100大名单及跨国指数",
+        "search_rank_name": "2025年度中国跨国公司100大名单及跨国指数",
+        "designation_unit": "中国企业联合会、中国企业家协会",
+        "comp_oneid": 7447980,
+        "comp_id": "5bb75123a9ae9a031821f741",
+        "comp_name": "洛阳栾川钼业集团股份有限公司",
+        "rank_id": 260599314,
+        "rank_year": 2025
+      }
+    ]
+  },
+  "requestId": "750B65A7-13B1-4A95-96AF-E8811F82F3BA",
+  "success": true
+}
