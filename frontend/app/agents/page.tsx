@@ -68,6 +68,7 @@ export default function AgentsPage() {
             </div>
             <div className="flex shrink-0 items-center gap-3 text-sm font-medium text-amber-700">
               <Link href="/chat">普通聊天</Link>
+              <Link href="/automations">自动化</Link>
               <Link href="/me/agents">管理</Link>
             </div>
           </div>

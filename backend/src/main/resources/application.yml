@@ -52,6 +52,28 @@ jwt:
   secret: ${JWT_SECRET:}
   expiration-seconds: ${JWT_EXPIRATION_SECONDS:7200}
 
+# tianai-captcha 上游配置：init-default-resource=false 由 CaptchaConfiguration 提供 classpath 受信资源。
+captcha:
+  prefix: h-agent:captcha:answer
+  expire:
+    default: 120000
+    SLIDER: 120000
+  init-default-resource: false
+  local-cache-enabled: true
+  local-cache-size: 20
+  local-cache-wait-time: 1000
+  local-cache-period: 5000
+  secondary:
+    enabled: false
+
+# 滑块人机验证（设计 docs/superpowers/specs/2026-09-05-auth-slider-captcha-design.md §5.4）。
+# subject-hmac-secret 为独立密钥，不复用 JWT_SECRET；为空时启动失败（fail fast）。
+human-verification:
+  challenge-metadata-ttl: 120s
+  proof-ttl: 90s
+  key-prefix: h-agent:human-verification
+  subject-hmac-secret: ${CAPTCHA_SUBJECT_HMAC_SECRET:}
+
 agent-observability:
   enabled: auto
   service-name: backend
@@ -239,3 +261,11 @@ generation:
     api-key: ${MINIMAX_API_KEY:${API_KEY:}}
   download:
     max-file-size: 524288000
+
+automation:
+  enabled: true
+  polling-delay: 15s
+  batch-size: 10
+  lease-duration: 30m
+  execution-timeout: 20m
+  worker-threads: 4

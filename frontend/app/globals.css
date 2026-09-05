@@ -25,3 +25,21 @@ body {
   color: var(--foreground);
   font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
+
+/* tianai-captcha 滑块固定 318px 宽；窄屏用 zoom 缩小（zoom 参与布局，
+   SDK 的 offsetWidth 测量与指针坐标换算保持一致，不能用 transform: scale）。 */
+.h-slider-captcha-widget {
+  line-height: normal;
+}
+
+@media (max-width: 352px) {
+  .h-slider-captcha-widget {
+    zoom: 0.92;
+  }
+}
+
+@media (max-width: 330px) {
+  .h-slider-captcha-widget {
+    zoom: 0.86;
+  }
+}

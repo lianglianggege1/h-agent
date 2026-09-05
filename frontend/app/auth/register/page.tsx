@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { SliderCaptchaDialog } from "@/components/auth/slider-captcha-dialog";
 import { register } from "@/lib/auth";
 
 export default function RegisterPage() {
@@ -14,10 +15,26 @@ export default function RegisterPage() {
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [captchaOpen, setCaptchaOpen] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function submitWithProof(captchaProof: string) {
+    setSubmitting(true);
+    try {
+      const user = await register({ email: email.trim(), password, captchaProof });
+      setMessage(`注册成功：${user.email}`);
+      window.setTimeout(() => router.replace("/auth/login"), 600);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "注册失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
+
+    if (submitting || captchaOpen) return;
 
     if (!email.trim() || !password || !confirmPassword) {
       setMessage("请填写邮箱和密码");
@@ -32,16 +49,7 @@ export default function RegisterPage() {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const user = await register({ email: email.trim(), password });
-      setMessage(`注册成功：${user.email}`);
-      window.setTimeout(() => router.replace("/auth/login"), 600);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "注册失败");
-    } finally {
-      setSubmitting(false);
-    }
+    setCaptchaOpen(true);
   }
 
   return (
@@ -126,6 +134,17 @@ export default function RegisterPage() {
           </p>
         </div>
       </section>
+
+      <SliderCaptchaDialog
+        open={captchaOpen}
+        purpose="REGISTER"
+        email={email.trim()}
+        onVerified={(captchaProof) => {
+          setCaptchaOpen(false);
+          void submitWithProof(captchaProof);
+        }}
+        onCancel={() => setCaptchaOpen(false)}
+      />
     </main>
   );
 }

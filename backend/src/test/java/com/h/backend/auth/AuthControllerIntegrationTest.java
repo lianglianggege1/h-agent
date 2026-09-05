@@ -4,6 +4,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.h.backend.auth.interfaces.dto.LoginRequest;
 import com.h.backend.auth.interfaces.dto.RegisterRequest;
+import com.h.backend.captcha.application.HumanVerification;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,6 +25,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * proof 门禁下的既有认证契约回归；HumanVerification mock 后保持原认证行为。
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(AuthControllerIntegrationTest.ProtectedProbeConfig.class)
@@ -34,13 +39,16 @@ class AuthControllerIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @MockitoBean
+    private HumanVerification humanVerification;
+
     @Test
     void shouldRegisterAndLoginWithoutToken() throws Exception {
         String email = uniqueEmail();
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123", null))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.email").value(email))
@@ -48,7 +56,7 @@ class AuthControllerIntegrationTest {
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123", null))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
@@ -61,12 +69,12 @@ class AuthControllerIntegrationTest {
         String email = uniqueEmail();
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123", null))))
                 .andExpect(status().isOk());
 
         Cookie authCookie = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123", null))))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -98,12 +106,12 @@ class AuthControllerIntegrationTest {
         String email = uniqueEmail();
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new RegisterRequest(email, "Password123", null))))
                 .andExpect(status().isOk());
 
         String loginBody = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123"))))
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, "Password123", null))))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

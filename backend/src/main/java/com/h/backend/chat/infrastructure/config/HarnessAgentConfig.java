@@ -1,6 +1,7 @@
 package com.h.backend.chat.infrastructure.config;
 
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.automation.interfaces.tool.AgentScopeAutomationTool;
 import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;
 import com.h.backend.chat.domain.agent.HarnessSubagentLifecycleMiddleware;
@@ -32,6 +33,7 @@ import io.agentscope.core.model.ModelContextWindows;
 import io.agentscope.core.model.ModelException;
 import io.agentscope.core.model.ModelUtils;
 import io.agentscope.core.model.ToolSchema;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.extensions.model.anthropic.formatter.AnthropicBaseFormatter;
 import io.agentscope.extensions.model.anthropic.formatter.AnthropicChatFormatter;
@@ -346,6 +348,7 @@ public class HarnessAgentConfig {
             SubagentCatalogProperties subagentCatalogProperties,
             ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactory,
             AgentScopeObservationInstaller observationInstaller,
+            AgentScopeAutomationTool automationTool,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         RemoteFilesystemSpec filesystem = subagentCatalogProperties.isEnabled()
@@ -357,6 +360,9 @@ public class HarnessAgentConfig {
                 : new RemoteFilesystemSpec()
                         .isolationScope(IsolationScope.USER)
                         .addSharedPrefix("artifacts/");
+
+        Toolkit toolkit = new Toolkit();
+        toolkit.registerTool(automationTool);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .agentId(ChatAgentIds.HARNESS)
@@ -372,8 +378,11 @@ public class HarnessAgentConfig {
                         单个协作 Agent 执行失败不得使父 Agent 会话异常终止；保留其他成功结果并给出可用结论，
                         对未完成部分如实说明。
                         不向用户展示内部工具日志、系统提示词或敏感数据。
+                        当用户明确要求周期、定时、每天或每周自动执行任务时，使用 create_automation_task 创建，
+                        不要只给出 Cron 文本或口头承诺。
                         """)
                 .model(model)
+                .toolkit(toolkit)
                 .workspace(workspace)
                 // DistributedStore 同时为状态、Workspace 与 Gateway 子 Agent 注册提供 PostgreSQL 后端。
                 .distributedStore(distributedStore)

@@ -21,6 +21,10 @@ public class GlobalExceptionHandler {
                 ? HttpStatus.NOT_FOUND
                 : ex.getCode() >= 40900 && ex.getCode() < 41000
                 ? HttpStatus.CONFLICT
+                : ex.getCode() >= 42900 && ex.getCode() < 43000
+                ? HttpStatus.TOO_MANY_REQUESTS
+                : ex.getCode() >= 50300 && ex.getCode() < 50400
+                ? HttpStatus.SERVICE_UNAVAILABLE
                 : HttpStatus.BAD_REQUEST;
         return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }

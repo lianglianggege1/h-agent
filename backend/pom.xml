@@ -154,6 +154,28 @@
             <version>0.12.7</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- 登录/注册滑块验证（设计 docs/superpowers/specs/2026-09-05-auth-slider-captcha-design.md）：固定版本，不用浮动版本。
+             starter 上游 POM 以 Boot 2.2.7 BOM 仲裁并传递 spring-boot-autoconfigure/processors 2.2.7，
+             必须排除，否则与本项目 Boot 4.0.6 的 autoconfigure 冲突；自动配置经 AutoConfiguration.imports 仍然生效。 -->
+        <dependency>
+            <groupId>cloud.tianai.captcha</groupId>
+            <artifactId>tianai-captcha-springboot-starter</artifactId>
+            <version>1.5.5</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-autoconfigure</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-autoconfigure-processor</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-configuration-processor</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-core</artifactId>

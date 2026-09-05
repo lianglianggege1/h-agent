@@ -49,6 +49,25 @@ jwt:
   secret: change-this-to-256-bit-secret-change-this
   expiration-seconds: 7200
 
+captcha:
+  prefix: h-agent:captcha:answer
+  expire:
+    default: 120000
+    SLIDER: 120000
+  init-default-resource: false
+  local-cache-enabled: true
+  local-cache-size: 20
+  local-cache-wait-time: 1000
+  local-cache-period: 5000
+  secondary:
+    enabled: false
+
+human-verification:
+  challenge-metadata-ttl: 120s
+  proof-ttl: 90s
+  key-prefix: h-agent:human-verification
+  subject-hmac-secret: test-subject-hmac-secret-256-bit-dummy-value
+
 langfuse:
   enabled: false
   otlp-endpoint: https://cloud.langfuse.com/api/public/otel

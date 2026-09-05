@@ -24,14 +24,14 @@ export function logout() {
   });
 }
 
-export function register(payload: { email: string; password: string }) {
+export function register(payload: { email: string; password: string; captchaProof: string }) {
   return apiFetch<AuthUser>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export function login(payload: { email: string; password: string }) {
+export function login(payload: { email: string; password: string; captchaProof: string }) {
   return apiFetch<LoginResult>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { SliderCaptchaDialog } from "@/components/auth/slider-captcha-dialog";
 import { getCurrentUser, login } from "@/lib/auth";
 import { consumePostLoginRedirect } from "@/lib/session";
 
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [captchaOpen, setCaptchaOpen] = useState(false);
 
   useEffect(() => {
     getCurrentUser()
@@ -20,18 +22,10 @@ export default function LoginPage() {
       .catch(() => undefined);
   }, [router]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-
-    if (!email.trim() || !password) {
-      setMessage("请填写邮箱和密码");
-      return;
-    }
-
+  async function submitWithProof(captchaProof: string) {
     setSubmitting(true);
     try {
-      const result = await login({ email: email.trim(), password });
+      const result = await login({ email: email.trim(), password, captchaProof });
       const redirectPath = consumePostLoginRedirect() ?? "/chat";
       setMessage(`登录成功，欢迎 ${result.user.email}`);
       router.replace(redirectPath);
@@ -40,6 +34,20 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+
+    if (submitting || captchaOpen) return;
+
+    if (!email.trim() || !password) {
+      setMessage("请填写邮箱和密码");
+      return;
+    }
+
+    setCaptchaOpen(true);
   }
 
   return (
@@ -89,7 +97,7 @@ export default function LoginPage() {
             <button
               className="w-full rounded-2xl bg-stone-900 px-4 py-3 text-base font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
               type="submit"
-              disabled={submitting}
+              disabled={submitting || captchaOpen}
             >
               {submitting ? "登录中..." : "登录"}
             </button>
@@ -103,6 +111,17 @@ export default function LoginPage() {
           </p>
         </div>
       </section>
+
+      <SliderCaptchaDialog
+        open={captchaOpen}
+        purpose="LOGIN"
+        email={email.trim()}
+        onVerified={(captchaProof) => {
+          setCaptchaOpen(false);
+          void submitWithProof(captchaProof);
+        }}
+        onCancel={() => setCaptchaOpen(false)}
+      />
     </main>
   );
 }

@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "dist/**",
     "next-env.d.ts",
+    // 固定版本的第三方压缩制品，不做 lint。
+    "public/vendor/**",
   ]),
 ]);
 

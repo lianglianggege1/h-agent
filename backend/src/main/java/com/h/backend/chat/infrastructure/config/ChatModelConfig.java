@@ -18,6 +18,7 @@ import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
 import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import com.h.backend.generation.interfaces.tool.ImageToVideoTool;
+import com.h.backend.automation.interfaces.tool.LangChain4jAutomationTool;
 import com.h.backend.skill.application.SkillRuntimeService;
 import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -78,6 +79,9 @@ public class ChatModelConfig {
 
     @Resource
     private ImageToVideoTool imageToVideoTool;
+
+    @Resource
+    private LangChain4jAutomationTool langChain4jAutomationTool;
 
     @Resource
     private HToolArgumentsErrorHandler hToolArgumentsErrorHandler;
@@ -145,7 +149,8 @@ public class ChatModelConfig {
         // 在该路径不可用（当前工具集未使用）。
         toolProviders.add(staticToolsProvider(observability, List.of(
                 imageGenerationTool, textToVideoTool, imageToVideoTool,
-                filesystemTool, fileDeliveryTool, shellTool, webSearchTool)));
+                filesystemTool, fileDeliveryTool, shellTool, webSearchTool,
+                langChain4jAutomationTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
         toolProviders.add(new ObservingToolProvider(skillRuntimeToolProvider, observability, "langchain4j"));
