@@ -505,3 +505,11 @@ uv run ruff format --check .
 ## 许可证
 
 项目基于 [MIT License](LICENSE) 开源。
+
+## 交流联系
+
+欢迎扫码添加我的社交账号，一起交流 AI Agent 相关话题：
+
+<p align="center">
+  <img src="docs/images/social-qr-code.png" alt="社交账号二维码" width="240">
+</p>
