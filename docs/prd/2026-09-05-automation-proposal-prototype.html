@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自动化任务（定时 Agent）产品原型 v2 · 提案-确认机制</title>
+<style>
+  :root { --bg:#f3efe6; --panel:#fbfaf6; --paper:#fff; --ink:#231f1a; --muted:#81786d; --line:#ddd6c9; --soft:#ebe4d8; --accent:#b96f42; --green:#5e806c; --red:#b0563f; --blue:#5d7a96; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  button { font:inherit; cursor:pointer; }
+  .wrap { max-width:1180px; margin:0 auto; padding:30px 22px 70px; }
+  .doc-head { margin-bottom:20px; }
+  .doc-head h1 { margin:0 0 6px; font-size:24px; }
+  .doc-head p { margin:0; color:var(--muted); }
+  .tabs { display:flex; gap:8px; margin-bottom:22px; flex-wrap:wrap; }
+  .tabs button { border:1px solid var(--line); background:var(--paper); color:#625a50; border-radius:9px; padding:9px 16px; font-weight:600; }
+  .tabs button.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .view { display:none; }
+  .view.active { display:block; }
+  h2 { font-size:17px; margin:34px 0 4px; }
+  .sub { color:var(--muted); margin:0 0 16px; font-size:13px; }
+  .card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:20px; margin-bottom:20px; }
+  .note { border-left:3px solid var(--accent); background:#faf6ef; border-radius:0 9px 9px 0; padding:12px 15px; font-size:13px; color:#6b5b4d; margin:14px 0; }
+  .note b { color:var(--accent); }
+  .badge { display:inline-block; font-size:12px; font-weight:650; border-radius:999px; padding:2px 10px; }
+  .b-run { background:#e5efe9; color:var(--green); }
+  .b-pause { background:#efe9dc; color:#8a7a5f; }
+  .b-fail { background:#f5e3dd; color:var(--red); }
+  .b-agent { background:#e7ecf2; color:var(--blue); }
+
+  .scene { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:18px 20px; margin-bottom:16px; }
+  .scene-title { font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .scene-num { width:22px; height:22px; border-radius:50%; background:var(--ink); color:#fff; display:grid; place-items:center; font-size:12px; flex:0 0 22px; }
+  .steps { display:flex; flex-wrap:wrap; align-items:stretch; }
+  .step { flex:1 1 150px; min-width:150px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:13px; position:relative; }
+  .step + .step { margin-left:26px; }
+  .step + .step::before { content:"→"; position:absolute; left:-21px; top:50%; transform:translateY(-50%); color:var(--accent); font-weight:700; }
+  .step b { display:block; font-size:13px; margin-bottom:2px; }
+  .step span { color:var(--muted); font-size:12px; line-height:1.5; display:block; }
+  .step.key { border-color:var(--accent); background:#fdf9f3; }
+
+  .phones { display:flex; gap:22px; flex-wrap:wrap; }
+  .phone { flex:1 1 300px; max-width:340px; border:1.5px solid #b8ad9a; border-radius:26px; background:var(--bg); padding:10px; box-shadow:0 4px 14px rgba(60,50,30,.08); }
+  .phone-head { text-align:center; font-size:12px; color:var(--muted); padding:4px 0 10px; font-weight:650; }
+  .phone-body { background:var(--paper); border:1px solid var(--line); border-radius:16px; min-height:560px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .ph-top { font-size:13px; font-weight:700; padding:2px 4px 8px; border-bottom:1px solid var(--soft); }
+  .msg { max-width:88%; padding:9px 11px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font-size:13px; }
+  .msg.user { margin-left:auto; border:0; background:#e4dccf; }
+  .msg p { margin:0; }
+  .confirm-card { border:1.5px solid var(--accent); background:#fdf9f3; border-radius:12px; padding:11px 12px; font-size:12.5px; }
+  .confirm-card.danger { border-color:var(--red); background:#fbf1ec; }
+  .confirm-card h4 { margin:0 0 8px; font-size:13px; color:var(--accent); display:flex; justify-content:space-between; align-items:center; }
+  .confirm-card.danger h4 { color:var(--red); }
+  .confirm-card h4 .tag { font-size:11px; background:var(--accent); color:#fff; border-radius:999px; padding:1px 9px; }
+  .confirm-card.danger h4 .tag { background:var(--red); }
+  .kv { display:flex; gap:8px; padding:3px 0; border-bottom:1px dashed #eadfce; }
+  .kv:last-of-type { border-bottom:0; }
+  .kv b { flex:0 0 64px; color:var(--muted); font-weight:600; }
+  .kv span { flex:1; }
+  .confirm-actions { display:flex; gap:8px; margin-top:10px; }
+  .btn { border-radius:8px; padding:6px 13px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--ink); }
+  .btn.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .btn.danger { color:var(--red); border-color:#dcbcb0; }
+  .proposal-foot { color:var(--muted); font-size:11px; margin-top:8px; }
+  .result-card { border:1px solid var(--line); background:#f8f5ee; border-radius:12px; padding:10px 12px; font-size:12.5px; }
+  .result-card h4 { margin:0 0 6px; font-size:12.5px; color:var(--muted); display:flex; justify-content:space-between; font-weight:600; }
+  .result-card h4 b { color:var(--ink); }
+  .result-card .more { color:var(--accent); font-size:12px; margin-top:6px; display:block; }
+  .sys-time { text-align:center; color:var(--muted); font-size:11.5px; padding:2px 0; }
+  .sys-time b { color:var(--green); }
+  .sys-time .hint { display:block; color:#a89b88; font-size:10.5px; }
+  .mini-list { border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:12px; }
+  .mini-row { display:flex; justify-content:space-between; align-items:center; padding:7px 10px; background:var(--paper); border-bottom:1px solid var(--soft); gap:8px; }
+  .mini-row:last-child { border-bottom:0; }
+  .mini-row .name { font-weight:650; }
+  .mini-row .meta { color:var(--muted); font-size:11.5px; }
+
+  .browser { border:1.5px solid #b8ad9a; border-radius:16px; background:var(--paper); overflow:hidden; box-shadow:0 4px 14px rgba(60,50,30,.08); }
+  .browser-bar { background:#ece6da; border-bottom:1px solid var(--line); padding:9px 14px; display:flex; align-items:center; gap:10px; }
+  .dots { display:flex; gap:5px; }
+  .dots i { width:10px; height:10px; border-radius:50%; background:#cfc5b3; }
+  .url { flex:1; background:#fff; border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:12px; color:var(--muted); }
+  .me-layout { display:grid; grid-template-columns:200px 1fr; min-height:520px; }
+  .me-nav { border-right:1px solid var(--line); background:#f2ecdf; padding:16px 12px; font-size:13px; }
+  .me-group { color:#9a9082; font-size:11px; letter-spacing:.12em; margin:16px 8px 6px; }
+  .me-nav button { display:block; width:100%; border:0; background:transparent; text-align:left; padding:8px 10px; border-radius:8px; color:#625a50; }
+  .me-nav button.active { background:#fff; color:var(--ink); font-weight:650; border:1px solid var(--line); }
+  .me-main { padding:18px 22px; }
+  .me-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .me-head h3 { margin:0; font-size:18px; }
+  .pending-banner { display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid #dcb98d; background:#fbf3e4; border-radius:10px; padding:9px 14px; font-size:12.5px; color:#7a5b2e; margin-bottom:14px; }
+  .pending-banner a { color:var(--accent); font-weight:650; text-decoration:none; white-space:nowrap; }
+  .filter-row { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .chip { border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 13px; font-size:12.5px; color:#625a50; }
+  .chip.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+  table.list { width:100%; border-collapse:collapse; font-size:13px; background:var(--paper); }
+  table.list th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:8px 10px; border-bottom:1.5px solid var(--line); }
+  table.list td { padding:10px; border-bottom:1px solid var(--soft); vertical-align:top; }
+  .tname { font-weight:650; }
+  .tname small { display:block; color:var(--muted); font-weight:400; font-size:11.5px; margin-top:2px; }
+  .cron-hint { color:var(--muted); font-size:11.5px; margin-top:2px; }
+  .ops { display:flex; gap:6px; flex-wrap:wrap; }
+  .ops button { border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 9px; font-size:12px; color:#625a50; }
+  .ops button:hover { border-color:var(--accent); color:var(--accent); }
+  .run-hist { margin-top:22px; border:1px solid var(--line); border-radius:12px; background:#fff; padding:16px 18px; }
+  .run-hist h4 { margin:0 0 4px; font-size:14px; }
+  .run-hist .sub2 { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .kv-grid { display:flex; gap:26px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin-bottom:12px; }
+  .kv-grid b { color:var(--ink); font-weight:600; }
+  .trace { color:var(--accent); text-decoration:none; font-size:12px; }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:12px; }
+  .seq-svg { width:100%; height:auto; display:block; }
+  /* ===== 手动创建弹窗 ===== */
+  .modal-mask { position:fixed; inset:0; background:rgba(35,31,26,.42); display:grid; place-items:center; z-index:50; }
+  .modal-mask[hidden] { display:none; }
+  .modal { width:min(620px, calc(100vw - 40px)); background:var(--paper); border-radius:16px; border:1px solid var(--line); box-shadow:0 18px 50px rgba(60,50,30,.25); overflow:hidden; }
+  .modal-head { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--soft); }
+  .modal-head h3 { margin:0; font-size:16px; }
+  .modal-head .tmpl { font-size:12.5px; color:var(--accent); background:none; border:0; padding:0; }
+  .modal-close { border:0; background:none; font-size:18px; color:var(--muted); line-height:1; }
+  .modal-body { padding:18px 20px 6px; font-size:13px; }
+  .field { margin-bottom:14px; }
+  .field > label { display:block; font-size:12.5px; font-weight:650; margin-bottom:6px; color:var(--ink); }
+  .field > label .fhint { font-weight:400; color:var(--muted); font-size:11.5px; margin-left:6px; }
+  .field input[type=text], .field select, .field textarea { width:100%; border:1px solid var(--line); border-radius:9px; padding:8px 11px; font:inherit; font-size:13px; background:#fff; color:var(--ink); }
+  .field input::placeholder, .field textarea::placeholder { color:#b3a895; }
+  .field textarea { min-height:110px; resize:vertical; }
+  .time-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:10px; }
+  .prompt-box { border:1px solid var(--line); border-radius:11px; background:#fff; }
+  .prompt-box textarea { border:0; width:100%; min-height:86px; padding:11px 12px; }
+  .prompt-box textarea:focus { outline:none; }
+  .prompt-tools { display:flex; align-items:center; gap:10px; border-top:1px solid var(--soft); padding:7px 10px; font-size:12px; color:var(--muted); }
+  .prompt-tools .right { margin-left:auto; display:flex; gap:10px; align-items:center; }
+  .prompt-tools .mode-pill { border:1px solid var(--line); border-radius:999px; padding:2px 10px; font-size:11.5px; }
+  .prompt-tools .mode-pill.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .attach-btn { border:1px dashed #c9bfae; background:#faf7f0; border-radius:7px; padding:2px 8px; font-size:12px; color:#7a5b2e; }
+  .modal-foot { display:flex; align-items:center; gap:10px; padding:14px 20px 18px; }
+  .modal-foot .tip { font-size:11.5px; color:var(--muted); margin-right:auto; max-width:300px; line-height:1.45; }
+  /* ===== 投递选项 ===== */
+  .delivery-opts { display:flex; flex-direction:column; gap:8px; }
+  .del-opt { display:flex; gap:10px; align-items:flex-start; border:1px solid var(--line); border-radius:9px; padding:9px 12px; cursor:pointer; background:#fff; }
+  .del-opt:has(input:checked) { border-color:var(--accent); background:#fdf9f3; }
+  .del-opt > input { margin-top:4px; accent-color:var(--accent); }
+  .del-body b { display:block; font-size:13px; }
+  .del-body > span { display:block; font-size:11.5px; color:var(--muted); line-height:1.5; margin-top:1px; }
+  .del-body input[type=text] { margin-top:6px; border:1px solid var(--line); border-radius:7px; padding:5px 9px; font-size:12.5px; width:100%; }
+  .soon { display:inline-block; font-size:10.5px; background:#efe9dc; color:#8a7a5f; border-radius:999px; padding:0 7px; vertical-align:2px; }
+  @media (max-width:760px) { .me-layout { grid-template-columns:1fr; } .me-nav { display:flex; flex-wrap:wrap; gap:6px; } .me-nav .me-group { width:100%; } .time-grid { grid-template-columns:1fr; } .modal-foot .tip { display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-head">
+    <h1>自动化任务（定时 Agent）— 产品原型 v2</h1>
+    <p>提案-确认机制（无 HITL 暂停）· 聊天 CRUD + 管理页面 · 双框架执行 · XXL-Job 调度 · 对齐 OpenClaw Automations</p>
+  </div>
+
+  <div class="tabs">
+    <button class="active" data-view="v-journey">① 用户操作图</button>
+    <button data-view="v-seq">② 机制时序图</button>
+    <button data-view="v-delivery">③ 投递解耦架构</button>
+    <button data-view="v-chat">④ 聊天交互</button>
+    <button data-view="v-admin">⑤ 管理页面</button>
+  </div>
+
+  <!-- ============ 视图 1：用户操作图 ============ -->
+  <section class="view active" id="v-journey">
+
+    <h2>三个用户场景（写操作一律走「提案-确认」）</h2>
+    <p class="sub">Agent 从不直接改任务：它只生成提案，本轮自然结束；用户点卡片按钮，前端直调 REST 生效。</p>
+
+    <div class="scene">
+      <div class="scene-title"><span class="scene-num">A</span>创建任务（自然语言 → 提案 → 确认生效）</div>
+      <div class="steps">
+        <div class="step"><b>说需求</b><span>「每天早上 9 点总结我昨天的会话，发到这个聊天里」</span></div>
+        <div class="step key"><b>Agent 出提案卡片</b><span>解析出名称/调度/执行者/内容/投递五要素，落库为待确认提案；本轮正常结束</span></div>
+        <div class="step"><b>点「确认创建」</b><span>前端直调 REST（不经过 Agent）；也可改参数再确认或取消</span></div>
+        <div class="step"><b>生效反馈</b><span>系统消息注入会话：已创建 + 下次运行时间；任务同步注册到 XXL-Job</span></div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-title"><span class="scene-num">B</span>到点执行 → 结果投递回聊天</div>
+      <div class="steps">
+        <div class="step"><b>到点触发</b><span>无需用户在线；系统时间线出现在聊天流中</span></div>
+        <div class="step"><b>Agent 独立运行</b><span>按任务路由到 h-agent（LangChain4j）或 harness-agent（AgentScope）</span></div>
+        <div class="step"><b>结果卡片投递</b><span>输出摘要卡片进入原会话，可展开全文；失败也投递并附原因</span></div>
+        <div class="step"><b>用户继续对话</b><span>在卡片下方追问，Agent 带运行上下文接续回答</span></div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-title"><span class="scene-num">C</span>日常管理（查询直接答，变更走提案）</div>
+      <div class="steps">
+        <div class="step"><b>问任务</b><span>「我有哪些定时任务？」→ 列表卡片（读操作不确认）</span></div>
+        <div class="step"><b>改任务</b><span>「日报改成每周一发」→ 变更提案卡片 → 点确认生效</span></div>
+        <div class="step"><b>暂停 / 恢复</b><span>「先暂停日报」→ 变更提案卡片（同一条链路）</span></div>
+        <div class="step"><b>删除</b><span>「删掉日报」→ 危险提案卡片（红色，明示不可恢复）</span></div>
+      </div>
+      <div class="note"><b>提案生命周期：</b>生成后 24 小时内未确认自动过期作废，会话留一条轻量记录（「提案已过期，可重新发起」）；点「取消」立即作废。</div>
+    </div>
+
+    <h2>端到端主链路</h2>
+    <div class="card">
+      <div class="steps" style="flex-wrap:nowrap">
+        <div class="step"><b>用户聊天</b><span>自然语言发起</span></div>
+        <div class="step key"><b>提案-确认</b><span>Agent 提案 · 轮次外 REST 确认</span></div>
+        <div class="step"><b>任务生效</b><span>automation 表落库 + 注册 XXL-Job</span></div>
+        <div class="step"><b>到点执行</b><span>双框架路由 Agent Run</span></div>
+        <div class="step"><b>结果投递</b><span>卡片回原会话 + Trace</span></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>与 OpenClaw 的对齐与差异：</b>对齐——聊天内 automations 工具 CRUD、结果投递、运行历史与 Trace、隔离运行。差异（更保守）——写操作增加提案-确认门槛，OpenClaw 为直接执行。投递层对齐其 channel/webhook/nowhere 三态：我们会话卡片（默认）+ 邮箱（V1.5）+ 无（Agent 自行投递），webhook 列入 V2。机制上不依赖任何引擎的暂停/恢复能力，LangChain4j 与 AgentScope 完全同构。
+    </div>
+    <div class="note">
+      <b>现状 → 演进：</b>现有代码已具备双框架 create_automation_task 工具（直接创建）、REST 管理接口与管理页。本版演进为：写操作改走提案（新增提案表 + confirm/cancel 端点 + 会话注入消息），读操作不变；执行侧复用现有 AutomationRunCoordinator 派发链路。
+    </div>
+  </section>
+
+  <!-- ============ 视图 2：机制时序图 ============ -->
+  <section class="view" id="v-seq">
+    <h2>提案-确认机制时序</h2>
+    <p class="sub">三个阶段：轮次内 Agent 只提案；轮次外前端直调 REST 确认；到点后独立执行并投递。全程无 Run 暂停。</p>
+    <div class="card">
+      <svg class="seq-svg" viewBox="0 0 1140 690" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,PingFang SC,sans-serif">
+        <defs>
+          <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path d="M1 1 L7 4 L1 7 Z" fill="#a89b88"/>
+          </marker>
+        </defs>
+        <!-- 生命线 -->
+        <g stroke="#c9bfae" stroke-dasharray="4 4" stroke-width="1.2">
+          <line x1="100" y1="60" x2="100" y2="640"/>
+          <line x1="330" y1="60" x2="330" y2="640"/>
+          <line x1="560" y1="60" x2="560" y2="640"/>
+          <line x1="790" y1="60" x2="790" y2="640"/>
+          <line x1="1010" y1="60" x2="1010" y2="640"/>
+        </g>
+        <!-- 参与者 -->
+        <g>
+          <rect x="15" y="16" width="170" height="44" rx="10" fill="#231f1a"/>
+          <text x="100" y="43" text-anchor="middle" font-size="14" font-weight="650" fill="#fff">用户 / 前端</text>
+          <rect x="245" y="16" width="170" height="44" rx="10" fill="#e7ecf2" stroke="#5d7a96"/>
+          <text x="330" y="36" text-anchor="middle" font-size="13" font-weight="650" fill="#3d5568">聊天 Agent</text>
+          <text x="330" y="52" text-anchor="middle" font-size="11.5" fill="#5d7a96">LangChain4j / AgentScope</text>
+          <rect x="475" y="16" width="170" height="44" rx="10" fill="#fdf9f3" stroke="#b96f42"/>
+          <text x="560" y="36" text-anchor="middle" font-size="13" font-weight="650" fill="#b96f42">自动化服务</text>
+          <text x="560" y="52" text-anchor="middle" font-size="11.5" fill="#b96f42">提案 + 任务 + 运行</text>
+          <rect x="705" y="16" width="170" height="44" rx="10" fill="#fff" stroke="#ddd6c9"/>
+          <text x="790" y="43" text-anchor="middle" font-size="13" font-weight="650" fill="#231f1a">公司 XXL-Job</text>
+          <rect x="925" y="16" width="170" height="44" rx="10" fill="#e5efe9" stroke="#5e806c"/>
+          <text x="1010" y="43" text-anchor="middle" font-size="13" font-weight="650" fill="#3f5a4d">执行 Agent Run</text>
+        </g>
+        <!-- 阶段带 -->
+        <g>
+          <rect x="10" y="72" width="1120" height="24" rx="6" fill="#f2ecdf" stroke="#ddd6c9" stroke-dasharray="3 3"/>
+          <text x="24" y="89" font-size="12.5" font-weight="650" fill="#7a5b2e">阶段 1 · 聊天轮次内 —— Agent 只提案，不生效</text>
+          <rect x="10" y="286" width="1120" height="24" rx="6" fill="#f2ecdf" stroke="#ddd6c9" stroke-dasharray="3 3"/>
+          <text x="24" y="303" font-size="12.5" font-weight="650" fill="#7a5b2e">阶段 2 · 轮次外确认 —— 前端直调 REST，Agent 不参与、不重新运行</text>
+          <rect x="10" y="418" width="1120" height="24" rx="6" fill="#f2ecdf" stroke="#ddd6c9" stroke-dasharray="3 3"/>
+          <text x="24" y="435" font-size="12.5" font-weight="650" fill="#7a5b2e">阶段 3 · 到点执行 —— 无需用户在线，调度与投递全自动</text>
+        </g>
+        <!-- 消息 -->
+        <g stroke="#a89b88" stroke-width="1.6" fill="none">
+          <line x1="100" y1="120" x2="322" y2="120" marker-end="url(#ar)"/>
+          <line x1="330" y1="156" x2="552" y2="156" marker-end="url(#ar)"/>
+          <line x1="560" y1="216" x2="338" y2="216" marker-end="url(#ar)"/>
+          <line x1="330" y1="252" x2="108" y2="252" marker-end="url(#ar)"/>
+          <line x1="100" y1="330" x2="552" y2="330" marker-end="url(#ar)"/>
+          <line x1="560" y1="384" x2="108" y2="384" marker-end="url(#ar)"/>
+          <line x1="790" y1="462" x2="568" y2="462" marker-end="url(#ar)"/>
+          <line x1="560" y1="498" x2="1002" y2="498" marker-end="url(#ar)"/>
+          <line x1="1010" y1="534" x2="568" y2="534" marker-end="url(#ar)"/>
+          <line x1="560" y1="570" x2="108" y2="570" marker-end="url(#ar)"/>
+        </g>
+        <g font-size="12.5" fill="#625a50">
+          <text x="211" y="113" text-anchor="middle">「每天早 9 点总结会话发日报」</text>
+          <text x="441" y="149" text-anchor="middle">propose 工具：解析后的任务参数</text>
+          <text x="449" y="209" text-anchor="middle">提案 ID + 摘要</text>
+          <text x="219" y="245" text-anchor="middle">本轮自然结束 · 确认卡片（含提案 ID）</text>
+          <text x="325" y="323" text-anchor="middle">点「确认创建」→ POST /automation-proposals/{id}/confirm</text>
+          <text x="334" y="377" text-anchor="middle">系统消息注入会话：已创建 · 下次运行 明天 09:00</text>
+          <text x="679" y="455" text-anchor="middle">到点触发（cron / 固定间隔 / 单次）</text>
+          <text x="781" y="491" text-anchor="middle">派发运行：按任务路由 h-agent / harness-agent</text>
+          <text x="789" y="527" text-anchor="middle">运行结果 + Langfuse Trace</text>
+          <text x="334" y="563" text-anchor="middle">投递器分发（会话卡片 / 邮箱 / 无）</text>
+        </g>
+        <!-- 自注记 -->
+        <g>
+          <rect x="455" y="166" width="210" height="26" rx="8" fill="#fdf9f3" stroke="#b96f42"/>
+          <text x="560" y="184" text-anchor="middle" font-size="12" fill="#b96f42">提案落库 PENDING（未注册 XXL-Job）</text>
+          <rect x="455" y="346" width="210" height="26" rx="8" fill="#fdf9f3" stroke="#b96f42"/>
+          <text x="560" y="364" text-anchor="middle" font-size="12" fill="#b96f42">创建任务 + 注册 XXL-Job（同事务）</text>
+          <rect x="455" y="540" width="210" height="26" rx="8" fill="#fdf9f3" stroke="#b96f42"/>
+          <text x="560" y="558" text-anchor="middle" font-size="12" fill="#b96f42">投递器：仅重试投递，不重跑 Run</text>
+        </g>
+        <!-- 底部说明 -->
+        <g>
+          <rect x="10" y="596" width="1120" height="74" rx="10" fill="#fbfaf6" stroke="#ddd6c9"/>
+          <text x="26" y="617" font-size="12" fill="#625a50">· 「取消」或 24 小时未确认 → 提案作废，会话留轻量记录，任务与 XXL-Job 均不创建</text>
+          <text x="26" y="638" font-size="12" fill="#625a50">· 双框架只差工具声明（@Tool / @ToolParam），提案、确认、投递共用同一套表与 REST；管理页操作即本人意图，仅删除加弹窗二次确认</text>
+          <text x="26" y="659" font-size="12" fill="#625a50">· Run 与投递解耦：Run 产出 Artifact（文本 + 附件），投递器按任务配置分发（会话 / 邮箱 / 无）；投递失败仅重试投递，不重跑 Run</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============ 视图 3：投递解耦架构 ============ -->
+  <section class="view" id="v-delivery">
+    <h2>投递与主流程解耦</h2>
+    <p class="sub">Agent Run 与产物投递是两条独立链路：Run 只负责产出 Artifact，投递意图先落库（PENDING），投递器独立消费分发。创建任务时声明投递目的。</p>
+    <div class="card">
+      <svg class="seq-svg" viewBox="0 0 1140 560" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,PingFang SC,sans-serif">
+        <defs>
+          <marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+            <path d="M1 1 L7 4 L1 7 Z" fill="#a89b88"/>
+          </marker>
+        </defs>
+
+        <!-- 左：主流程（Run 链路） -->
+        <g>
+          <rect x="15" y="16" width="360" height="440" rx="12" fill="#ece6da" stroke="#ddd6c9"/>
+          <text x="195" y="44" text-anchor="middle" font-size="14" font-weight="700" fill="#231f1a">主流程 · 执行链路</text>
+          <text x="195" y="62" text-anchor="middle" font-size="11.5" fill="#81786d">到点触发 → Agent Run，与投递无关</text>
+
+          <rect x="45" y="86" width="300" height="54" rx="9" fill="#fff" stroke="#ddd6c9"/>
+          <text x="195" y="109" text-anchor="middle" font-size="12.5" font-weight="650" fill="#231f1a">XXL-Job 到点触发</text>
+          <text x="195" y="127" text-anchor="middle" font-size="11.5" fill="#81786d">automationDispatchHandler(automationId)</text>
+
+          <rect x="45" y="164" width="300" height="54" rx="9" fill="#e7ecf2" stroke="#5d7a96"/>
+          <text x="195" y="187" text-anchor="middle" font-size="12.5" font-weight="650" fill="#3d5568">Agent Run（双框架路由）</text>
+          <text x="195" y="205" text-anchor="middle" font-size="11.5" fill="#5d7a96">h-agent（LangChain4j）/ harness-agent（AgentScope）</text>
+
+          <rect x="45" y="242" width="300" height="54" rx="9" fill="#fff" stroke="#ddd6c9"/>
+          <text x="195" y="265" text-anchor="middle" font-size="12.5" font-weight="650" fill="#231f1a">产出 Artifact</text>
+          <text x="195" y="283" text-anchor="middle" font-size="11.5" fill="#81786d">结果文本 + 文件资源（复用会话资源体系）</text>
+
+          <rect x="45" y="320" width="300" height="60" rx="9" fill="#fdf9f3" stroke="#b96f42" stroke-width="1.5"/>
+          <text x="195" y="343" text-anchor="middle" font-size="12.5" font-weight="650" fill="#b96f42">投递意图落库（关键解耦点）</text>
+          <text x="195" y="361" text-anchor="middle" font-size="11.5" fill="#b96f42">automation_run.delivery_status = PENDING</text>
+          <text x="195" y="376" text-anchor="middle" font-size="11.5" fill="#b96f42">轻量 outbox：崩溃重启后仍可补发</text>
+
+          <text x="195" y="412" text-anchor="middle" font-size="11.5" fill="#81786d">Run 到此结束 —— 不等待、不感知任何目的地</text>
+          <text x="195" y="430" text-anchor="middle" font-size="11.5" fill="#81786d">Langfuse Trace 在此链路内记录</text>
+        </g>
+
+        <!-- 右：投递链路 -->
+        <g>
+          <rect x="430" y="16" width="695" height="440" rx="12" fill="#ece6da" stroke="#ddd6c9"/>
+          <text x="777" y="44" text-anchor="middle" font-size="14" font-weight="700" fill="#231f1a">副流程 · 投递链路（独立于 Run）</text>
+          <text x="777" y="62" text-anchor="middle" font-size="11.5" fill="#81786d">投递器消费 PENDING 记录，按任务创建时声明的目的分发</text>
+
+          <rect x="460" y="86" width="200" height="54" rx="9" fill="#fff" stroke="#ddd6c9"/>
+          <text x="560" y="109" text-anchor="middle" font-size="12.5" font-weight="650" fill="#231f1a">投递器 Dispatcher</text>
+          <text x="560" y="127" text-anchor="middle" font-size="11.5" fill="#81786d">扫描 PENDING → 调用 Sink</text>
+
+          <!-- Sink 列 -->
+          <text x="700" y="82" font-size="12" font-weight="650" fill="#7a5b2e">Sink（创建任务时选择投递目的）</text>
+          <rect x="700" y="90" width="200" height="64" rx="9" fill="#e5efe9" stroke="#5e806c"/>
+          <text x="800" y="113" text-anchor="middle" font-size="12.5" font-weight="650" fill="#3f5a4d">SESSION 会话卡片（默认）</text>
+          <text x="800" y="131" text-anchor="middle" font-size="11.5" fill="#5e806c">常驻观测通道：无论选什么，</text>
+          <text x="800" y="146" text-anchor="middle" font-size="11.5" fill="#5e806c">会话永远有运行记录</text>
+
+          <rect x="700" y="166" width="200" height="56" rx="9" fill="#fdf9f3" stroke="#b96f42"/>
+          <text x="800" y="189" text-anchor="middle" font-size="12.5" font-weight="650" fill="#b96f42">EMAIL 邮箱（V1.5）</text>
+          <text x="800" y="207" text-anchor="middle" font-size="11.5" fill="#b96f42">正文 + 附件 · SMTP</text>
+
+          <rect x="700" y="234" width="200" height="56" rx="9" fill="#efe9dc" stroke="#c9bfae"/>
+          <text x="800" y="257" text-anchor="middle" font-size="12.5" font-weight="650" fill="#8a7a5f">NONE 无（Agent 自行投递）</text>
+          <text x="800" y="275" text-anchor="middle" font-size="11.5" fill="#8a7a5f">目的地写在 prompt 里，用工具完成</text>
+
+          <rect x="920" y="90" width="180" height="56" rx="9" fill="#f5f0e8" stroke="#d8c9a8" stroke-dasharray="4 3"/>
+          <text x="1010" y="113" text-anchor="middle" font-size="12" font-weight="650" fill="#8a7a5f">WEBHOOK（V2）</text>
+          <text x="1010" y="131" text-anchor="middle" font-size="11.5" fill="#8a7a5f">POST JSON</text>
+
+          <rect x="920" y="166" width="180" height="56" rx="9" fill="#f5f0e8" stroke="#d8c9a8" stroke-dasharray="4 3"/>
+          <text x="1010" y="189" text-anchor="middle" font-size="12" font-weight="650" fill="#8a7a5f">多目的地（V2）</text>
+          <text x="1010" y="207" text-anchor="middle" font-size="11.5" fill="#8a7a5f">一个任务扇出多个 Sink</text>
+
+          <!-- 投递状态 -->
+          <rect x="460" y="320" width="640" height="60" rx="9" fill="#fff" stroke="#ddd6c9"/>
+          <text x="780" y="343" text-anchor="middle" font-size="12.5" font-weight="650" fill="#231f1a">投递状态独立记录于 automation_run.delivery_status</text>
+          <text x="780" y="361" text-anchor="middle" font-size="11.5" fill="#81786d">PENDING → DELIVERED / RETRYING / FAILED；失败仅重试投递</text>
+          <text x="780" y="376" text-anchor="middle" font-size="11.5" fill="#81786d">管理页运行历史可见每个目的地的投递状态</text>
+        </g>
+
+        <!-- 主 → 副 的唯一交接箭头 -->
+        <g stroke="#b96f42" stroke-width="2" fill="none">
+          <path d="M195 380 Q195 400 320 400 Q450 400 545 150 Q555 118 560 113" marker-end="url(#ar2)"/>
+        </g>
+        <rect x="150" y="440" width="840" height="26" rx="8" fill="#fdf9f3" stroke="#b96f42"/>
+        <text x="570" y="458" text-anchor="middle" font-size="12" fill="#b96f42">唯一交接：投递意图落库（PENDING）—— 两条链路此后各走各的；投递失败 / 进程崩溃都不影响 Run 已完成的事实</text>
+
+        <!-- 底部说明 -->
+        <g>
+          <rect x="10" y="486" width="1120" height="58" rx="10" fill="#fbfaf6" stroke="#ddd6c9"/>
+          <text x="26" y="507" font-size="12" fill="#625a50">· 创建任务时声明投递目的（管理页弹窗 / 聊天提案卡片均为结构化字段，非 prompt 文本）；数据模型 delivery_type 枚举 + delivery_config JSON，为多目的地预留但不提前做</text>
+          <text x="26" y="528" font-size="12" fill="#625a50">· 解耦收益：投递失败不重跑昂贵的 Agent Run；投递状态与运行状态分开观测；新增目的地只需实现一个 Sink，不碰主流程</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============ 视图 4：聊天交互 ============ -->
+  <section class="view" id="v-chat">
+    <h2>聊天中创建与管理</h2>
+    <p class="sub">左：创建提案流 · 中：CRUD 与危险操作 · 右：到点运行的结果投递。</p>
+
+    <div class="phones">
+      <!-- 手机 1：创建 -->
+      <div class="phone">
+        <div class="phone-head">场景 A · 创建任务（提案-确认）</div>
+        <div class="phone-body">
+          <div class="ph-top">通用助手</div>
+          <div class="msg user"><p>每天早上 9 点总结我昨天的会话，发到这个聊天里</p></div>
+          <div class="msg"><p>我整理了一个定时任务提案，确认后生效：</p></div>
+          <div class="confirm-card">
+            <h4>任务提案 <span class="tag">待确认</span></h4>
+            <div class="kv"><b>名称</b><span>每日会话日报</span></div>
+            <div class="kv"><b>调度</b><span>每天 09:00（Asia/Shanghai）</span></div>
+            <div class="kv"><b>执行者</b><span>通用助手（本会话 Agent）</span></div>
+            <div class="kv"><b>内容</b><span>总结我昨天全部会话，输出 5 条要点</span></div>
+            <div class="kv"><b>投递</b><span>结果卡片发送到当前会话</span></div>
+            <div class="confirm-actions">
+              <button class="btn primary">确认创建</button>
+              <button class="btn">修改参数</button>
+              <button class="btn">取消</button>
+            </div>
+            <div class="proposal-foot">提案 #1291 · 24 小时内有效，过期自动作废</div>
+          </div>
+          <div class="sys-time">—— 你点了「确认创建」 ——<b>✓ 已创建</b> · 下次运行 明天 09:00<span class="hint">系统消息直接入会话，Agent 未重新运行</span></div>
+          <div class="msg user"><p>创建好了吗？</p></div>
+          <div class="msg"><p>已经生效了：「每日会话日报」每天 09:00 运行，结果会发到本会话。也可以在「我的 · 定时任务」里查看。</p></div>
+        </div>
+      </div>
+
+      <!-- 手机 2：CRUD -->
+      <div class="phone">
+        <div class="phone-head">场景 C · 聊天中管理</div>
+        <div class="phone-body">
+          <div class="ph-top">通用助手</div>
+          <div class="msg user"><p>我有哪些定时任务？</p></div>
+          <div class="mini-list">
+            <div class="mini-row"><span class="name">每日会话日报</span><span class="badge b-run">运行中</span></div>
+            <div class="mini-row"><span class="meta">每天 09:00 · 通用助手</span><span class="meta">下次 明天 09:00</span></div>
+            <div class="mini-row"><span class="name">每周竞品追踪</span><span class="badge b-run">运行中</span></div>
+            <div class="mini-row"><span class="meta">每周一 10:00 · 领域 Agent</span><span class="meta">下次 09-07</span></div>
+            <div class="mini-row"><span class="name">项目健康检查</span><span class="badge b-fail">上次失败</span></div>
+            <div class="mini-row"><span class="meta">每 2 小时 · harness-agent</span><span class="meta">重试 1/3</span></div>
+          </div>
+          <div class="msg user"><p>日报改成每周一发，暂停竞品追踪</p></div>
+          <div class="confirm-card">
+            <h4>变更提案 <span class="tag">2 项变更</span></h4>
+            <div class="kv"><b>日报</b><span>调度：每天 09:00 → <b>每周一 09:00</b></span></div>
+            <div class="kv"><b>竞品追踪</b><span>状态：运行中 → <b>已暂停</b></span></div>
+            <div class="confirm-actions">
+              <button class="btn primary">确认变更</button>
+              <button class="btn">取消</button>
+            </div>
+          </div>
+          <div class="sys-time"><b>✓ 已生效 2 项</b><span class="hint">XXL-Job 调度已同步更新</span></div>
+          <div class="msg user"><p>删掉健康检查</p></div>
+          <div class="confirm-card danger">
+            <h4>删除确认 <span class="tag">不可恢复</span></h4>
+            <div class="kv"><b>任务</b><span>项目健康检查（每 2 小时）</span></div>
+            <div class="kv"><b>影响</b><span>删除任务与调度；运行历史保留 30 天供追溯</span></div>
+            <div class="confirm-actions">
+              <button class="btn danger">确认删除</button>
+              <button class="btn">取消</button>
+            </div>
+          </div>
+          <div class="sys-time"><b>✓ 已删除</b></div>
+        </div>
+      </div>
+
+      <!-- 手机 3：运行投递 -->
+      <div class="phone">
+        <div class="phone-head">场景 B · 到点运行与投递</div>
+        <div class="phone-body">
+          <div class="ph-top">通用助手</div>
+          <div class="sys-time">—— 2026-09-07 09:00 · 定时任务 · 每日会话日报 ——</div>
+          <div class="result-card">
+            <h4>运行完成 <b>耗时 42s · 成功</b></h4>
+            <p><b>昨日会话要点（5 条）</b></p>
+            <p>1. 完成了自动化任务 PRD 初稿…<br>2. 与团队对齐了 XXL-Job 接入方式…<br>3. 修复了 Mem0 元数据解析…</p>
+            <a class="more" href="javascript:void(0)">查看完整日报 ↗</a>
+          </div>
+          <div class="msg user"><p>第 2 条展开讲讲</p></div>
+          <div class="msg"><p>关于 XXL-Job 接入：昨天确定了任务注册走公司集群，调度语义由平台自己维护…（Agent 带任务运行上下文接续回答）</p></div>
+          <div class="sys-time">—— 09-07 15:30 · 定时任务 · 项目健康检查（<b style="color:#b0563f">失败</b>）——</div>
+          <div class="result-card">
+            <h4>运行失败 <b>耗时 3s</b></h4>
+            <p>原因：知识库服务连接超时。已自动重试 1 次，仍失败。</p>
+            <a class="more" href="javascript:void(0)">查看运行历史与 Trace ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note"><b>设计要点：</b>① 写操作（创建/修改/暂停/删除）全部走提案卡片，读操作直接回答；② 确认走前端直调 REST，Agent 的那一轮早已结束——不需要 LangChain4j 或 AgentScope 任何暂停能力；③ 生效结果以系统消息注入会话，Agent 下一轮自然可见；④ 失败运行也投递卡片，用户不去管理页也知道任务挂了。</div>
+  </section>
+
+  <!-- ============ 视图 4：管理页面 ============ -->
+  <section class="view" id="v-admin">
+    <h2>「我的 · 定时任务」管理页</h2>
+    <p class="sub">与「用户长期记忆」平级的产品入口；管理页操作即本人意图（无需再套提案），仅删除加弹窗二次确认。</p>
+
+    <div class="browser">
+      <div class="browser-bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">h-agent.local/me/automations</div></div>
+      <div class="me-layout">
+        <nav class="me-nav">
+          <div class="me-group">我的</div>
+          <button>个人信息</button>
+          <button>SystemPrompt</button>
+          <button>知识库</button>
+          <button>领域 Agent</button>
+          <div class="me-group">Harness Agent 能力</div>
+          <button>用户长期记忆</button>
+          <button class="active">定时任务</button>
+          <div class="me-group">其他</div>
+          <button>我的 Skills</button>
+          <button>退出登录</button>
+        </nav>
+        <div class="me-main">
+          <div class="me-head">
+            <h3>定时任务 <span style="color:var(--muted);font-size:13px;font-weight:400">3 个 · 2 运行中 · 1 个失败</span></h3>
+            <button class="btn primary" id="openCreate">＋ 新建任务</button>
+          </div>
+          <div class="pending-banner">
+            <span>你有 1 条待确认提案（每日会话日报）在聊天中，24 小时后过期</span>
+            <a href="javascript:void(0)">去聊天中处理 ↗</a>
+          </div>
+          <div class="filter-row">
+            <button class="chip active">全部</button>
+            <button class="chip">运行中</button>
+            <button class="chip">已暂停</button>
+            <button class="chip">有失败</button>
+            <button class="chip">单次提醒</button>
+          </div>
+          <table class="list">
+            <thead><tr><th>任务</th><th>调度</th><th>执行者</th><th>下次运行</th><th>最近一次</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="tname">每日会话日报<small>聊天创建 · 投递：会话</small></td>
+                <td>每天 09:00<div class="cron-hint">Asia/Shanghai</div></td>
+                <td><span class="badge b-agent">通用助手</span></td>
+                <td>09-08 09:00</td>
+                <td><span class="badge b-run">成功</span> 09-07 09:00</td>
+                <td><div class="ops"><button>暂停</button><button>立即运行</button><button>编辑</button><button>删除</button></div></td>
+              </tr>
+              <tr>
+                <td class="tname">每周竞品追踪<small>聊天创建 · 投递：邮箱</small></td>
+                <td>每周一 10:00<div class="cron-hint">Asia/Shanghai</div></td>
+                <td><span class="badge b-agent">领域 Agent</span></td>
+                <td>—</td>
+                <td><span class="badge b-pause">已暂停</span> 09-07 10:00</td>
+                <td><div class="ops"><button>恢复</button><button>编辑</button><button>删除</button></div></td>
+              </tr>
+              <tr>
+                <td class="tname">项目健康检查<small>管理页创建 · 投递：会话</small></td>
+                <td>每 2 小时<div class="cron-hint">固定间隔</div></td>
+                <td><span class="badge b-agent">harness-agent</span></td>
+                <td>17:30</td>
+                <td><span class="badge b-fail">失败 ×3</span> 15:30</td>
+                <td><div class="ops"><button>暂停</button><button>立即运行</button><button>详情</button><button>删除</button></div></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="run-hist">
+            <h4>运行历史 — 项目健康检查</h4>
+            <div class="sub2">仅本任务；失败重试折叠在同一运行组内</div>
+            <div class="kv-grid">
+              <span>创建来源：<b>管理页创建</b></span>
+              <span>调度方式：<b>固定间隔 2h</b></span>
+              <span>重试策略：<b>失败重试 3 次</b></span>
+              <span>投递方式：<b>会话卡片</b></span>
+              <span>XXL-Job：<b>job #10482</b>（调度映射，只读）</span>
+            </div>
+            <table class="list">
+              <thead><tr><th>时间</th><th>状态</th><th>耗时</th><th>输出摘要</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>15:30</td><td><span class="badge b-fail">失败</span></td><td>3s</td><td>知识库连接超时（重试 2/3）</td><td><a class="trace" href="javascript:void(0)">Trace ↗</a></td></tr>
+                <tr><td>13:30</td><td><span class="badge b-fail">失败</span></td><td>3s</td><td>知识库连接超时（重试 1/3）</td><td><a class="trace" href="javascript:void(0)">Trace ↗</a></td></tr>
+                <tr><td>11:30</td><td><span class="badge b-run">成功</span></td><td>51s</td><td>3 个检查项通过，1 个告警：磁盘 82%</td><td><a class="trace" href="javascript:void(0)">Trace ↗</a></td></tr>
+                <tr><td>09:30</td><td><span class="badge b-run">成功</span></td><td>48s</td><td>4 个检查项全部通过</td><td><a class="trace" href="javascript:void(0)">Trace ↗</a></td></tr>
+              </tbody>
+            </table>
+            <div class="legend">
+              <span>▸ 「立即运行」= XXL-Job 手动触发一次，不改变调度节奏</span>
+              <span>▸ 每次运行关联 Langfuse Trace</span>
+              <span>▸ 删除走弹窗二次确认（等效聊天中的危险提案卡片）</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note"><b>双入口等价：</b>聊天与管理页操作同一份任务数据。聊天中 Agent 发起 → 提案卡片把关；管理页用户亲手操作 → 即时生效（删除除外）。管理页顶部展示聊天中的待确认提案，形成入口互通。</div>
+
+    <h2>手动创建表单（点上方「＋ 新建任务」体验）</h2>
+    <p class="sub">形态对齐 TraeWork / OpenClaw：任务内容就是一个自然语言 prompt 大文本框，不是 Skill 选择器。prompt 里可以自然引用 Skill（Agent 执行时按需加载）。</p>
+    <div class="note"><b>任务内容的两种写法（同一字段）：</b>① 聊天中描述——用户说「每天早 9 点总结昨天会话」，Agent 解析成五要素提案；② 手动创建描述——用户直接在下框里写 prompt，如「用周报 Skill 整理我昨天全部会话，输出 5 条要点」。两者最终存的是同一个自然语言 prompt 字符串，执行时由目标 Agent（h-agent / harness-agent）作为一次用户消息注入运行。</div>
+
+    <!-- 手动创建弹窗 -->
+    <div class="modal-mask" id="createModal" hidden>
+      <div class="modal">
+        <div class="modal-head">
+          <h3>新建自动化任务</h3>
+          <div style="display:flex;align-items:center;gap:16px">
+            <button class="tmpl">从模板创建</button>
+            <button class="modal-close" data-close-modal>×</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>任务名称</label>
+            <input type="text" placeholder="请输入任务名称">
+          </div>
+          <div class="field">
+            <label>执行者 <span class="fhint">任务到点时由哪个 Agent 运行</span></label>
+            <select>
+              <option>通用助手（standard-chat · LangChain4j）</option>
+              <option>协作 Agent（harness-agent · AgentScope）</option>
+              <option>领域 Agent…（按用户已创建的列出）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>触发时间</label>
+            <div class="time-grid">
+              <select>
+                <option>每天</option>
+                <option>每周</option>
+                <option>每月</option>
+                <option>工作日</option>
+                <option>固定间隔（如每 2 小时）</option>
+                <option>单次提醒</option>
+                <option>自定义 Cron…</option>
+              </select>
+              <input type="text" placeholder="09:00">
+              <select>
+                <option>Asia/Shanghai</option>
+                <option>UTC</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>任务内容 <span class="fhint">自然语言描述，可引用 Skill</span></label>
+            <div class="prompt-box">
+              <textarea placeholder="你希望 Agent 做什么？&#10;例：用周报 Skill 整理我昨天全部会话，输出 5 条要点，重点标出待办事项。">用周报 Skill 整理我昨天全部会话，输出 5 条要点，重点标出待办事项。</textarea>
+              <div class="prompt-tools">
+                <button class="attach-btn">＋ 附件</button>
+                <div class="right">
+                  <span class="mode-pill">可引用 Skill ⌘/</span>
+                  <span class="mode-pill on">自动模式</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label>投递方式 <span class="fhint">任务产物（结果文本 + 文件附件）的最终送达地</span></label>
+            <div class="delivery-opts">
+              <label class="del-opt">
+                <input type="radio" name="delivery" checked>
+                <span class="del-body">
+                  <b>发送到会话 <span class="soon" style="background:#e5efe9;color:#5e806c">默认</span></b>
+                  <span>结果卡片回到本会话，文件产物自动作为附件；失败也通知</span>
+                </span>
+              </label>
+              <label class="del-opt">
+                <input type="radio" name="delivery">
+                <span class="del-body">
+                  <b>发送到邮箱 <span class="soon">V1.5</span></b>
+                  <span>正文 + 附件发送到指定邮箱；投递失败自动重试，不重跑 Run</span>
+                  <input type="text" placeholder="name@example.com">
+                </span>
+              </label>
+              <label class="del-opt">
+                <input type="radio" name="delivery">
+                <span class="del-body">
+                  <b>无（Agent 自行投递）</b>
+                  <span>目的地写进任务 prompt（写数据库、存目录等），Agent 运行时用工具完成；平台只记运行状态</span>
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="tip">手动创建即本人操作，直接生效（无需提案确认）；聊天中由 Agent 创建则先出提案卡片。删除任务仍需二次确认。</span>
+          <button class="btn" data-close-modal>取消</button>
+          <button class="btn primary" data-close-modal>创建任务</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  var tabs = document.querySelectorAll('.tabs button');
+  var views = { 'v-journey': document.getElementById('v-journey'), 'v-seq': document.getElementById('v-seq'), 'v-delivery': document.getElementById('v-delivery'), 'v-chat': document.getElementById('v-chat'), 'v-admin': document.getElementById('v-admin') };
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      tabs.forEach(function (x) { x.classList.remove('active'); });
+      t.classList.add('active');
+      Object.keys(views).forEach(function (k) { views[k].classList.toggle('active', k === t.dataset.view); });
+    });
+  });
+
+  var modal = document.getElementById('createModal');
+  document.getElementById('openCreate').addEventListener('click', function () { modal.hidden = false; });
+  modal.querySelectorAll('[data-close-modal]').forEach(function (b) {
+    b.addEventListener('click', function () { modal.hidden = true; });
+  });
+  modal.addEventListener('click', function (e) { if (e.target === modal) { modal.hidden = true; } });
+</script>
+</body>
+</html>
