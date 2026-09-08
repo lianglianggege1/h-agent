@@ -1,8 +1,9 @@
 package com.h.backend.automation.interfaces.tool;
 
+import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.application.AutomationTaskCommand;
-import com.h.backend.automation.application.AutomationTaskService;
-import com.h.backend.automation.domain.AutomationTask;
+import com.h.backend.automation.domain.AutomationProposal;
+import com.h.backend.automation.domain.AutomationProposalAction;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
@@ -13,15 +14,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class AgentScopeAutomationTool {
 
-    private final AutomationTaskService taskService;
+    private final AutomationProposalModule proposalModule;
 
-    public AgentScopeAutomationTool(@Lazy AutomationTaskService taskService) {
-        this.taskService = taskService;
+    public AgentScopeAutomationTool(@Lazy AutomationProposalModule proposalModule) {
+        this.proposalModule = proposalModule;
     }
 
     @Tool(
             name = "create_automation_task",
-            description = "创建周期性自动化任务。仅当用户明确要求定时、每天、每周或周期执行时调用。Cron 使用六段格式（秒 分 时 日 月 周），时区使用 IANA 名称。",
+            description = "创建周期性自动化任务的提案。仅当用户明确要求定时、每天、每周或周期执行时调用。"
+                    + "Cron 使用六段格式（秒 分 时 日 月 周），时区使用 IANA 名称。"
+                    + "该工具只会生成提案，不会直接创建或开启任务：必须提示用户到自动化管理页确认后才生效。",
             concurrencySafe = false
     )
     public String create(
@@ -34,10 +37,19 @@ public class AgentScopeAutomationTool {
         if (context == null || context.getUserId() == null || context.getUserId().isBlank()) {
             throw new IllegalStateException("自动化工具缺少当前用户上下文");
         }
-        AutomationTask task = taskService.create(Long.valueOf(context.getUserId()), new AutomationTaskCommand(
-                name, instruction, ChatAgentIds.HARNESS, null, cronExpression, zoneId, true
-        ), "CHAT_AGENTSCOPE");
-        return "自动化任务已创建：%s（ID：%s，下次执行：%s）"
-                .formatted(task.name(), task.id(), task.nextRunAt());
+        AutomationProposal proposal = proposalModule.createChangeProposal(
+                Long.valueOf(context.getUserId()),
+                AutomationProposalAction.CREATE,
+                null,
+                new AutomationTaskCommand(
+                        name, instruction, ChatAgentIds.HARNESS, null, cronExpression, zoneId, false,
+                        null, null
+                ),
+                null,
+                "CHAT_AGENTSCOPE"
+        );
+        return "已生成自动化任务提案「%s」（提案编号：%s，24 小时内有效）。"
+                .formatted(name, proposal.id())
+                + "请告知用户：提案不会自动生效，需要在自动化管理页确认后才会创建，确认前可随时取消。";
     }
 }

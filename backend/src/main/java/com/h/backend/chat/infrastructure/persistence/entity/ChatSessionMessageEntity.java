@@ -37,6 +37,9 @@ public class ChatSessionMessageEntity {
     @TableField("payload_json")
     private String payloadJson;
 
+    @TableField("idempotency_key")
+    private String idempotencyKey;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -110,6 +113,14 @@ public class ChatSessionMessageEntity {
 
     public void setPayloadJson(String payloadJson) {
         this.payloadJson = payloadJson;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
     }
 
     public LocalDateTime getCreatedAt() {

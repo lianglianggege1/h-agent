@@ -1,5 +1,6 @@
 package com.h.backend.automation.application;
 
+import com.h.backend.automation.domain.AutomationDeliverySink;
 import com.h.backend.automation.domain.AutomationRun;
 import com.h.backend.automation.domain.AutomationRuntime;
 import com.h.backend.automation.domain.AutomationSchedule;
@@ -9,6 +10,7 @@ import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -18,74 +20,46 @@ import java.util.UUID;
 @Service
 public class AutomationTaskService {
 
+    static final int MAX_ENABLED_TASKS = 3;
+    static final int ACTIVE_LIMIT_ERROR_CODE = 40934;
+    static final String ACTIVE_LIMIT_MESSAGE = "最多同时开启 3 个自动化任务，请先关闭一个任务后再试。";
+
     private final AutomationTaskRepository repository;
     private final AgentRegistry agentRegistry;
+    private final AutomationAuditRecorder auditRecorder;
     private final Clock clock;
 
     @Autowired
-    public AutomationTaskService(AutomationTaskRepository repository, AgentRegistry agentRegistry) {
-        this(repository, agentRegistry, Clock.systemUTC());
+    public AutomationTaskService(
+            AutomationTaskRepository repository,
+            AgentRegistry agentRegistry,
+            AutomationAuditRecorder auditRecorder
+    ) {
+        this(repository, agentRegistry, auditRecorder, Clock.systemUTC());
+    }
+
+    AutomationTaskService(AutomationTaskRepository repository, AgentRegistry agentRegistry) {
+        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, Clock.systemUTC());
     }
 
     AutomationTaskService(AutomationTaskRepository repository, AgentRegistry agentRegistry, Clock clock) {
+        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, clock);
+    }
+
+    AutomationTaskService(
+            AutomationTaskRepository repository,
+            AgentRegistry agentRegistry,
+            AutomationAuditRecorder auditRecorder,
+            Clock clock
+    ) {
         this.repository = repository;
         this.agentRegistry = agentRegistry;
+        this.auditRecorder = auditRecorder;
         this.clock = clock;
     }
 
-    public AutomationTask create(Long userId, AutomationTaskCommand command, String createdVia) {
-        Validated validated = validate(command);
-        Instant now = clock.instant();
-        boolean enabled = command.enabled() == null || command.enabled();
-        AutomationTask task = new AutomationTask(
-                UUID.randomUUID().toString(), userId, validated.name(), validated.instruction(),
-                validated.agent().agentId(), validated.runtime(), validated.schedule(), enabled,
-                enabled ? validated.schedule().nextAfter(now) : null,
-                null, null, normalizeCreatedVia(createdVia), 1L, now, now
-        );
-        return repository.insert(task);
-    }
-
-    public AutomationTask update(Long userId, String taskId, long expectedRevision, AutomationTaskCommand command) {
-        AutomationTask current = requireOwned(userId, taskId);
-        Validated validated = validate(command);
-        boolean enabled = command.enabled() == null ? current.enabled() : command.enabled();
-        Instant now = clock.instant();
-        AutomationTask replacement = new AutomationTask(
-                current.id(), current.userId(), validated.name(), validated.instruction(),
-                validated.agent().agentId(), validated.runtime(), validated.schedule(), enabled,
-                enabled ? validated.schedule().nextAfter(now) : null,
-                current.lastRunAt(), current.lastStatus(), current.createdVia(), current.revision() + 1,
-                current.createdAt(), now
-        );
-        AutomationTask updated = repository.updateOwned(userId, taskId, expectedRevision, replacement);
-        if (updated == null) {
-            throw new BusinessException(40931, "自动化任务已被其他请求修改，请刷新后重试");
-        }
-        return updated;
-    }
-
-    public List<AutomationTask> list(Long userId) {
-        return repository.listOwned(userId);
-    }
-
-    public AutomationTask requireOwned(Long userId, String taskId) {
-        return repository.findOwned(userId, taskId)
-                .orElseThrow(() -> new BusinessException(40404, "自动化任务不存在"));
-    }
-
-    public void delete(Long userId, String taskId) {
-        if (!repository.softDeleteOwned(userId, taskId)) {
-            throw new BusinessException(40404, "自动化任务不存在");
-        }
-    }
-
-    public List<AutomationRun> runs(Long userId, String taskId, int limit) {
-        requireOwned(userId, taskId);
-        return repository.listRunsOwned(userId, taskId, Math.min(Math.max(limit, 1), 100));
-    }
-
-    private Validated validate(AutomationTaskCommand command) {
+    /** 校验并归一化命令；提案创建与确认、管理页直写共用同一套规则。 */
+    public ValidatedCommand validateCommand(AutomationTaskCommand command) {
         if (command == null) {
             throw new BusinessException(40031, "自动化任务参数不能为空");
         }
@@ -104,7 +78,160 @@ public class AutomationTaskService {
         if (requestedRuntime != actualRuntime) {
             throw new BusinessException(40033, "所选 Agent 与运行时不匹配");
         }
-        return new Validated(name, instruction, agent, actualRuntime, schedule);
+        String deliverySink = normalizeDeliverySink(command.deliverySink());
+        String deliverySessionId = normalizeDeliverySession(deliverySink, command.deliverySessionId());
+        return new ValidatedCommand(
+                name, instruction, agent.agentId(), actualRuntime, schedule, deliverySink, deliverySessionId
+        );
+    }
+
+    @Transactional
+    public AutomationTask create(Long userId, AutomationTaskCommand command, String createdVia) {
+        return create(userId, command, createdVia, null);
+    }
+
+    @Transactional
+    public AutomationTask create(
+            Long userId,
+            AutomationTaskCommand command,
+            String createdVia,
+            String sourceSessionId
+    ) {
+        ValidatedCommand validated = validateCommand(command);
+        Instant now = clock.instant();
+        AutomationTask task = new AutomationTask(
+                UUID.randomUUID().toString(), userId, validated.name(), validated.instruction(),
+                validated.agentId(), validated.runtime(), validated.schedule(), false,
+                null, null, null, normalizeCreatedVia(createdVia), 1L, now, now,
+                validated.deliverySink(), validated.deliverySessionId()
+        );
+        AutomationTask inserted = repository.insert(task);
+        audit(AutomationAuditEntry.of(userId, "TASK_CREATED", "TASK", inserted.id(),
+                null, inserted.revision(), now));
+        return inserted;
+    }
+
+    @Transactional
+    public AutomationTask update(Long userId, String taskId, long expectedRevision, AutomationTaskCommand command) {
+        AutomationTask current = requireOwned(userId, taskId);
+        ValidatedCommand validated = validateCommand(command);
+        boolean enabled = current.enabled();
+        Instant now = clock.instant();
+        AutomationTask replacement = new AutomationTask(
+                current.id(), current.userId(), validated.name(), validated.instruction(),
+                validated.agentId(), validated.runtime(), validated.schedule(), enabled,
+                enabled ? validated.schedule().nextAfter(now) : null,
+                current.lastRunAt(), current.lastStatus(), current.createdVia(), current.revision() + 1,
+                current.createdAt(), now,
+                validated.deliverySink(), validated.deliverySessionId()
+        );
+        AutomationTask updated = repository.updateOwned(userId, taskId, expectedRevision, replacement);
+        if (updated == null) {
+            throw revisionConflict();
+        }
+        audit(AutomationAuditEntry.of(userId, "TASK_UPDATED", "TASK", updated.id(),
+                expectedRevision, updated.revision(), now));
+        return updated;
+    }
+
+    @Transactional
+    public AutomationTask enable(Long userId, String taskId, long expectedRevision) {
+        AutomationTask current = requireOwned(userId, taskId);
+        if (current.enabled()) {
+            return current;
+        }
+        Instant now = clock.instant();
+        AutomationTask enabled = repository.enableOwned(
+                userId, taskId, expectedRevision, current.schedule().nextAfter(now), now, MAX_ENABLED_TASKS
+        );
+        if (enabled != null) {
+            audit(AutomationAuditEntry.of(userId, "TASK_ENABLED", "TASK", enabled.id(),
+                    expectedRevision, enabled.revision(), now));
+            return enabled;
+        }
+        AutomationTask latest = requireOwned(userId, taskId);
+        if (latest.enabled()) {
+            return latest;
+        }
+        if (latest.revision() != expectedRevision) {
+            throw revisionConflict();
+        }
+        throw new BusinessException(ACTIVE_LIMIT_ERROR_CODE, ACTIVE_LIMIT_MESSAGE);
+    }
+
+    @Transactional
+    public AutomationTask disable(Long userId, String taskId, long expectedRevision) {
+        AutomationTask current = requireOwned(userId, taskId);
+        if (!current.enabled()) {
+            return current;
+        }
+        Instant now = clock.instant();
+        AutomationTask disabled = repository.disableOwned(userId, taskId, expectedRevision, now);
+        if (disabled != null) {
+            audit(AutomationAuditEntry.of(userId, "TASK_DISABLED", "TASK", disabled.id(),
+                    expectedRevision, disabled.revision(), now));
+            return disabled;
+        }
+        AutomationTask latest = requireOwned(userId, taskId);
+        if (!latest.enabled()) {
+            return latest;
+        }
+        throw revisionConflict();
+    }
+
+    public List<AutomationTask> list(Long userId) {
+        return repository.listOwned(userId);
+    }
+
+    public AutomationTask requireOwned(Long userId, String taskId) {
+        return repository.findOwned(userId, taskId)
+                .orElseThrow(() -> new BusinessException(40404, "自动化任务不存在"));
+    }
+
+    /** 接纳后策略复验：Agent 停用/凭证失效等，失败由协调器记为 REJECTED_POLICY。 */
+    public void assertAgentRunnable(String agentId) {
+        agentRegistry.requireEnabled(agentId);
+    }
+
+    @Transactional
+    public void delete(Long userId, String taskId) {
+        AutomationTask current = requireOwned(userId, taskId);
+        Instant now = clock.instant();
+        if (!repository.softDeleteOwned(userId, taskId)) {
+            throw new BusinessException(40404, "自动化任务不存在");
+        }
+        audit(AutomationAuditEntry.of(userId, "TASK_DELETED", "TASK", taskId,
+                current.revision(), current.revision() + 1, now));
+    }
+
+    public List<AutomationRun> runs(Long userId, String taskId, int limit) {
+        requireOwned(userId, taskId);
+        return repository.listRunsOwned(userId, taskId, Math.min(Math.max(limit, 1), 100));
+    }
+
+    private static String normalizeDeliverySink(String value) {
+        if (value == null || value.isBlank()) {
+            return AutomationDeliverySink.NONE.name();
+        }
+        try {
+            return AutomationDeliverySink.valueOf(value.trim().toUpperCase()).name();
+        } catch (IllegalArgumentException error) {
+            throw new BusinessException(40034, "不支持的投递方式：" + value);
+        }
+    }
+
+    private static String normalizeDeliverySession(String deliverySink, String sessionId) {
+        if (AutomationDeliverySink.SESSION.name().equals(deliverySink)) {
+            if (sessionId == null || sessionId.isBlank()) {
+                throw new BusinessException(40034, "SESSION 投递必须指定目标会话");
+            }
+            return sessionId.trim();
+        }
+        return null;
+    }
+
+    private void audit(AutomationAuditEntry entry) {
+        auditRecorder.record(entry);
     }
 
     private static String required(String value, String label, int maxLength) {
@@ -122,12 +249,19 @@ public class AutomationTaskService {
         return createdVia == null || createdVia.isBlank() ? "UI" : createdVia;
     }
 
-    private record Validated(
+    private static BusinessException revisionConflict() {
+        return new BusinessException(40931, "自动化任务已被其他请求修改，请刷新后重试");
+    }
+
+    /** 校验后的归一化命令；提案与任务创建都以它为准。 */
+    public record ValidatedCommand(
             String name,
             String instruction,
-            AgentDefinition agent,
+            String agentId,
             AutomationRuntime runtime,
-            AutomationSchedule schedule
+            AutomationSchedule schedule,
+            String deliverySink,
+            String deliverySessionId
     ) {
     }
 }

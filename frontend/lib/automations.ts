@@ -16,6 +16,12 @@ export type AutomationTask = {
   lastStatus: string | null;
   createdVia: string;
   revision: number;
+  deliverySink: "SESSION" | "NONE";
+  deliverySessionId: string | null;
+  schedulerMode: "LOCAL" | "XXL_JOB";
+  schedulerSyncStatus: "NOT_SCHEDULED" | "PENDING" | "SYNCED" | "SYNC_FAILED";
+  schedulerSyncedRevision: number | null;
+  schedulerSyncError: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -23,8 +29,10 @@ export type AutomationTask = {
 export type AutomationRun = {
   id: string;
   taskId: string;
+  taskRevision: number;
   triggerType: "MANUAL" | "SCHEDULED";
-  status: "RUNNING" | "SUCCEEDED" | "FAILED";
+  triggerId: string | null;
+  status: "QUEUED" | "RUNNING" | "CANCEL_REQUESTED" | "SUCCEEDED" | "FAILED" | "TIMED_OUT" | "CANCELLED" | "REJECTED_POLICY";
   scheduledFor: string | null;
   startedAt: string;
   finishedAt: string | null;
@@ -42,10 +50,46 @@ export type AutomationTaskInput = {
   zoneId: string;
   enabled: boolean;
   expectedRevision?: number;
+  deliverySink?: "SESSION" | "NONE";
+  deliverySessionId?: string | null;
+};
+
+export type AutomationProposal = {
+  id: string;
+  action: "CREATE" | "UPDATE" | "ENABLE" | "DISABLE" | "DELETE";
+  taskId: string | null;
+  status: "PENDING" | "CONFIRMED" | "DISCARDED" | "EXPIRED";
+  createdAt: string;
+  expiresAt: string;
+  resultTaskId: string | null;
+  name: string | null;
+  agentId: string | null;
+  cronExpression: string | null;
+  zoneId: string | null;
+  deliverySink: "SESSION" | "NONE" | null;
+  upcomingFires: string[];
 };
 
 export function listAutomations() {
   return apiFetch<AutomationTask[]>("/api/automations");
+}
+
+export function listAutomationProposals() {
+  return apiFetch<AutomationProposal[]>("/api/automations/proposals");
+}
+
+export function confirmAutomationProposal(proposalId: string) {
+  return apiFetch<AutomationProposal>(
+    `/api/automations/proposals/${encodeURIComponent(proposalId)}/confirm`,
+    { method: "POST" },
+  );
+}
+
+export function discardAutomationProposal(proposalId: string) {
+  return apiFetch<AutomationProposal>(
+    `/api/automations/proposals/${encodeURIComponent(proposalId)}/discard`,
+    { method: "POST" },
+  );
 }
 
 export function createAutomation(input: AutomationTaskInput) {
@@ -59,6 +103,20 @@ export function updateAutomation(taskId: string, input: AutomationTaskInput) {
   return apiFetch<AutomationTask>(`/api/automations/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(input),
+  });
+}
+
+export function enableAutomation(taskId: string, expectedRevision: number) {
+  return apiFetch<AutomationTask>(`/api/automations/${encodeURIComponent(taskId)}/enable`, {
+    method: "POST",
+    body: JSON.stringify({ expectedRevision }),
+  });
+}
+
+export function disableAutomation(taskId: string, expectedRevision: number) {
+  return apiFetch<AutomationTask>(`/api/automations/${encodeURIComponent(taskId)}/disable`, {
+    method: "POST",
+    body: JSON.stringify({ expectedRevision }),
   });
 }
 

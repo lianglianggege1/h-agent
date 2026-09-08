@@ -2,7 +2,7 @@ package com.h.backend.automation.infrastructure.execution;
 
 import com.h.backend.automation.application.AutomationExecutionAdapter;
 import com.h.backend.automation.domain.AutomationRuntime;
-import com.h.backend.automation.domain.AutomationTask;
+import com.h.backend.automation.domain.ExecutionSpec;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -20,10 +20,10 @@ public class LangChain4jAutomationAdapter implements AutomationExecutionAdapter 
     }
 
     @Override
-    public AutomationExecutionResult execute(AutomationTask task) {
-        if (task.runtime() != runtime()) {
-            throw new IllegalArgumentException("LangChain4j adapter cannot execute " + task.runtime());
+    public AutomationExecutionResult execute(ExecutionSpec spec) {
+        if (!runtime().name().equals(spec.runtime())) {
+            throw new IllegalArgumentException("LangChain4j adapter cannot execute " + spec.runtime());
         }
-        return runner.run(task, null);
+        return runner.run(spec, null);
     }
 }

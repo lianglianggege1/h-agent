@@ -40,6 +40,10 @@ public class AutomationTaskEntity {
     private String leaseOwner;
     @TableField("lease_until")
     private LocalDateTime leaseUntil;
+    @TableField("delivery_sink")
+    private String deliverySink;
+    @TableField("delivery_session_id")
+    private String deliverySessionId;
     @TableField("created_at")
     private LocalDateTime createdAt;
     @TableField("updated_at")

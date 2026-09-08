@@ -7,15 +7,19 @@ import { getCurrentUser } from "@/lib/auth";
 import { AgentSummary, listAgents } from "@/lib/agents";
 import {
   AutomationRun,
+  AutomationProposal,
   AutomationTask,
-  AutomationTaskInput,
+  confirmAutomationProposal,
   createAutomation,
   deleteAutomation,
+  discardAutomationProposal,
+  disableAutomation,
+  enableAutomation,
   listAutomationRuns,
+  listAutomationProposals,
   listAutomations,
   runAutomation,
   runtimeForAgent,
-  updateAutomation,
 } from "@/lib/automations";
 import { savePostLoginRedirect } from "@/lib/session";
 
@@ -61,9 +65,29 @@ function scheduleLabel(task: AutomationTask) {
   return task.cronExpression;
 }
 
+function runStatusLabel(status: AutomationRun["status"]) {
+  return ({
+    QUEUED: "排队中",
+    RUNNING: "执行中",
+    CANCEL_REQUESTED: "取消中",
+    SUCCEEDED: "成功",
+    FAILED: "失败",
+    TIMED_OUT: "已超时",
+    CANCELLED: "已取消",
+    REJECTED_POLICY: "策略拒绝",
+  } satisfies Record<AutomationRun["status"], string>)[status];
+}
+
+function runStatusTone(status: AutomationRun["status"]) {
+  if (status === "QUEUED" || status === "RUNNING" || status === "CANCEL_REQUESTED") return "text-amber-600";
+  if (status === "SUCCEEDED") return "text-emerald-600";
+  return "text-red-600";
+}
+
 export default function AutomationsPage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
+  const [proposals, setProposals] = useState<AutomationProposal[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [runs, setRuns] = useState<Record<string, AutomationRun[]>>({});
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -85,9 +109,12 @@ export default function AutomationsPage() {
   useEffect(() => {
     getCurrentUser()
       .then(async () => {
-        const [taskList, agentList] = await Promise.all([listAutomations(), listAgents()]);
+        const [taskList, agentList, proposalList] = await Promise.all([
+          listAutomations(), listAgents(), listAutomationProposals(),
+        ]);
         setTasks(taskList);
         setAgents(agentList);
+        setProposals(proposalList);
         setAgentId(agentList[0]?.agentId ?? "");
       })
       .catch((loadError) => {
@@ -116,7 +143,7 @@ export default function AutomationsPage() {
         runtime: runtimeForAgent(selectedAgent.runtimeType),
         cronExpression: cronFor(frequency, time, weekday, customCron),
         zoneId,
-        enabled: true,
+        enabled: false,
       });
       setTasks((current) => [created, ...current]);
       setName("");
@@ -129,24 +156,13 @@ export default function AutomationsPage() {
     }
   }
 
-  function inputOf(task: AutomationTask, enabled = task.enabled): AutomationTaskInput {
-    return {
-      name: task.name,
-      instruction: task.instruction,
-      agentId: task.agentId,
-      runtime: task.runtime,
-      cronExpression: task.cronExpression,
-      zoneId: task.zoneId,
-      enabled,
-      expectedRevision: task.revision,
-    };
-  }
-
   async function toggle(task: AutomationTask) {
     setBusyTaskId(task.id);
     setError("");
     try {
-      const updated = await updateAutomation(task.id, inputOf(task, !task.enabled));
+      const updated = task.enabled
+        ? await disableAutomation(task.id, task.revision)
+        : await enableAutomation(task.id, task.revision);
       setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "更新失败");
@@ -196,6 +212,24 @@ export default function AutomationsPage() {
     }
   }
 
+  async function resolveProposal(proposal: AutomationProposal, confirm: boolean) {
+    setBusyTaskId(proposal.id);
+    setError("");
+    try {
+      if (confirm) {
+        await confirmAutomationProposal(proposal.id);
+        setTasks(await listAutomations());
+      } else {
+        await discardAutomationProposal(proposal.id);
+      }
+      setProposals((current) => current.filter((item) => item.id !== proposal.id));
+    } catch (proposalError) {
+      setError(proposalError instanceof Error ? proposalError.message : "处理提案失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff9df_0%,transparent_35%),linear-gradient(145deg,#f7f4ea_0%,#eee7d8_100%)] text-stone-900">
       <section className="mx-auto min-h-screen w-full max-w-6xl px-5 pb-16 pt-8 sm:px-8">
@@ -226,7 +260,7 @@ export default function AutomationsPage() {
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
             ["任务总数", tasks.length],
-            ["运行中", tasks.filter((task) => task.enabled).length],
+            ["已开启（最多 3 个）", tasks.filter((task) => task.enabled).length],
             ["最近失败", tasks.filter((task) => task.lastStatus === "FAILED").length],
           ].map(([label, value]) => (
             <div key={label} className="rounded-2xl border border-white/70 bg-white/65 p-5 shadow-sm backdrop-blur">
@@ -237,6 +271,43 @@ export default function AutomationsPage() {
         </div>
 
         {error ? <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+
+        {proposals.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/85 p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold">待确认提案</h2>
+                <p className="mt-1 text-xs text-stone-500">Agent 只生成提案；由你在这里确认后才会更改任务。</p>
+              </div>
+              <span className="rounded-full bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white">{proposals.length}</span>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {proposals.map((proposal) => (
+                <article key={proposal.id} className="rounded-xl border border-amber-100 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{proposal.name ?? `${proposal.action} 任务`}</p>
+                      <p className="mt-1 text-xs text-stone-500">{proposal.action} · 有效至 {formatDate(proposal.expiresAt)}</p>
+                    </div>
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">待确认</span>
+                  </div>
+                  {proposal.cronExpression ? (
+                    <div className="mt-3 space-y-1 text-xs text-stone-600">
+                      <p>计划：{proposal.cronExpression} · {proposal.zoneId}</p>
+                      <p>未来三次：{proposal.upcomingFires.map(formatDate).join(" · ")}</p>
+                      <p>策略：重叠跳过 · 错过跳过 · 15 分钟超时 · Agent 不自动重跑</p>
+                      <p>投递：{proposal.deliverySink === "SESSION" ? "原会话" : "不投递，仅管理页可见"}</p>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex gap-2">
+                    <button type="button" disabled={busyTaskId === proposal.id} onClick={() => resolveProposal(proposal, true)} className="rounded-lg bg-stone-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">确认</button>
+                    <button type="button" disabled={busyTaskId === proposal.id} onClick={() => resolveProposal(proposal, false)} className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-semibold text-stone-600 disabled:opacity-50">取消</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <div className="mt-6 space-y-4">
           {loading ? (
@@ -260,8 +331,14 @@ export default function AutomationsPage() {
                         {task.runtime === "AGENTSCOPE" ? "AgentScope" : "LangChain4j"}
                       </span>
                       <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] text-stone-500">{task.agentId}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${task.schedulerSyncStatus === "SYNC_FAILED" ? "bg-red-100 text-red-700" : task.schedulerSyncStatus === "SYNCED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                        {task.schedulerMode === "LOCAL"
+                          ? (task.enabled ? "本地调度" : "未调度")
+                          : task.schedulerSyncStatus === "SYNC_FAILED" ? "调度同步失败" : task.schedulerSyncStatus === "SYNCED" ? "调度已同步" : task.enabled ? "调度同步中" : "未调度"}
+                      </span>
                     </div>
                     <p className="mt-3 line-clamp-2 max-w-3xl text-sm leading-6 text-stone-600">{task.instruction}</p>
+                    {task.schedulerSyncError ? <p className="mt-2 text-xs text-red-600">{task.schedulerSyncError}</p> : null}
                   </div>
                   <button
                     type="button"
@@ -294,7 +371,7 @@ export default function AutomationsPage() {
                     <div className="space-y-2">
                       {(runs[task.id] ?? []).map((run) => (
                         <div key={run.id} className="flex flex-col gap-2 rounded-xl bg-white p-3 text-xs sm:flex-row sm:items-center">
-                          <span className={`font-semibold ${run.status === "FAILED" ? "text-red-600" : run.status === "RUNNING" ? "text-amber-600" : "text-emerald-600"}`}>{run.status}</span>
+                          <span className={`font-semibold ${runStatusTone(run.status)}`}>{runStatusLabel(run.status)}</span>
                           <span className="text-stone-400">{run.triggerType === "MANUAL" ? "手动" : "计划"} · {formatDate(run.startedAt)}</span>
                           <span className="line-clamp-1 flex-1 text-stone-600">{run.errorMessage ?? run.output ?? "执行中…"}</span>
                           {run.sessionId ? <Link className="font-semibold text-amber-700" href={`/chat?sessionId=${encodeURIComponent(run.sessionId)}`}>打开会话 →</Link> : null}
@@ -352,7 +429,8 @@ export default function AutomationsPage() {
 
             <div className="mt-8 flex justify-end gap-3">
               <button type="button" className="rounded-xl px-5 py-2.5 text-sm font-semibold text-stone-600" onClick={() => setShowCreate(false)}>取消</button>
-              <button type="submit" disabled={saving || !agentId} className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-600/20 disabled:opacity-50">{saving ? "创建中…" : "创建任务"}</button>
+              <div className="mr-auto text-xs leading-5 text-stone-500">创建后默认为关闭状态，可在任务列表中开启。</div>
+              <button type="submit" disabled={saving || !agentId} className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-600/20 disabled:opacity-50">{saving ? "创建中…" : "创建任务（默认关闭）"}</button>
             </div>
           </form>
         </div>

@@ -19,8 +19,12 @@ public class AutomationRunEntity {
     private String taskId;
     @TableField("user_id")
     private Long userId;
+    @TableField("task_revision")
+    private Long taskRevision;
     @TableField("trigger_type")
     private String triggerType;
+    @TableField("trigger_id")
+    private String triggerId;
     private String status;
     @TableField("scheduled_for")
     private LocalDateTime scheduledFor;
@@ -33,4 +37,8 @@ public class AutomationRunEntity {
     private String output;
     @TableField("error_message")
     private String errorMessage;
+    @TableField("cancel_requested_at")
+    private LocalDateTime cancelRequestedAt;
+    @TableField("spec_snapshot")
+    private String specSnapshot;
 }

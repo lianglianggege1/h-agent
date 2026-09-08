@@ -10,6 +10,8 @@ public record AutomationTaskRequest(
         String cronExpression,
         String zoneId,
         Boolean enabled,
-        Long expectedRevision
+        Long expectedRevision,
+        String deliverySink,
+        String deliverySessionId
 ) {
 }

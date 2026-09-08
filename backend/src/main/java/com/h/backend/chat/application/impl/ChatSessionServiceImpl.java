@@ -467,6 +467,50 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
+    public Long appendAssistantMessageIdempotent(
+            Long userId,
+            String sessionId,
+            String assistantMessage,
+            String idempotencyKey
+    ) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotencyKey is required");
+        }
+        Long existing = chatSessionMessageMapper.selectIdByIdempotencyKey(idempotencyKey);
+        if (existing != null) {
+            return existing;
+        }
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        if (!STATUS_ACTIVE.equals(session.getStatus())) {
+            throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
+        }
+        int nextSequence = allocateMessageSequence(session);
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionMessage message = buildMessage("assistant", "AI", assistantMessage, now, nextSequence);
+        ChatSessionMessageEntity row = new ChatSessionMessageEntity();
+        row.setSessionRecordId(session.getId());
+        row.setSessionId(session.getSessionId());
+        row.setUserId(session.getUserId());
+        row.setSequenceNo(message.getSequenceNo());
+        row.setMessageType(message.getMessageType());
+        row.setRoleCode(message.getRole());
+        row.setContentText(message.getContent());
+        row.setPayloadJson(writeMessagePayload(message));
+        row.setIdempotencyKey(idempotencyKey);
+        row.setCreatedAt(now);
+        Long messageId = chatSessionMessageMapper.insertIdempotent(row);
+        if (messageId == null) {
+            return chatSessionMessageMapper.selectIdByIdempotencyKey(idempotencyKey);
+        }
+        session.setMessageCount(nextSequence);
+        session.setLastActiveAt(now);
+        session.setUpdatedAt(now);
+        persistParentActivity(session, now, null);
+        return messageId;
+    }
+
+    @Override
+    @Transactional
     public ChatMessageResourceDto bindStoredAudioResource(
             Long userId,
             String sessionId,

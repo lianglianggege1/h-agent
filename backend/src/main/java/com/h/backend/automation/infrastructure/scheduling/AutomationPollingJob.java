@@ -1,12 +1,13 @@
 package com.h.backend.automation.infrastructure.scheduling;
 
 import com.h.backend.automation.application.AutomationRunCoordinator;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/** 本地调度扫描；XXL 启用时只处理其单时区 Cron 无法准确表达的任务。 */
 @Component
-@ConditionalOnProperty(prefix = "automation", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnExpression("'${automation.enabled:true}' == 'true'")
 public class AutomationPollingJob {
 
     private final AutomationRunCoordinator coordinator;
@@ -17,6 +18,6 @@ public class AutomationPollingJob {
 
     @Scheduled(fixedDelayString = "${automation.polling-delay:15s}")
     public void poll() {
-        coordinator.pollDue();
+        coordinator.pollDueTasks();
     }
 }

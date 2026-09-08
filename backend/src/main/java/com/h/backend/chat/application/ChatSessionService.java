@@ -64,6 +64,14 @@ public interface ChatSessionService {
 
     Long appendAssistantMessage(Long userId, String sessionId, String assistantMessage, List<ChatMessageResourceUseDto> resources);
 
+    /** 以调用方提供的稳定键追加一次助手消息；重复调用返回首次消息 ID。 */
+    Long appendAssistantMessageIdempotent(
+            Long userId,
+            String sessionId,
+            String assistantMessage,
+            String idempotencyKey
+    );
+
     ChatMessageResourceDto bindStoredAudioResource(
             Long userId,
             String sessionId,

@@ -13,6 +13,23 @@ import java.util.List;
 public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageEntity> {
 
     @Select("""
+            INSERT INTO chat_session_messages(
+                session_record_id, session_id, user_id, sequence_no, message_type, role_code,
+                content_text, payload_json, idempotency_key, created_at
+            ) VALUES (
+                #{row.sessionRecordId}, #{row.sessionId}, #{row.userId}, #{row.sequenceNo},
+                #{row.messageType}, #{row.roleCode}, #{row.contentText}, #{row.payloadJson},
+                #{row.idempotencyKey}, #{row.createdAt}
+            )
+            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+            RETURNING id
+            """)
+    Long insertIdempotent(@Param("row") ChatSessionMessageEntity row);
+
+    @Select("SELECT id FROM chat_session_messages WHERE idempotency_key = #{idempotencyKey}")
+    Long selectIdByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
+
+    @Select("""
             SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                    content_text, payload_json, created_at
             FROM chat_session_messages

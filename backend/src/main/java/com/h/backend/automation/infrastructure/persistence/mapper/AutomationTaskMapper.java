@@ -21,6 +21,12 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
 
     @Select("""
             SELECT * FROM automation_tasks
+            WHERE id = #{taskId} AND deleted_at IS NULL
+            """)
+    AutomationTaskEntity selectByTaskId(@Param("taskId") String taskId);
+
+    @Select("""
+            SELECT * FROM automation_tasks
             WHERE user_id = #{userId} AND deleted_at IS NULL
             ORDER BY created_at DESC
             """)
@@ -31,6 +37,7 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
                 name = #{task.name}, instruction = #{task.instruction}, agent_id = #{task.agentId},
                 runtime = #{task.runtime}, cron_expression = #{task.cronExpression}, zone_id = #{task.zoneId},
                 enabled = #{task.enabled}, next_run_at = #{task.nextRunAt}, revision = #{task.revision},
+                delivery_sink = #{task.deliverySink}, delivery_session_id = #{task.deliverySessionId},
                 updated_at = #{task.updatedAt}
             WHERE id = #{taskId} AND user_id = #{userId} AND revision = #{expectedRevision}
               AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until < #{task.updatedAt})
@@ -42,13 +49,54 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
             @Param("task") AutomationTaskEntity task
     );
 
-    @Update("""
+    @Select("""
+            WITH user_lock AS (
+                SELECT pg_advisory_xact_lock(#{userId})
+            ), enabled_count AS (
+                SELECT COUNT(*) AS total
+                FROM automation_tasks, user_lock
+                WHERE user_id = #{userId} AND enabled = TRUE AND deleted_at IS NULL
+            )
+            UPDATE automation_tasks
+            SET enabled = TRUE, next_run_at = #{nextRunAt}, revision = revision + 1,
+                updated_at = #{updatedAt}, lease_owner = NULL, lease_until = NULL
+            WHERE id = #{taskId} AND user_id = #{userId} AND revision = #{expectedRevision}
+              AND enabled = FALSE AND deleted_at IS NULL
+              AND (SELECT total FROM enabled_count) < #{maxEnabled}
+            RETURNING *
+            """)
+    AutomationTaskEntity enableOwned(
+            @Param("userId") Long userId,
+            @Param("taskId") String taskId,
+            @Param("expectedRevision") long expectedRevision,
+            @Param("nextRunAt") LocalDateTime nextRunAt,
+            @Param("updatedAt") LocalDateTime updatedAt,
+            @Param("maxEnabled") int maxEnabled
+    );
+
+    @Select("""
+            UPDATE automation_tasks
+            SET enabled = FALSE, next_run_at = NULL, revision = revision + 1,
+                updated_at = #{updatedAt}, lease_owner = NULL, lease_until = NULL
+            WHERE id = #{taskId} AND user_id = #{userId} AND revision = #{expectedRevision}
+              AND enabled = TRUE AND deleted_at IS NULL
+            RETURNING *
+            """)
+    AutomationTaskEntity disableOwned(
+            @Param("userId") Long userId,
+            @Param("taskId") String taskId,
+            @Param("expectedRevision") long expectedRevision,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Select("""
             UPDATE automation_tasks
             SET enabled = FALSE, next_run_at = NULL, lease_owner = NULL, lease_until = NULL,
                 deleted_at = #{now}, updated_at = #{now}, revision = revision + 1
             WHERE id = #{taskId} AND user_id = #{userId} AND deleted_at IS NULL
+            RETURNING *
             """)
-    int softDeleteOwned(
+    AutomationTaskEntity softDeleteOwned(
             @Param("userId") Long userId,
             @Param("taskId") String taskId,
             @Param("now") LocalDateTime now
@@ -58,6 +106,7 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
             WITH due AS (
                 SELECT id FROM automation_tasks
                 WHERE enabled = TRUE AND deleted_at IS NULL AND next_run_at <= #{now}
+                  AND (CAST(#{excludedZoneId} AS VARCHAR) IS NULL OR zone_id <> #{excludedZoneId})
                   AND (lease_until IS NULL OR lease_until < #{now})
                 ORDER BY next_run_at ASC
                 FOR UPDATE SKIP LOCKED
@@ -69,37 +118,42 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
             WHERE task.id = due.id
             RETURNING task.*
             """)
-    List<AutomationTaskEntity> claimDue(
+    List<AutomationTaskEntity> claimDueTasks(
             @Param("now") LocalDateTime now,
             @Param("limit") int limit,
             @Param("leaseOwner") String leaseOwner,
-            @Param("leaseUntil") LocalDateTime leaseUntil
+            @Param("leaseUntil") LocalDateTime leaseUntil,
+            @Param("excludedZoneId") String excludedZoneId
     );
+
+    @Update("""
+            UPDATE automation_tasks
+            SET lease_owner = NULL, lease_until = NULL
+            WHERE id = #{taskId} AND lease_owner = #{leaseOwner}
+            """)
+    int releaseLease(@Param("taskId") String taskId, @Param("leaseOwner") String leaseOwner);
 
     @Update("""
             UPDATE automation_tasks
             SET lease_owner = NULL, lease_until = NULL, next_run_at = #{nextRunAt},
-                last_run_at = #{lastRunAt}, last_status = #{lastStatus},
-                updated_at = #{lastRunAt}, revision = revision + 1
+                updated_at = #{now}
             WHERE id = #{taskId} AND lease_owner = #{leaseOwner}
             """)
-    int releaseLease(
+    int advanceLeaseToNextRun(
             @Param("taskId") String taskId,
             @Param("leaseOwner") String leaseOwner,
             @Param("nextRunAt") LocalDateTime nextRunAt,
-            @Param("lastRunAt") LocalDateTime lastRunAt,
-            @Param("lastStatus") String lastStatus
+            @Param("now") LocalDateTime now
     );
 
     @Update("""
             UPDATE automation_tasks
-            SET last_run_at = #{lastRunAt}, last_status = #{lastStatus},
-                updated_at = #{lastRunAt}, revision = revision + 1
+            SET last_run_at = #{at}, last_status = #{status}, updated_at = #{at}
             WHERE id = #{taskId} AND deleted_at IS NULL
             """)
-    int recordManualRunResult(
+    int recordRunResult(
             @Param("taskId") String taskId,
-            @Param("lastRunAt") LocalDateTime lastRunAt,
-            @Param("lastStatus") String lastStatus
+            @Param("at") LocalDateTime at,
+            @Param("status") String status
     );
 }

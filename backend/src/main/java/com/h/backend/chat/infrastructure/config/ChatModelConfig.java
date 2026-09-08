@@ -19,6 +19,7 @@ import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import com.h.backend.generation.interfaces.tool.ImageToVideoTool;
 import com.h.backend.automation.interfaces.tool.LangChain4jAutomationTool;
+import com.h.backend.automation.infrastructure.execution.AutomationExecutionSessionRegistry;
 import com.h.backend.skill.application.SkillRuntimeService;
 import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -142,19 +143,25 @@ public class ChatModelConfig {
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentor standardChatContextAugmentor,
                                  ObjectProvider<McpToolProvider> mcpToolProvider,
-                                 AgentObservability observability) {
+                                 AgentObservability observability,
+                                 AutomationExecutionSessionRegistry automationSessions) {
         List<ToolProvider> toolProviders = new ArrayList<>();
         // 静态工具走 provider 接缝注册：观测装饰器在每次请求构建时捕获当前观测上下文，
         // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
         // 在该路径不可用（当前工具集未使用）。
-        toolProviders.add(staticToolsProvider(observability, List.of(
+        toolProviders.add(staticToolsProvider(observability, automationSessions, List.of(
                 imageGenerationTool, textToVideoTool, imageToVideoTool,
                 filesystemTool, fileDeliveryTool, shellTool, webSearchTool,
                 langChain4jAutomationTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
-        toolProviders.add(new ObservingToolProvider(skillRuntimeToolProvider, observability, "langchain4j"));
+        toolProviders.add(new ObservingToolProvider(request -> automationSessions.isAutomation(request.chatMemoryId())
+                ? ToolProviderResult.builder().build()
+                : skillRuntimeToolProvider.provideTools(request), observability, "langchain4j"));
         toolProviders.add(new ObservingToolProvider(request -> {
+            if (automationSessions.isAutomation(request.chatMemoryId())) {
+                return ToolProviderResult.builder().build();
+            }
             McpToolProvider provider = mcpToolProvider.getIfAvailable();
             if (provider == null) {
                 return ToolProviderResult.builder().build();
@@ -193,11 +200,17 @@ public class ChatModelConfig {
                 .build();
     }
 
-    private static ToolProvider staticToolsProvider(AgentObservability observability, List<Object> toolObjects) {
+    private static ToolProvider staticToolsProvider(
+            AgentObservability observability,
+            AutomationExecutionSessionRegistry automationSessions,
+            List<Object> toolObjects
+    ) {
         List<AiServiceTool> tools = new ArrayList<>();
         for (Object toolObject : toolObjects) {
             tools.addAll(ToolService.findTools(toolObject));
         }
-        return new ObservingToolProvider(request -> new ToolProviderResult(tools), observability, "langchain4j");
+        return new ObservingToolProvider(request -> automationSessions.isAutomation(request.chatMemoryId())
+                ? ToolProviderResult.builder().build()
+                : new ToolProviderResult(tools), observability, "langchain4j");
     }
 }

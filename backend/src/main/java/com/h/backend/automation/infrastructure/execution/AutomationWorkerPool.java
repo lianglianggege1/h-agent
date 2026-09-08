@@ -1,6 +1,7 @@
 package com.h.backend.automation.infrastructure.execution;
 
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 public final class AutomationWorkerPool implements AutoCloseable {
     private final ExecutorService executor;
@@ -9,8 +10,12 @@ public final class AutomationWorkerPool implements AutoCloseable {
         this.executor = executor;
     }
 
-    public void submit(Runnable work) {
-        executor.submit(work);
+    public Future<?> submit(Runnable work) {
+        return executor.submit(work);
+    }
+
+    public void execute(Runnable work) {
+        executor.execute(work);
     }
 
     @Override

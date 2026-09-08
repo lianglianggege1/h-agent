@@ -267,5 +267,32 @@ automation:
   polling-delay: 15s
   batch-size: 10
   lease-duration: 30m
-  execution-timeout: 20m
+  execution-timeout: 15m
+  misfire-tolerance: 10m
   worker-threads: 4
+  delivery:
+    batch-size: 10
+    lease-duration: 2m
+    polling-delay: 10s
+    max-attempts: 8
+  xxl-job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    base-url: ${XXL_JOB_ADMIN_URL:http://127.0.0.1:8080}
+    username: ${XXL_JOB_ADMIN_USERNAME:}
+    password: ${XXL_JOB_ADMIN_PASSWORD:}
+    job-group: ${XXL_JOB_GROUP:3}
+    author: ${XXL_JOB_AUTHOR:h-agent}
+    executor-handler: ${XXL_JOB_EXECUTOR_HANDLER:automationDispatchHandler}
+    connect-timeout: 3s
+    read-timeout: 8s
+    polling-delay: 5s
+    lease-duration: 30s
+    batch-size: 10
+    executor-app-name: ${XXL_JOB_EXECUTOR_APP_NAME:h-agent-job-executor}
+    executor-address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+    executor-ip: ${XXL_JOB_EXECUTOR_IP:}
+    executor-port: ${XXL_JOB_EXECUTOR_PORT:9999}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:}
+    log-path: ${XXL_JOB_LOG_PATH:./logs/xxl-job}
+    log-retention-days: ${XXL_JOB_LOG_RETENTION_DAYS:30}
+    scheduler-zone-id: ${XXL_JOB_SCHEDULER_ZONE_ID:Asia/Shanghai}

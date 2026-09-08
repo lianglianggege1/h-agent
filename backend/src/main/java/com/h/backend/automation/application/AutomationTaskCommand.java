@@ -9,6 +9,14 @@ public record AutomationTaskCommand(
         AutomationRuntime runtime,
         String cronExpression,
         String zoneId,
-        Boolean enabled
+        Boolean enabled,
+        String deliverySink,
+        String deliverySessionId
 ) {
+    public AutomationTaskCommand(
+            String name, String instruction, String agentId, AutomationRuntime runtime,
+            String cronExpression, String zoneId, Boolean enabled
+    ) {
+        this(name, instruction, agentId, runtime, cronExpression, zoneId, enabled, null, null);
+    }
 }
