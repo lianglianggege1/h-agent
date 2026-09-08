@@ -263,18 +263,20 @@ generation:
     max-file-size: 524288000
 
 automation:
-  enabled: true
-  polling-delay: 15s
-  batch-size: 10
-  lease-duration: 30m
-  execution-timeout: 15m
-  misfire-tolerance: 10m
-  worker-threads: 4
+  enabled: ${AUTOMATION_ENABLED:true}
+  polling-delay: ${AUTOMATION_POLLING_DELAY:15s}
+  dispatch-delay: ${AUTOMATION_DISPATCH_DELAY:5s}
+  recovery-delay: ${AUTOMATION_RECOVERY_DELAY:60s}
+  batch-size: ${AUTOMATION_BATCH_SIZE:10}
+  lease-duration: ${AUTOMATION_LEASE_DURATION:30m}
+  execution-timeout: ${AUTOMATION_EXECUTION_TIMEOUT:15m}
+  misfire-tolerance: ${AUTOMATION_MISFIRE_TOLERANCE:10m}
+  worker-threads: ${AUTOMATION_WORKER_THREADS:4}
   delivery:
-    batch-size: 10
-    lease-duration: 2m
-    polling-delay: 10s
-    max-attempts: 8
+    batch-size: ${AUTOMATION_DELIVERY_BATCH_SIZE:10}
+    lease-duration: ${AUTOMATION_DELIVERY_LEASE_DURATION:2m}
+    polling-delay: ${AUTOMATION_DELIVERY_POLLING_DELAY:10s}
+    max-attempts: ${AUTOMATION_DELIVERY_MAX_ATTEMPTS:8}
   xxl-job:
     enabled: ${XXL_JOB_ENABLED:false}
     base-url: ${XXL_JOB_ADMIN_URL:http://127.0.0.1:8080}
@@ -283,11 +285,11 @@ automation:
     job-group: ${XXL_JOB_GROUP:3}
     author: ${XXL_JOB_AUTHOR:h-agent}
     executor-handler: ${XXL_JOB_EXECUTOR_HANDLER:automationDispatchHandler}
-    connect-timeout: 3s
-    read-timeout: 8s
-    polling-delay: 5s
-    lease-duration: 30s
-    batch-size: 10
+    connect-timeout: ${XXL_JOB_CONNECT_TIMEOUT:3s}
+    read-timeout: ${XXL_JOB_READ_TIMEOUT:8s}
+    polling-delay: ${XXL_JOB_POLLING_DELAY:5s}
+    lease-duration: ${XXL_JOB_LEASE_DURATION:30s}
+    batch-size: ${XXL_JOB_BATCH_SIZE:10}
     executor-app-name: ${XXL_JOB_EXECUTOR_APP_NAME:h-agent-job-executor}
     executor-address: ${XXL_JOB_EXECUTOR_ADDRESS:}
     executor-ip: ${XXL_JOB_EXECUTOR_IP:}
