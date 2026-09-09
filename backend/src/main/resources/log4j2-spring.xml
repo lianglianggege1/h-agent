@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 日志格式对齐参考配置：[时间] [级别] [应用名] [SpanId] [TraceId] [线程] (文件:行号) - 消息
+     说明：
+     - $${spring:spring.application.name}：$$ 表示延迟到日志事件时解析（Spring Environment 就绪后才能取到值）
+     - (%file:%line\)：\) 是转义写法，输出字面 ")"；Async 上必须 includeLocation=true 才有文件行号
+     - Async 默认 blocking=true（队列满时阻塞等待而非丢弃），保证大模型完整请求体/响应体日志不丢
+     - traceId/spanId 由 TraceMdcFilter 注入 MDC，支持 X-Trace-Id / X-Span-Id 请求头透传 -->
+<Configuration monitorInterval="5">
+
+    <Properties>
+        <property name="LOG_PATH" value="logs"/>
+        <property name="PLAIN_CONSOLE_LOG_PATTERN"
+                  value=" [%d] [%p] [$${spring:spring.application.name}] [SpanId:%X{spanId}] [TraceId:%X{traceId}] [%t] (%file:%line\)- %m%n"/>
+        <property name="COLOR_CONSOLE_LOG_PATTERN"
+                  value=" [%d] %highlight{[%p]}{FATAL=red, ERROR=red, WARN=yellow, INFO=green, DEBUG=green, TRACE=green} %style{[SpanId: %X{spanId}]} %style{[TraceId: %X{traceId}]}{magenta} [%t] (%file:%line\) %style{%c{10}}{cyan} - %m%n"/>
+    </Properties>
+
+    <!-- HarnessAgent 大模型交互日志：请求入参与响应出参，默认 INFO 级别输出 -->
+    <!-- MyBatis SQL：Mapper namespace、项目 SQL 拦截器和框架内部调试日志 -->
+
+    <SpringProfile name="local">
+        <Appenders>
+            <Console name="stdout" target="SYSTEM_OUT">
+                <PatternLayout charset="UTF-8" pattern="${COLOR_CONSOLE_LOG_PATTERN}"/>
+            </Console>
+
+            <Async name="asyncConsole" includeLocation="true">
+                <AppenderRef ref="stdout"/>
+            </Async>
+
+            <RollingFile name="rollingFile" fileName="${LOG_PATH}/backend.log"
+                         filePattern="${LOG_PATH}/backend-%d{yyyy-MM-dd}.log">
+                <PatternLayout charset="UTF-8" pattern="${PLAIN_CONSOLE_LOG_PATTERN}"/>
+                <Policies>
+                    <TimeBasedTriggeringPolicy/>
+                </Policies>
+                <DefaultRolloverStrategy>
+                    <Delete basePath="${LOG_PATH}" maxDepth="1">
+                        <IfFileName glob="backend-*.log"/>
+                        <IfLastModified age="15d"/>
+                    </Delete>
+                </DefaultRolloverStrategy>
+            </RollingFile>
+        </Appenders>
+
+        <Loggers>
+            <logger name="com.h.backend.chat.infrastructure.agentscope" level="INFO"/>
+            <logger name="com.h.backend.chat.domain.agent.HarnessAgentExecutor" level="INFO"/>
+            <!-- MyBatis SQL 统一由 SqlLogInterceptor 打印（参数合并单行），不启用框架自身 DEBUG 日志 -->
+            <logger name="com.h.backend.mybatis" level="DEBUG"/>
+
+            <Root level="info" includeLocation="true">
+                <AppenderRef ref="asyncConsole"/>
+                <AppenderRef ref="rollingFile"/>
+            </Root>
+        </Loggers>
+    </SpringProfile>
+
+    <SpringProfile name="!local">
+        <Appenders>
+            <Console name="stdout" target="SYSTEM_OUT">
+                <PatternLayout charset="UTF-8" pattern="${PLAIN_CONSOLE_LOG_PATTERN}"/>
+            </Console>
+
+            <Async name="asyncConsole" includeLocation="true">
+                <AppenderRef ref="stdout"/>
+            </Async>
+
+            <RollingFile name="rollingFile" fileName="${LOG_PATH}/backend.log"
+                         filePattern="${LOG_PATH}/backend-%d{yyyy-MM-dd}.log">
+                <PatternLayout charset="UTF-8" pattern="${PLAIN_CONSOLE_LOG_PATTERN}"/>
+                <Policies>
+                    <TimeBasedTriggeringPolicy/>
+                </Policies>
+                <DefaultRolloverStrategy>
+                    <Delete basePath="${LOG_PATH}" maxDepth="1">
+                        <IfFileName glob="backend-*.log"/>
+                        <IfLastModified age="15d"/>
+                    </Delete>
+                </DefaultRolloverStrategy>
+            </RollingFile>
+        </Appenders>
+
+        <Loggers>
+            <logger name="com.h.backend.chat.infrastructure.agentscope" level="INFO"/>
+            <logger name="com.h.backend.chat.domain.agent.HarnessAgentExecutor" level="INFO"/>
+            <!-- MyBatis SQL 统一由 SqlLogInterceptor 打印（参数合并单行），不启用框架自身 DEBUG 日志 -->
+            <logger name="com.h.backend.mybatis" level="DEBUG"/>
+
+            <Root level="info" includeLocation="true">
+                <AppenderRef ref="asyncConsole"/>
+                <AppenderRef ref="rollingFile"/>
+            </Root>
+        </Loggers>
+    </SpringProfile>
+
+</Configuration>

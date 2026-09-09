@@ -1,16 +1,14 @@
 package com.h.backend.chat.infrastructure.storage;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
+import com.h.backend.common.testsupport.CapturingLogAppender;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
@@ -163,11 +161,8 @@ class ResourceWriteCoordinatorTest {
         doThrow(storageFailure).when(resourceStorage).discard("key-df");
         IllegalStateException boom = new IllegalStateException("attach failed");
 
-        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(TransactionalResourceWriteCoordinator.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        coordinatorLogger.addAppender(appender);
-        try {
+        try (CapturingLogAppender.Attached attached =
+                     CapturingLogAppender.attach(TransactionalResourceWriteCoordinator.class)) {
             IllegalStateException thrown = assertThrows(IllegalStateException.class,
                     () -> coordinator.saveAndAttach(command(), stored -> {
                         throw boom;
@@ -180,18 +175,15 @@ class ResourceWriteCoordinatorTest {
 
             // 脱敏 ERROR 告警（不变量 17）：只含 errorKind、resourceId 与 key 尾段，
             // 不含 SDK 异常消息或完整 key（Metrics 不取代日志）
-            assertEquals(1, appender.list.size());
-            ILoggingEvent event = appender.list.get(0);
+            assertEquals(1, attached.appender().events().size());
+            LogEvent event = attached.appender().events().get(0);
             assertEquals(Level.ERROR, event.getLevel());
-            String message = event.getFormattedMessage();
+            String message = event.getMessage().getFormattedMessage();
             assertTrue(message.contains("operation=discard"), message);
             assertTrue(message.contains("errorKind=UNAVAILABLE"), message);
             assertTrue(message.contains("res-discard-fail"), message);
             assertTrue(message.contains("key-df"), message);
             assertFalse(message.contains("对象存储暂时不可用"), message);
-        } finally {
-            coordinatorLogger.detachAppender(appender);
-            appender.stop();
         }
     }
 

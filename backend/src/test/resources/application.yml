@@ -39,9 +39,6 @@ mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
-    # 把 MyBatis 日志桥接到当前 logback，参数化 SQL 由 StatementLogger (DEBUG) 打印
-    # 带 ? 的 PreparedStatement 与参数列表（Parameters、Updates 换行）会输出到 com.h.backend.mybatis.SqlLog logger
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     banner: false
 

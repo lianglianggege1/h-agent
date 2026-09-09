@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 测试专用配置：普通单测无 Spring 上下文，log4j2 默认 root 为 ERROR 会过滤 INFO 日志，
+     这里显式给 INFO root + Mapper DEBUG（对齐原 logback 测试期行为）。
+     注意：log4j2 自身按标准位置发现本文件（先于 log4j2-spring.xml），SpringBootTest 也会用它。 -->
+<Configuration>
+    <Appenders>
+        <Console name="stdout" target="SYSTEM_OUT">
+            <PatternLayout charset="UTF-8" pattern="[%d{HH:mm:ss.SSS}] [%p] [%t] (%c{1}) - %m%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <!-- MyBatis SQL 统一由 SqlLogInterceptor 打印（参数合并单行），不启用框架自身 DEBUG 日志 -->
+        <logger name="com.h.backend.mybatis" level="DEBUG"/>
+        <Root level="INFO">
+            <AppenderRef ref="stdout"/>
+        </Root>
+    </Loggers>
+</Configuration>
