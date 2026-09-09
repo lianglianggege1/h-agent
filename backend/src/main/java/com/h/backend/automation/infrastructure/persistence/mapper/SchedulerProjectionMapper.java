@@ -15,8 +15,8 @@ import java.util.List;
 @Mapper
 public interface SchedulerProjectionMapper extends BaseMapper<SchedulerProjectionOutboxEntity> {
 
-    @Select("SELECT pg_advisory_xact_lock(hashtextextended(#{taskId}, 0))")
-    Long lockTask(@Param("taskId") String taskId);
+    @Update("SELECT pg_advisory_xact_lock(hashtextextended(#{taskId}, 0))")
+    void lockTask(@Param("taskId") String taskId);
 
     @Insert("""
             INSERT INTO automation_scheduler_projection(
