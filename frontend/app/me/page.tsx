@@ -57,6 +57,10 @@ export default function MePage() {
           </Link>
 
           <p className="mt-6 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Harness Agent 能力</p>
+          <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/automations">
+            <span className="block text-sm font-semibold text-stone-700">自动化任务</span>
+            <span className="mt-1 block text-xs text-stone-400">定时任务与待确认提案管理</span>
+          </Link>
           <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/me/memory">
             <span className="block text-sm font-semibold text-stone-700">用户长期记忆</span>
             <span className="mt-1 block text-xs text-stone-400">查看和编辑 Harness Agent 的长期记忆</span>
