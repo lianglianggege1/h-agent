@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -93,6 +94,76 @@ public class RunAdmissionModule {
             return new AdmissionResult(conflict, task, null);
         }
         return new AdmissionResult(AdmissionStatus.ACCEPTED, task, inserted);
+    }
+
+    /**
+     * 接纳使用受管 Job 固定参数进入 executor 的 XXL 触发。
+     *
+     * <p>XXL-Job 3.4.1 的 executor 上下文不携带 TriggerType。Job 的固定参数必须标记为
+     * SCHEDULED，因而 Admin 原生“执行一次”也会带着 SCHEDULED 到达。受管 Job 同时配置了
+     * DO_NOTHING misfire 策略：不落在日程窗口内的调用，以及已有同日程 Run 但持有新 logId
+     * 的调用，按新的 Admin 人工执行事件接纳。相同 logId 始终复用原 Run。</p>
+     */
+    public AdmissionResult admitScheduledOrAdminManual(
+            String taskId,
+            long taskRevision,
+            Instant observedTriggerAt,
+            String triggerId
+    ) {
+        String manualRunId = xxlManualRunId(triggerId);
+        Optional<AutomationRun> eventReplay = repository.findRunByTriggerId(triggerId);
+        if (eventReplay.isPresent()) {
+            AutomationRun existing = eventReplay.get();
+            AutomationTask task = repository.findById(taskId).orElse(null);
+            if (task != null && task.id().equals(existing.taskId())
+                    && taskRevision == existing.taskRevision()) {
+                return new AdmissionResult(AdmissionStatus.ACCEPTED, task, existing);
+            }
+            return new AdmissionResult(AdmissionStatus.SKIPPED_DUPLICATE, task, null);
+        }
+        AdmissionResult scheduled = admitScheduled(taskId, taskRevision, observedTriggerAt, triggerId);
+        if (scheduled.status() != AdmissionStatus.SKIPPED_MISFIRE
+                && scheduled.status() != AdmissionStatus.SKIPPED_DUPLICATE) {
+            return scheduled;
+        }
+        return admitAdminManual(scheduled.task(), observedTriggerAt, triggerId, manualRunId);
+    }
+
+    private AdmissionResult admitAdminManual(
+            AutomationTask task,
+            Instant triggeredAt,
+            String triggerId,
+            String runId
+    ) {
+        if (repository.existsActiveRun(task.id())) {
+            return new AdmissionResult(AdmissionStatus.SKIPPED_OVERLAP, task, null);
+        }
+        AutomationRun run = new AutomationRun(
+                runId, task.id(), task.userId(), task.revision(),
+                "MANUAL", triggerId, AutomationRunStatus.QUEUED.name(), triggeredAt, clock.instant(),
+                null, null, null, null, null, snapshot(task, runId, "MANUAL", triggeredAt)
+        );
+        AutomationRun inserted = repository.insertManualRunIfNoActive(run);
+        if (inserted != null) {
+            return new AdmissionResult(AdmissionStatus.ACCEPTED, task, inserted);
+        }
+        Optional<AutomationRun> replay = repository.findRunByTriggerId(triggerId)
+                .or(() -> repository.findRunOwned(task.userId(), runId));
+        if (replay.isPresent()) {
+            return new AdmissionResult(AdmissionStatus.ACCEPTED, task, replay.get());
+        }
+        AdmissionStatus conflict = repository.existsActiveRun(task.id())
+                ? AdmissionStatus.SKIPPED_OVERLAP : AdmissionStatus.SKIPPED_DUPLICATE;
+        return new AdmissionResult(conflict, task, null);
+    }
+
+    private static String xxlManualRunId(String triggerId) {
+        if (triggerId == null || triggerId.isBlank()) {
+            throw new IllegalArgumentException("XXL 触发缺少执行日志 ID");
+        }
+        return UUID.nameUUIDFromBytes(
+                ("automation:xxl-admin-manual:" + triggerId).getBytes(StandardCharsets.UTF_8)
+        ).toString();
     }
 
     String snapshot(AutomationTask task, String runId, String triggerType, Instant scheduledFor) {

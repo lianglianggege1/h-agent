@@ -131,7 +131,7 @@ public class AutomationRunCoordinator {
         if ("MANUAL".equals(triggerType)) {
             queued = requireManualRun(taskId, taskRevision, requestedRunId, xxlTriggerId);
         } else {
-            RunAdmissionModule.AdmissionResult admission = admissionModule.admitScheduled(
+            RunAdmissionModule.AdmissionResult admission = admissionModule.admitScheduledOrAdminManual(
                     taskId, taskRevision, observedTriggerAt, xxlTriggerId);
             if (admission.status() != RunAdmissionModule.AdmissionStatus.ACCEPTED) {
                 return XxlExecutionResult.skipped(admission.status().name());

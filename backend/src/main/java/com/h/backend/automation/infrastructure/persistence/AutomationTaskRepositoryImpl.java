@@ -157,6 +157,11 @@ public class AutomationTaskRepositoryImpl implements AutomationTaskRepository {
     }
 
     @Override
+    public Optional<AutomationRun> findRunByTriggerId(String triggerId) {
+        return Optional.ofNullable(runMapper.selectByTriggerId(triggerId)).map(this::toDomain);
+    }
+
+    @Override
     public Optional<AutomationRun> findRunOwned(Long userId, String runId) {
         return Optional.ofNullable(runMapper.selectOwnedRun(userId, runId)).map(this::toDomain);
     }

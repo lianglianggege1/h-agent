@@ -42,6 +42,11 @@ public interface AutomationTaskRepository {
         return Optional.empty();
     }
 
+    /** 按 XXL 执行身份查找已接纳的逻辑执行事件，用于回调重放幂等。 */
+    default Optional<AutomationRun> findRunByTriggerId(String triggerId) {
+        return Optional.empty();
+    }
+
     Optional<AutomationRun> findRunOwned(Long userId, String runId);
 
     /** 请求取消：QUEUED 直接取消，RUNNING 流转为 CANCEL_REQUESTED。 */

@@ -63,6 +63,50 @@ class RunAdmissionModuleTest {
     }
 
     @Test
+    void treatsOffScheduleXxlTriggerAsIdempotentAdminManualRun() throws Exception {
+        FakeRepository repository = new FakeRepository(enabledTask());
+        RunAdmissionModule module = new RunAdmissionModule(
+                repository, Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+        Instant clickedAt = Instant.parse("2026-09-07T00:55:00Z");
+
+        RunAdmissionModule.AdmissionResult first = module.admitScheduledOrAdminManual(
+                "task-1", 4, clickedAt, "xxl:10");
+        repository.markAllTerminal();
+        RunAdmissionModule.AdmissionResult replay = module.admitScheduledOrAdminManual(
+                "task-1", 4, clickedAt, "xxl:10");
+
+        assertEquals(RunAdmissionModule.AdmissionStatus.ACCEPTED, first.status());
+        assertNotNull(first.run());
+        assertEquals("MANUAL", first.run().triggerType());
+        assertEquals("xxl:10", first.run().triggerId());
+        assertEquals(clickedAt, first.run().scheduledFor());
+        assertEquals("MANUAL", new ObjectMapper().readTree(first.run().specSnapshot())
+                .path("triggerType").asText());
+        assertEquals(first.run().id(), replay.run().id());
+    }
+
+    @Test
+    void treatsDistinctXxlTriggerInCompletedScheduleWindowAsAdminManualRun() {
+        FakeRepository repository = new FakeRepository(enabledTask());
+        RunAdmissionModule module = new RunAdmissionModule(
+                repository, Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+        Instant scheduledFor = Instant.parse("2026-09-07T01:00:00Z");
+        RunAdmissionModule.AdmissionResult scheduled = module.admitScheduledOrAdminManual(
+                "task-1", 4, scheduledFor, "xxl:20");
+        repository.markAllTerminal();
+
+        RunAdmissionModule.AdmissionResult adminManual = module.admitScheduledOrAdminManual(
+                "task-1", 4, scheduledFor.plusSeconds(5 * 60), "xxl:21");
+
+        assertEquals("SCHEDULED", scheduled.run().triggerType());
+        assertEquals(RunAdmissionModule.AdmissionStatus.ACCEPTED, adminManual.status());
+        assertEquals("MANUAL", adminManual.run().triggerType());
+        assertEquals("xxl:21", adminManual.run().triggerId());
+    }
+
+    @Test
     void mapsConcurrentActiveRunConstraintToOverlapInsteadOfDuplicate() {
         FakeRepository repository = new FakeRepository(enabledTask());
         repository.simulateConcurrentOverlap = true;
@@ -105,6 +149,7 @@ class RunAdmissionModuleTest {
     private static final class FakeRepository implements AutomationTaskRepository {
         private final AutomationTask task;
         private final Map<String, AutomationRun> scheduledRuns = new HashMap<>();
+        private final Map<String, AutomationRun> manualRuns = new HashMap<>();
         private boolean simulateConcurrentOverlap;
         private int activeChecks;
 
@@ -122,7 +167,10 @@ class RunAdmissionModuleTest {
         @Override public boolean softDeleteOwned(Long userId, String taskId) { return false; }
         @Override public void recordRunResult(String taskId, Instant at, String status) { }
         @Override public AutomationRun insertRun(AutomationRun run) { return run; }
-        @Override public AutomationRun insertManualRunIfNoActive(AutomationRun run) { return run; }
+        @Override
+        public AutomationRun insertManualRunIfNoActive(AutomationRun run) {
+            return manualRuns.putIfAbsent(run.id(), run) == null ? run : null;
+        }
 
         @Override
         public AutomationRun insertScheduledRunIfAbsent(AutomationRun run) {
@@ -147,8 +195,22 @@ class RunAdmissionModuleTest {
                     run.triggerId(), "SUCCEEDED", run.scheduledFor(), run.startedAt(), NOW,
                     run.sessionId(), run.output(), null, run.cancelRequestedAt(), run.specSnapshot()
             ));
+            manualRuns.replaceAll((key, run) -> new AutomationRun(
+                    run.id(), run.taskId(), run.userId(), run.taskRevision(), run.triggerType(),
+                    run.triggerId(), "SUCCEEDED", run.scheduledFor(), run.startedAt(), NOW,
+                    run.sessionId(), run.output(), null, run.cancelRequestedAt(), run.specSnapshot()
+            ));
         }
-        @Override public Optional<AutomationRun> findRunOwned(Long userId, String runId) { return Optional.empty(); }
+        @Override
+        public Optional<AutomationRun> findRunOwned(Long userId, String runId) {
+            return Optional.ofNullable(manualRuns.get(runId));
+        }
+        @Override
+        public Optional<AutomationRun> findRunByTriggerId(String triggerId) {
+            return java.util.stream.Stream.concat(scheduledRuns.values().stream(), manualRuns.values().stream())
+                    .filter(run -> triggerId.equals(run.triggerId()))
+                    .findFirst();
+        }
         @Override public Optional<AutomationRun> requestCancelRun(String runId, Instant now) { return Optional.empty(); }
         @Override public List<AutomationRun> listRunsOwned(Long userId, String taskId, int limit) { return List.of(); }
     }

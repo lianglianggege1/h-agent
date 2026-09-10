@@ -99,6 +99,13 @@ public interface AutomationRunMapper extends BaseMapper<AutomationRunEntity> {
     );
 
     @Select("""
+            SELECT * FROM automation_runs
+            WHERE trigger_id = #{triggerId}
+            LIMIT 1
+            """)
+    AutomationRunEntity selectByTriggerId(@Param("triggerId") String triggerId);
+
+    @Select("""
             UPDATE automation_runs
             SET status = CASE WHEN status = 'QUEUED' THEN 'CANCELLED' ELSE 'CANCEL_REQUESTED' END,
                 cancel_requested_at = #{now},
