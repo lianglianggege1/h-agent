@@ -33,6 +33,8 @@ public class AutomationProposalEntity {
     private String idempotencyKey;
     @TableField("result_task_id")
     private String resultTaskId;
+    @TableField("source_agent_run_id")
+    private Long sourceAgentRunId;
     @TableField("expires_at")
     private LocalDateTime expiresAt;
     @TableField("confirmed_at")

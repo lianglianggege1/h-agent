@@ -1,7 +1,13 @@
 package com.h.backend.automation.application;
 
 import com.h.backend.automation.domain.AutomationProposal;
+import com.h.backend.automation.domain.AutomationProposalAction;
+import com.h.backend.automation.domain.AutomationRuntime;
+import com.h.backend.automation.domain.AutomationSchedule;
 import com.h.backend.automation.domain.AutomationTask;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.domain.model.AgentRunSummary;
+import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
@@ -18,6 +24,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AutomationProposalModuleTest {
 
@@ -28,7 +38,7 @@ class AutomationProposalModuleTest {
         LockingProposalRepository proposals = new LockingProposalRepository(pendingCreate());
         RecordingTaskService tasks = new RecordingTaskService();
         AutomationProposalModule module = new AutomationProposalModule(
-                proposals, tasks, AutomationAuditRecorder.NOOP, new ObjectMapper(),
+                proposals, tasks, AutomationAuditRecorder.NOOP, null, new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
 
@@ -42,13 +52,89 @@ class AutomationProposalModuleTest {
         assertEquals(1, tasks.createCount.get());
     }
 
+    @Test
+    void createChangeProposalBindsUniqueOpenRun() {
+        CapturingProposalRepository proposals = new CapturingProposalRepository();
+        StubTaskService tasks = new StubTaskService();
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        when(agentRunService.requireOpenRun(7L, "session-1"))
+                .thenReturn(new AgentRunSummary(51L, "RUNNING", null, 0, "[]", null, null));
+        AutomationProposalModule module = new AutomationProposalModule(
+                proposals, tasks, AutomationAuditRecorder.NOOP, agentRunService, new ObjectMapper(),
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        AutomationProposal created = module.createChangeProposal(
+                7L, AutomationProposalAction.CREATE, null, createCommand(),
+                "session-1", "CHAT_LANGCHAIN4J"
+        );
+
+        assertEquals("PENDING", created.status());
+        assertEquals(51L, created.sourceAgentRunId());
+        assertEquals(51L, proposals.inserted.get().sourceAgentRunId());
+    }
+
+    @Test
+    void createChangeProposalRejectsWhenNoOpenRun() {
+        CapturingProposalRepository proposals = new CapturingProposalRepository();
+        StubTaskService tasks = new StubTaskService();
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        when(agentRunService.requireOpenRun(7L, "session-1"))
+                .thenThrow(new BusinessException(40940, "当前会话无开放 AgentRun"));
+        AutomationProposalModule module = new AutomationProposalModule(
+                proposals, tasks, AutomationAuditRecorder.NOOP, agentRunService, new ObjectMapper(),
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        BusinessException error = assertThrows(BusinessException.class, () -> module.createChangeProposal(
+                7L, AutomationProposalAction.CREATE, null, createCommand(),
+                "session-1", "CHAT_LANGCHAIN4J"
+        ));
+
+        assertEquals(40940, error.getCode());
+        assertNull(proposals.inserted.get());
+    }
+
+    @Test
+    void confirmPreservesSourceAgentRunIdAnchor() {
+        LockingProposalRepository proposals = new LockingProposalRepository(pendingCreateWithRun(51L));
+        RecordingTaskService tasks = new RecordingTaskService();
+        AutomationProposalModule module = new AutomationProposalModule(
+                proposals, tasks, AutomationAuditRecorder.NOOP, null, new ObjectMapper(),
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        AutomationProposal confirmed = module.confirm(7L, "proposal-1");
+
+        assertEquals("CONFIRMED", confirmed.status());
+        assertEquals(51L, confirmed.sourceAgentRunId());
+    }
+
+    private static AutomationTaskCommand createCommand() {
+        return new AutomationTaskCommand(
+                "晨报", "汇总今天的行业动态", "standard-chat", null,
+                "0 0 9 * * *", "Asia/Shanghai", false, "SESSION", "session-1"
+        );
+    }
+
+    private static AutomationProposal pendingCreateWithRun(Long sourceAgentRunId) {
+        return new AutomationProposal(
+                "proposal-1", 7L, null, "CREATE",
+                "{\"name\":\"晨报\",\"instruction\":\"汇总今天的行业动态\",\"agentId\":\"standard-chat\","
+                        + "\"runtime\":\"LANGCHAIN4J\",\"cronExpression\":\"0 0 9 * * *\","
+                        + "\"zoneId\":\"Asia/Shanghai\",\"deliverySink\":\"NONE\"}",
+                null, "PENDING", "session-1", "CHAT", "request-1", null, sourceAgentRunId,
+                NOW.plusSeconds(3600), null, null, NOW, NOW
+        );
+    }
+
     private static AutomationProposal pendingCreate() {
         return new AutomationProposal(
                 "proposal-1", 7L, null, "CREATE",
                 "{\"name\":\"晨报\",\"instruction\":\"汇总今天的行业动态\",\"agentId\":\"standard-chat\","
                         + "\"runtime\":\"LANGCHAIN4J\",\"cronExpression\":\"0 0 9 * * *\","
                         + "\"zoneId\":\"Asia/Shanghai\",\"deliverySink\":\"NONE\"}",
-                null, "PENDING", "session-1", "CHAT", "request-1", null,
+                null, "PENDING", "session-1", "CHAT", "request-1", null, null,
                 NOW.plusSeconds(3600), null, null, NOW, NOW
         );
     }
@@ -129,8 +215,8 @@ class AutomationProposalModuleTest {
             AutomationProposal confirmed = new AutomationProposal(
                     current.id(), current.userId(), current.taskId(), current.action(), current.payloadJson(),
                     current.baseTaskRevision(), "CONFIRMED", current.sourceSessionId(), current.createdVia(),
-                    current.idempotencyKey(), resultTaskId, current.expiresAt(), now, confirmedBy,
-                    current.createdAt(), now
+                    current.idempotencyKey(), resultTaskId, current.sourceAgentRunId(), current.expiresAt(),
+                    now, confirmedBy, current.createdAt(), now
             );
             value.set(confirmed);
             if (confirmationLock.isHeldByCurrentThread()) confirmationLock.unlock();
@@ -139,5 +225,52 @@ class AutomationProposalModuleTest {
 
         @Override public AutomationProposal markDiscarded(Long userId, String proposalId, Instant now) { return null; }
         @Override public int markExpired(Instant now) { return 0; }
+    }
+
+    private static final class StubTaskService extends AutomationTaskService {
+        private StubTaskService() {
+            super(null, null);
+        }
+
+        @Override
+        public ValidatedCommand validateCommandForSession(
+                Long userId, String sessionId, AutomationTaskCommand command) {
+            return new ValidatedCommand(
+                    command.name(), command.instruction(), command.agentId(),
+                    AutomationRuntime.LANGCHAIN4J,
+                    new AutomationSchedule(command.cronExpression(), command.zoneId()),
+                    command.deliverySink(), command.deliverySessionId()
+            );
+        }
+    }
+
+    private static final class CapturingProposalRepository implements AutomationProposalRepository {
+        private final AtomicReference<AutomationProposal> inserted = new AtomicReference<>();
+
+        @Override public AutomationProposal insert(AutomationProposal proposal) {
+            inserted.set(proposal);
+            return proposal;
+        }
+
+        @Override public Optional<AutomationProposal> findOwned(Long userId, String proposalId) {
+            return Optional.ofNullable(inserted.get());
+        }
+
+        @Override public List<AutomationProposal> listPendingOwned(Long userId, Instant now) {
+            return List.of();
+        }
+
+        @Override public AutomationProposal markConfirmed(
+                String proposalId, String resultTaskId, Long confirmedBy, Instant now) {
+            return inserted.get();
+        }
+
+        @Override public AutomationProposal markDiscarded(Long userId, String proposalId, Instant now) {
+            return inserted.get();
+        }
+
+        @Override public int markExpired(Instant now) {
+            return 0;
+        }
     }
 }

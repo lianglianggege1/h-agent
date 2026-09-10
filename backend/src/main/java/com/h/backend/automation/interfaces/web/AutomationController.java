@@ -1,5 +1,6 @@
 package com.h.backend.automation.interfaces.web;
 
+import com.h.backend.automation.application.AnchoredProposalView;
 import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.application.AutomationRunCoordinator;
 import com.h.backend.automation.application.AutomationTaskCommand;
@@ -165,9 +166,22 @@ public class AutomationController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam(required = false) String sessionId
     ) {
-        var proposals = sessionId == null || sessionId.isBlank()
-                ? proposalModule.listPending(principal.userId())
-                : proposalModule.listForSession(principal.userId(), sessionId);
+        if (sessionId != null && !sessionId.isBlank()) {
+            List<AnchoredProposalView> anchored = proposalModule.listAnchoredForSession(
+                    principal.userId(), sessionId);
+            List<AutomationProposalDto> views = anchored.stream()
+                    .map(view -> {
+                        AutomationProposalModule.ProposalView proposalView =
+                                proposalModule.describe(view.proposal());
+                        return AutomationProposalDto.from(view, proposalView.name(),
+                                proposalView.instruction(), proposalView.agentId(),
+                                proposalView.cronExpression(), proposalView.zoneId(),
+                                proposalView.deliverySink(), proposalView.upcomingFires());
+                    })
+                    .toList();
+            return ApiResponse.ok(views);
+        }
+        var proposals = proposalModule.listPending(principal.userId());
         List<AutomationProposalDto> views = proposals.stream()
                 .map(proposal -> {
                     AutomationProposalModule.ProposalView view = proposalModule.describe(proposal);

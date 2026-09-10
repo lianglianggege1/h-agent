@@ -7,6 +7,7 @@ import {
   applyImageMessage,
   applyReasoningChunk,
   applyPersistedMessage,
+  attachAutomationProposals,
   buildPendingAssistantTurn,
   hasPendingVideoGeneration,
   removeEmptyAssistantPlaceholders,
@@ -532,4 +533,167 @@ test("toUiChatMessage preserves reasoning message type from history payload", ()
 
   assert.equal(uiMessage.messageType, "REASONING");
   assert.equal(uiMessage.role, "assistant");
+});
+
+// ---- attachAutomationProposals tests ----
+
+function makeProposal(overrides = {}) {
+  return {
+    id: "proposal-1",
+    action: "CREATE",
+    taskId: null,
+    status: "PENDING",
+    createdAt: "2026-09-10T00:00:00Z",
+    expiresAt: "2026-09-11T00:00:00Z",
+    resultTaskId: null,
+    sourceSessionId: "session-1",
+    name: "晨报",
+    instruction: "汇总今天的行业动态",
+    agentId: "standard-chat",
+    cronExpression: "0 0 9 * * *",
+    zoneId: "Asia/Shanghai",
+    deliverySink: "SESSION",
+    upcomingFires: [],
+    sourceAgentRunId: 1,
+    anchorMessageId: "assistant-1",
+    anchorPlacement: "AFTER",
+    ...overrides,
+  };
+}
+
+test("attachAutomationProposals inserts proposal after its anchor message", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+    { kind: "user", id: "user-2", content: "谢谢" },
+    { kind: "assistant", id: "assistant-2", reasoning: null, answer: "不客气", blocked: null, agentSteps: [], resources: [] },
+  ];
+  const proposals = [makeProposal({ anchorMessageId: "assistant-1" })];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 5);
+  assert.equal(timeline[0].kind, "turn");
+  assert.equal(timeline[0].turn.id, "user-1");
+  assert.equal(timeline[1].kind, "turn");
+  assert.equal(timeline[1].turn.id, "assistant-1");
+  assert.equal(timeline[2].kind, "automation-proposal");
+  assert.equal(timeline[2].proposal.id, "proposal-1");
+  assert.equal(timeline[3].kind, "turn");
+  assert.equal(timeline[3].turn.id, "user-2");
+});
+
+test("attachAutomationProposals keeps position after appending more messages", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+  ];
+  const proposals = [makeProposal({ anchorMessageId: "assistant-1" })];
+
+  const timeline1 = attachAutomationProposals(turns, proposals);
+  assert.equal(timeline1.length, 3);
+  assert.equal(timeline1[2].kind, "automation-proposal");
+
+  const extendedTurns = [
+    ...turns,
+    { kind: "user", id: "user-2", content: "继续聊天" },
+    { kind: "assistant", id: "assistant-2", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+    { kind: "user", id: "user-3", content: "更多消息" },
+    { kind: "assistant", id: "assistant-3", reasoning: null, answer: "收到", blocked: null, agentSteps: [], resources: [] },
+  ];
+
+  const timeline2 = attachAutomationProposals(extendedTurns, proposals);
+  assert.equal(timeline2.length, 7);
+  assert.equal(timeline2[2].kind, "automation-proposal");
+  assert.equal(timeline2[2].proposal.id, "proposal-1");
+});
+
+test("attachAutomationProposals keeps position after status change", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+  ];
+
+  const pendingTimeline = attachAutomationProposals(turns, [makeProposal({ status: "PENDING" })]);
+  const confirmedTimeline = attachAutomationProposals(turns, [makeProposal({ status: "CONFIRMED" })]);
+
+  assert.equal(pendingTimeline.length, 3);
+  assert.equal(confirmedTimeline.length, 3);
+  assert.equal(pendingTimeline[2].kind, "automation-proposal");
+  assert.equal(confirmedTimeline[2].kind, "automation-proposal");
+  assert.equal(confirmedTimeline[2].proposal.status, "CONFIRMED");
+});
+
+test("attachAutomationProposals does not output proposals with null anchor", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+  ];
+  const proposals = [makeProposal({ anchorMessageId: null })];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 2);
+  assert.equal(timeline.every((item) => item.kind === "turn"), true);
+});
+
+test("attachAutomationProposals does not output proposals when anchor is not loaded", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+  ];
+  const proposals = [makeProposal({ anchorMessageId: "assistant-999" })];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 2);
+  assert.equal(timeline.every((item) => item.kind === "turn"), true);
+});
+
+test("attachAutomationProposals sorts multiple proposals on same anchor by createdAt and id", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+    { kind: "assistant", id: "assistant-1", reasoning: null, answer: "好的", blocked: null, agentSteps: [], resources: [] },
+  ];
+  const proposals = [
+    makeProposal({ id: "proposal-2", createdAt: "2026-09-10T00:00:01Z" }),
+    makeProposal({ id: "proposal-1", createdAt: "2026-09-10T00:00:01Z" }),
+    makeProposal({ id: "proposal-3", createdAt: "2026-09-10T00:00:00Z" }),
+  ];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 5);
+  assert.equal(timeline[2].kind, "automation-proposal");
+  assert.equal(timeline[2].proposal.id, "proposal-3");
+  assert.equal(timeline[3].proposal.id, "proposal-1");
+  assert.equal(timeline[4].proposal.id, "proposal-2");
+});
+
+test("attachAutomationProposals anchors to user message when assistant message is missing", () => {
+  const turns = [
+    { kind: "user", id: "user-1", content: "帮我创建晨报" },
+  ];
+  const proposals = [makeProposal({ anchorMessageId: "user-1" })];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 2);
+  assert.equal(timeline[1].kind, "automation-proposal");
+});
+
+test("attachAutomationProposals works with reasoning merged into assistant turn", () => {
+  const turns = toRenderableTurns([
+    { id: "reasoning-1", role: "assistant", messageType: "REASONING", content: "先分析", createdAt: "" },
+    { id: "assistant-1", role: "assistant", messageType: "AI", content: "最终答案", createdAt: "" },
+  ]);
+  const proposals = [makeProposal({ anchorMessageId: "assistant-1" })];
+
+  const timeline = attachAutomationProposals(turns, proposals);
+
+  assert.equal(timeline.length, 2);
+  assert.equal(timeline[0].kind, "turn");
+  assert.equal(timeline[0].turn.kind, "assistant");
+  assert.equal(timeline[0].turn.id, "assistant-1");
+  assert.equal(timeline[1].kind, "automation-proposal");
 });

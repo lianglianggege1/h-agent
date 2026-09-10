@@ -18,6 +18,7 @@ public record AutomationProposal(
         String createdVia,
         String idempotencyKey,
         String resultTaskId,
+        Long sourceAgentRunId,
         Instant expiresAt,
         Instant confirmedAt,
         Long confirmedBy,

@@ -72,6 +72,9 @@ export type AutomationProposal = {
   zoneId: string | null;
   deliverySink: "SESSION" | "NONE" | null;
   upcomingFires: string[];
+  sourceAgentRunId: number | null;
+  anchorMessageId: string | null;
+  anchorPlacement: "AFTER";
 };
 
 export function listAutomations() {

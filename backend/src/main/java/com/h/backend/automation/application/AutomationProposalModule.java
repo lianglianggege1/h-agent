@@ -5,6 +5,7 @@ import com.h.backend.automation.domain.AutomationProposal;
 import com.h.backend.automation.domain.AutomationProposalAction;
 import com.h.backend.automation.domain.AutomationProposalStatus;
 import com.h.backend.automation.domain.AutomationTask;
+import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.common.exception.BusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ public class AutomationProposalModule {
     private final AutomationProposalRepository repository;
     private final AutomationTaskService taskService;
     private final AutomationAuditRecorder auditRecorder;
+    private final AgentRunService agentRunService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -42,21 +44,24 @@ public class AutomationProposalModule {
             AutomationProposalRepository repository,
             AutomationTaskService taskService,
             AutomationAuditRecorder auditRecorder,
+            AgentRunService agentRunService,
             ObjectMapper objectMapper
     ) {
-        this(repository, taskService, auditRecorder, objectMapper, Clock.systemUTC());
+        this(repository, taskService, auditRecorder, agentRunService, objectMapper, Clock.systemUTC());
     }
 
     AutomationProposalModule(
             AutomationProposalRepository repository,
             AutomationTaskService taskService,
             AutomationAuditRecorder auditRecorder,
+            AgentRunService agentRunService,
             ObjectMapper objectMapper,
             Clock clock
     ) {
         this.repository = repository;
         this.taskService = taskService;
         this.auditRecorder = auditRecorder;
+        this.agentRunService = agentRunService;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -91,17 +96,26 @@ public class AutomationProposalModule {
             }
             default -> throw new BusinessException(40035, "不支持的提案类型：" + action);
         }
+        Long sourceAgentRunId = requireOpenRunId(userId, sourceSessionId);
         AutomationProposal proposal = new AutomationProposal(
                 UUID.randomUUID().toString(), userId, taskId, action.name(), payload, baseRevision,
                 AutomationProposalStatus.PENDING.name(), sourceSessionId,
                 createdVia == null || createdVia.isBlank() ? "CHAT" : createdVia,
-                UUID.randomUUID().toString(), null, now.plus(PROPOSAL_TTL),
+                UUID.randomUUID().toString(), null, sourceAgentRunId, now.plus(PROPOSAL_TTL),
                 null, null, now, now
         );
         AutomationProposal inserted = repository.insert(proposal);
         audit(new AutomationAuditEntry(userId, "PROPOSAL_CREATED", "PROPOSAL", inserted.id(),
                 null, null, inserted.idempotencyKey(), null, now));
         return inserted;
+    }
+
+    /**
+     * 提案必须绑定当前会话唯一开放的 AgentRun。找不到或存在多个时由 requireOpenRun 抛错，
+     * 绝不回退到猜测最近一条消息，避免卡片锚定到错误轮次。
+     */
+    private Long requireOpenRunId(Long userId, String sessionId) {
+        return agentRunService.requireOpenRun(userId, sessionId).id();
     }
 
     @Transactional
@@ -150,6 +164,14 @@ public class AutomationProposalModule {
         }
         repository.markExpired(clock.instant());
         return repository.listOwnedBySession(userId, sessionId);
+    }
+
+    public List<AnchoredProposalView> listAnchoredForSession(Long userId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new BusinessException(40031, "sessionId 不能为空");
+        }
+        repository.markExpired(clock.instant());
+        return repository.listAnchoredBySession(userId, sessionId);
     }
 
     /** 组装确认页视图：CREATE/UPDATE 提案附带解析后的调度字段与未来 3 次触发时刻。 */

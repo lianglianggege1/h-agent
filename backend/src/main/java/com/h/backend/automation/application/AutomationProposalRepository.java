@@ -23,6 +23,11 @@ public interface AutomationProposalRepository {
         return List.of();
     }
 
+    /** 查询会话内提案及其 AgentRun 锚点，用于聊天时间线原位渲染。 */
+    default List<AnchoredProposalView> listAnchoredBySession(Long userId, String sessionId) {
+        return List.of();
+    }
+
     /** 确认提案：仅 PENDING 且未过期可流转，返回更新后的提案；重复确认返回首次结果。 */
     AutomationProposal markConfirmed(String proposalId, String resultTaskId, Long confirmedBy, Instant now);
 

@@ -5,6 +5,7 @@ import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.domain.model.AgentRunSummary;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.domain.approval.ApprovalMode;
+import com.h.backend.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -12,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
+import java.util.List;
 
 @Service
 public class AgentRunServiceImpl implements AgentRunService {
@@ -74,6 +76,19 @@ public class AgentRunServiceImpl implements AgentRunService {
     }
 
     @Override
+    public AgentRunSummary requireOpenRun(Long userId, String sessionId) {
+        if (userId == null || sessionId == null || sessionId.isBlank()) {
+            throw new BusinessException(40940, "无法定位当前会话的开放 AgentRun");
+        }
+        List<AgentRunEntity> openRuns = agentRunMapper.selectOpenRuns(sessionId, userId);
+        if (openRuns.size() != 1) {
+            throw new BusinessException(40940,
+                    "当前会话开放的 AgentRun 数量异常：" + openRuns.size() + "，拒绝绑定提案");
+        }
+        return toSummary(openRuns.get(0));
+    }
+
+    @Override
     public boolean transitionStatus(Long runId, String expectedStatus, String nextStatus) {
         return agentRunMapper.transitionStatus(runId, expectedStatus, nextStatus) == 1;
     }
@@ -114,6 +129,10 @@ public class AgentRunServiceImpl implements AgentRunService {
     @Override
     public AgentRunSummary getById(Long runId) {
         AgentRunEntity entity = agentRunMapper.selectById(runId);
+        return toSummary(entity);
+    }
+
+    private AgentRunSummary toSummary(AgentRunEntity entity) {
         return new AgentRunSummary(
                 entity.getId(),
                 entity.getStatus(),

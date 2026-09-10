@@ -1,4 +1,5 @@
 import type { ChatMessagePayload, ChatMessageResource, ChatSessionMessage, ChatSessionMessageType } from "./chat-sessions";
+import type { AutomationProposal } from "./automations";
 
 export type UiAgentStep = {
   invocationId: string;
@@ -342,4 +343,55 @@ export function toRenderableTurns(messages: UiChatMessage[]): RenderableTurn[] {
   }
 
   return turns;
+}
+
+export type RenderableTimelineItem =
+  | { kind: "turn"; turn: RenderableTurn }
+  | { kind: "automation-proposal"; proposal: AutomationProposal };
+
+/**
+ * 将自动化提案按锚点消息 ID 插入到聊天时间线中。
+ * 提案卡片固定在其锚点消息之后，不随后续消息移动。
+ * anchorMessageId 为 null 或锚点不在当前分页时，提案不输出。
+ */
+export function attachAutomationProposals(
+  turns: RenderableTurn[],
+  proposals: AutomationProposal[],
+): RenderableTimelineItem[] {
+  if (proposals.length === 0) {
+    return turns.map((turn) => ({ kind: "turn" as const, turn }));
+  }
+
+  const proposalsByAnchor = new Map<string, AutomationProposal[]>();
+  for (const proposal of proposals) {
+    const anchorId = proposal.anchorMessageId;
+    if (!anchorId) continue;
+    const existing = proposalsByAnchor.get(anchorId);
+    if (existing) {
+      existing.push(proposal);
+    } else {
+      proposalsByAnchor.set(anchorId, [proposal]);
+    }
+  }
+
+  for (const [, group] of proposalsByAnchor) {
+    group.sort((a, b) => {
+      const timeCompare = a.createdAt.localeCompare(b.createdAt);
+      if (timeCompare !== 0) return timeCompare;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  const timeline: RenderableTimelineItem[] = [];
+  for (const turn of turns) {
+    timeline.push({ kind: "turn", turn });
+    const anchored = proposalsByAnchor.get(turn.id);
+    if (anchored) {
+      for (const proposal of anchored) {
+        timeline.push({ kind: "automation-proposal", proposal });
+      }
+    }
+  }
+
+  return timeline;
 }

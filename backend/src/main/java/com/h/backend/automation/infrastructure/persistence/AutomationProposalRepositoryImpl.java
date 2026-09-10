@@ -1,19 +1,28 @@
 package com.h.backend.automation.infrastructure.persistence;
 
+import com.h.backend.automation.application.AnchoredProposalView;
 import com.h.backend.automation.application.AutomationProposalRepository;
 import com.h.backend.automation.domain.AutomationProposal;
 import com.h.backend.automation.infrastructure.persistence.entity.AutomationProposalEntity;
 import com.h.backend.automation.infrastructure.persistence.mapper.AutomationProposalMapper;
+import com.h.backend.automation.infrastructure.persistence.mapper.AutomationProposalMapper.AnchoredProposalRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public class AutomationProposalRepositoryImpl implements AutomationProposalRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(AutomationProposalRepositoryImpl.class);
+    private static final Set<String> TERMINAL_RUN_STATUSES = Set.of("SUCCEEDED", "FAILED", "CANCELLED");
 
     private final AutomationProposalMapper mapper;
 
@@ -48,6 +57,42 @@ public class AutomationProposalRepositoryImpl implements AutomationProposalRepos
     }
 
     @Override
+    public List<AnchoredProposalView> listAnchoredBySession(Long userId, String sessionId) {
+        List<AnchoredProposalRow> rows = mapper.selectAnchoredBySession(userId, sessionId);
+        List<AnchoredProposalView> result = new ArrayList<>(rows.size());
+        for (AnchoredProposalRow row : rows) {
+            if (!userId.equals(row.getUserId()) || !sessionId.equals(row.getSourceSessionId())) {
+                log.warn("Proposal ownership mismatch: proposalId={}, userId={}, sessionId={}",
+                        row.getId(), row.getUserId(), row.getSourceSessionId());
+                continue;
+            }
+            if (row.getSourceAgentRunId() != null && row.getRunSessionId() != null
+                    && !sessionId.equals(row.getRunSessionId())) {
+                log.warn("Proposal run session mismatch: proposalId={}, runSessionId={}",
+                        row.getId(), row.getRunSessionId());
+                continue;
+            }
+            AutomationProposal proposal = toDomain(row);
+            String anchorMessageId = resolveAnchorMessageId(row);
+            result.add(AnchoredProposalView.after(proposal, anchorMessageId));
+        }
+        return result;
+    }
+
+    private String resolveAnchorMessageId(AnchoredProposalRow row) {
+        if (row.getSourceAgentRunId() == null || row.getRunStatus() == null) {
+            return null;
+        }
+        if (!TERMINAL_RUN_STATUSES.contains(row.getRunStatus())) {
+            return null;
+        }
+        if ("SUCCEEDED".equals(row.getRunStatus()) && row.getRunAssistantMessageId() != null) {
+            return String.valueOf(row.getRunAssistantMessageId());
+        }
+        return row.getRunUserMessageId() != null ? String.valueOf(row.getRunUserMessageId()) : null;
+    }
+
+    @Override
     public AutomationProposal markConfirmed(String proposalId, String resultTaskId, Long confirmedBy, Instant now) {
         AutomationProposalEntity entity = mapper.markConfirmed(
                 proposalId, resultTaskId, confirmedBy, toLocal(now));
@@ -78,6 +123,7 @@ public class AutomationProposalRepositoryImpl implements AutomationProposalRepos
         entity.setCreatedVia(proposal.createdVia());
         entity.setIdempotencyKey(proposal.idempotencyKey());
         entity.setResultTaskId(proposal.resultTaskId());
+        entity.setSourceAgentRunId(proposal.sourceAgentRunId());
         entity.setExpiresAt(toLocal(proposal.expiresAt()));
         entity.setConfirmedAt(toLocal(proposal.confirmedAt()));
         entity.setConfirmedBy(proposal.confirmedBy());
@@ -91,9 +137,20 @@ public class AutomationProposalRepositoryImpl implements AutomationProposalRepos
                 entity.getId(), entity.getUserId(), entity.getTaskId(), entity.getAction(),
                 entity.getPayloadJson(), entity.getBaseTaskRevision(), entity.getStatus(),
                 entity.getSourceSessionId(), entity.getCreatedVia(), entity.getIdempotencyKey(),
-                entity.getResultTaskId(), toInstant(entity.getExpiresAt()),
+                entity.getResultTaskId(), entity.getSourceAgentRunId(), toInstant(entity.getExpiresAt()),
                 toInstant(entity.getConfirmedAt()), entity.getConfirmedBy(),
                 toInstant(entity.getCreatedAt()), toInstant(entity.getUpdatedAt())
+        );
+    }
+
+    private AutomationProposal toDomain(AnchoredProposalRow row) {
+        return new AutomationProposal(
+                row.getId(), row.getUserId(), row.getTaskId(), row.getAction(),
+                row.getPayloadJson(), row.getBaseTaskRevision(), row.getStatus(),
+                row.getSourceSessionId(), row.getCreatedVia(), row.getIdempotencyKey(),
+                row.getResultTaskId(), row.getSourceAgentRunId(), toInstant(row.getExpiresAt()),
+                toInstant(row.getConfirmedAt()), row.getConfirmedBy(),
+                toInstant(row.getCreatedAt()), toInstant(row.getUpdatedAt())
         );
     }
 

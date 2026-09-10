@@ -10,6 +10,7 @@ import {
   applyImageMessage,
   applyPersistedMessage,
   applyReasoningChunk,
+  attachAutomationProposals,
   buildPendingAssistantTurn,
   hasPendingVideoGeneration,
   removeEmptyAssistantPlaceholders,
@@ -266,6 +267,37 @@ function AutomationProposalCard({
   const statusLabel = proposal.status === "CONFIRMED"
     ? "已创建并开启"
     : proposal.status === "DISCARDED" ? "已取消" : proposal.status === "EXPIRED" ? "已过期" : "待确认";
+
+  if (!pending) {
+    return (
+      <article className="flex justify-start" aria-live="polite">
+        <details className="w-full rounded-[1.5rem] border border-stone-200 bg-stone-50/90 text-sm text-stone-600 shadow-sm">
+          <summary className="cursor-pointer list-none px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">自动化任务提案</p>
+                <p className="mt-1 truncate font-semibold text-stone-700">{proposal.name ?? "自动化任务"}</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-stone-500">
+                {statusLabel}
+              </span>
+            </div>
+          </summary>
+          <div className="border-t border-stone-200 px-4 py-3">
+            {proposal.instruction ? (
+              <p className="whitespace-pre-wrap text-sm leading-6 text-stone-600">{proposal.instruction}</p>
+            ) : null}
+            <div className="mt-3 grid gap-1 rounded-xl border border-stone-200 bg-white/75 px-3 py-3 text-xs leading-5 text-stone-500">
+              <p>计划：{proposal.cronExpression} · {proposal.zoneId}</p>
+              <p>Agent：{proposal.agentId}</p>
+              {proposal.resultTaskId ? <p>任务 ID：{proposal.resultTaskId}</p> : null}
+            </div>
+          </div>
+        </details>
+      </article>
+    );
+  }
+
   return (
     <article className="flex justify-start" aria-live="polite">
       <div className="w-full rounded-[1.5rem] border border-emerald-200 bg-emerald-50/90 px-4 py-4 text-sm text-stone-700 shadow-sm">
@@ -283,16 +315,14 @@ function AutomationProposalCard({
           <p>会话权限：{approvalModeOptions.find((item) => item.value === approvalMode)?.label ?? approvalMode ?? "会话默认"}</p>
           {proposal.upcomingFires.length > 0 ? <p>下次：{new Date(proposal.upcomingFires[0]).toLocaleString("zh-CN")}</p> : null}
         </div>
-        {pending ? (
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" className="h-11 rounded-full border border-stone-300 bg-white font-semibold text-stone-700 disabled:opacity-50" disabled={deciding} onClick={onDiscard}>
-              {deciding ? "处理中..." : "取消"}
-            </button>
-            <button type="button" className="h-11 rounded-full bg-stone-900 font-semibold text-white disabled:opacity-50" disabled={deciding} onClick={onConfirm}>
-              {deciding ? "处理中..." : "创建并开启"}
-            </button>
-          </div>
-        ) : null}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" className="h-11 rounded-full border border-stone-300 bg-white font-semibold text-stone-700 disabled:opacity-50" disabled={deciding} onClick={onDiscard}>
+            {deciding ? "处理中..." : "取消"}
+          </button>
+          <button type="button" className="h-11 rounded-full bg-stone-900 font-semibold text-white disabled:opacity-50" disabled={deciding} onClick={onConfirm}>
+            {deciding ? "处理中..." : "创建并开启"}
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -498,6 +528,7 @@ function ChatPageContent() {
   const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
   const [automationProposals, setAutomationProposals] = useState<AutomationProposal[]>([]);
   const [decidingAutomationProposalId, setDecidingAutomationProposalId] = useState<string | null>(null);
+  const proposalAnchorRefs = useRef<Map<string, HTMLElement | null>>(new Map());
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [attachmentMenuMode, setAttachmentMenuMode] = useState<"menu" | "history">("menu");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -575,6 +606,18 @@ function ChatPageContent() {
   const subagentPendingApproval = activeSubagentSessionId
     ? pendingApprovalBySession[activeSubagentSessionId] ?? null
     : null;
+
+  const pendingProposals = useMemo(
+    () => automationProposals.filter((p) => p.status === "PENDING"),
+    [automationProposals],
+  );
+  const visiblePendingProposals = useMemo(() => {
+    if (pendingProposals.length === 0) return [];
+    const loadedMessageIds = new Set(messages.map((m) => m.id));
+    return pendingProposals.filter(
+      (p) => p.anchorMessageId && loadedMessageIds.has(p.anchorMessageId),
+    );
+  }, [messages, pendingProposals]);
 
   useEffect(() => {
     if (!sessionId || streaming || !hasPendingVideoGeneration(messages)) {
@@ -725,7 +768,7 @@ function ChatPageContent() {
       return;
     }
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [automationProposals, messages]);
+  }, [messages]);
 
   const canSubmit = useMemo(
     () => input.trim().length > 0
@@ -1678,7 +1721,11 @@ function ChatPageContent() {
       const updated = confirm
         ? await confirmAutomationProposal(proposal.id)
         : await discardAutomationProposal(proposal.id);
-      setAutomationProposals((current) => current.map((item) => item.id === updated.id ? updated : item));
+      // 锚点由终态 AgentRun 的不可变消息关系决定；确认/取消只更新业务状态，
+      // 不得改变 anchorMessageId，否则卡片会从时间线原位消失（文档 3.5 / 4.6）。
+      setAutomationProposals((current) => current.map((item) => item.id === updated.id
+        ? { ...updated, anchorMessageId: updated.anchorMessageId ?? item.anchorMessageId }
+        : item));
     } catch (proposalError) {
       setError(proposalError instanceof Error ? proposalError.message : "处理自动化提案失败");
     } finally {
@@ -2146,86 +2193,97 @@ function ChatPageContent() {
                 </div>
               </article>
             ) : null}
-            {toRenderableTurns(messages).map((turn) => (
-              <article
-                key={turn.id}
-                className={`flex ${turn.kind === "user" ? "justify-end" : "justify-start"}`}
-              >
+            {attachAutomationProposals(toRenderableTurns(messages), automationProposals).map((item) =>
+              item.kind === "automation-proposal" ? (
                 <div
-                  className={[
-                    "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
-                    turn.kind === "user"
-                      ? "rounded-br-md bg-stone-900 text-stone-50"
-                      : turn.kind === "system"
-                        ? "w-full max-w-full border border-amber-200 bg-amber-50 text-stone-700"
-                      : turn.kind === "blocked"
-                        ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
-                        : turn.kind === "image"
-                          ? "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700"
-                        : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
-                  ].join(" ")}
+                  key={`proposal-${item.proposal.id}`}
+                  ref={(element) => {
+                    if (element) {
+                      proposalAnchorRefs.current.set(item.proposal.id, element);
+                    } else {
+                      proposalAnchorRefs.current.delete(item.proposal.id);
+                    }
+                  }}
                 >
-                  {turn.kind === "system" ? (
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-amber-700">系统消息</p>
-                      <p className="mt-2 whitespace-pre-wrap">{turn.content}</p>
-                    </div>
-                  ) : turn.kind === "user" ? (
-                    <div className="space-y-3">
-                      {turn.resources && turn.resources.length > 0 ? (
-                        <MediaContent content={turn.content} resources={turn.resources} />
-                      ) : null}
-                      {turn.content ? <p className="whitespace-pre-wrap">{turn.content}</p> : null}
-                    </div>
-                  ) : turn.kind === "blocked" ? (
-                    <div className="space-y-3">
-                      <AgentStepDetails steps={turn.agentSteps} />
-                      {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
-                      <BlockedMessageContent content={turn.blocked} />
-                      {turn.resources && turn.resources.length > 0 ? (
-                        <div className="mt-3">
-                          <MediaContent content={turn.answer} resources={turn.resources} />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : turn.kind === "image" ? (
-                    <MediaContent content={turn.content} resources={turn.resources} />
-                  ) : turn.answer || turn.resources.length > 0 ? (
-                    <div className="space-y-3">
-                      <AgentStepDetails steps={turn.agentSteps} />
-                      {turn.reasoning ? <ReasoningDetails content={turn.reasoning} /> : null}
-                      {turn.answer ? <AssistantMessageContent content={turn.answer} /> : null}
-                      {turn.resources && turn.resources.length > 0 ? (
-                        <div className="mt-3">
-                          <MediaContent content={turn.answer} resources={turn.resources} />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : turn.reasoning ? (
-                    <div className="space-y-3">
-                      <AgentStepDetails steps={turn.agentSteps} pending />
-                      <PendingAssistantStatus steps={turn.agentSteps} streaming={streaming} />
-                      <ReasoningDetails content={turn.reasoning} pending />
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <AgentStepDetails steps={turn.agentSteps} pending />
-                      <PendingAssistantStatus steps={turn.agentSteps} streaming={streaming} />
-                    </div>
-                  )}
+                  <AutomationProposalCard
+                    proposal={item.proposal}
+                    approvalMode={currentApprovalMode}
+                    deciding={decidingAutomationProposalId === item.proposal.id}
+                    onConfirm={() => void handleAutomationProposal(item.proposal, true)}
+                    onDiscard={() => void handleAutomationProposal(item.proposal, false)}
+                  />
                 </div>
-              </article>
-            ))}
-            {automationProposals.map((proposal) => (
-              <AutomationProposalCard
-                key={proposal.id}
-                proposal={proposal}
-                approvalMode={currentApprovalMode}
-                deciding={decidingAutomationProposalId === proposal.id}
-                onConfirm={() => void handleAutomationProposal(proposal, true)}
-                onDiscard={() => void handleAutomationProposal(proposal, false)}
-              />
-            ))}
+              ) : (
+                <article
+                  key={item.turn.id}
+                  className={`flex ${item.turn.kind === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={[
+                      "max-w-[85%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 shadow-sm",
+                      item.turn.kind === "user"
+                        ? "rounded-br-md bg-stone-900 text-stone-50"
+                        : item.turn.kind === "system"
+                          ? "w-full max-w-full border border-amber-200 bg-amber-50 text-stone-700"
+                        : item.turn.kind === "blocked"
+                          ? "rounded-bl-md border border-amber-200 bg-amber-50/95 text-amber-900"
+                          : item.turn.kind === "image"
+                            ? "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700"
+                          : "rounded-bl-md border border-stone-200 bg-white/95 text-stone-700",
+                    ].join(" ")}
+                  >
+                    {item.turn.kind === "system" ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-amber-700">系统消息</p>
+                        <p className="mt-2 whitespace-pre-wrap">{item.turn.content}</p>
+                      </div>
+                    ) : item.turn.kind === "user" ? (
+                      <div className="space-y-3">
+                        {item.turn.resources && item.turn.resources.length > 0 ? (
+                          <MediaContent content={item.turn.content} resources={item.turn.resources} />
+                        ) : null}
+                        {item.turn.content ? <p className="whitespace-pre-wrap">{item.turn.content}</p> : null}
+                      </div>
+                    ) : item.turn.kind === "blocked" ? (
+                      <div className="space-y-3">
+                        <AgentStepDetails steps={item.turn.agentSteps} />
+                        {item.turn.reasoning ? <ReasoningDetails content={item.turn.reasoning} /> : null}
+                        <BlockedMessageContent content={item.turn.blocked} />
+                        {item.turn.resources && item.turn.resources.length > 0 ? (
+                          <div className="mt-3">
+                            <MediaContent content={item.turn.answer} resources={item.turn.resources} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : item.turn.kind === "image" ? (
+                      <MediaContent content={item.turn.content} resources={item.turn.resources} />
+                    ) : item.turn.answer || item.turn.resources.length > 0 ? (
+                      <div className="space-y-3">
+                        <AgentStepDetails steps={item.turn.agentSteps} />
+                        {item.turn.reasoning ? <ReasoningDetails content={item.turn.reasoning} /> : null}
+                        {item.turn.answer ? <AssistantMessageContent content={item.turn.answer} /> : null}
+                        {item.turn.resources && item.turn.resources.length > 0 ? (
+                          <div className="mt-3">
+                            <MediaContent content={item.turn.answer} resources={item.turn.resources} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : item.turn.reasoning ? (
+                      <div className="space-y-3">
+                        <AgentStepDetails steps={item.turn.agentSteps} pending />
+                        <PendingAssistantStatus steps={item.turn.agentSteps} streaming={streaming} />
+                        <ReasoningDetails content={item.turn.reasoning} pending />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <AgentStepDetails steps={item.turn.agentSteps} pending />
+                        <PendingAssistantStatus steps={item.turn.agentSteps} streaming={streaming} />
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ),
+            )}
             {rootPendingApproval ? (
               <ApprovalCard
                 request={rootPendingApproval}
@@ -2236,6 +2294,22 @@ function ChatPageContent() {
             <div ref={messageEndRef} />
           </div>
         </div>
+
+        {visiblePendingProposals.length > 0 ? (
+          <div className="fixed bottom-24 left-0 right-0 mx-auto w-full max-w-md px-4">
+            <button
+              type="button"
+              className="w-full rounded-full border border-emerald-300 bg-emerald-50/95 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-lg backdrop-blur"
+              onClick={() => {
+                const firstProposal = visiblePendingProposals[0];
+                const element = proposalAnchorRefs.current.get(firstProposal.id);
+                element?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            >
+              待确认 {visiblePendingProposals.length}
+            </button>
+          </div>
+        ) : null}
 
         <div className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-md bg-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <input
