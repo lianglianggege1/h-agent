@@ -48,26 +48,41 @@ class AutomationProposalModuleTest {
                 "{\"name\":\"晨报\",\"instruction\":\"汇总今天的行业动态\",\"agentId\":\"standard-chat\","
                         + "\"runtime\":\"LANGCHAIN4J\",\"cronExpression\":\"0 0 9 * * *\","
                         + "\"zoneId\":\"Asia/Shanghai\",\"deliverySink\":\"NONE\"}",
-                null, "PENDING", null, "CHAT", "request-1", null,
+                null, "PENDING", "session-1", "CHAT", "request-1", null,
                 NOW.plusSeconds(3600), null, null, NOW, NOW
         );
     }
 
     private static final class RecordingTaskService extends AutomationTaskService {
         private final AtomicInteger createCount = new AtomicInteger();
+        private final AtomicReference<AutomationTask> createdTask = new AtomicReference<>();
 
         private RecordingTaskService() {
             super(null, null);
         }
 
         @Override
-        public AutomationTask create(Long userId, AutomationTaskCommand command, String createdVia) {
+        public AutomationTask create(Long userId, AutomationTaskCommand command, String createdVia,
+                                     String sourceSessionId) {
             int number = createCount.incrementAndGet();
-            return new AutomationTask(
+            AutomationTask task = new AutomationTask(
                     "task-" + number, userId, command.name(), command.instruction(), command.agentId(),
                     command.runtime(), new com.h.backend.automation.domain.AutomationSchedule(
                     command.cronExpression(), command.zoneId()), false, null, null, null,
                     createdVia, 1L, NOW, NOW
+            );
+            createdTask.set(task);
+            return task;
+        }
+
+        @Override
+        public AutomationTask enable(Long userId, String taskId, long expectedRevision) {
+            AutomationTask task = createdTask.get();
+            return new AutomationTask(
+                    task.id(), task.userId(), task.name(), task.instruction(), task.agentId(), task.runtime(),
+                    task.schedule(), true, NOW, task.lastRunAt(), task.lastStatus(), task.createdVia(),
+                    task.revision() + 1, task.createdAt(), NOW,
+                    task.deliverySink(), task.deliverySessionId(), task.sessionId()
             );
         }
     }
@@ -95,7 +110,14 @@ class AutomationProposalModuleTest {
 
         @Override
         public Optional<AutomationProposal> findOwnedForUpdate(Long userId, String proposalId) {
-            confirmationLock.lock();
+            try {
+                if (!confirmationLock.tryLock(1, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("提案测试锁未释放");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("提案测试等待被中断", interrupted);
+            }
             return Optional.of(value.get());
         }
 

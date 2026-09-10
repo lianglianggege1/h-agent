@@ -43,6 +43,11 @@ public class AutomationProposalRepositoryImpl implements AutomationProposalRepos
     }
 
     @Override
+    public List<AutomationProposal> listOwnedBySession(Long userId, String sessionId) {
+        return mapper.selectOwnedBySession(userId, sessionId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
     public AutomationProposal markConfirmed(String proposalId, String resultTaskId, Long confirmedBy, Instant now) {
         AutomationProposalEntity entity = mapper.markConfirmed(
                 proposalId, resultTaskId, confirmedBy, toLocal(now));

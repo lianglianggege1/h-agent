@@ -38,6 +38,7 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
                 runtime = #{task.runtime}, cron_expression = #{task.cronExpression}, zone_id = #{task.zoneId},
                 enabled = #{task.enabled}, next_run_at = #{task.nextRunAt}, revision = #{task.revision},
                 delivery_sink = #{task.deliverySink}, delivery_session_id = #{task.deliverySessionId},
+                session_id = #{task.sessionId},
                 updated_at = #{task.updatedAt}
             WHERE id = #{taskId} AND user_id = #{userId} AND revision = #{expectedRevision}
               AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until < #{task.updatedAt})
@@ -99,50 +100,6 @@ public interface AutomationTaskMapper extends BaseMapper<AutomationTaskEntity> {
     AutomationTaskEntity softDeleteOwned(
             @Param("userId") Long userId,
             @Param("taskId") String taskId,
-            @Param("now") LocalDateTime now
-    );
-
-    @Select("""
-            WITH due AS (
-                SELECT id FROM automation_tasks
-                WHERE enabled = TRUE AND deleted_at IS NULL AND next_run_at <= #{now}
-                  AND (CAST(#{excludedZoneId} AS VARCHAR) IS NULL OR zone_id <> #{excludedZoneId})
-                  AND (lease_until IS NULL OR lease_until < #{now})
-                ORDER BY next_run_at ASC
-                FOR UPDATE SKIP LOCKED
-                LIMIT #{limit}
-            )
-            UPDATE automation_tasks task
-            SET lease_owner = #{leaseOwner}, lease_until = #{leaseUntil}, updated_at = #{now}
-            FROM due
-            WHERE task.id = due.id
-            RETURNING task.*
-            """)
-    List<AutomationTaskEntity> claimDueTasks(
-            @Param("now") LocalDateTime now,
-            @Param("limit") int limit,
-            @Param("leaseOwner") String leaseOwner,
-            @Param("leaseUntil") LocalDateTime leaseUntil,
-            @Param("excludedZoneId") String excludedZoneId
-    );
-
-    @Update("""
-            UPDATE automation_tasks
-            SET lease_owner = NULL, lease_until = NULL
-            WHERE id = #{taskId} AND lease_owner = #{leaseOwner}
-            """)
-    int releaseLease(@Param("taskId") String taskId, @Param("leaseOwner") String leaseOwner);
-
-    @Update("""
-            UPDATE automation_tasks
-            SET lease_owner = NULL, lease_until = NULL, next_run_at = #{nextRunAt},
-                updated_at = #{now}
-            WHERE id = #{taskId} AND lease_owner = #{leaseOwner}
-            """)
-    int advanceLeaseToNextRun(
-            @Param("taskId") String taskId,
-            @Param("leaseOwner") String leaseOwner,
-            @Param("nextRunAt") LocalDateTime nextRunAt,
             @Param("now") LocalDateTime now
     );
 

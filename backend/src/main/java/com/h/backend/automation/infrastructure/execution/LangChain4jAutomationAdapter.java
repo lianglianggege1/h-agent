@@ -24,6 +24,6 @@ public class LangChain4jAutomationAdapter implements AutomationExecutionAdapter 
         if (!runtime().name().equals(spec.runtime())) {
             throw new IllegalArgumentException("LangChain4j adapter cannot execute " + spec.runtime());
         }
-        return runner.run(spec, null);
+        return runner.run(spec);
     }
 }

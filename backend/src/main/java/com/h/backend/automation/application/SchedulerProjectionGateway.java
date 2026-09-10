@@ -8,6 +8,11 @@ public interface SchedulerProjectionGateway {
 
     ProjectionResult converge(ProjectionCommand command);
 
+    /** 通过已投影的 XXL Job 发起一次手动执行。 */
+    default void trigger(TriggerCommand command) {
+        throw new UnsupportedOperationException("当前调度器不支持手动触发");
+    }
+
     enum DesiredState {
         ACTIVE,
         STOPPED,
@@ -26,5 +31,13 @@ public interface SchedulerProjectionGateway {
     }
 
     record ProjectionResult(Long jobId) {
+    }
+
+    record TriggerCommand(
+            long jobId,
+            String taskId,
+            long taskRevision,
+            String runId
+    ) {
     }
 }

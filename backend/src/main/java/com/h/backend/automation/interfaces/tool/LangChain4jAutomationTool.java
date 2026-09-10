@@ -33,7 +33,7 @@ public class LangChain4jAutomationTool {
             name = "create_automation_task",
             value = "创建周期性自动化任务的提案。仅当用户明确要求定时、每天、每周或周期执行时调用。"
                     + "使用 Spring 六段 Cron（秒 分 时 日 月 周）并明确 IANA 时区。"
-                    + "该工具只会生成提案，不会直接创建或开启任务：必须提示用户到自动化管理页确认后才生效。",
+                    + "该工具只会生成提案；当前会话会显示确认卡片，用户点击“创建并开启”后生效。",
             searchBehavior = SearchBehavior.ALWAYS_VISIBLE
     )
     public String create(
@@ -58,7 +58,7 @@ public class LangChain4jAutomationTool {
         );
         return "已生成自动化任务提案「%s」（提案编号：%s，24 小时内有效）。"
                 .formatted(name, proposal.id())
-                + "请告知用户：提案不会自动生效，需要在自动化管理页确认后才会创建，确认前可随时取消。";
+                + "请提示用户直接使用当前会话中的确认卡片，确认前可继续讨论或取消。";
     }
 
     private static String defaultAgent(String agentId) {

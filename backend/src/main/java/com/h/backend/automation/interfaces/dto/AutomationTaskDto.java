@@ -21,6 +21,7 @@ public record AutomationTaskDto(
         long revision,
         String deliverySink,
         String deliverySessionId,
+        String sessionId,
         String schedulerMode,
         String schedulerSyncStatus,
         Long schedulerSyncedRevision,
@@ -29,7 +30,7 @@ public record AutomationTaskDto(
         Instant updatedAt
 ) {
     public static AutomationTaskDto from(AutomationTask task) {
-        return from(task, null, "LOCAL");
+        return from(task, null, "XXL_JOB");
     }
 
     public static AutomationTaskDto from(AutomationTask task, SchedulerProjectionStatus projection) {
@@ -43,7 +44,7 @@ public record AutomationTaskDto(
                 task.id(), task.name(), task.instruction(), task.agentId(), task.runtime().name(),
                 task.schedule().cronExpression(), task.schedule().zoneId(), task.enabled(),
                 task.nextRunAt(), task.lastRunAt(), task.lastStatus(), task.createdVia(),
-                task.revision(), task.deliverySink(), task.deliverySessionId(),
+                task.revision(), task.deliverySink(), task.deliverySessionId(), task.sessionId(),
                 schedulerMode,
                 projection == null ? "NOT_SCHEDULED" : projection.syncStatus(),
                 projection == null ? null : projection.syncedRevision(),

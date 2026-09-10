@@ -4,6 +4,7 @@ import com.h.backend.automation.domain.AutomationDelivery;
 import com.h.backend.automation.domain.AutomationDeliverySink;
 import com.h.backend.automation.domain.AutomationDeliveryStatus;
 import com.h.backend.automation.domain.AutomationRun;
+import com.h.backend.automation.domain.AutomationRunStatus;
 import com.h.backend.automation.domain.ExecutionSpec;
 import com.h.backend.automation.infrastructure.execution.AutomationProperties;
 import org.slf4j.Logger;
@@ -79,6 +80,14 @@ public class DeliveryModule {
         String payload = cardPayload(spec, run, status, sessionId, output, errorMessage, finishedAt);
         String sink = spec.deliverySink() == null
                 ? AutomationDeliverySink.NONE.name() : spec.deliverySink();
+        if (AutomationRunStatus.SUCCEEDED.name().equals(status)
+                && AutomationDeliverySink.SESSION.name().equals(sink)
+                && spec.deliverySessionId() != null
+                && spec.deliverySessionId().equals(sessionId)) {
+            return List.of(delivery(run, spec, AutomationDeliverySink.NONE.name(),
+                    "{\"reason\":\"ALREADY_VISIBLE_IN_EXECUTION_SESSION\"}", payload,
+                    AutomationDeliveryStatus.SKIPPED.name(), now, now));
+        }
         if (AutomationDeliverySink.SESSION.name().equals(sink) && spec.deliverySessionId() != null) {
             String target = json(Map.of("sessionId", spec.deliverySessionId()));
             return List.of(delivery(run, spec, sink, target, payload,

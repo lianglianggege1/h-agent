@@ -7,6 +7,8 @@ import com.h.backend.automation.domain.AutomationSchedule;
 import com.h.backend.automation.domain.AutomationTask;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.automation.infrastructure.execution.AutomationProperties;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,34 +29,42 @@ public class AutomationTaskService {
     private final AutomationTaskRepository repository;
     private final AgentRegistry agentRegistry;
     private final AutomationAuditRecorder auditRecorder;
+    private final ChatSessionService chatSessionService;
+    private final AutomationProperties properties;
     private final Clock clock;
 
     @Autowired
     public AutomationTaskService(
             AutomationTaskRepository repository,
             AgentRegistry agentRegistry,
-            AutomationAuditRecorder auditRecorder
+            AutomationAuditRecorder auditRecorder,
+            ChatSessionService chatSessionService,
+            AutomationProperties properties
     ) {
-        this(repository, agentRegistry, auditRecorder, Clock.systemUTC());
+        this(repository, agentRegistry, auditRecorder, chatSessionService, properties, Clock.systemUTC());
     }
 
     AutomationTaskService(AutomationTaskRepository repository, AgentRegistry agentRegistry) {
-        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, Clock.systemUTC());
+        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, null, null, Clock.systemUTC());
     }
 
     AutomationTaskService(AutomationTaskRepository repository, AgentRegistry agentRegistry, Clock clock) {
-        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, clock);
+        this(repository, agentRegistry, AutomationAuditRecorder.NOOP, null, null, clock);
     }
 
     AutomationTaskService(
             AutomationTaskRepository repository,
             AgentRegistry agentRegistry,
             AutomationAuditRecorder auditRecorder,
+            ChatSessionService chatSessionService,
+            AutomationProperties properties,
             Clock clock
     ) {
         this.repository = repository;
         this.agentRegistry = agentRegistry;
         this.auditRecorder = auditRecorder;
+        this.chatSessionService = chatSessionService;
+        this.properties = properties;
         this.clock = clock;
     }
 
@@ -85,9 +95,13 @@ public class AutomationTaskService {
         );
     }
 
-    @Transactional
-    public AutomationTask create(Long userId, AutomationTaskCommand command, String createdVia) {
-        return create(userId, command, createdVia, null);
+    public ValidatedCommand validateCommandForSession(
+            Long userId,
+            String sessionId,
+            AutomationTaskCommand command
+    ) {
+        String boundSessionId = required(sessionId, "执行会话", 64);
+        return validateCommand(bindToSession(userId, boundSessionId, command));
     }
 
     @Transactional
@@ -97,13 +111,14 @@ public class AutomationTaskService {
             String createdVia,
             String sourceSessionId
     ) {
-        ValidatedCommand validated = validateCommand(command);
+        String sessionId = required(sourceSessionId, "执行会话", 64);
+        ValidatedCommand validated = validateCommandForSession(userId, sessionId, command);
         Instant now = clock.instant();
         AutomationTask task = new AutomationTask(
                 UUID.randomUUID().toString(), userId, validated.name(), validated.instruction(),
                 validated.agentId(), validated.runtime(), validated.schedule(), false,
                 null, null, null, normalizeCreatedVia(createdVia), 1L, now, now,
-                validated.deliverySink(), validated.deliverySessionId()
+                validated.deliverySink(), validated.deliverySessionId(), sessionId
         );
         AutomationTask inserted = repository.insert(task);
         audit(AutomationAuditEntry.of(userId, "TASK_CREATED", "TASK", inserted.id(),
@@ -114,7 +129,7 @@ public class AutomationTaskService {
     @Transactional
     public AutomationTask update(Long userId, String taskId, long expectedRevision, AutomationTaskCommand command) {
         AutomationTask current = requireOwned(userId, taskId);
-        ValidatedCommand validated = validateCommand(command);
+        ValidatedCommand validated = validateCommand(bindToSession(userId, current.sessionId(), command));
         boolean enabled = current.enabled();
         Instant now = clock.instant();
         AutomationTask replacement = new AutomationTask(
@@ -123,7 +138,7 @@ public class AutomationTaskService {
                 enabled ? validated.schedule().nextAfter(now) : null,
                 current.lastRunAt(), current.lastStatus(), current.createdVia(), current.revision() + 1,
                 current.createdAt(), now,
-                validated.deliverySink(), validated.deliverySessionId()
+                validated.deliverySink(), validated.deliverySessionId(), current.sessionId()
         );
         AutomationTask updated = repository.updateOwned(userId, taskId, expectedRevision, replacement);
         if (updated == null) {
@@ -136,6 +151,9 @@ public class AutomationTaskService {
 
     @Transactional
     public AutomationTask enable(Long userId, String taskId, long expectedRevision) {
+        if (properties != null && !properties.getXxlJob().isEnabled()) {
+            throw new BusinessException(50340, "XXL-Job 未启用，不能开启自动化任务");
+        }
         AutomationTask current = requireOwned(userId, taskId);
         if (current.enabled()) {
             return current;
@@ -232,6 +250,25 @@ public class AutomationTaskService {
 
     private void audit(AutomationAuditEntry entry) {
         auditRecorder.record(entry);
+    }
+
+    private AutomationTaskCommand bindToSession(
+            Long userId,
+            String sessionId,
+            AutomationTaskCommand command
+    ) {
+        if (chatSessionService == null) {
+            return command;
+        }
+        if (command == null) {
+            return null;
+        }
+        var session = chatSessionService.getSessionDetail(userId, sessionId);
+        return new AutomationTaskCommand(
+                command.name(), command.instruction(), session.agentId(), null,
+                command.cronExpression(), command.zoneId(), command.enabled(),
+                command.deliverySink(), command.deliverySessionId()
+        );
     }
 
     private static String required(String value, String label, int maxLength) {

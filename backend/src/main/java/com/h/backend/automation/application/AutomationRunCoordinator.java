@@ -8,10 +8,10 @@ import com.h.backend.automation.domain.ExecutionSpec;
 import com.h.backend.automation.infrastructure.execution.AutomationExecutionTimeoutException;
 import com.h.backend.automation.infrastructure.execution.AutomationPolicyRejectionException;
 import com.h.backend.automation.infrastructure.execution.AutomationProperties;
-import com.h.backend.automation.infrastructure.execution.AutomationWorkerPool;
 import com.h.backend.common.exception.BusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -21,22 +21,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
 
 /**
- * Run 协调器：调度扫描与 XXL 触发都只负责“发现 + 接纳”，实际执行异步排队。
- * Run 状态机：QUEUED → RUNNING/CANCEL_REQUESTED → 终态；执行队列以数据库为准，进程重启可续领。
- * 未接纳的触发不落 Run 行，状态体现在接纳结果（SKIPPED_*）。
+ * 自动化执行协调器。XXL-Job 是唯一执行入口：计划触发与立即运行最终都进入
+ * {@link #executeXxl}，并由该调用同步等待 Agent 的真实终态。
  */
 @Service
 public class AutomationRunCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(AutomationRunCoordinator.class);
-    /** misfire 跳过时任务最近运行状态（不是 Run 状态，仅用于管理页展示）。 */
-    private static final String TASK_MISFIRE_STATUS = "SKIPPED_MISFIRE";
-    private static final String LEASE_OWNER =
-            ProcessHandle.current().pid() + "-automation-scheduler-" + UUID.randomUUID();
 
     private final AutomationTaskRepository repository;
     private final AutomationDeliveryRepository deliveryRepository;
@@ -44,12 +37,12 @@ public class AutomationRunCoordinator {
     private final RunAdmissionModule admissionModule;
     private final DeliveryModule deliveryModule;
     private final Map<String, AutomationExecutionAdapter> adapters;
-    private final AutomationWorkerPool workerPool;
     private final AutomationProperties properties;
+    private final SchedulerProjectionRepository projectionRepository;
+    private final SchedulerProjectionGateway schedulerGateway;
     private final Clock clock;
-    private final Map<String, Future<?>> runningFutures = new ConcurrentHashMap<>();
+    private final Map<String, Thread> runningThreads = new ConcurrentHashMap<>();
 
-    @org.springframework.beans.factory.annotation.Autowired
     public AutomationRunCoordinator(
             AutomationTaskRepository repository,
             AutomationDeliveryRepository deliveryRepository,
@@ -57,23 +50,9 @@ public class AutomationRunCoordinator {
             RunAdmissionModule admissionModule,
             DeliveryModule deliveryModule,
             List<AutomationExecutionAdapter> adapters,
-            AutomationWorkerPool workerPool,
-            AutomationProperties properties
-    ) {
-        this(repository, deliveryRepository, taskService, admissionModule, deliveryModule,
-                adapters, workerPool, properties, Clock.systemUTC());
-    }
-
-    AutomationRunCoordinator(
-            AutomationTaskRepository repository,
-            AutomationDeliveryRepository deliveryRepository,
-            AutomationTaskService taskService,
-            RunAdmissionModule admissionModule,
-            DeliveryModule deliveryModule,
-            List<AutomationExecutionAdapter> adapters,
-            AutomationWorkerPool workerPool,
             AutomationProperties properties,
-            Clock clock
+            SchedulerProjectionRepository projectionRepository,
+            ObjectProvider<SchedulerProjectionGateway> schedulerGateway
     ) {
         this.repository = repository;
         this.deliveryRepository = deliveryRepository;
@@ -84,32 +63,45 @@ public class AutomationRunCoordinator {
         for (AutomationExecutionAdapter adapter : adapters) {
             this.adapters.put(adapter.runtime().name(), adapter);
         }
-        this.workerPool = workerPool;
         this.properties = properties;
-        this.clock = clock;
+        this.projectionRepository = projectionRepository;
+        this.schedulerGateway = schedulerGateway.getIfAvailable();
+        this.clock = Clock.systemUTC();
     }
 
+    /** 创建本地执行事实，再让 XXL-Job 调度这个事实。此方法不直接运行 Agent。 */
     public AutomationRun runNow(Long userId, String taskId) {
         AutomationTask task = taskService.requireOwned(userId, taskId);
         if (!task.enabled()) {
             throw new BusinessException(40940, "任务已关闭，请先开启后再手动运行");
         }
+        SchedulerProjectionStatus projection = requireRunnableProjection(task);
         if (repository.existsActiveRun(taskId)) {
             throw new BusinessException(40941, "上一次运行还未结束，请稍后再试");
         }
+
         Instant now = clock.instant();
         String runId = UUID.randomUUID().toString();
-        AutomationRun run = new AutomationRun(
-                runId, task.id(), task.userId(), task.revision(), "MANUAL", "manual:" + runId,
+        AutomationRun requested = new AutomationRun(
+                runId, task.id(), task.userId(), task.revision(), "MANUAL", "manual-request:" + runId,
                 AutomationRunStatus.QUEUED.name(), now, now, null, null, null, null,
                 null, admissionModule.snapshot(task, runId, "MANUAL", now)
         );
-        AutomationRun inserted = repository.insertManualRunIfNoActive(run);
+        AutomationRun inserted = repository.insertManualRunIfNoActive(requested);
         if (inserted == null) {
             throw new BusinessException(40941, "上一次运行还未结束，请稍后再试");
         }
-        submitExecution(inserted);
-        return inserted;
+        try {
+            schedulerGateway.trigger(new SchedulerProjectionGateway.TriggerCommand(
+                    projection.xxlJobId(), task.id(), task.revision(), runId));
+            return inserted;
+        } catch (RuntimeException error) {
+            String message = "XXL-Job 触发失败：" + safeMessage(error);
+            AutomationRun running = repository.claimQueuedRun(runId, clock.instant()).orElse(inserted);
+            ExecutionSpec spec = admissionModule.readSnapshot(running);
+            finishRun(spec, running, AutomationRunStatus.FAILED.name(), null, null, message, null);
+            return repository.findRunOwned(userId, runId).orElse(running);
+        }
     }
 
     public AutomationRun requestCancel(Long userId, String runId) {
@@ -118,38 +110,53 @@ public class AutomationRunCoordinator {
         if (AutomationRunStatus.isTerminal(run.status())) {
             return run;
         }
-        Instant now = clock.instant();
-        AutomationRun updated = repository.requestCancelRun(runId, now).orElse(run);
-        Future<?> future = runningFutures.get(runId);
-        if (future != null) {
-            future.cancel(true);
+        AutomationRun updated = repository.requestCancelRun(runId, clock.instant()).orElse(run);
+        Thread thread = runningThreads.get(runId);
+        if (thread != null) {
+            thread.interrupt();
         }
         return updated;
     }
 
-    /** 本地调度器周期入口：领取到期任务 → 归一化/重叠校验 → 接纳 → 异步执行。 */
-    public int pollDueTasks() {
-        Instant now = clock.instant();
-        String xxlManagedZone = properties.getXxlJob().isEnabled()
-                ? properties.getXxlJob().getSchedulerZoneId() : null;
-        List<AutomationTask> dueTasks = repository.claimDueTasks(
-                now, properties.getBatchSize(), LEASE_OWNER, properties.getLeaseDuration(), xxlManagedZone
-        );
-        for (AutomationTask task : dueTasks) {
-            try {
-                handleLeasedTask(task, now);
-            } catch (RuntimeException error) {
-                log.error("Automation scheduled task failed taskId={}", task.id(), error);
-                repository.releaseLease(task.id(), LEASE_OWNER);
+    /** XXL handler 的同步入口；返回时本地 Run 已经处于真实终态。 */
+    public XxlExecutionResult executeXxl(
+            String taskId,
+            long taskRevision,
+            String triggerType,
+            String requestedRunId,
+            Instant observedTriggerAt,
+            String xxlTriggerId
+    ) {
+        AutomationRun queued;
+        if ("MANUAL".equals(triggerType)) {
+            queued = requireManualRun(taskId, taskRevision, requestedRunId, xxlTriggerId);
+        } else {
+            RunAdmissionModule.AdmissionResult admission = admissionModule.admitScheduled(
+                    taskId, taskRevision, observedTriggerAt, xxlTriggerId);
+            if (admission.status() != RunAdmissionModule.AdmissionStatus.ACCEPTED) {
+                return XxlExecutionResult.skipped(admission.status().name());
             }
+            queued = admission.run();
         }
-        return dueTasks.size();
+
+        AutomationRun running = repository.claimQueuedRun(queued.id(), clock.instant()).orElse(null);
+        if (running == null) {
+            AutomationRun existing = repository.findRunOwned(queued.userId(), queued.id()).orElse(queued);
+            if (AutomationRunStatus.isTerminal(existing.status())) {
+                return new XxlExecutionResult(true, existing.id(), existing.status(), existing.errorMessage());
+            }
+            return XxlExecutionResult.skipped("SKIPPED_ALREADY_CLAIMED");
+        }
+
+        runningThreads.put(running.id(), Thread.currentThread());
+        try {
+            return execute(running);
+        } finally {
+            runningThreads.remove(running.id(), Thread.currentThread());
+        }
     }
 
-    /**
-     * 进程在接纳后崩溃时，内存 Future 会丢失。超过冻结的全局执行上限后将遗留 Run
-     * 收敛为 TIMED_OUT；终态 CAS 保证多个实例或迟到的原执行者只有一个能完成投递建单。
-     */
+    /** 将执行器进程中断留下的 Run 收敛到超时终态；不会绕过 XXL 重新执行。 */
     public int recoverTimedOutRuns() {
         Instant now = clock.instant();
         Instant deadline = now.minus(properties.getExecutionTimeout()).minusSeconds(30);
@@ -168,85 +175,39 @@ public class AutomationRunCoordinator {
         return stale.size();
     }
 
-    /** 扫描持久化队列。多实例可能看到同一 ID，但 QUEUED → RUNNING 的 CAS 只允许一个执行者。 */
-    public int dispatchQueuedRuns() {
-        List<String> queuedRunIds = repository.listQueuedRunIds(properties.getBatchSize());
-        queuedRunIds.forEach(this::submitExecution);
-        return queuedRunIds.size();
+    private SchedulerProjectionStatus requireRunnableProjection(AutomationTask task) {
+        if (schedulerGateway == null || !properties.getXxlJob().isEnabled()) {
+            throw new BusinessException(50340, "XXL-Job 未启用，自动化任务无法执行");
+        }
+        SchedulerProjectionStatus status = projectionRepository.findStatus(task.id())
+                .orElseThrow(() -> new BusinessException(40942, "任务尚未同步到 XXL-Job，请稍后再试"));
+        if (status.xxlJobId() == null || status.syncedRevision() == null
+                || status.syncedRevision() != task.revision()
+                || !"SYNCED".equals(status.syncStatus())
+                || !"ACTIVE".equals(status.desiredState())) {
+            throw new BusinessException(40942, "任务尚未同步到 XXL-Job，请稍后再试");
+        }
+        return status;
     }
 
-    /** XXL-Job 执行器回调入口：按任务 ID + 版本接纳一次 Run，返回接纳结果。 */
-    public RunAdmissionModule.AdmissionStatus submitScheduled(
-            String taskId,
-            long taskRevision,
-            Instant observedTriggerAt,
-            String triggerId
+    private AutomationRun requireManualRun(
+            String taskId, long taskRevision, String runId, String xxlTriggerId
     ) {
-        RunAdmissionModule.AdmissionResult result =
-                admissionModule.admitScheduled(taskId, taskRevision, observedTriggerAt, triggerId);
-        result.acceptedRun().ifPresent(this::submitExecution);
-        return result.status();
+        if (runId == null || runId.isBlank()) {
+            throw new AutomationPolicyRejectionException("手动触发缺少本地 Run ID");
+        }
+        AutomationTask task = repository.findById(taskId)
+                .orElseThrow(() -> new AutomationPolicyRejectionException("自动化任务不存在"));
+        AutomationRun run = repository.findRunOwned(task.userId(), runId)
+                .orElseThrow(() -> new AutomationPolicyRejectionException("手动运行记录不存在"));
+        if (!taskId.equals(run.taskId()) || taskRevision != run.taskRevision()
+                || !"MANUAL".equals(run.triggerType())) {
+            throw new AutomationPolicyRejectionException("手动触发与本地运行记录不匹配");
+        }
+        return repository.bindXxlTrigger(runId, xxlTriggerId).orElse(run);
     }
 
-    private void handleLeasedTask(AutomationTask task, Instant now) {
-        Instant dueAt = task.nextRunAt();
-        if (dueAt == null) {
-            repository.releaseLease(task.id(), LEASE_OWNER);
-            return;
-        }
-        Instant nextRun = task.schedule().nextAfter(now);
-        if (now.isAfter(dueAt.plus(properties.getMisfireTolerance()))) {
-            log.info("Automation task misfired beyond tolerance, advancing taskId={} dueAt={}", task.id(), dueAt);
-            repository.recordRunResult(task.id(), now, TASK_MISFIRE_STATUS);
-            repository.advanceLeaseToNextRun(task.id(), LEASE_OWNER, nextRun, now);
-            return;
-        }
-        if (repository.existsActiveRun(task.id())) {
-            // 重叠策略 SKIP：推进到下一个日程点，本次不落 Run。
-            repository.advanceLeaseToNextRun(task.id(), LEASE_OWNER, nextRun, now);
-            return;
-        }
-        String runId = UUID.randomUUID().toString();
-        AutomationRun run = new AutomationRun(
-                runId, task.id(), task.userId(), task.revision(), "SCHEDULED",
-                "scheduler:" + dueAt.toEpochMilli() + ":" + runId,
-                AutomationRunStatus.QUEUED.name(), dueAt, now, null, null, null, null,
-                null, admissionModule.snapshot(task, runId, "SCHEDULED", dueAt)
-        );
-        AutomationRun inserted = repository.insertScheduledRunIfAbsent(run);
-        // 接纳成功即推进租约，执行时长不占用调度租约。
-        repository.advanceLeaseToNextRun(task.id(), LEASE_OWNER, nextRun, now);
-        if (inserted != null) {
-            submitExecution(inserted.id());
-        }
-    }
-
-    private void submitExecution(AutomationRun run) {
-        submitExecution(run.id());
-    }
-
-    private void submitExecution(String runId) {
-        FutureTask<Void> work = new FutureTask<>(() -> {
-            try {
-                repository.claimQueuedRun(runId, clock.instant()).ifPresent(this::execute);
-            } finally {
-                runningFutures.remove(runId);
-            }
-            return null;
-        });
-        if (runningFutures.putIfAbsent(runId, work) != null) {
-            return;
-        }
-        try {
-            workerPool.execute(work);
-        } catch (java.util.concurrent.RejectedExecutionException saturated) {
-            runningFutures.remove(runId, work);
-            // Run 仍保持 QUEUED，周期分发器会在有容量时重试，HTTP/XXL 回调无需失败重放。
-            log.warn("Automation worker pool saturated; run remains queued runId={}", runId);
-        }
-    }
-
-    private void execute(AutomationRun run) {
+    private XxlExecutionResult execute(AutomationRun run) {
         AutomationExecutionAdapter.AutomationExecutionResult result = null;
         String status = AutomationRunStatus.FAILED.name();
         String errorMessage = null;
@@ -262,31 +223,32 @@ public class AutomationRunCoordinator {
             status = AutomationRunStatus.SUCCEEDED.name();
         } catch (AutomationPolicyRejectionException error) {
             status = AutomationRunStatus.REJECTED_POLICY.name();
-            errorMessage = error.getMessage();
-            log.warn("Automation run rejected by policy runId={} taskId={}: {}", run.id(), run.taskId(), error.getMessage());
+            errorMessage = safeMessage(error);
+            log.warn("Automation run rejected runId={} taskId={}: {}", run.id(), run.taskId(), errorMessage);
         } catch (AutomationExecutionTimeoutException error) {
             status = AutomationRunStatus.TIMED_OUT.name();
-            errorMessage = error.getMessage();
+            errorMessage = safeMessage(error);
             log.warn("Automation run timed out runId={} taskId={}", run.id(), run.taskId());
         } catch (BusinessException error) {
             status = AutomationRunStatus.REJECTED_POLICY.name();
-            errorMessage = error.getMessage();
-            log.warn("Automation run policy check failed runId={} taskId={}: {}", run.id(), run.taskId(), error.getMessage());
+            errorMessage = safeMessage(error);
+            log.warn("Automation run policy check failed runId={} taskId={}: {}", run.id(), run.taskId(), errorMessage);
         } catch (Exception error) {
             status = AutomationRunStatus.FAILED.name();
-            errorMessage = error.getMessage() == null ? "Agent 执行失败" : error.getMessage();
+            errorMessage = safeMessage(error);
             log.error("Automation run failed runId={} taskId={}", run.id(), run.taskId(), error);
         }
-        // 终态前尊重协作式取消：取消请求优先于失败/超时归类；成功则保持 SUCCEEDED。
+
         AutomationRun latest = repository.findRunOwned(run.userId(), run.id()).orElse(run);
         Instant cancelRequestedAt = latest.cancelRequestedAt();
         if (cancelRequestedAt != null && !AutomationRunStatus.SUCCEEDED.name().equals(status)) {
             status = AutomationRunStatus.CANCELLED.name();
         }
         finishRun(spec, run, status,
-                result == null ? null : result.sessionId(),
+                result == null ? (spec == null ? null : spec.sessionId()) : result.sessionId(),
                 result == null ? null : result.output(),
                 errorMessage, cancelRequestedAt);
+        return new XxlExecutionResult(true, run.id(), status, errorMessage);
     }
 
     private void finishRun(
@@ -312,12 +274,9 @@ public class AutomationRunCoordinator {
                 truncate(output, 20_000), truncate(errorMessage, 2_000),
                 cancelRequestedAt, deliveries
         );
-        if (!terminal) {
-            log.info("Automation run already terminal, skip finalization runId={}", run.id());
-        } else {
+        if (terminal) {
             repository.recordRunResult(run.taskId(), now, status);
         }
-        runningFutures.remove(run.id());
     }
 
     private static String truncate(String value, int maxLength) {
@@ -325,5 +284,20 @@ public class AutomationRunCoordinator {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private static String safeMessage(Throwable error) {
+        return error.getMessage() == null || error.getMessage().isBlank()
+                ? "Agent 执行失败" : error.getMessage();
+    }
+
+    public record XxlExecutionResult(boolean executed, String runId, String status, String message) {
+        static XxlExecutionResult skipped(String reason) {
+            return new XxlExecutionResult(false, null, reason, reason);
+        }
+
+        public boolean succeeded() {
+            return AutomationRunStatus.SUCCEEDED.name().equals(status);
+        }
     }
 }

@@ -19,7 +19,8 @@ public record AutomationTask(
         Instant createdAt,
         Instant updatedAt,
         String deliverySink,
-        String deliverySessionId
+        String deliverySessionId,
+        String sessionId
 ) {
     public AutomationTask {
         deliverySink = deliverySink == null || deliverySink.isBlank()
@@ -35,6 +36,6 @@ public record AutomationTask(
     ) {
         this(id, userId, name, instruction, agentId, runtime, schedule, enabled,
                 nextRunAt, lastRunAt, lastStatus, createdVia, revision, createdAt, updatedAt,
-                AutomationDeliverySink.NONE.name(), null);
+                AutomationDeliverySink.NONE.name(), null, null);
     }
 }

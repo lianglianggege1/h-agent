@@ -16,6 +16,7 @@ public record ExecutionSpec(
         Instant scheduledFor,
         String instruction,
         String agentId,
+        String sessionId,
         String runtime,
         String deliverySink,
         String deliverySessionId,
@@ -34,7 +35,7 @@ public record ExecutionSpec(
     ) {
         return new ExecutionSpec(
                 task.id(), task.userId(), task.name(), task.revision(), runId, triggerType, scheduledFor,
-                task.instruction(), task.agentId(), task.runtime().name(),
+                task.instruction(), task.agentId(), task.sessionId(), task.runtime().name(),
                 task.deliverySink(), task.deliverySessionId(),
                 timeoutSeconds, "SKIP", "SKIP", frozenAt
         );

@@ -38,6 +38,16 @@ public interface AutomationProposalMapper extends BaseMapper<AutomationProposalE
             @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Select("""
+            SELECT * FROM automation_proposals
+            WHERE user_id = #{userId} AND source_session_id = #{sessionId}
+            ORDER BY created_at ASC
+            """)
+    List<AutomationProposalEntity> selectOwnedBySession(
+            @Param("userId") Long userId,
+            @Param("sessionId") String sessionId
+    );
+
+    @Select("""
             UPDATE automation_proposals
             SET status = 'CONFIRMED', result_task_id = #{resultTaskId},
                 confirmed_at = #{now}, confirmed_by = #{confirmedBy}, updated_at = #{now}

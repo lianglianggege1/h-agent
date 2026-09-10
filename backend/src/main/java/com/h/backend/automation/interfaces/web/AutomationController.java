@@ -13,7 +13,6 @@ import com.h.backend.automation.interfaces.dto.AutomationRunDto;
 import com.h.backend.automation.interfaces.dto.AutomationTaskDto;
 import com.h.backend.automation.interfaces.dto.AutomationTaskRequest;
 import com.h.backend.automation.interfaces.dto.AutomationTaskStateRequest;
-import com.h.backend.automation.infrastructure.execution.AutomationProperties;
 import com.h.backend.common.api.ApiResponse;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
@@ -39,22 +38,19 @@ public class AutomationController {
     private final AutomationProposalModule proposalModule;
     private final DeliveryModule deliveryModule;
     private final SchedulerProjectionRepository schedulerProjectionRepository;
-    private final AutomationProperties automationProperties;
 
     public AutomationController(
             AutomationTaskService taskService,
             AutomationRunCoordinator runCoordinator,
             AutomationProposalModule proposalModule,
             DeliveryModule deliveryModule,
-            SchedulerProjectionRepository schedulerProjectionRepository,
-            AutomationProperties automationProperties
+            SchedulerProjectionRepository schedulerProjectionRepository
     ) {
         this.taskService = taskService;
         this.runCoordinator = runCoordinator;
         this.proposalModule = proposalModule;
         this.deliveryModule = deliveryModule;
         this.schedulerProjectionRepository = schedulerProjectionRepository;
-        this.automationProperties = automationProperties;
     }
 
     @GetMapping
@@ -70,7 +66,7 @@ public class AutomationController {
             @RequestBody AutomationTaskRequest request
     ) {
         return ApiResponse.ok(dto(taskService.create(
-                principal.userId(), command(request), "UI"
+                principal.userId(), command(request), "UI", request.sessionId()
         )));
     }
 
@@ -111,12 +107,10 @@ public class AutomationController {
     }
 
     private AutomationTaskDto dto(com.h.backend.automation.domain.AutomationTask task) {
-        boolean xxlManaged = automationProperties.getXxlJob().isEnabled()
-                && automationProperties.getXxlJob().getSchedulerZoneId().equals(task.schedule().zoneId());
         return AutomationTaskDto.from(
                 task,
                 schedulerProjectionRepository.findStatus(task.id()).orElse(null),
-                xxlManaged ? "XXL_JOB" : "LOCAL"
+                "XXL_JOB"
         );
     }
 
@@ -168,12 +162,16 @@ public class AutomationController {
 
     @GetMapping("/proposals")
     public ApiResponse<List<AutomationProposalDto>> pendingProposals(
-            @AuthenticationPrincipal AuthUserPrincipal principal
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(required = false) String sessionId
     ) {
-        List<AutomationProposalDto> views = proposalModule.listPending(principal.userId()).stream()
+        var proposals = sessionId == null || sessionId.isBlank()
+                ? proposalModule.listPending(principal.userId())
+                : proposalModule.listForSession(principal.userId(), sessionId);
+        List<AutomationProposalDto> views = proposals.stream()
                 .map(proposal -> {
                     AutomationProposalModule.ProposalView view = proposalModule.describe(proposal);
-                    return AutomationProposalDto.from(proposal, view.name(), view.agentId(),
+                    return AutomationProposalDto.from(proposal, view.name(), view.instruction(), view.agentId(),
                             view.cronExpression(), view.zoneId(), view.deliverySink(),
                             view.upcomingFires());
                 })
@@ -188,7 +186,7 @@ public class AutomationController {
     ) {
         AutomationProposal confirmed = proposalModule.confirm(principal.userId(), proposalId);
         AutomationProposalModule.ProposalView view = proposalModule.describe(confirmed);
-        return ApiResponse.ok(AutomationProposalDto.from(confirmed, view.name(), view.agentId(),
+        return ApiResponse.ok(AutomationProposalDto.from(confirmed, view.name(), view.instruction(), view.agentId(),
                 view.cronExpression(), view.zoneId(), view.deliverySink(), view.upcomingFires()));
     }
 

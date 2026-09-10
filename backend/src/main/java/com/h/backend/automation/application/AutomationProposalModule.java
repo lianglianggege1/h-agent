@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 提案模块：聊天内写操作只生成提案（PENDING，24 小时有效），用户在轮次外通过 REST 确认；
+ * 提案模块：聊天内写操作只生成提案（PENDING，24 小时有效），用户通过当前会话卡片确认；
  * 确认时重新校验所有权、Agent 与基线版本，重复确认返回首次结果。
  */
 @Service
@@ -74,7 +74,8 @@ public class AutomationProposalModule {
         String payload;
         switch (action) {
             case CREATE -> {
-                AutomationTaskService.ValidatedCommand validated = taskService.validateCommand(command);
+                AutomationTaskService.ValidatedCommand validated =
+                        taskService.validateCommandForSession(userId, sourceSessionId, command);
                 payload = writePayload(validated, sourceSessionId);
             }
             case UPDATE -> {
@@ -143,6 +144,14 @@ public class AutomationProposalModule {
         return repository.listPendingOwned(userId, clock.instant());
     }
 
+    public List<AutomationProposal> listForSession(Long userId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new BusinessException(40031, "sessionId 不能为空");
+        }
+        repository.markExpired(clock.instant());
+        return repository.listOwnedBySession(userId, sessionId);
+    }
+
     /** 组装确认页视图：CREATE/UPDATE 提案附带解析后的调度字段与未来 3 次触发时刻。 */
     public ProposalView describe(AutomationProposal proposal) {
         AutomationProposalAction action = AutomationProposalAction.valueOf(proposal.action());
@@ -153,20 +162,21 @@ public class AutomationProposalModule {
                         new com.h.backend.automation.domain.AutomationSchedule(
                                 command.cronExpression(), command.zoneId());
                 List<Instant> fires = schedule.upcomingFires(clock.instant(), 3);
-                return new ProposalView(proposal, command.name(), command.agentId(),
+                return new ProposalView(proposal, command.name(), command.instruction(), command.agentId(),
                         command.cronExpression(), command.zoneId(),
                         command.deliverySink(), fires);
             } catch (RuntimeException error) {
                 log.warn("Proposal payload unreadable proposalId={}: {}", proposal.id(), error.getMessage());
             }
         }
-        return new ProposalView(proposal, null, null, null, null, null, List.of());
+        return new ProposalView(proposal, null, null, null, null, null, null, List.of());
     }
 
     /** 提案确认页视图数据。 */
     public record ProposalView(
             AutomationProposal proposal,
             String name,
+            String instruction,
             String agentId,
             String cronExpression,
             String zoneId,
@@ -192,8 +202,9 @@ public class AutomationProposalModule {
         switch (action) {
             case CREATE -> {
                 AutomationTaskCommand command = readCommand(proposal.payloadJson());
-                AutomationTask created = taskService.create(userId, command, "PROPOSAL:" + proposal.createdVia());
-                return created.id();
+                AutomationTask created = taskService.create(
+                        userId, command, "PROPOSAL:" + proposal.createdVia(), proposal.sourceSessionId());
+                return taskService.enable(userId, created.id(), created.revision()).id();
             }
             case UPDATE -> {
                 AutomationTask current = taskService.requireOwned(userId, proposal.taskId());

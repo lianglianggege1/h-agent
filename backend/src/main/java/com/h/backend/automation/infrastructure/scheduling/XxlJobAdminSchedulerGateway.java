@@ -28,12 +28,14 @@ public class XxlJobAdminSchedulerGateway implements SchedulerProjectionGateway {
     private static final String MARKER_PREFIX = "automation:v1:";
 
     private final AutomationProperties.XxlJob properties;
+    private final Duration executionTimeout;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private volatile String cookie;
 
     public XxlJobAdminSchedulerGateway(AutomationProperties properties, ObjectMapper objectMapper) {
         this.properties = properties.getXxlJob();
+        this.executionTimeout = properties.getExecutionTimeout();
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(this.properties.getConnectTimeout())
@@ -85,6 +87,17 @@ public class XxlJobAdminSchedulerGateway implements SchedulerProjectionGateway {
         }
         start(canonicalId);
         return new ProjectionResult(canonicalId);
+    }
+
+    @Override
+    public synchronized void trigger(TriggerCommand command) {
+        validateConfiguration();
+        String marker = MARKER_PREFIX + command.taskId();
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("id", Long.toString(command.jobId()));
+        form.put("executorParam", executorParam(marker, command.taskRevision(), "MANUAL", command.runId()));
+        form.put("addressList", "");
+        request("/jobinfo/trigger", form, true);
     }
 
     private List<RemoteJob> findJobs(String marker) {
@@ -171,19 +184,26 @@ public class XxlJobAdminSchedulerGateway implements SchedulerProjectionGateway {
         form.put("glueSource", "");
         form.put("glueRemark", "GLUE代码初始化");
         form.put("executorHandler", properties.getExecutorHandler());
-        form.put("executorParam", executorParam(marker, command.taskRevision()));
+        form.put("executorParam", executorParam(marker, command.taskRevision(), "SCHEDULED", null));
         form.put("executorRouteStrategy", "CONSISTENT_HASH");
         form.put("executorBlockStrategy", "DISCARD_LATER");
         form.put("misfireStrategy", "DO_NOTHING");
-        form.put("executorTimeout", "30");
+        form.put("executorTimeout", Long.toString(Math.max(1, executionTimeout.toSeconds() + 30)));
         form.put("executorFailRetryCount", "0");
         form.put("childJobId", "");
         return form;
     }
 
-    private String executorParam(String marker, long revision) {
+    private String executorParam(String marker, long revision, String triggerType, String runId) {
         try {
-            return objectMapper.writeValueAsString(Map.of("marker", marker, "revision", revision));
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("marker", marker);
+            value.put("revision", revision);
+            value.put("triggerType", triggerType);
+            if (runId != null) {
+                value.put("runId", runId);
+            }
+            return objectMapper.writeValueAsString(value);
         } catch (Exception error) {
             throw new IllegalStateException("无法序列化 XXL-Job 任务参数", error);
         }

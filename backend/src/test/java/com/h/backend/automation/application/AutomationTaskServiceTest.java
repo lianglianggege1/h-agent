@@ -10,7 +10,6 @@ import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -34,7 +33,7 @@ class AutomationTaskServiceTest {
         AutomationTask task = service.create(7L, new AutomationTaskCommand(
                 "晨报", "汇总今天的行业动态", "standard-chat", null,
                 "0 0 9 * * *", "Asia/Shanghai", true
-        ), "CHAT_LANGCHAIN4J");
+        ), "CHAT_LANGCHAIN4J", "session-1");
 
         assertEquals(AutomationRuntime.LANGCHAIN4J, task.runtime());
         assertFalse(task.enabled());
@@ -47,7 +46,7 @@ class AutomationTaskServiceTest {
         AutomationTask task = service(new InMemoryRepository()).create(7L, new AutomationTaskCommand(
                 "协作复盘", "复盘项目", "harness-agent", null,
                 "0 0 18 * * 5", "Asia/Shanghai", true
-        ), "CHAT_AGENTSCOPE");
+        ), "CHAT_AGENTSCOPE", "session-1");
 
         assertEquals(AutomationRuntime.AGENTSCOPE, task.runtime());
     }
@@ -60,7 +59,7 @@ class AutomationTaskServiceTest {
                 7L,
                 new AutomationTaskCommand("错误任务", "执行", "harness-agent", AutomationRuntime.LANGCHAIN4J,
                         "0 0 9 * * *", "Asia/Shanghai", true),
-                "UI"
+                "UI", "session-1"
         ));
 
         assertEquals(40033, error.getCode());
@@ -75,7 +74,7 @@ class AutomationTaskServiceTest {
                 new AutomationTaskCommand(
                         "晨报", "汇总今天的行业动态", "standard-chat", null,
                         "0 0 9 * * *", "Asia/Shanghai", false, "SESSION", null),
-                "UI"
+                "UI", "session-1"
         ));
 
         assertEquals(40034, error.getCode());
@@ -125,7 +124,7 @@ class AutomationTaskServiceTest {
         return service.create(7L, new AutomationTaskCommand(
                 name, "汇总今天的行业动态", "standard-chat", null,
                 "0 0 9 * * *", "Asia/Shanghai", true
-        ), "UI");
+        ), "UI", "session-1");
     }
 
     private static AutomationTaskService service(InMemoryRepository repository) {
@@ -210,19 +209,6 @@ class AutomationTaskServiceTest {
         }
 
         @Override
-        public List<AutomationTask> claimDueTasks(Instant now, int limit, String leaseOwner, Duration leaseDuration) {
-            return List.of();
-        }
-
-        @Override
-        public void releaseLease(String taskId, String leaseOwner) {
-        }
-
-        @Override
-        public void advanceLeaseToNextRun(String taskId, String leaseOwner, Instant nextRunAt, Instant now) {
-        }
-
-        @Override
         public void recordRunResult(String taskId, Instant at, String status) {
         }
 
@@ -271,7 +257,7 @@ class AutomationTaskServiceTest {
                     task.id(), task.userId(), task.name(), task.instruction(), task.agentId(), task.runtime(),
                     task.schedule(), enabled, nextRunAt, task.lastRunAt(), task.lastStatus(),
                     task.createdVia(), task.revision() + 1, task.createdAt(), updatedAt,
-                    task.deliverySink(), task.deliverySessionId()
+                    task.deliverySink(), task.deliverySessionId(), task.sessionId()
             );
         }
     }

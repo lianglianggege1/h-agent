@@ -84,6 +84,12 @@ import {
   listChatHistory,
   resolveChatSession,
 } from "@/lib/chat-sessions";
+import {
+  AutomationProposal,
+  confirmAutomationProposal,
+  discardAutomationProposal,
+  listAutomationProposals,
+} from "@/lib/automations";
 
 type MessageSegment =
   | {
@@ -238,6 +244,55 @@ function ApprovalCard({
             {deciding ? "处理中..." : "允许执行"}
           </button>
         </div>
+      </div>
+    </article>
+  );
+}
+
+function AutomationProposalCard({
+  proposal,
+  approvalMode,
+  deciding,
+  onConfirm,
+  onDiscard,
+}: {
+  proposal: AutomationProposal;
+  approvalMode: ApprovalMode | null;
+  deciding: boolean;
+  onConfirm: () => void;
+  onDiscard: () => void;
+}) {
+  const pending = proposal.status === "PENDING";
+  const statusLabel = proposal.status === "CONFIRMED"
+    ? "已创建并开启"
+    : proposal.status === "DISCARDED" ? "已取消" : proposal.status === "EXPIRED" ? "已过期" : "待确认";
+  return (
+    <article className="flex justify-start" aria-live="polite">
+      <div className="w-full rounded-[1.5rem] border border-emerald-200 bg-emerald-50/90 px-4 py-4 text-sm text-stone-700 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">自动化任务提案</p>
+            <p className="mt-2 font-semibold text-stone-900">{proposal.name ?? "自动化任务"}</p>
+          </div>
+          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-stone-600">{statusLabel}</span>
+        </div>
+        {proposal.instruction ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{proposal.instruction}</p> : null}
+        <div className="mt-3 grid gap-1 rounded-xl border border-emerald-100 bg-white/75 px-3 py-3 text-xs leading-5 text-stone-600">
+          <p>计划：{proposal.cronExpression} · {proposal.zoneId}</p>
+          <p>Agent：{proposal.agentId}</p>
+          <p>会话权限：{approvalModeOptions.find((item) => item.value === approvalMode)?.label ?? approvalMode ?? "会话默认"}</p>
+          {proposal.upcomingFires.length > 0 ? <p>下次：{new Date(proposal.upcomingFires[0]).toLocaleString("zh-CN")}</p> : null}
+        </div>
+        {pending ? (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button type="button" className="h-11 rounded-full border border-stone-300 bg-white font-semibold text-stone-700 disabled:opacity-50" disabled={deciding} onClick={onDiscard}>
+              {deciding ? "处理中..." : "取消"}
+            </button>
+            <button type="button" className="h-11 rounded-full bg-stone-900 font-semibold text-white disabled:opacity-50" disabled={deciding} onClick={onConfirm}>
+              {deciding ? "处理中..." : "创建并开启"}
+            </button>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -441,6 +496,8 @@ function ChatPageContent() {
   const [currentApprovalMode, setCurrentApprovalMode] = useState<ApprovalMode | null>(null);
   const [pendingApprovalBySession, setPendingApprovalBySession] = useState<Record<string, ApprovalRequest | null>>({});
   const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
+  const [automationProposals, setAutomationProposals] = useState<AutomationProposal[]>([]);
+  const [decidingAutomationProposalId, setDecidingAutomationProposalId] = useState<string | null>(null);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [attachmentMenuMode, setAttachmentMenuMode] = useState<"menu" | "history">("menu");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -668,7 +725,7 @@ function ChatPageContent() {
       return;
     }
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [automationProposals, messages]);
 
   const canSubmit = useMemo(
     () => input.trim().length > 0
@@ -752,6 +809,17 @@ function ChatPageContent() {
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [routeBootstrapping, sessionId, usingHarnessAgent]);
+
+  useEffect(() => {
+    if (routeBootstrapping || !sessionId) return;
+    let cancelled = false;
+    void listAutomationProposals(sessionId)
+      .then((proposals) => {
+        if (!cancelled) setAutomationProposals(proposals);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [routeBootstrapping, sessionId, streaming]);
 
   useEffect(() => {
     if (!usingHarnessAgent || routeBootstrapping || !activeSubagentSessionId) return;
@@ -1603,6 +1671,21 @@ function ChatPageContent() {
     }
   }
 
+  async function handleAutomationProposal(proposal: AutomationProposal, confirm: boolean) {
+    setDecidingAutomationProposalId(proposal.id);
+    setError("");
+    try {
+      const updated = confirm
+        ? await confirmAutomationProposal(proposal.id)
+        : await discardAutomationProposal(proposal.id);
+      setAutomationProposals((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (proposalError) {
+      setError(proposalError instanceof Error ? proposalError.message : "处理自动化提案失败");
+    } finally {
+      setDecidingAutomationProposalId(null);
+    }
+  }
+
   if (authenticated !== true) {
     return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
   }
@@ -2132,6 +2215,16 @@ function ChatPageContent() {
                   )}
                 </div>
               </article>
+            ))}
+            {automationProposals.map((proposal) => (
+              <AutomationProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                approvalMode={currentApprovalMode}
+                deciding={decidingAutomationProposalId === proposal.id}
+                onConfirm={() => void handleAutomationProposal(proposal, true)}
+                onDiscard={() => void handleAutomationProposal(proposal, false)}
+              />
             ))}
             {rootPendingApproval ? (
               <ApprovalCard

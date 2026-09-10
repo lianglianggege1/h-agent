@@ -88,12 +88,15 @@ public interface AutomationRunMapper extends BaseMapper<AutomationRunEntity> {
     );
 
     @Select("""
-            SELECT id FROM automation_runs
-            WHERE status = 'QUEUED'
-            ORDER BY scheduled_for ASC, started_at ASC
-            LIMIT #{limit}
+            UPDATE automation_runs
+            SET trigger_id = #{triggerId}
+            WHERE id = #{runId} AND trigger_type = 'MANUAL' AND status = 'QUEUED'
+            RETURNING *
             """)
-    List<String> selectQueuedRunIds(@Param("limit") int limit);
+    AutomationRunEntity bindXxlTrigger(
+            @Param("runId") String runId,
+            @Param("triggerId") String triggerId
+    );
 
     @Select("""
             UPDATE automation_runs

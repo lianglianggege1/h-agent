@@ -75,6 +75,29 @@ class XxlJobAdminSchedulerGatewayTest {
         assertEquals(List.of("42"), forms.get("start").get("ids[]"));
     }
 
+    @Test
+    void manualRunIsTriggeredThroughTheProjectedXxlJob() throws Exception {
+        Map<String, Map<String, List<String>>> forms = new LinkedHashMap<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        respond("/auth/doLogin", exchange -> {
+            exchange.getResponseHeaders().add("Set-Cookie", "XXL_JOB_LOGIN_IDENTITY=test; Path=/");
+            json(exchange, "{\"code\":200}");
+        });
+        respond("/jobinfo/trigger", exchange -> {
+            forms.put("trigger", form(exchange));
+            json(exchange, "{\"code\":200}");
+        });
+        server.start();
+
+        XxlJobAdminSchedulerGateway gateway = new XxlJobAdminSchedulerGateway(properties(), new ObjectMapper());
+        gateway.trigger(new SchedulerProjectionGateway.TriggerCommand(42, "task-7", 3, "run-9"));
+
+        assertEquals(List.of("42"), forms.get("trigger").get("id"));
+        String executorParam = forms.get("trigger").get("executorParam").getFirst();
+        assertTrue(executorParam.contains("\"triggerType\":\"MANUAL\""));
+        assertTrue(executorParam.contains("\"runId\":\"run-9\""));
+    }
+
     private AutomationProperties properties() {
         AutomationProperties properties = new AutomationProperties();
         properties.getXxlJob().setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());

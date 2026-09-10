@@ -18,7 +18,8 @@ export type AutomationTask = {
   revision: number;
   deliverySink: "SESSION" | "NONE";
   deliverySessionId: string | null;
-  schedulerMode: "LOCAL" | "XXL_JOB";
+  sessionId: string | null;
+  schedulerMode: "XXL_JOB";
   schedulerSyncStatus: "NOT_SCHEDULED" | "PENDING" | "SYNCED" | "SYNC_FAILED";
   schedulerSyncedRevision: number | null;
   schedulerSyncError: string | null;
@@ -52,6 +53,7 @@ export type AutomationTaskInput = {
   expectedRevision?: number;
   deliverySink?: "SESSION" | "NONE";
   deliverySessionId?: string | null;
+  sessionId: string;
 };
 
 export type AutomationProposal = {
@@ -62,7 +64,9 @@ export type AutomationProposal = {
   createdAt: string;
   expiresAt: string;
   resultTaskId: string | null;
+  sourceSessionId: string | null;
   name: string | null;
+  instruction: string | null;
   agentId: string | null;
   cronExpression: string | null;
   zoneId: string | null;
@@ -74,8 +78,9 @@ export function listAutomations() {
   return apiFetch<AutomationTask[]>("/api/automations");
 }
 
-export function listAutomationProposals() {
-  return apiFetch<AutomationProposal[]>("/api/automations/proposals");
+export function listAutomationProposals(sessionId?: string) {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  return apiFetch<AutomationProposal[]>(`/api/automations/proposals${query}`);
 }
 
 export function confirmAutomationProposal(proposalId: string) {

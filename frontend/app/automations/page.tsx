@@ -22,6 +22,7 @@ import {
   runtimeForAgent,
 } from "@/lib/automations";
 import { savePostLoginRedirect } from "@/lib/session";
+import { ChatSessionSummary, listChatHistory } from "@/lib/chat-sessions";
 
 type Frequency = "daily" | "weekdays" | "weekly" | "custom";
 
@@ -89,6 +90,7 @@ export default function AutomationsPage() {
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [proposals, setProposals] = useState<AutomationProposal[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [runs, setRuns] = useState<Record<string, AutomationRun[]>>({});
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -100,6 +102,7 @@ export default function AutomationsPage() {
   const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
   const [agentId, setAgentId] = useState("");
+  const [sessionId, setSessionId] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("daily");
   const [time, setTime] = useState("09:00");
   const [weekday, setWeekday] = useState("1");
@@ -109,13 +112,15 @@ export default function AutomationsPage() {
   useEffect(() => {
     getCurrentUser()
       .then(async () => {
-        const [taskList, agentList, proposalList] = await Promise.all([
-          listAutomations(), listAgents(), listAutomationProposals(),
+        const [taskList, agentList, proposalList, sessionList] = await Promise.all([
+          listAutomations(), listAgents(), listAutomationProposals(), listChatHistory(0, 100),
         ]);
         setTasks(taskList);
         setAgents(agentList);
         setProposals(proposalList);
-        setAgentId(agentList[0]?.agentId ?? "");
+        setSessions(sessionList);
+        setSessionId(sessionList[0]?.sessionId ?? "");
+        setAgentId(sessionList[0]?.agentId ?? "");
       })
       .catch((loadError) => {
         if (loadError instanceof Error && /登录|Unauthorized/i.test(loadError.message)) {
@@ -144,6 +149,9 @@ export default function AutomationsPage() {
         cronExpression: cronFor(frequency, time, weekday, customCron),
         zoneId,
         enabled: false,
+        sessionId,
+        deliverySink: "SESSION",
+        deliverySessionId: sessionId,
       });
       setTasks((current) => [created, ...current]);
       setName("");
@@ -212,6 +220,20 @@ export default function AutomationsPage() {
     }
   }
 
+  useEffect(() => {
+    if (!expandedTaskId) return;
+    const refresh = async () => {
+      try {
+        const history = await listAutomationRuns(expandedTaskId);
+        setRuns((current) => ({ ...current, [expandedTaskId]: history }));
+      } catch {
+        // 保留已有历史，下一轮继续尝试。
+      }
+    };
+    const intervalId = window.setInterval(refresh, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [expandedTaskId]);
+
   async function resolveProposal(proposal: AutomationProposal, confirm: boolean) {
     setBusyTaskId(proposal.id);
     setError("");
@@ -240,7 +262,7 @@ export default function AutomationsPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">自动化任务</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
-              让 LangChain4j 或 AgentScope 按计划独立工作。每次运行都会生成可追溯的聊天会话。
+              让 Agent 按计划在你指定的会话中继续工作，沿用该会话的上下文、工具和权限。
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -332,9 +354,7 @@ export default function AutomationsPage() {
                       </span>
                       <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] text-stone-500">{task.agentId}</span>
                       <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${task.schedulerSyncStatus === "SYNC_FAILED" ? "bg-red-100 text-red-700" : task.schedulerSyncStatus === "SYNCED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                        {task.schedulerMode === "LOCAL"
-                          ? (task.enabled ? "本地调度" : "未调度")
-                          : task.schedulerSyncStatus === "SYNC_FAILED" ? "调度同步失败" : task.schedulerSyncStatus === "SYNCED" ? "调度已同步" : task.enabled ? "调度同步中" : "未调度"}
+                        {task.schedulerSyncStatus === "SYNC_FAILED" ? "调度同步失败" : task.schedulerSyncStatus === "SYNCED" ? "XXL 调度已同步" : task.enabled ? "XXL 调度同步中" : "未调度"}
                       </span>
                     </div>
                     <p className="mt-3 line-clamp-2 max-w-3xl text-sm leading-6 text-stone-600">{task.instruction}</p>
@@ -398,10 +418,16 @@ export default function AutomationsPage() {
               <label className="block text-sm font-semibold">任务名称
                 <input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：每日 AI 行业简报" className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100" />
               </label>
-              <label className="block text-sm font-semibold">选择 Agent
-                <select required value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-amber-500">
-                  {agents.map((agent) => <option value={agent.agentId} key={agent.agentId}>{agent.displayName} · {runtimeForAgent(agent.runtimeType) === "AGENTSCOPE" ? "AgentScope" : "LangChain4j"}</option>)}
+              <label className="block text-sm font-semibold">执行会话
+                <select required value={sessionId} onChange={(event) => {
+                  const selected = sessions.find((session) => session.sessionId === event.target.value);
+                  setSessionId(event.target.value);
+                  setAgentId(selected?.agentId ?? "");
+                }} className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-amber-500">
+                  <option value="" disabled>选择已有会话</option>
+                  {sessions.map((session) => <option value={session.sessionId} key={session.sessionId}>{session.title} · {session.agentDisplayName}</option>)}
                 </select>
+                <span className="mt-2 block text-xs font-normal text-stone-500">任务会在此会话中继续执行，并沿用它的上下文、工具和批准模式。</span>
               </label>
               <label className="block text-sm font-semibold">你希望 Agent 做什么？
                 <textarea required maxLength={20000} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="描述每次触发时需要完成的任务、输入来源和期望输出…" className="mt-2 min-h-32 w-full resize-y rounded-xl border border-stone-200 bg-white px-4 py-3 font-normal leading-6 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100" />
@@ -430,7 +456,7 @@ export default function AutomationsPage() {
             <div className="mt-8 flex justify-end gap-3">
               <button type="button" className="rounded-xl px-5 py-2.5 text-sm font-semibold text-stone-600" onClick={() => setShowCreate(false)}>取消</button>
               <div className="mr-auto text-xs leading-5 text-stone-500">创建后默认为关闭状态，可在任务列表中开启。</div>
-              <button type="submit" disabled={saving || !agentId} className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-600/20 disabled:opacity-50">{saving ? "创建中…" : "创建任务（默认关闭）"}</button>
+              <button type="submit" disabled={saving || !agentId || !sessionId} className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-600/20 disabled:opacity-50">{saving ? "创建中…" : "创建任务（默认关闭）"}</button>
             </div>
           </form>
         </div>

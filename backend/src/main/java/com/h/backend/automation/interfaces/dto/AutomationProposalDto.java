@@ -21,6 +21,7 @@ public record AutomationProposalDto(
         Instant confirmedAt,
         String resultTaskId,
         String name,
+        String instruction,
         String agentId,
         String cronExpression,
         String zoneId,
@@ -32,13 +33,14 @@ public record AutomationProposalDto(
                 proposal.id(), proposal.action(), proposal.taskId(), proposal.status(),
                 proposal.sourceSessionId(), proposal.createdVia(), proposal.createdAt(),
                 proposal.expiresAt(), proposal.confirmedAt(), proposal.resultTaskId(),
-                null, null, null, null, null, upcomingFires
+                null, null, null, null, null, null, upcomingFires
         );
     }
 
     public static AutomationProposalDto from(
             AutomationProposal proposal,
             String name,
+            String instruction,
             String agentId,
             String cronExpression,
             String zoneId,
@@ -49,7 +51,7 @@ public record AutomationProposalDto(
                 proposal.id(), proposal.action(), proposal.taskId(), proposal.status(),
                 proposal.sourceSessionId(), proposal.createdVia(), proposal.createdAt(),
                 proposal.expiresAt(), proposal.confirmedAt(), proposal.resultTaskId(),
-                name, agentId, cronExpression, zoneId, deliverySink, upcomingFires
+                name, instruction, agentId, cronExpression, zoneId, deliverySink, upcomingFires
         );
     }
 }

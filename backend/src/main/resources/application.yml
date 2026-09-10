@@ -6,6 +6,9 @@ server:
 spring:
   application:
     name: backend
+  # 未显式激活任何 profile 时（本地 IDE 直启）默认 local：log4j2-spring.xml 彩色控制台分支生效
+  profiles:
+    default: local
   # 支持从仓库根目录或 backend/ 启动。操作系统环境变量的优先级高于 .env。
   config:
     import:
@@ -261,14 +264,10 @@ generation:
 
 automation:
   enabled: ${AUTOMATION_ENABLED:true}
-  polling-delay: ${AUTOMATION_POLLING_DELAY:15s}
-  dispatch-delay: ${AUTOMATION_DISPATCH_DELAY:5s}
   recovery-delay: ${AUTOMATION_RECOVERY_DELAY:60s}
   batch-size: ${AUTOMATION_BATCH_SIZE:10}
-  lease-duration: ${AUTOMATION_LEASE_DURATION:30m}
   execution-timeout: ${AUTOMATION_EXECUTION_TIMEOUT:15m}
   misfire-tolerance: ${AUTOMATION_MISFIRE_TOLERANCE:10m}
-  worker-threads: ${AUTOMATION_WORKER_THREADS:4}
   delivery:
     batch-size: ${AUTOMATION_DELIVERY_BATCH_SIZE:10}
     lease-duration: ${AUTOMATION_DELIVERY_LEASE_DURATION:2m}
@@ -284,7 +283,6 @@ automation:
     executor-handler: ${XXL_JOB_EXECUTOR_HANDLER:automationDispatchHandler}
     connect-timeout: ${XXL_JOB_CONNECT_TIMEOUT:3s}
     read-timeout: ${XXL_JOB_READ_TIMEOUT:8s}
-    polling-delay: ${XXL_JOB_POLLING_DELAY:5s}
     lease-duration: ${XXL_JOB_LEASE_DURATION:30s}
     batch-size: ${XXL_JOB_BATCH_SIZE:10}
     executor-app-name: ${XXL_JOB_EXECUTOR_APP_NAME:h-agent-job-executor}

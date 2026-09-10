@@ -19,6 +19,10 @@ public interface AutomationProposalRepository {
 
     List<AutomationProposal> listPendingOwned(Long userId, Instant now);
 
+    default List<AutomationProposal> listOwnedBySession(Long userId, String sessionId) {
+        return List.of();
+    }
+
     /** 确认提案：仅 PENDING 且未过期可流转，返回更新后的提案；重复确认返回首次结果。 */
     AutomationProposal markConfirmed(String proposalId, String resultTaskId, Long confirmedBy, Instant now);
 

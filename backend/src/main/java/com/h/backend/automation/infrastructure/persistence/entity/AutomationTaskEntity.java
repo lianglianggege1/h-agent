@@ -44,6 +44,8 @@ public class AutomationTaskEntity {
     private String deliverySink;
     @TableField("delivery_session_id")
     private String deliverySessionId;
+    @TableField("session_id")
+    private String sessionId;
     @TableField("created_at")
     private LocalDateTime createdAt;
     @TableField("updated_at")

@@ -4,6 +4,7 @@ import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.application.AutomationTaskCommand;
 import com.h.backend.automation.domain.AutomationProposal;
 import com.h.backend.automation.domain.AutomationProposalAction;
+import com.h.backend.automation.domain.AutomationDeliverySink;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
@@ -24,7 +25,7 @@ public class AgentScopeAutomationTool {
             name = "create_automation_task",
             description = "创建周期性自动化任务的提案。仅当用户明确要求定时、每天、每周或周期执行时调用。"
                     + "Cron 使用六段格式（秒 分 时 日 月 周），时区使用 IANA 名称。"
-                    + "该工具只会生成提案，不会直接创建或开启任务：必须提示用户到自动化管理页确认后才生效。",
+                    + "该工具只会生成提案；当前会话会显示确认卡片，用户点击“创建并开启”后生效。",
             concurrencySafe = false
     )
     public String create(
@@ -43,13 +44,13 @@ public class AgentScopeAutomationTool {
                 null,
                 new AutomationTaskCommand(
                         name, instruction, ChatAgentIds.HARNESS, null, cronExpression, zoneId, false,
-                        null, null
+                        AutomationDeliverySink.SESSION.name(), context.getSessionId()
                 ),
-                null,
+                context.getSessionId(),
                 "CHAT_AGENTSCOPE"
         );
         return "已生成自动化任务提案「%s」（提案编号：%s，24 小时内有效）。"
                 .formatted(name, proposal.id())
-                + "请告知用户：提案不会自动生效，需要在自动化管理页确认后才会创建，确认前可随时取消。";
+                + "请提示用户直接使用当前会话中的确认卡片，确认前可继续讨论或取消。";
     }
 }

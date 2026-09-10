@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
@@ -89,6 +88,7 @@ class RunAdmissionModuleTest {
 
         assertEquals(7L, json.path("userId").asLong());
         assertEquals("晨报", json.path("taskName").asText());
+        assertEquals("session-1", json.path("sessionId").asText());
         assertEquals("NONE", json.path("deliverySink").asText());
     }
 
@@ -97,7 +97,8 @@ class RunAdmissionModuleTest {
         return new AutomationTask(
                 "task-1", 7L, "晨报", "汇总今日动态", "standard-chat", AutomationRuntime.LANGCHAIN4J,
                 new AutomationSchedule("0 0 9 * * *", "Asia/Shanghai"), true,
-                Instant.parse("2026-09-07T01:00:00Z"), null, null, "UI", 4, createdAt, createdAt
+                Instant.parse("2026-09-07T01:00:00Z"), null, null, "UI", 4, createdAt, createdAt,
+                "NONE", null, "session-1"
         );
     }
 
@@ -119,9 +120,6 @@ class RunAdmissionModuleTest {
         @Override public Optional<AutomationTask> findById(String taskId) { return task.id().equals(taskId) ? Optional.of(task) : Optional.empty(); }
         @Override public List<AutomationTask> listOwned(Long userId) { return List.of(); }
         @Override public boolean softDeleteOwned(Long userId, String taskId) { return false; }
-        @Override public List<AutomationTask> claimDueTasks(Instant now, int limit, String leaseOwner, Duration leaseDuration) { return List.of(); }
-        @Override public void releaseLease(String taskId, String leaseOwner) { }
-        @Override public void advanceLeaseToNextRun(String taskId, String leaseOwner, Instant nextRunAt, Instant now) { }
         @Override public void recordRunResult(String taskId, Instant at, String status) { }
         @Override public AutomationRun insertRun(AutomationRun run) { return run; }
         @Override public AutomationRun insertManualRunIfNoActive(AutomationRun run) { return run; }

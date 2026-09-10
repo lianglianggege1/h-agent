@@ -18,6 +18,19 @@ class AutomationXxlJobHandlerTest {
 
         assertEquals("task-7", request.taskId());
         assertEquals(3, request.taskRevision());
+        assertEquals("SCHEDULED", request.triggerType());
+        assertEquals(null, request.runId());
+    }
+
+    @Test
+    void decodesManualTriggerWithTheLocalRunIdentity() {
+        AutomationXxlJobHandler.DispatchRequest request = AutomationXxlJobHandler.decode(
+                "{\"marker\":\"automation:v1:task-7\",\"revision\":3,"
+                        + "\"triggerType\":\"MANUAL\",\"runId\":\"run-9\"}", objectMapper
+        );
+
+        assertEquals("MANUAL", request.triggerType());
+        assertEquals("run-9", request.runId());
     }
 
     @Test

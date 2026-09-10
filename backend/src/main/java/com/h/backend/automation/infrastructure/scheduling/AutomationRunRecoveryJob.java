@@ -16,11 +16,6 @@ public class AutomationRunRecoveryJob {
         this.coordinator = coordinator;
     }
 
-    @Scheduled(fixedDelayString = "${automation.dispatch-delay:5s}")
-    public void dispatch() {
-        coordinator.dispatchQueuedRuns();
-    }
-
     @Scheduled(fixedDelayString = "${automation.recovery-delay:60s}")
     public void recover() {
         coordinator.recoverTimedOutRuns();

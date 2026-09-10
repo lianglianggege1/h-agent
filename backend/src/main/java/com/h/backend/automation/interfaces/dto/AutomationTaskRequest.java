@@ -12,6 +12,7 @@ public record AutomationTaskRequest(
         Boolean enabled,
         Long expectedRevision,
         String deliverySink,
-        String deliverySessionId
+        String deliverySessionId,
+        String sessionId
 ) {
 }

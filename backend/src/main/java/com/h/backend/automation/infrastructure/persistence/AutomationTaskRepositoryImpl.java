@@ -15,7 +15,6 @@ import com.h.backend.automation.infrastructure.execution.AutomationProperties;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -122,30 +121,6 @@ public class AutomationTaskRepositoryImpl implements AutomationTaskRepository {
     }
 
     @Override
-    public List<AutomationTask> claimDueTasks(Instant now, int limit, String leaseOwner, Duration leaseDuration) {
-        return claimDueTasks(now, limit, leaseOwner, leaseDuration, null);
-    }
-
-    @Override
-    public List<AutomationTask> claimDueTasks(
-            Instant now, int limit, String leaseOwner, Duration leaseDuration, String excludedZoneId
-    ) {
-        return taskMapper.claimDueTasks(
-                        toLocal(now), limit, leaseOwner, toLocal(now.plus(leaseDuration)), excludedZoneId)
-                .stream().map(this::toDomain).toList();
-    }
-
-    @Override
-    public void releaseLease(String taskId, String leaseOwner) {
-        taskMapper.releaseLease(taskId, leaseOwner);
-    }
-
-    @Override
-    public void advanceLeaseToNextRun(String taskId, String leaseOwner, Instant nextRunAt, Instant now) {
-        taskMapper.advanceLeaseToNextRun(taskId, leaseOwner, toLocal(nextRunAt), toLocal(now));
-    }
-
-    @Override
     public void recordRunResult(String taskId, Instant at, String status) {
         taskMapper.recordRunResult(taskId, toLocal(at), status);
     }
@@ -177,8 +152,8 @@ public class AutomationTaskRepositoryImpl implements AutomationTaskRepository {
     }
 
     @Override
-    public List<String> listQueuedRunIds(int limit) {
-        return runMapper.selectQueuedRunIds(limit);
+    public Optional<AutomationRun> bindXxlTrigger(String runId, String triggerId) {
+        return Optional.ofNullable(runMapper.bindXxlTrigger(runId, triggerId)).map(this::toDomain);
     }
 
     @Override
@@ -220,6 +195,7 @@ public class AutomationTaskRepositoryImpl implements AutomationTaskRepository {
         entity.setDeliverySink(task.deliverySink() == null
                 ? AutomationDeliverySink.NONE.name() : task.deliverySink());
         entity.setDeliverySessionId(task.deliverySessionId());
+        entity.setSessionId(task.sessionId());
         entity.setCreatedAt(toLocal(task.createdAt()));
         entity.setUpdatedAt(toLocal(task.updatedAt()));
         return entity;
@@ -235,7 +211,7 @@ public class AutomationTaskRepositoryImpl implements AutomationTaskRepository {
                 entity.getRevision() == null ? 1L : entity.getRevision(),
                 toInstant(entity.getCreatedAt()), toInstant(entity.getUpdatedAt()),
                 entity.getDeliverySink() == null ? AutomationDeliverySink.NONE.name() : entity.getDeliverySink(),
-                entity.getDeliverySessionId()
+                entity.getDeliverySessionId(), entity.getSessionId()
         );
     }
 
