@@ -21,7 +21,6 @@ import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.chat.application.impl.ChatSessionServiceImpl;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -458,65 +457,6 @@ class ChatSessionServiceImplTest {
         assertEquals("你好", dto.content());
         assertEquals(1, dto.resources().size());
         assertEquals("AUDIO", dto.resources().getFirst().type());
-    }
-
-    @Test
-    void bindStoredAudioResourceRejectsNonUserMessageForRecording() {
-        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
-        ChatSessionMessageMapper messageMapper = mock(ChatSessionMessageMapper.class);
-        ChatMessageResourceMapper resourceMapper = mock(ChatMessageResourceMapper.class);
-        ChatMemorySnapshotService snapshotService = mock(ChatMemorySnapshotService.class);
-        SystemPromptService promptService = mock(SystemPromptService.class);
-        ObjectMapper objectMapper = new ObjectMapper();
-        ChatSessionServiceImpl service = new ChatSessionServiceImpl(
-                sessionMapper,
-                messageMapper,
-                resourceMapper,
-                snapshotService,
-                promptService,
-                objectMapper,
-                testAgentRegistry(),
-                mock(AgentSessionMapper.class)
-        );
-
-        ChatSessionEntity session = new ChatSessionEntity();
-        session.setId(11L);
-        session.setUserId(1L);
-        session.setSessionId("session-1");
-
-        ChatSessionMessageEntity assistantMessage = new ChatSessionMessageEntity();
-        assistantMessage.setId(202L);
-        assistantMessage.setSessionRecordId(11L);
-        assistantMessage.setSessionId("session-1");
-        assistantMessage.setUserId(1L);
-        assistantMessage.setRoleCode("assistant");
-        assistantMessage.setMessageType("AI");
-
-        when(sessionMapper.selectBySessionId("session-1")).thenReturn(session);
-        when(messageMapper.selectById(202L)).thenReturn(assistantMessage);
-
-        BusinessException ex = assertThrows(
-                BusinessException.class,
-                () -> service.bindStoredAudioResource(
-                        1L,
-                        "session-1",
-                        202L,
-                        "USER_RECORDING",
-                        new StoredResource(
-                                "audio-1",
-                                "OBJECT_STORAGE",
-                                "call-audio/audio-1.webm",
-                                "audio/webm",
-                                "call.webm",
-                                3L,
-                                null,
-                                null
-                        ),
-                        Map.of("source", "USER_RECORDING")
-                )
-        );
-
-        assertEquals(40000, ex.getCode());
     }
 
     @Test

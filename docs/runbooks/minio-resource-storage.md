@@ -223,7 +223,7 @@ Langfuse 的 Metrics API 是对已摄取 Trace/Observation 的派生分析，不
 
 ### 5.5 内容签名校验与 m4a 互认（审查修复轮行为变化）
 
-审查修复轮后，**全部资源写入路径在保存前必须通过文件签名校验**（无服务端自产豁免）：用户上传（`ChatResourceController`）、Agent 模型文件（`FileDeliveryTool`）、图片生成（`ImageGenerationServiceImpl`）、TTS（`VoiceTtsService`）、通话音频（`CallTurnService`，合并后字节是用户输入）与生成视频（`ResourceStorageGeneratedArtifactAdapter`）。用户/文件名/HTTP Client/Agent 模型/provider 元数据声明的 MIME 都只是提示，签名冲突即拒绝：
+审查修复轮后，**全部资源写入路径在保存前必须通过文件签名校验**（无服务端自产豁免）：用户上传（`ChatResourceController`）、Agent 模型文件（`FileDeliveryTool`）、图片生成（`ImageGenerationServiceImpl`）与生成视频（`ResourceStorageGeneratedArtifactAdapter`）。新语音链路不保存音频资源。用户/文件名/HTTP Client/Agent 模型/provider 元数据声明的 MIME 都只是提示，签名冲突即拒绝：
 
 - 用户/Agent 侧拒绝：上传 400 业务错误、Agent 工具返回 Error 文案；
 - 同步生成路径（图片生成/TTS/通话）拒绝：明确业务异常，任务/请求失败可见；

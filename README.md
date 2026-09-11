@@ -18,7 +18,7 @@ The project combines a Next.js interface with a Spring Boot agent platform. It s
 - Versioned user Skills with proposal validation, immutable releases, activation, revocation, and MinIO artifacts.
 - MinIO-backed private storage for chat files and generated image/audio/video artifacts.
 - OpenTelemetry traces exported directly to Langfuse without making observability part of business correctness.
-- Optional A2A/MCP agent service and an experimental LiveKit + LangGraph realtime-voice module that has not completed end-to-end integration.
+- Optional A2A/MCP agent service and a LiveKit realtime-voice path using Huoshan ASR/TTS with the existing Java Agent.
 
 ## Architecture
 
@@ -38,8 +38,8 @@ flowchart LR
     B -. OTLP/HTTP .-> L[Langfuse]
     B -. A2A / MCP .-> X[other-agents :8082]
 
-    U -. experimental WebRTC, integration incomplete .-> V[LiveKit / realtime-voice]
-    V -. business APIs .-> B
+    U <-->|WebRTC| V[LiveKit / realtime-voice]
+    V <-->|turns / streaming reply / cancellation| B
 ```
 
 | Area | Main technologies |
@@ -49,7 +49,7 @@ flowchart LR
 | Data | PostgreSQL/pgvector, Redis/Redisson, MinIO |
 | Memory | Redis chat memory, Mem0 long-term memory, Harness `MEMORY.md` |
 | Observability | OpenTelemetry, Langfuse, Micrometer, Prometheus |
-| Optional/experimental services | A2A and MCP; a not-yet-integrated LiveKit, LangGraph, and FastAPI voice module |
+| Optional services | A2A and MCP; LiveKit voice worker (Huoshan ASR/TTS, Java Agent control plane) |
 
 ## Product Tour
 
@@ -89,7 +89,7 @@ After the session is created:
 3. For the Collaborative Agent, watch the collaborator cards under **Collaboration Progress (`协作进度`)**. Open a card to read that collaborator's transcript and send a follow-up after it stops running.
 4. Use the paperclip to attach supported resources, enter the request, and select **Send (`发送`)**.
 
-> **Voice status:** A phone icon is currently visible in the chat header, but browser speech recognition, backend TTS, and the standalone `realtime-voice` service have not completed stable end-to-end integration. Voice is therefore not considered an available feature and should not be included in the current product demo or acceptance scope.
+> **Voice status:** The station-call flow is implemented and disabled by default. It becomes available after LAN HTTPS/WSS, LiveKit, Worker and authorized Huoshan credentials are configured. This checkout has no voice credentials, so real-device audio acceptance has not yet been run.
 
 #### Built-in Agent guide
 
@@ -438,9 +438,9 @@ java -jar other-agents/target/other-agents-0.0.1-SNAPSHOT.jar
 
 The service listens on port `8082`. Enable the corresponding `agents.a2a.other-agents` or `agents.mcp.other-agents` settings in the backend only when needed.
 
-### Realtime voice (experimental; not yet operational)
+### Realtime voice
 
-`realtime-voice` is a standalone LiveKit + LangGraph experiment, not an available capability in the main chat flow. Although the chat UI retains a phone icon, browser speech recognition, backend HTTP TTS, LiveKit rooms, and the Python service have not completed stable end-to-end integration. Use text chat for the current demo and do not treat voice as an acceptance item. See [`realtime-voice/README.md`](realtime-voice/README.md) for the LiveKit credentials, model configuration, and development commands needed for continued integration work.
+`realtime-voice` is a LiveKit media worker. It performs VAD, Huoshan ASR and Huoshan streaming TTS; the Java backend invokes the existing Agent, persists confirmed subtitles in the current session, and owns cancellation. It is disabled until the LAN LiveKit URL and service credentials are configured. See [`realtime-voice/README.md`](realtime-voice/README.md) and [`docs/runbooks/voice-lan-deployment.md`](docs/runbooks/voice-lan-deployment.md).
 
 ## Project Layout
 
@@ -450,7 +450,7 @@ h-agent/
 ├── backend/              Main Spring Boot API and agent runtime
 ├── agent-observability/  Shared OpenTelemetry/Langfuse module
 ├── other-agents/         Optional A2A and MCP service
-├── realtime-voice/       Experimental voice service; not yet working end to end
+├── realtime-voice/       LiveKit media worker for station voice calls
 ├── deploy/               Nginx and Prometheus configuration
 ├── docs/                 Designs, ADRs, plans, runbooks, and screenshots
 ├── teaching/             Teaching notes and reference material
@@ -471,7 +471,7 @@ npm test
 npm run lint
 npm run build
 
-# Experimental realtime voice (development checks only; not end-to-end availability)
+# Realtime voice worker
 cd realtime-voice
 uv run pytest
 uv run ruff check .

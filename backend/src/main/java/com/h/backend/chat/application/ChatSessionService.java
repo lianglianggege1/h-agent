@@ -9,11 +9,9 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionSummaryDto;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.chat.domain.approval.ApprovalMode;
 
 import java.util.List;
-import java.util.Map;
 
 public interface ChatSessionService {
 
@@ -70,15 +68,6 @@ public interface ChatSessionService {
             String sessionId,
             String assistantMessage,
             String idempotencyKey
-    );
-
-    ChatMessageResourceDto bindStoredAudioResource(
-            Long userId,
-            String sessionId,
-            Long messageId,
-            String source,
-            StoredResource storedResource,
-            Map<String, Object> metadata
     );
 
     ChatSessionMessageDto appendImageMessage(

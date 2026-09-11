@@ -30,7 +30,6 @@ import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.SystemPromptService;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -511,63 +510,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
-    public ChatMessageResourceDto bindStoredAudioResource(
-            Long userId,
-            String sessionId,
-            Long messageId,
-            String source,
-            StoredResource storedResource,
-            Map<String, Object> metadata
-    ) {
-        if (chatMessageResourceMapper == null) {
-            throw new IllegalStateException("ChatMessageResourceMapper is required to bind audio resources");
-        }
-
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
-        ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
-        if (message == null
-                || !session.getId().equals(message.getSessionRecordId())
-                || !sessionId.equals(message.getSessionId())
-                || !userId.equals(message.getUserId())) {
-            throw new BusinessException(40404, "消息不存在");
-        }
-
-        String normalizedSource = normalizeAudioSource(source);
-        if ("USER_RECORDING".equals(normalizedSource)) {
-            if (!"user".equals(message.getRoleCode())) {
-                throw new BusinessException(40000, "用户录音只能绑定用户消息");
-            }
-        } else if ("ASSISTANT_TTS".equals(normalizedSource)) {
-            if (!"assistant".equals(message.getRoleCode()) || !"AI".equals(message.getMessageType())) {
-                throw new BusinessException(40000, "Assistant TTS 只能绑定 AI 回复消息");
-            }
-        } else {
-            throw new BusinessException(40000, "不支持的音频来源");
-        }
-
-        ChatMessageResourceEntity row = new ChatMessageResourceEntity();
-        row.setId(storedResource.id());
-        row.setMessageId(messageId);
-        row.setUserId(userId);
-        row.setResourceType("AUDIO");
-        row.setResourceRole("ATTACHMENT");
-        row.setStorageType(storedResource.storageType());
-        row.setStorageKey(storedResource.storageKey());
-        row.setViewUrl("/api/chat/resources/" + storedResource.id() + "/content");
-        row.setDownloadUrl("/api/chat/resources/" + storedResource.id() + "/download");
-        row.setMimeType(storedResource.mimeType());
-        row.setFileName(storedResource.fileName());
-        row.setFileSize(storedResource.fileSize());
-        row.setWidth(null);
-        row.setHeight(null);
-        row.setMetadataJson(toMetadataJson(metadata));
-        row.setCreatedAt(LocalDateTime.now());
-        chatMessageResourceMapper.insert(row);
-        return toResourceDto(row);
-    }
-
-    @Override
-    @Transactional
     public ChatSessionMessageDto appendImageMessage(
             Long userId,
             String sessionId,
@@ -736,12 +678,6 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         }
     }
 
-    private String normalizeAudioSource(String source) {
-        if (source == null || source.isBlank()) {
-            throw new BusinessException(40000, "不支持的音频来源");
-        }
-        return source.trim().toUpperCase();
-    }
 
     private void archiveExpiredSessionsForUser(Long userId) {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);

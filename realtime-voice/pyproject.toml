@@ -1,47 +1,26 @@
-[build-system]
-requires = ["setuptools>=77", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "h-agent-realtime-voice"
 version = "0.1.0"
-description = "Realtime voice conversation service for h-agent"
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    "fastapi~=0.141.0",
-    "httpx~=0.28.0",
-    "langchain~=1.3.0",
-    "langchain-openai~=1.4.0",
-    "langgraph~=1.2.0",
-    "livekit-agents[langchain,silero]~=1.6.9",
-    "python-dotenv~=1.2.0",
-    "uvicorn[standard]~=0.52.0",
+  "livekit-agents==1.6.9",
+  "livekit-plugins-silero==1.6.9",
+  "httpx>=0.28,<0.29",
+  "aiohttp>=3.12,<4",
+  "python-dotenv>=1.1,<2",
 ]
-
 [dependency-groups]
-dev = [
-    "pytest~=9.0.0",
-    "pytest-asyncio~=1.3.0",
-    "ruff~=0.15.0",
-]
-
+dev = ["pytest>=8,<9", "pytest-asyncio>=1,<2", "ruff>=0.12"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.build.targets.wheel]
+packages = ["src/realtime_voice"]
 [project.scripts]
-realtime-voice = "realtime_voice.agent:main"
-realtime-voice-api = "realtime_voice.api:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
-
+voice-worker = "realtime_voice.worker:main"
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
+asyncio_mode = "auto"
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "B", "A", "C4", "UP", "SIM", "RUF"]
-ignore = ["E501", "RUF001"]
+extend-ignore = ["BLE001"]
+[tool.ruff.lint.per-file-ignores]
+"src/realtime_voice/providers/*.py" = ["S110", "TRY004", "TRY301", "PLR1730", "RUF046"]

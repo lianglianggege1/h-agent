@@ -252,11 +252,16 @@ public class ChatServiceImpl implements ChatService {
     ) {
         return Flux.defer(() -> {
             if (isStandardImageCommand(agentId, userMessage)) {
+                var imagePermit = concurrencyGuard.tryAcquire(sessionId, userId);
+                if (!imagePermit.acquired()) return Flux.just(new ChatStreamEvent("error", imagePermit.message()));
                 return Flux.create(sink -> {
                     try {
-                        chatStreamExecutor.submit(() ->
-                                runImageCommandStream(sink, userId, promptId, sessionId, userMessage, resources));
+                        chatStreamExecutor.submit(() -> {
+                            try { runImageCommandStream(sink, userId, promptId, sessionId, userMessage, resources); }
+                            finally { imagePermit.release(); }
+                        });
                     } catch (RuntimeException ex) {
+                        imagePermit.release();
                         log.error("Failed to submit image command stream task", ex);
                         emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
                     }

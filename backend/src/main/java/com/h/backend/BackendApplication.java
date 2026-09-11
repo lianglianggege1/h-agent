@@ -1,6 +1,5 @@
 package com.h.backend;
 
-import com.h.backend.voice.infrastructure.config.VoiceTtsProperties;
 import com.h.backend.generation.infrastructure.config.GenerationProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
@@ -19,7 +18,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 })
 @SpringBootApplication
 @EnableScheduling
-@EnableConfigurationProperties({VoiceTtsProperties.class, GenerationProperties.class})
+@EnableConfigurationProperties({GenerationProperties.class})
 public class BackendApplication {
 
     public static void main(String[] args) {

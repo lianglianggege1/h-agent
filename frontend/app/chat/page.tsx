@@ -31,7 +31,7 @@ import { apiStream } from "@/lib/http";
 import { getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
-import { buildCallHref } from "@/lib/call-state";
+import { buildCallHref } from "@/lib/voice-call";
 import {
   agentModeFromSession,
   buildNewSessionPayload,
@@ -1335,8 +1335,8 @@ function ChatPageContent() {
 
   function handleOpenCall() {
     if (!sessionId || streaming || routeBootstrapping) return;
-    const callPromptId = isStandardAgent(currentAgentId) ? selectedPromptId : null;
-    router.push(buildCallHref(currentAgentId, sessionId, callPromptId));
+    if (!isStandardAgent(currentAgentId)) return;
+    router.push(buildCallHref(sessionId));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2045,7 +2045,7 @@ function ChatPageContent() {
             <button
               className="shrink-0 rounded-full border border-stone-300 bg-white/80 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
-              disabled={!sessionId || streaming || routeBootstrapping}
+              disabled={!sessionId || !usingStandardAgent || streaming || routeBootstrapping}
               onClick={handleOpenCall}
             >
               电话

@@ -26,6 +26,13 @@ class GlobalExceptionHandlerTest {
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
     @Test
+    void forbiddenBusinessErrorMapsTo403() {
+        var response = handler.handleBusinessException(new BusinessException(40300, "无权操作"));
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        assertErrorBody(response, 40300, "无权操作");
+    }
+
+    @Test
     void sizeLimitStorageErrorMapsTo413() {
         ResourceStorageException exception = new ResourceStorageException(
                 ResourceStorageErrorKind.SIZE_LIMIT, "资源大小超过存储上限");

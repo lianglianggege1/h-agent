@@ -6,8 +6,6 @@ import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
 import com.h.backend.chat.infrastructure.tools.FileDeliveryTool;
 import com.h.backend.chat.interfaces.web.ChatResourceController;
 import com.h.backend.generation.infrastructure.storage.ResourceStorageGeneratedArtifactAdapter;
-import com.h.backend.voice.application.CallTurnService;
-import com.h.backend.voice.application.VoiceTtsService;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
@@ -30,8 +28,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * 「上传**或图片生成**调用方在保存前完成内容校验并提供 width/height」、
  * 「JPEG、PNG、WebP、MP4、MP3、M4A、WAV、WebM Audio 必须校验基础文件签名」、
  * 不变量 16「预览只允许经过签名校验的安全图片、音视频」——因此全部六条
- * 写入路径（用户上传、Agent 模型文件、图片生成、TTS、通话录音、
- * 异步生成 provider 代理下载）都是 gatekeeper。
+ * 写入路径（用户上传、Agent 模型文件、图片生成、异步生成 provider 代理下载）
+ * 都是 gatekeeper。新语音链路不保存音频资源。
  *
  * <p>本守卫保证：只有白名单内的写入点可以做保存侧校验；其他类（以及未来
  * 新增写入点）既无法调用 validateForSave，也无法依赖 Inspector，
@@ -44,24 +42,20 @@ class ResourceContentArchitectureTest {
 
     /**
      * 保存侧校验白名单（审查修复第 3 项后无豁免）：用户上传、Agent 模型文件、
-     * 图片生成、TTS、通话录音分片合并、异步生成 provider 代理下载六条写入路径。
+     * 图片生成、异步生成 provider 代理下载四条写入路径。
      */
     private static final Class<?>[] SAVE_VALIDATION_GATEKEEPERS = {
             ChatResourceController.class,
             FileDeliveryTool.class,
             ImageGenerationServiceImpl.class,
-            VoiceTtsService.class,
-            CallTurnService.class,
             ResourceStorageGeneratedArtifactAdapter.class,
     };
 
-    /** Inspector 合法依赖者：六条校验路径 + 策略组件（消费检测结果类型）。 */
+    /** Inspector 合法依赖者：四条校验路径 + 策略组件（消费检测结果类型）。 */
     private static final Class<?>[] INSPECTOR_DEPENDENTS = {
             ChatResourceController.class,
             FileDeliveryTool.class,
             ImageGenerationServiceImpl.class,
-            VoiceTtsService.class,
-            CallTurnService.class,
             ResourceStorageGeneratedArtifactAdapter.class,
             ResourceContentPolicy.class,
     };
@@ -86,8 +80,8 @@ class ResourceContentArchitectureTest {
                         "validateForSave",
                         ResourceContentInspector.InspectionResult.class,
                         String.class)
-                .because("保存侧签名校验只允许六条写入路径（用户上传/Agent 模型文件/"
-                        + "图片生成/TTS/通话录音/provider 代理下载，计划 §6.2/§6.3："
+                .because("保存侧签名校验只允许四条写入路径（用户上传/Agent 模型文件/"
+                        + "图片生成/provider 代理下载，计划 §6.2/§6.3："
                         + "全部图片与音视频写入点必须校验基础文件签名，无豁免）；"
                         + "新增写入点若属于图片/音视频写入必须显式加入白名单并补充校验测试")
                 .check(PRODUCTION_CLASSES);

@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 @Component
 public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGuard {
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.h.backend.voice.infrastructure.VoiceStore> voiceStore;
 
     // v1 曾把等待时间误当租约时间，可能遗留永久 permit；切换命名空间避免旧锁继续阻塞请求。
     private static final String KEY_PREFIX = "chat:stream:v2:{concurrency}:";
@@ -71,6 +73,9 @@ public class RedisChatStreamConcurrencyGuard implements ChatStreamConcurrencyGua
     public Permit tryAcquire(String sessionId, Long userId) {
         Objects.requireNonNull(sessionId, "sessionId must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
+        if (voiceStore != null && voiceStore.getObject().sessionBusy(sessionId)) {
+            return rejected(SESSION_BUSY_MESSAGE);
+        }
 
         HeldPermit sessionPermit = null;
         HeldPermit userPermit = null;

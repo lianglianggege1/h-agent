@@ -225,18 +225,13 @@ knowledge:
       - xlsx
 
 voice:
-  tts:
-    preview-max-text-length: 240
-    message-max-text-length: 5000
-    minimax:
-      base-url: ${MINIMAX_BASE_URL:https://api.minimaxi.com}
-      api-key: ${MINIMAX_API_KEY:${API_KEY:}}
-    model: speech-2.8-turbo
-    voice-id: male-qn-qingse
-    format: mp3
-    sample-rate: 32000
-    bitrate: 128000
-    request-timeout-seconds: 60
+  enabled: ${VOICE_ENABLED:false}
+  livekit-url: ${LIVEKIT_PUBLIC_URL:wss://livekit.home.arpa}
+  livekit-api-url: ${LIVEKIT_API_URL:http://127.0.0.1:7880}
+  livekit-api-key: ${LIVEKIT_API_KEY:}
+  livekit-api-secret: ${LIVEKIT_API_SECRET:}
+  worker-token: ${VOICE_WORKER_TOKEN:}
+  agent-name: ${VOICE_AGENT_NAME:h-agent-voice}
 
 image-generation:
   minimax:

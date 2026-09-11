@@ -24,14 +24,12 @@ import java.util.regex.Pattern;
  *
  * <p><b>写入校验覆盖面（审查修复后无豁免）</b>：除用户上传
  * （ChatResourceController）与 Agent 模型文件（FileDeliveryTool）两条不可信
- * 输入路径外，服务端写入点——图片生成（ImageGenerationServiceImpl）、TTS
- * （VoiceTtsService）、语音块（CallTurnService，合并后字节是用户输入，MIME
- * 服务端硬编码 audio/webm）与异步生成 provider 代理下载
+ * 输入路径外，服务端写入点——图片生成（ImageGenerationServiceImpl）与异步生成 provider 代理下载
  * （ResourceStorageGeneratedArtifactAdapter）——同样在保存前经 Inspector
  * 签名校验：provider 元数据（含 MIME/size）不可信（计划 §6.2/§6.3）。
  * 即使如此，读取侧白名单仍会把非白名单 MIME 强制 attachment 兜底。
  * 写入校验覆盖面由 {@code ResourceContentArchitectureTest} 以 gatekeeper
- * 白名单锁定。
+ * 白名单锁定。新语音链路只保存字幕，不写入音频资源。
  */
 @Component
 public final class ResourceContentPolicy {

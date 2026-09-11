@@ -1,9 +1,6 @@
+.venv/
 .env
-.env.local
+__pycache__/
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
-.venv/
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/

@@ -1,0 +1,11 @@
+# Install Caddy's local root CA on every LAN client before opening this URL.
+h-agent.home.arpa {
+    tls internal
+    reverse_proxy 192.168.1.10:3000
+}
+
+# Only the signaling/API path goes through HTTPS/WSS. WebRTC media uses 7881/7882 directly.
+livekit.home.arpa {
+    tls internal
+    reverse_proxy 192.168.1.20:7880
+}
