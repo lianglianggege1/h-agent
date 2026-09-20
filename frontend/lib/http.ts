@@ -100,18 +100,30 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
+  const method = init.method ?? "GET";
+  const startedAt = performance.now();
+  console.info(`[api] >>> ${method} ${path} body=${typeof init.body === "string" ? init.body : ""}`);
 
   const response = await fetch(path, {
     ...init,
     headers,
     credentials: "include",
   });
-  const body = await parseApiResponse<T>(response);
+  const bodyText = await response.text();
+  let body: ApiResponse<T>;
+  try {
+    body = JSON.parse(bodyText) as ApiResponse<T>;
+  } catch {
+    console.warn(`[api] xxx ${method} ${path} -> HTTP ${response.status} 非JSON响应: ${bodyText.slice(0, 500)}`);
+    throw new Error("请求失败");
+  }
 
   if (!response.ok || body.code !== 0) {
+    console.warn(`[api] xxx ${method} ${path} -> HTTP ${response.status} code=${body.code} message=${body.message} costMs=${Math.round(performance.now() - startedAt)}`, body.data);
     throw new ApiError(body.message || "请求失败", body.code, body.data);
   }
 
+  console.info(`[api] <<< ${method} ${path} -> HTTP ${response.status} code=0 costMs=${Math.round(performance.now() - startedAt)}`);
   return body.data as T;
 }
 

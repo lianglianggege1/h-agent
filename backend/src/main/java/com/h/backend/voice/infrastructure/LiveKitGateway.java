@@ -3,6 +3,7 @@ package com.h.backend.voice.infrastructure;
 import com.h.backend.voice.domain.VoiceCall;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -13,6 +14,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.*;
 
+@Slf4j
 @Component
 public class LiveKitGateway {
     private final VoiceProperties config;
@@ -50,17 +52,25 @@ public class LiveKitGateway {
         return false;
     }
     private JsonNode rpc(String method, String room, Object body) {
+        String url = config.getLivekitApiUrl().replaceAll("/$", "") + "/twirp/livekit." + method;
+        long start = System.currentTimeMillis();
         try {
-            var req = HttpRequest.newBuilder(URI.create(config.getLivekitApiUrl().replaceAll("/$", "") + "/twirp/livekit." + method))
+            String payload = json.writeValueAsString(body);
+            log.info("[livekit] >>> {} {} body={}", method, url, payload);
+            var req = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(8)).header("Authorization", "Bearer " + token("voice-control", Map.of("room", room, "roomAdmin", true, "roomCreate", true, "roomList", true), 60))
-                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
+                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(payload)).build();
             var result = client.send(req, HttpResponse.BodyHandlers.ofString());
+            log.info("[livekit] <<< {} {} status={} costMs={} body={}", method, url, result.statusCode(), System.currentTimeMillis() - start, result.body());
             if (result.statusCode() == 404 && (method.endsWith("DeleteRoom") || method.endsWith("ListDispatch") || method.endsWith("ListParticipants"))) return json.createObjectNode();
-            if (result.statusCode() / 100 != 2) throw new IllegalStateException("LiveKit HTTP " + result.statusCode());
+            if (result.statusCode() / 100 != 2) throw new IllegalStateException("LiveKit HTTP " + result.statusCode() + " body=" + result.body());
             return json.readTree(result.body());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); throw new IllegalStateException("LiveKit request interrupted", e);
-        } catch (java.io.IOException e) { throw new IllegalStateException("LiveKit unavailable", e); }
+        } catch (java.io.IOException e) {
+            log.warn("[livekit] xxx {} {} failed costMs={} error={}: {}", method, url, System.currentTimeMillis() - start, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw new IllegalStateException("LiveKit unavailable (" + e.getClass().getSimpleName() + ": " + e.getMessage() + ")", e);
+        }
     }
     public JsonNode verifyWebhook(String authorization, String body) {
         try {

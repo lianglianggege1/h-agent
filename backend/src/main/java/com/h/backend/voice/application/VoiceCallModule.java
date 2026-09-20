@@ -4,6 +4,7 @@ import com.h.backend.chat.application.*;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.domain.*;
 import com.h.backend.voice.infrastructure.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,6 +15,7 @@ import jakarta.annotation.PreDestroy;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Service
 public class VoiceCallModule {
     private final VoiceStore store;
@@ -53,6 +55,7 @@ public class VoiceCallModule {
         ready = true;
     }
     public Map<String,Object> create(Long userId, String sessionId, String requestId) {
+        log.info("[voice] create call requested userId={} sessionId={} requestId={}", userId, sessionId, requestId);
         properties.requireConfigured();
         if (!ready) throw new BusinessException(50300,"语音服务正在恢复");
         UUID.fromString(requestId);
@@ -83,10 +86,13 @@ public class VoiceCallModule {
             throw new BusinessException(40900,"已有进行中的语音通话");
         } catch (RuntimeException ex) { permit.release(); throw ex; }
         try {
+            long start = System.currentTimeMillis();
             String dispatchId = livekit.dispatch(c);
+            log.info("[voice] dispatch created callId={} room={} dispatchId={} costMs={}", c.getId(), c.getRoomName(), dispatchId, System.currentTimeMillis() - start);
             store.locked(c.getId(),call->{call.setDispatchId(dispatchId); if ("PREPARING".equals(call.getState())) call.setState("CONNECTING"); store.save(call); return null;});
             return view(store.get(c.getId()),true);
         } catch (RuntimeException ex) {
+            log.warn("[voice] dispatch failed callId={} room={} apiUrl={} error={}: {}", c.getId(), c.getRoomName(), properties.getLivekitApiUrl(), ex.getClass().getName(), ex.getMessage(), ex);
             end(c.getId(),"CONNECT_FAILED");
             throw new BusinessException(50300,"LiveKit 连接失败，请检查局域网语音服务");
         }
@@ -103,6 +109,7 @@ public class VoiceCallModule {
         return out;
     }
     public Map<String,Object> claim(String id,String room,String secret,String worker) {
+        log.info("[voice] worker claiming callId={} room={} worker={}", id, room, worker);
         return store.locked(id,c->{
             if (c.terminal() || "ENDING".equals(c.getState()) || !c.getRoomName().equals(room)
                     || !java.security.MessageDigest.isEqual(c.getClaimSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8),secret.getBytes(java.nio.charset.StandardCharsets.UTF_8))) throw new BusinessException(40300,"通话任务无效");

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -122,6 +123,7 @@ class JavaAgent(Agent):
 
 load_dotenv()
 server = AgentServer()
+logger = logging.getLogger("realtime_voice.worker")
 
 
 @server.rtc_session(agent_name=os.environ.get("VOICE_AGENT_NAME", "h-agent-voice"))
@@ -129,11 +131,14 @@ async def entrypoint(ctx: JobContext):
     settings = Settings.load()
     metadata = json.loads(ctx.job.metadata)
     control = Control(settings.java_url, settings.worker_token, metadata["callId"])
+    logger.info("[worker] job accepted job=%s room=%s callId=%s javaUrl=%s",
+                ctx.job.id, ctx.room.name, metadata["callId"], settings.java_url)
     session = None
     heartbeat = None
     agent = JavaAgent(control)
     try:
         claim = await control.claim(ctx.room.name, metadata["claimSecret"], ctx.job.id)
+        logger.info("[worker] claim ok job=%s room=%s identity=%s", ctx.job.id, ctx.room.name, claim["participantIdentity"])
         await ctx.connect()
         session = AgentSession(
             stt=HuoshanSTT(api_key=settings.asr_key, resource_id=settings.asr_resource,
