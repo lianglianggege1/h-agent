@@ -6,11 +6,12 @@ import contextlib
 import json
 import logging
 import os
+import sys
 import uuid
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, llm
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, llm
 from livekit.agents.voice import room_io
 from livekit.plugins import silero
 
@@ -204,8 +205,15 @@ async def entrypoint(ctx: JobContext):
 
 
 def main():
+    # The rich Python CLI behind this script is deprecated; forward to the module CLI it
+    # points at. `dev` is the thin CLI's `start --dev` against this same server object.
     Settings.load()
-    cli.run_app(server)
+    from livekit.agents.__main__ import main as agents_main
+
+    argv = sys.argv[1:]
+    if argv[:1] == ["dev"]:
+        argv = ["start", __file__, "--dev", *argv[1:]]
+    raise SystemExit(agents_main(argv))
 
 
 if __name__ == "__main__":

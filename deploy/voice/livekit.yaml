@@ -1,0 +1,18 @@
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+rtc:
+  tcp_port: 7881
+  use_external_ip: false
+  # 169.254.210.181 是本机固定地址（对端直连网卡），LiveKit 会把它通过 ICE 告诉浏览器
+  node_ip: 169.254.210.181
+  udp_port: 7882
+keys:
+  # 与 h-agent deploy/voice/livekit.yaml 完全一致，Java 后端/Worker 依赖它签发 token
+  h-agent-voice: 06261308d3342fb0d75630d70647ed24585bba9e09053bc0133473ff56b0e74e
+webhook:
+  api_key: h-agent-voice
+  urls:
+    - "http://169.254.228.221:8081/internal/livekit/webhook"
+logging:
+  level: info
