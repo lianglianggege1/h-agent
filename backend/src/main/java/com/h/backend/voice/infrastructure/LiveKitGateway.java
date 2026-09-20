@@ -34,10 +34,9 @@ public class LiveKitGateway {
                 .claim("video", grants).signWith(Keys.hmacShaKeyFor(config.getLivekitApiSecret().getBytes(StandardCharsets.UTF_8)), Jwts.SIG.HS256).compact();
     }
     public String dispatch(VoiceCall call) {
-        // Query before creating: a timed-out earlier request may already have created the dispatch.
-        var existing = rpc("AgentDispatchService/ListDispatch", call.getRoomName(), Map.of("room", call.getRoomName()));
-        for (var d : existing.path("agentDispatches")) if (config.getAgentName().equals(d.path("agentName").asText())) return d.path("id").asText();
-        for (var d : existing.path("agent_dispatches")) if (config.getAgentName().equals(d.path("agent_name").asText())) return d.path("id").asText();
+        // No ListDispatch pre-check: LiveKit 1.13 answers ListDispatch for a not-yet-created
+        // room with a 3s psrpc timeout (503 "no response from servers") instead of 404, which
+        // would abort call creation. CreateDispatch creates the room implicitly.
         var response = rpc("AgentDispatchService/CreateDispatch", call.getRoomName(), Map.of(
                 "room", call.getRoomName(), "agent_name", config.getAgentName(),
                 "metadata", json.writeValueAsString(Map.of("callId", call.getId(), "claimSecret", call.getClaimSecret()))));
@@ -62,7 +61,7 @@ public class LiveKitGateway {
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(payload)).build();
             var result = client.send(req, HttpResponse.BodyHandlers.ofString());
             log.info("[livekit] <<< {} {} status={} costMs={} body={}", method, url, result.statusCode(), System.currentTimeMillis() - start, result.body());
-            if (result.statusCode() == 404 && (method.endsWith("DeleteRoom") || method.endsWith("ListDispatch") || method.endsWith("ListParticipants"))) return json.createObjectNode();
+            if (result.statusCode() == 404 && (method.endsWith("DeleteRoom") || method.endsWith("ListParticipants"))) return json.createObjectNode();
             if (result.statusCode() / 100 != 2) throw new IllegalStateException("LiveKit HTTP " + result.statusCode() + " body=" + result.body());
             return json.readTree(result.body());
         } catch (InterruptedException e) {
