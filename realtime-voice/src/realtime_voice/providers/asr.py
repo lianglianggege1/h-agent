@@ -29,7 +29,7 @@ from .gain import AsrGainConfig, RollingAsrGain, boost_pcm
 logger = logging.getLogger(__name__)
 
 DEFAULT_WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-DEFAULT_RESOURCE_ID = "volc.seedasr.sauc.duration"
+DEFAULT_RESOURCE_ID = "volc.bigasr.sauc.duration"
 DEFAULT_SAMPLE_RATE = 16000
 # 双向流式 200ms 分包性能最优 (16000 * 0.2 = 3200 samples)
 DEFAULT_SAMPLES_PER_CHUNK = 3200

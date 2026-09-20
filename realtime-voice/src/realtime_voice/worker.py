@@ -184,6 +184,9 @@ async def entrypoint(ctx: JobContext):
             participant_identity=claim["participantIdentity"], close_on_disconnect=False,
             text_output=room_io.TextOutputOptions(sync_transcription=True),
         ))
+        if settings.greeting:
+            # Greeting is transport audio only; Java owns all conversation context.
+            session.say(settings.greeting, allow_interruptions=True, add_to_chat_ctx=False)
         waiter = asyncio.create_task(closed.wait())
         await asyncio.wait([heartbeat, waiter], return_when=asyncio.FIRST_COMPLETED)
         waiter.cancel()

@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+DEFAULT_GREETING = "您好，我是您的语音助手，请问有什么可以帮您？"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -15,6 +17,7 @@ class Settings:
     tts_resource: str
     tts_model: str
     tts_url: str
+    greeting: str
 
     @classmethod
     def load(cls):
@@ -33,9 +36,10 @@ class Settings:
             required(name)
         return cls(
             url, token, required("HUOSHAN_ASR_API_KEY"),
-            os.environ.get("HUOSHAN_ASR_RESOURCE_ID", "volc.seedasr.sauc.duration").strip(),
+            os.environ.get("HUOSHAN_ASR_RESOURCE_ID", "volc.bigasr.sauc.duration").strip(),
             os.environ.get("HUOSHAN_ASR_WS_URL", "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async").strip(),
             required("HUOSHAN_TTS_API_KEY"), required("HUOSHAN_TTS_SPEAKER"),
             required("HUOSHAN_TTS_RESOURCE_ID"), required("HUOSHAN_TTS_MODEL"),
             os.environ.get("HUOSHAN_TTS_WS_URL", "wss://openspeech.bytedance.com/api/v3/tts/bidirection").strip(),
+            greeting=os.environ.get("VOICE_GREETING", DEFAULT_GREETING).strip(),
         )
