@@ -1,15 +1,24 @@
-# 智能外呼系统设计与实施规格
+# 智能外呼系统实施规格
 
-日期：2026-09-20  
-状态：技术规格，尚未实施。  
-文档性质：前后端模块设计、数据库 schema、API 契约、容联云通讯适配实现、分阶段实施步骤与验收标准。  
-关联：[统一架构设计](../specs/2026-09-11-unified-voice-and-outbound-architecture.md)、[外呼调研](../research/2026-09-11-mainland-intelligent-outbound.md)、[外呼管理页面设计](../design/2026-09-20-outbound-management-page-design.md)、[会话绑定语音](../design/2026-09-11-session-bound-voice-agent-design.md)。
+日期：2026-09-20
+状态：设计修订版，尚未实施。首版基于 FreeSWITCH + 软电话做实时 Agent 对话。
+文档性质：前后端模块设计、数据库 schema、API 契约、FreeSWITCH 呼叫控制与音频桥接、分步骤实施与验收标准。
+关联：[统一架构设计](../specs/2026-09-11-unified-voice-and-outbound-architecture.md)、[会话绑定语音设计](../design/2026-09-11-session-bound-voice-agent-design.md)、[外呼管理页面设计](../design/2026-09-20-outbound-management-page-design.md)、[外呼调研](../research/2026-09-11-mainland-intelligent-outbound.md)。
 
-## 1. 设计结论
+## 1. 实施结论
 
-智能外呼系统作为 h-agent 后端的新增 `outbound` 模块实施，不引入独立进程。前端在现有 Next.js 应用中新增 `/outbound` 页面。拨打链路对接容联云通讯 REST API，通话结果通过 HTTP 回调接收，公网入口由 cpolar 隧道提供。
+首版闭环：**导入号码 → 选择 Agent、填写沟通目标 → 手动启动 → 软电话接听并与 Agent 多轮交谈、可插话 → 挂断 → 查看结果及有效对话**。
 
-第一阶段交付「拨打 → 话单 → 录音 → 管理页面展示」的完整数据闭环。Agent 实时语音对话能力不在第一阶段范围；通话过程中的双向实时音频桥接需要容联呼叫中心 WebSocket SDK 或 FreeSWITCH 媒体网关，属第二阶段。
+实时对话属于首版必需能力。仅能打通电话、播放固定录音或接收话单，不作为完成标准。
+
+技术路线与范围控制：
+
+- 呼叫控制使用 FreeSWITCH ESL（Event Socket Library），客户对话由现有 Java HARNESS_STREAMING 顶级 Agent 执行。
+- 不部署容联云通讯，也不自建 SIP 网关到真实 PSTN。首版用软电话模拟客户，验证完整的实时对话链路。
+- 音频桥接：FreeSWITCH 通话音频通过本地文件增量读写送入 Python 语音核心（ASR/VAD/TTS），Agent 回复音频通过 `uuid_broadcast` 播放回通话。
+- 全局最多一通外呼（单并发）。一批最多 100 个号码，每个号码在一批中只拨打一次，无自动重试。重拨需用户另建任务；历史不覆盖。
+- 三张新增业务表、两个页面视图。复用现有会话、语音通话、轮次和 Run 记录，不复制一套对话历史。
+- 保留最小禁呼、号码格式校验、请求幂等、未知结果处理和挂断清理。
 
 ## 2. 代码现状与惯例
 
@@ -17,7 +26,7 @@
 
 ### 2.1 后端分层
 
-现有 `voice` 模块是最佳参照：
+现有 `voice` 模块是参照：
 
 | 层 | 职责 | 代表类 |
 | --- | --- | --- |
@@ -26,7 +35,7 @@
 | `infrastructure/` | 数据访问、外部网关、配置 | `VoiceStore.java`（JdbcTemplate）、`LiveKitGateway.java`、`VoiceProperties.java` |
 | `interfaces/web/` | REST 控制器 | `VoiceCallController.java` |
 
-数据库访问使用 `JdbcTemplate` + `NamedParameterJdbcTemplate`，不使用 MyBatis-Plus 写新模块。事务通过 `TransactionTemplate` 显式管理。行级锁通过 `SELECT ... FOR UPDATE` 实现。
+数据库访问使用 `JdbcTemplate` + `NamedParameterJdbcTemplate`。事务通过 `TransactionTemplate` 显式管理。行级锁通过 `SELECT ... FOR UPDATE` 实现。
 
 ### 2.2 API 与配置惯例
 
@@ -44,50 +53,138 @@ Next.js App Router，页面在 `frontend/app/{route}/page.tsx`。API 客户端�
 
 - 后端端口 8081，PostgreSQL 在 169.254.210.181:5432（h_agent_db），Redis 在 169.254.210.181:6379
 - 前端开发端口 3000
-- 已有 nginx SSE 代理经验（`docs/specs/2026-08-08-nginx-sse-proxy-timeout-design.md`）
-- 语音模块（LiveKit + 火山 ASR/TTS）已验证可用
+- Python realtime-voice 服务已验证火山 ASR/TTS 可用
+- LiveKit 浏览器语音链路已验证可用
 
 ## 3. 系统架构
 
 ```mermaid
 flowchart TB
-    subgraph NET["公网入口"]
-        CP["cpolar 隧道<br/>HTTPS 公网域名"]
+    subgraph PHONE["客户端"]
+        SP["软电话<br/>MicroSIP / Zoiper / Telephone"]
     end
 
-    subgraph LOCAL["本地开发环境"]
-        BE["h-agent 后端 :8081<br/>outbound 模块"]
-        FE["Next.js 前端 :3000<br/>/outbound 页面"]
-        DB[("PostgreSQL<br/>h_agent_db")]
-        REDIS[("Redis")]
+    subgraph FS["FreeSWITCH"]
+        SIP["SIP Profile<br/>:5060 UDP"]
+        DP["拨号计划<br/>Dialplan"]
+        ESL["Event Socket<br/>:8021 TCP"]
+        REC["录音/播放<br/>mod_dptools"]
     end
 
-    subgraph YTX["容联云通讯"]
-        API["REST API<br/>LandingCalls / HuiBo"]
-        CB["话单回调<br/>hangupCdrUrl"]
-        REC["录音存储"]
+    subgraph JAVA["h-agent 后端 :8081"]
+        OUT["outbound 模块"]
+        ESL_C["ESL 客户端<br/>FreeswitchEslClient"]
+        CALL_MGR["通话会话管理器<br/>OutboundCallSessionManager"]
+        AGENT["HARNESS_STREAMING<br/>顶级 Agent"]
+        STORE["OutboundStore<br/>JdbcTemplate"]
     end
 
-    subgraph PSTN["电话网络"]
-        PHONE["客户手机"]
+    subgraph PY["Python realtime-voice :7860"]
+        FS_ADAPTER["FreeSWITCH 音频适配器"]
+        ASR["火山 ASR"]
+        VAD["VAD 端点检测"]
+        TTS["火山 TTS"]
     end
 
-    FE -->|API 请求| BE
-    BE -->|JdbcTemplate| DB
-    BE -->|缓存/锁| REDIS
-    BE -->|发起拨打| API
-    API -->|呼叫| PHONE
-    PHONE -->|通话| API
-    API -->|通话结束| CB
-    CB -->|HTTP POST 话单| CP
-    CP -->|转发| BE
-    API -->|录音 URL| BE
-    BE -->|下载录音| REC
+    subgraph DB["PostgreSQL"]
+        T1["outbound_contacts"]
+        T2["outbound_tasks"]
+        T3["outbound_calls"]
+        T4["agent_sessions<br/>(复用)"]
+        T5["voice_calls / voice_turns<br/>(复用)"]
+    end
+
+    SP -->|SIP 注册 + RTP 音频| SIP
+    SIP --> DP
+    DP --> REC
+
+    ESL_C -->|ESL 命令: originate/answer/hangup/uuid_broadcast| ESL
+    ESL -->|通话事件: CHANNEL_CREATE/ANSWER/HANGUP| ESL_C
+
+    ESL_C --> CALL_MGR
+    CALL_MGR --> OUT
+    OUT --> STORE
+    STORE --> T1
+    STORE --> T2
+    STORE --> T3
+    CALL_MGR --> AGENT
+    AGENT --> T4
+
+    REC -->|写录音文件（增量）| FS_AUDIO["/tmp/h-agent/fs-audio/"]
+    FS_ADAPTER -->|读录音文件增量| FS_AUDIO
+    FS_ADAPTER --> ASR
+    ASR --> VAD
+    VAD -->|识别文本| CALL_MGR
+    CALL_MGR -->|Agent 回复文本| TTS
+    TTS -->|生成音频文件| FS_AUDIO
+    CALL_MGR -->|播放命令| ESL_C
+    ESL_C -->|uuid_broadcast 播放 TTS 音频| ESL
+    ESL --> REC
+    REC -->|播放到通话| SIP
 ```
 
-cpolar 将本地 8081 端口映射为一个 `https://{random}.cpolar.top` 公网 HTTPS 地址。该地址写入容联控制台的回调配置，容联在通话结束时 POST 话单到此地址，cpolar 转发到本地后端。
+### 3.1 通话流程时序
 
-第一阶段不使用 nginx——cpolar 直接映射后端端口，容联回调直达 Spring Boot 控制器。当后续需要从外部访问前端管理页面时，再加 nginx 做路径分流。
+```mermaid
+sequenceDiagram
+    participant User as 用户/前端
+    participant BE as Java 后端
+    participant FS as FreeSWITCH
+    participant SP as 软电话
+    participant PY as Python 语音核心
+    participant Agent as HARNESS_STREAMING Agent
+
+    User->>BE: POST /api/outbound/tasks/{id}/start
+    BE->>BE: 校验禁呼、号码格式、单并发
+    BE->>FS: ESL originate sofia/internal/1001@127.0.0.1
+    FS->>SP: SIP INVITE
+    SP-->>FS: 200 OK (接听)
+    FS-->>BE: ESL CHANNEL_ANSWER 事件
+    BE->>BE: 创建 agent_session（HARNESS_STREAMING）
+    BE->>BE: 创建 voice_call 记录
+    BE->>FS: uuid_record 开始录音到本地文件
+    BE->>PY: HTTP 通知：开始监听 audio_in_{callId}.wav
+    loop 对话轮次
+        PY->>PY: 读文件增量 → ASR → VAD
+        alt VAD 检测到语音结束
+            PY->>BE: WS/HTTP 推送识别文本
+            BE->>Agent: 送入 Agent 对话引擎
+            Agent-->>BE: 回复文本
+            BE->>PY: HTTP 请求 TTS 合成
+            PY-->>BE: 返回 TTS 音频文件路径
+            BE->>FS: uuid_broadcast 播放 TTS 音频
+            FS->>SP: RTP 音频流
+            alt 客户插话（barge-in）
+                PY->>BE: VAD 检测到语音
+                BE->>FS: uuid_broadcast 停止播放
+                BE->>Agent: 打断当前回复
+            end
+        end
+    end
+    SP->>FS: BYE
+    FS-->>BE: ESL CHANNEL_HANGUP 事件
+    BE->>BE: 标记通话结束，写入话单数据
+    BE->>FS: uuid_record stop
+    BE->>PY: 停止监听，清理临时文件
+    BE->>Agent: 触发有效对话消息提交
+```
+
+### 3.2 关键设计决策
+
+**为什么用文件增量读写做音频桥接，而不是 RTP 直连：**
+
+- FreeSWITCH 录音文件（`uuid_record`）持续写入本地磁盘，Python 以 `tail -f` 方式增量读取，送入 ASR。延迟约 200-500ms，对电话对话可接受。
+- Agent 回复用 `uuid_broadcast` 播放 TTS 生成的 wav 文件。播放是串行的，但 VAD 检测到客户说话时可立即中断（通过 `uuid_broadcast` stop 或 `uuid_kill`）。
+- 这种方案实现复杂度远低于 RTP 级别的媒体流桥接，不需要处理 SIP SDP 协商、编解码转换、Jitter Buffer 等问题。
+- 单通电话 + 单并发的场景下，本地文件 I/O 完全不是瓶颈。
+
+**为什么不复用 LiveKit 链路：**
+
+LiveKit 是为浏览器 WebRTC 设计的，FreeSWITCH 走 SIP/RTP，两者信令协议和媒体传输都不同。强行桥接 LiveKit 和 FreeSWITCH 的媒体需要额外的网关（如 mod_verto 或 WebRTC 网关），复杂度更高。文件桥接虽然不优雅，但对首版验证最直接。
+
+**后续演进路径：**
+
+验证完对话逻辑和用户体验后，音频桥接可以逐步升级：文件增量 → WebSocket 音频流 → RTP 直连。上层业务逻辑（Agent、任务引擎、页面）不受影响。
 
 ## 4. 对象模型
 
@@ -97,21 +194,20 @@ cpolar 将本地 8081 端口映射为一个 `https://{random}.cpolar.top` 公网
 | --- | --- | --- | --- |
 | id | varchar(64) | PK | UUID |
 | user_id | bigint | NOT NULL | 所属用户 |
-| phone | varchar(20) | NOT NULL | 号码 |
+| phone | varchar(20) | NOT NULL | 号码（软电话场景下为分机号或 SIP URI） |
 | name | varchar(64) | | 姓名 |
 | variables | jsonb | DEFAULT '{}' | 业务变量键值对 |
 | source | varchar(64) | NOT NULL | 来源 |
 | consent_basis | varchar(256) | NOT NULL | 授权依据，空值不允许进入任务 |
-| follow_up_status | varchar(32) | NOT NULL DEFAULT 'PENDING' | PENDING / CONTACTED / INTERESTED / NOT_INTERESTED / RECALL / DNC |
-| last_call_id | varchar(64) | | 最近通话 ID，由通话结果回写 |
-| last_call_outcome | varchar(32) | | 最近通话结果 |
 | dnc | boolean | NOT NULL DEFAULT false | 禁呼标记 |
 | dnc_reason | varchar(256) | | 禁呼原因 |
 | dnc_at | timestamp | | 禁呼时间 |
 | created_at | timestamp | NOT NULL DEFAULT NOW() | |
 | updated_at | timestamp | NOT NULL DEFAULT NOW() | |
 
-唯一索引：`(user_id, phone) WHERE dnc = false`，防止同号码重复入库。
+唯一索引：`(user_id, phone) WHERE dnc = false`。
+
+跟进状态不单独存字段，由 `outbound_calls` 关联的最近通话结果推导。名单只保留禁呼这一个持久化状态标记，其余状态通过通话历史查询得到，避免数据冗余。
 
 ### 4.2 外呼任务（outbound_tasks）
 
@@ -120,141 +216,83 @@ cpolar 将本地 8081 端口映射为一个 `https://{random}.cpolar.top` 公网
 | id | varchar(64) | PK | UUID |
 | user_id | bigint | NOT NULL | |
 | name | varchar(120) | NOT NULL | |
-| agent_id | varchar(128) | NOT NULL | 绑定 Agent |
-| agent_definition_version | varchar(64) | | 创建时固化的定义版本 |
-| scenario_text | text | | 业务背景 / 话术要点 |
-| concurrency | int | NOT NULL DEFAULT 1 | 并发上限 |
-| time_window_start | time | | 呼出时段开始 |
-| time_window_end | time | | 呼出时段结束 |
-| max_retry | int | NOT NULL DEFAULT 3 | 未接听重试次数 |
-| retry_interval_min | int | NOT NULL DEFAULT 30 | 重试间隔（分钟） |
-| status | varchar(32) | NOT NULL DEFAULT 'DRAFT' | DRAFT / PENDING / RUNNING / PAUSED / COMPLETED / TERMINATED |
+| agent_id | varchar(128) | NOT NULL | 绑定 Agent（首版固定为 HARNESS_STREAMING 顶级 Agent） |
+| scenario_text | text | | 沟通目标 / 业务背景，作为 Agent system prompt 的一部分 |
+| contact_ids | text[] | NOT NULL DEFAULT '{}' | 名单条目 ID 列表（一批最多 100 个） |
+| status | varchar(32) | NOT NULL DEFAULT 'DRAFT' | DRAFT / RUNNING / COMPLETED / TERMINATED |
+| total_count | int | NOT NULL DEFAULT 0 | 号码总数 |
+| completed_count | int | NOT NULL DEFAULT 0 | 已完成数（含接通、未接、失败） |
+| connected_count | int | NOT NULL DEFAULT 0 | 接通数 |
 | started_at | timestamp | | |
 | finished_at | timestamp | | |
 | created_at | timestamp | NOT NULL DEFAULT NOW() | |
 | updated_at | timestamp | NOT NULL DEFAULT NOW() | |
 
-### 4.3 任务条目（outbound_task_items）
+不单独建 `outbound_task_items` 表。一批 100 个号码且每号只打一次的场景下，`contact_ids` 数组足够表达，拨打进度通过 `outbound_calls` 表的记录数统计。减少一张表和对应的快照逻辑，降低复杂度。
 
-名单快照。任务创建时从名单筛选条件固化为条目，后续名单变化不影响已创建任务的执行范围。
-
-| 字段 | 类型 | 约束 | 说明 |
-| --- | --- | --- | --- |
-| id | varchar(64) | PK | UUID |
-| task_id | varchar(64) | NOT NULL FK → outbound_tasks | |
-| contact_id | varchar(64) | NOT NULL FK → outbound_contacts | |
-| phone | varchar(20) | NOT NULL | 快照号码 |
-| name | varchar(64) | | 快照姓名 |
-| variables | jsonb | DEFAULT '{}' | 快照业务变量 |
-| status | varchar(32) | NOT NULL DEFAULT 'PENDING' | PENDING / DIALING / CONNECTED / NO_ANSWER / FAILED / DNC_SKIP / CANCELLED |
-| attempt_count | int | NOT NULL DEFAULT 0 | 已拨打次数 |
-| last_call_id | varchar(64) | | 最近通话 ID |
-| next_attempt_at | timestamp | | 下次可拨打时间（重试间隔） |
-| created_at | timestamp | NOT NULL DEFAULT NOW() | |
-| updated_at | timestamp | NOT NULL DEFAULT NOW() | |
-
-索引：`(task_id, status)` 用于任务引擎轮询待呼条目；`(task_id, next_attempt_at)` 用于重试调度。
-
-### 4.4 单次通话（outbound_calls）
+### 4.3 单次通话（outbound_calls）
 
 每次拨打一行，不覆盖历史。
 
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
 | id | varchar(64) | PK | UUID，内部通话标识 |
-| task_id | varchar(64) | FK → outbound_tasks | |
-| task_item_id | varchar(64) | FK → outbound_task_items | |
-| contact_id | varchar(64) | FK → outbound_contacts | |
+| task_id | varchar(64) | NOT NULL FK → outbound_tasks | |
+| contact_id | varchar(64) | NOT NULL FK → outbound_contacts | |
 | user_id | bigint | NOT NULL | |
-| agent_session_id | varchar(64) | | 关联 Agent Session（第二阶段） |
-| yuntongxun_call_sid | varchar(64) | | 容联 callSid |
-| attempt_number | int | NOT NULL | 第几次拨打 |
-| status | varchar(32) | NOT NULL DEFAULT 'INITIATED' | INITIATED / RINGING / CONNECTED / HANGUP / FAILED / TIMEOUT |
-| connect_status | varchar(32) | | CONNECTED / NO_ANSWER / BUSY / INVALID_NUMBER / DNC_BLOCKED / FREQ_LIMIT |
+| phone | varchar(20) | NOT NULL | 快照号码 |
+| agent_session_id | varchar(64) | | 关联 Agent Session（复用 agent_sessions 表） |
+| voice_call_id | varchar(64) | | 关联语音通话 ID（复用 voice_calls 表） |
+| freeswitch_uuid | varchar(64) | | FreeSWITCH Channel UUID |
+| status | varchar(32) | NOT NULL DEFAULT 'INITIATED' | INITIATED / RINGING / CONNECTED / HANGUP / FAILED / NO_ANSWER / BUSY |
 | direction | varchar(16) | NOT NULL DEFAULT 'OUTBOUND' | |
-| duration_sec | int | | 通话时长（秒），来自话单 |
-| recording_url | varchar(512) | | 录音下载 URL |
-| transcript | text | | 对话转写（第二阶段） |
-| agent_summary | text | | Agent 摘要（第二阶段） |
-| intent_label | varchar(32) | | 意向判定 |
+| duration_sec | int | | 通话时长（秒） |
+| recording_path | varchar(512) | | 录音文件本地路径 |
+| intent_label | varchar(32) | | 意向判定（由 Agent 对话结束时产出） |
 | intent_overridden | boolean | NOT NULL DEFAULT false | 人工修正标记 |
+| hangup_cause | varchar(64) | | 挂断原因（FreeSWITCH hangup_cause） |
 | started_at | timestamp | NOT NULL DEFAULT NOW() | |
 | connected_at | timestamp | | |
 | ended_at | timestamp | | |
-| callback_raw | jsonb | | 原始回调数据，留痕 |
 | created_at | timestamp | NOT NULL DEFAULT NOW() | |
 | updated_at | timestamp | NOT NULL DEFAULT NOW() | |
 
-索引：`(task_item_id, attempt_number)` 查某条目的拨打历史；`(yuntongxun_call_sid)` 回调幂等去重。
+索引：`(task_id, status)` 任务进度统计；`(freeswitch_uuid)` ESL 事件幂等定位；`(agent_session_id)` 关联对话历史。
 
-### 4.5 跟进记录（outbound_follow_ups）
-
-| 字段 | 类型 | 约束 | 说明 |
-| --- | --- | --- | --- |
-| id | varchar(64) | PK | |
-| call_id | varchar(64) | FK → outbound_calls | |
-| contact_id | varchar(64) | FK → outbound_contacts | |
-| user_id | bigint | NOT NULL | |
-| intent | varchar(32) | | 意向标签 |
-| appointment_time | timestamp | | 预约时间 |
-| assignee | varchar(64) | | 人工负责人 |
-| result | text | | 处理结果 |
-| resolved | boolean | NOT NULL DEFAULT false | |
-| created_at | timestamp | NOT NULL DEFAULT NOW() | |
-| updated_at | timestamp | NOT NULL DEFAULT NOW() | |
-
-### 4.6 禁呼记录（outbound_dnc_entries）
-
-| 字段 | 类型 | 约束 | 说明 |
-| --- | --- | --- | --- |
-| id | varchar(64) | PK | |
-| contact_id | varchar(64) | FK → outbound_contacts | |
-| phone | varchar(20) | NOT NULL | |
-| user_id | bigint | NOT NULL | |
-| reason | varchar(256) | NOT NULL | 禁呼原因 |
-| scope | varchar(16) | NOT NULL DEFAULT 'USER' | USER / GLOBAL |
-| active | boolean | NOT NULL DEFAULT true | |
-| created_at | timestamp | NOT NULL DEFAULT NOW() | |
-
-任务引擎在每次发起拨打前查询此表：`SELECT EXISTS(SELECT 1 FROM outbound_dnc_entries WHERE phone=? AND user_id=? AND active=true)`。
+对话历史（转写、轮次、Agent 消息）不复刻，直接通过 `agent_session_id` 和 `voice_call_id` 查现有表。通话详情页面展示的转写、有效对话等数据，从 `agent_sessions` → `voice_calls` → `voice_turns` 关联查询得到。
 
 ## 5. 状态机
 
 ### 5.1 任务状态
 
 ```
-DRAFT → PENDING → RUNNING ⇄ PAUSED → COMPLETED
-                              ↘ TERMINATED
+DRAFT → RUNNING → COMPLETED
+           ↘ TERMINATED
 ```
 
-- DRAFT：创建后默认状态，用户可编辑
-- PENDING：用户点击启动，任务引擎尚未开始调度
-- RUNNING：任务引擎正在轮询待呼条目并发起拨打
-- PAUSED：用户暂停，已有拨打出让完成，不发起新拨打
-- COMPLETED：所有条目终态（非 PENDING/DIALING），任务自动完成
-- TERMINATED：用户手动终止，所有进行中条目标记 CANCELLED
+去掉 PENDING 和 PAUSED。个人项目单并发，启动即执行，不需要排队和暂停。完成条件：所有号码均已拨打（`completed_count = total_count`）。
 
-### 5.2 任务条目状态
-
-```
-PENDING → DIALING → CONNECTED → (通话结束回写)
-                     ↘ NO_ANSWER → (attempt < max_retry ? PENDING : 终态)
-                     ↘ FAILED → (attempt < max_retry ? PENDING : 终态)
-DNC_SKIP（拨打前校验发现禁呼）
-CANCELLED（任务被终止时）
-```
-
-条目从 PENDING 到 DIALING 的转换由任务引擎在 `SELECT ... FOR UPDATE SKIP LOCKED` 下完成，保证并发安全。NO_ANSWER 和 FAILED 在重试次数未用尽时回退为 PENDING，并设置 `next_attempt_at = NOW() + retry_interval_min`。
-
-### 5.3 通话状态
+### 5.2 通话状态
 
 ```
 INITIATED → RINGING → CONNECTED → HANGUP
+                     ↘ NO_ANSWER
+                     ↘ BUSY
                      ↘ FAILED
-                     ↘ TIMEOUT
 ```
 
-通话状态由容联回调驱动更新。`connect_status` 独立于 `status`，记录接通结果分类。接通与有意向是两个独立字段。
+状态由 FreeSWITCH ESL 事件驱动：
+
+| ESL 事件 | 状态转换 | 说明 |
+| --- | --- | --- |
+| `CHANNEL_CREATE` | → RINGING | 发起外呼，FreeSWITCH 收到创建响应 |
+| `CHANNEL_ANSWER` | → CONNECTED | 对方接听 |
+| `CHANNEL_HANGUP` | → HANGUP | 正常挂断 |
+| `CHANNEL_HANGUP` + cause=NO_ANSWER | → NO_ANSWER | 无人接听 |
+| `CHANNEL_HANGUP` + cause=USER_BUSY | → BUSY | 占线 |
+| `CHANNEL_HANGUP` + cause 其他异常 | → FAILED | 其他失败 |
+
+`hangup_cause` 字段保存 FreeSWITCH 原始挂断原因字符串，便于排查问题。
 
 ## 6. 后端模块设计
 
@@ -265,126 +303,295 @@ com.h.backend.outbound
 ├── domain/
 │   ├── OutboundContact.java
 │   ├── OutboundTask.java
-│   ├── OutboundTaskItem.java
-│   ├── OutboundCall.java
-│   ├── OutboundFollowUp.java
-│   └── OutboundDncEntry.java
+│   └── OutboundCall.java
 ├── application/
 │   ├── OutboundContactModule.java    // 名单导入、查询、禁呼
-│   ├── OutboundTaskModule.java        // 任务创建、启动、暂停、终止
+│   ├── OutboundTaskModule.java        // 任务创建、启动、终止、进度
 │   ├── OutboundCallModule.java        // 通话记录查询、意向修正
-│   ├── OutboundFollowUpModule.java    // 跟进队列
-│   └── OutboundTaskEngine.java        // 任务引擎：轮询、调度拨打
+│   └── OutboundCallSessionManager.java // 通话会话管理：ESL 事件分发、Agent 对话编排
 ├── infrastructure/
 │   ├── OutboundStore.java             // JdbcTemplate 数据访问
 │   ├── OutboundProperties.java        // @ConfigurationProperties(prefix = "outbound")
-│   ├── YuntongxunClient.java          // 容联 REST API 客户端
-│   ├── YuntongxunCallbackParser.java  // 回调数据解析与验证
-│   └── DialingProvider.java           // 拨打执行适配接口
+│   ├── FreeswitchEslClient.java       // FreeSWITCH ESL 客户端封装
+│   ├── FreeswitchAudioBridge.java     // 音频桥接：录音监听 + TTS 播放协调
+│   └── VoiceServiceClient.java        // Python 语音服务 HTTP 客户端
 └── interfaces/web/
     ├── OutboundContactController.java
     ├── OutboundTaskController.java
-    ├── OutboundCallController.java
-    ├── OutboundFollowUpController.java
-    └── OutboundCallbackController.java  // 容联回调入口，无需登录鉴权
+    └── OutboundCallController.java
 ```
 
-### 6.2 DialingProvider 接口
+### 6.2 FreeswitchEslClient
 
-```java
-public interface DialingProvider {
-    DialResult dial(OutboundTaskItem item, OutboundTask task);
-    void cancel(String callId);
-    CallStatusResult queryStatus(String yuntongxunCallSid);
-}
-```
-
-`DialResult` 包含内部 `callId` 和容联 `callSid`。`queryStatus` 用于主动查询补偿回调丢失。第一阶段实现 `YuntongxunDialingProvider`，后续可替换为其他服务商或 FreeSWITCH 适配。
-
-### 6.3 YuntongxunClient
-
-封装容联 REST API 调用。容联 API 认证通过 `sig` 参数（MD5(AccountSid + AccountToken + Timestamp)），非 Bearer Token。
+封装 FreeSWITCH ESL 连接与命令调用。使用 Java ESL 客户端库（`org.freeswitch.esl.client` 或直接用 Netty 实现简单 ESL 协议）。
 
 核心方法：
 
-| 方法 | 容联 API | 用途 |
+| 方法 | ESL 命令 | 用途 |
 | --- | --- | --- |
-| `dialOut(taskItem, task)` | `POST /2013-12-26/Accounts/{sid}/Calls/HuiBo` | 电话回拨，先呼主叫再呼被叫，支持录音 |
-| `dialLanding(taskItem, task)` | `POST /2013-12-26/Accounts/{sid}/Calls/LandingCalls` | 语音通知，单向放音 |
-| `queryCallStatus(callSid)` | `POST /2013-12-26/Accounts/{sid}/Call/QueryCallStatus` | 查询通话状态 |
-| `queryCallDetail(callSid)` | `POST /2013-12-26/Accounts/{sid}/Call/QueryCallDetail` | 查询话单详情 |
-| `downloadRecording(url)` | GET 录音 URL | 下载录音文件 |
+| `originate(callId, destination, dialplanExt)` | `originate {options} {destination} {dialplan}` | 发起外呼 |
+| `hangup(callId)` | `uuid_kill {uuid}` | 挂断通话 |
+| `playAudio(callId, filePath)` | `uuid_broadcast {uuid} {filePath}` | 播放音频到通话 |
+| `stopPlayback(callId)` | `uuid_broadcast {uuid} stop` | 停止播放（用于插话打断） |
+| `startRecording(callId, filePath)` | `uuid_record {uuid} start {filePath}` | 开始录音 |
+| `stopRecording(callId)` | `uuid_record {uuid} stop {filePath}` | 停止录音 |
+| `getVar(callId, varName)` | `uuid_getvar {uuid} {var}` | 获取通道变量 |
+| `setVar(callId, varName, value)` | `uuid_setvar {uuid} {var} {val}` | 设置通道变量 |
 
-`HuiBo` 接口的 `hangupCdrUrl` 参数填写 cpolar 公网地址 + `/api/outbound/callbacks/yuntongxun`。`needRecord` 设为 true 以获取录音。
+连接方式：入站 ESL 模式，Java 后端作为 client 连接到 FreeSWITCH 的 `event_socket.conf.xml` 配置的 8021 端口。启动时建立长连接，订阅 `CHANNEL_CREATE`、`CHANNEL_ANSWER`、`CHANNEL_HANGUP`、`DTMF` 等事件。
 
-容联 API 使用 `RestClient`（Spring 6 HTTP 客户端）调用，与项目中 `GiteeRestSkillRepository` 的惯例一致。认证参数 `sig` 在每次请求前计算。
+事件处理通过回调注册：`FreeswitchEslClient.onEvent(eventName, handler)`，`OutboundCallSessionManager` 注册处理器。
 
-### 6.4 OutboundTaskEngine
+### 6.3 OutboundCallSessionManager
 
-任务引擎是一个 `@Scheduled` 定时任务，每 10 秒执行一次（可配置），逻辑：
+通话会话管理器是核心编排类，每通电话一个 `CallSession` 实例，维护通话生命周期内的所有状态。
 
-1. 查询 `status = 'RUNNING'` 的任务（`FOR UPDATE SKIP LOCKED`）
-2. 对每个任务，检查并发数：`SELECT count(*) FROM outbound_task_items WHERE task_id=? AND status='DIALING'`
-3. 若并发未满，查询待呼条目：`SELECT * FROM outbound_task_items WHERE task_id=? AND status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()) ORDER BY created_at LIMIT ?`
-4. 对每个待呼条目，先查禁呼记录，命中则标记 `DNC_SKIP`，跳过
-5. 检查呼出时段：当前时间不在 `[time_window_start, time_window_end]` 内则跳过
-6. 原子转换条目状态为 `DIALING`（`UPDATE ... SET status='DIALING' WHERE id=? AND status='PENDING'`，检查 affected rows）
-7. 调用 `DialingProvider.dial()`，成功后创建 `OutboundCall` 记录；失败后条目回退为 `PENDING`
-8. 检查任务是否全部条目终态，若是则标记 `COMPLETED`
+启动通话流程：
 
-引擎使用 Redis 分布式锁保证单实例执行（key: `outbound:engine:lock`，TTL 30s），避免多实例重复调度。
+1. 接收 `OutboundTaskModule` 发来的拨打请求
+2. 校验单并发全局锁（Redis key `outbound:active_call`），获取失败则排队
+3. 校验禁呼：查 `outbound_contacts.dnc = true`，命中则直接标记 FAILED + DNC_SKIP 原因
+4. 校验号码格式：正则验证（软电话分机号 10xx / 真实手机号 1xxxxxxxxxx）
+5. 创建 `OutboundCall` 记录，status = INITIATED
+6. 调用 `FreeswitchEslClient.originate()` 发起呼叫
+7. 更新 status = RINGING，记录 `freeswitch_uuid`
 
-### 6.5 回调处理
+ESL 事件处理：
 
-`OutboundCallbackController` 不需要登录鉴权，但需要验证请求来源合法性。容联回调验签方式：回调 URL 带带 `sig` 参数，后端用相同算法重新计算并比对。
+- **CHANNEL_ANSWER**：更新 status = CONNECTED，记录 `connected_at`
+  - 启动录音：`startRecording(callId, "/tmp/h-agent/fs-audio/in_{callId}.wav")`
+  - 创建 Agent Session（HARNESS_STREAMING 模式，system prompt 含 scenario_text）
+  - 创建 voice_call 记录（复用现有 `VoiceCallModule`）
+  - 通知 Python 语音核心开始监听录音文件
+  - 发送欢迎语（TTS 合成 + playAudio）
+- **CHANNEL_HANGUP**：更新 status 和 hangup_cause，记录 `ended_at`、`duration_sec`
+  - 停止录音
+  - 通知 Python 停止监听
+  - 结束 Agent Session，提交有效对话
+  - 释放全局并发锁
+  - 更新任务进度（completed_count++，如果是接通则 connected_count++）
+  - 触发任务下一个号码的拨打
 
-回调处理流程：
+### 6.4 对话循环（Agent Turn 编排）
 
-1. 接收 `POST /api/outbound/callbacks/yuntongxun`，解析回调 JSON
-2. 提取 `callSid`，查询 `outbound_calls` 表按 `yuntongxun_call_sid` 定位通话记录
-3. 若已存在且 `status` 已为终态，直接返回成功（幂等）
-4. 更新通话状态：`status` → HANGUP/FAILED/TIMEOUT，`connect_status` → 对应值，`duration_sec`、`recording_url`、`callback_raw` 写入
-5. 回写任务条目状态：CONNECTED → 条目标记已接通；NO_ANSWER → `attempt_count++`，若未超 `max_retry` 则回退 `PENDING` 并设 `next_attempt_at`，否则标记终态
-6. 回写名单的 `last_call_id`、`last_call_outcome`、`follow_up_status`
-7. 异步下载录音（不阻塞回调响应，2 秒内返回 200）
+`OutboundCallSessionManager` 管理每通电话的对话轮次：
 
-回调可能分多次到达（通话结束、录音就绪、摘要就绪等不同事件），按 `callSid` 幂等处理，每次只更新对应字段。
+1. Python 语音核心通过 VAD 检测到一段客户语音结束，将识别文本通过 HTTP POST 推送到后端
+2. 后端将文本送入 HARNESS_STREAMING Agent 的对话引擎（`AgentSession` + harness stream）
+3. Agent 产生回复文本
+4. 后端调用 Python TTS 接口合成音频（wav 文件）
+5. 后端调用 `FreeswitchEslClient.playAudio()` 播放回复
+6. 播放期间持续监听 VAD 事件，若检测到客户说话（barge-in）：
+   - 调用 `stopPlayback()` 打断当前播放
+   - 通知 Agent 当前回复被打断
+   - 等待下一段完整语音
 
-## 7. 配置
+播放结算与有效消息提交的语义一致性：Agent 回复播放完成后才将该回复消息标记为已提交；被打断的回复不提交为有效消息。
 
-### 7.1 application.yml 新增
+### 6.5 VoiceServiceClient
 
-```yaml
-outbound:
-  enabled: ${OUTBOUND_ENABLED:false}
-  task-engine:
-    interval: ${OUTBOUND_ENGINE_INTERVAL:10s}
-    batch-size: ${OUTBOUND_ENGINE_BATCH_SIZE:5}
-  yuntongxun:
-    base-url: ${YUNTONGXUN_BASE_URL:https://app.cloopen.com}
-    account-sid: ${YUNTONGXUN_ACCOUNT_SID:}
-    account-token: ${YUNTONGXUN_ACCOUNT_TOKEN:}
-    app-id: ${YUNTONGXUN_APP_ID:}
-    rest-port: ${YUNTONGXUN_REST_PORT:8883}
-    callback-base-url: ${OUTBOUND_CALLBACK_BASE_URL:}
-    max-call-seconds: ${OUTBOUND_MAX_CALL_SECONDS:180}
-    connect-timeout: ${YUNTONGXUN_CONNECT_TIMEOUT:5s}
-    read-timeout: ${YUNTONGXUN_READ_TIMEOUT:30s}
+Python 语音服务 HTTP 客户端，封装三个接口：
+
+| 方法 | Python 端点 | 用途 |
+| --- | --- | --- |
+| `startListening(callId, audioPath)` | `POST /outbound/listen` | 通知 Python 开始监听指定录音文件 |
+| `stopListening(callId)` | `POST /outbound/stop` | 停止监听 |
+| `synthesize(callId, text)` | `POST /outbound/tts` | TTS 合成，返回音频文件路径 |
+
+Python 端的识别结果通过 `POST /api/outbound/calls/{id}/transcript` 推送到 Java 后端（见 §9.4）。
+
+### 6.6 任务调度与单并发
+
+全局单并发通过 Redis 分布式锁控制：`SET outbound:active_call {taskId}:{callId} NX EX 3600`。任务启动时，从 `contact_ids` 中逐个取出号码拨打，上一通结束后自动开始下一通。
+
+任务调度不使用 `@Scheduled` 定时轮询，改为**事件驱动**：通话结束（CHANNEL_HANGUP 事件）时触发下一个号码的拨打。减少不必要的数据库轮询，响应更及时。
+
+任务启动后立即开始第一通拨打。若当前已有进行中的通话，则新任务等待（不排队，直接返回"系统繁忙"，首版不做任务队列）。
+
+### 6.7 号码格式校验
+
+导入名单时校验号码格式：
+- 软电话分机号：`^10\d{2}$`（1000-1099）
+- 真实手机号：`^1[3-9]\d{9}$`
+- SIP URI：`^sip:.+@.+$`（预留）
+
+任务启动时再次校验（避免导入后格式规则变更）。不做号码归属地查询，首版不引入第三方号码归属 API。
+
+### 6.8 挂断清理
+
+通话结束后必须执行的清理动作：
+1. 停止录音（`uuid_record stop`）
+2. 停止 Python 监听
+3. 释放 Redis 并发锁
+4. 关闭 Agent Session
+5. 更新通话终态
+6. 触发下一通拨打（如任务未完成）
+
+清理逻辑放在 `finally` 块中，确保即使异常也能释放锁和资源。同时有一个兜底的定时检查：每 60 秒扫描 `status IN ('INITIATED','RINGING','CONNECTED')` 且 `updated_at < NOW() - INTERVAL '5 minutes'` 的通话，强制标记为 FAILED 并清理资源。
+
+## 7. Python 语音核心扩展
+
+### 7.1 新增模块
+
+在 `realtime-voice/` 下新增 `outbound/` 目录：
+
+```
+realtime-voice/
+├── outbound/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI 子应用，挂载到 /outbound
+│   ├── audio_listener.py    # 录音文件增量读取器
+│   ├── vad_processor.py     # VAD + ASR 处理
+│   ├── tts_service.py       # TTS 合成封装
+│   └── session_manager.py   # 通话会话管理（Python 侧）
 ```
 
-`callback-base-url` 填写 cpolar 公网地址，如 `https://abc123.cpolar.top`。容器云通讯 API 的 base-url 和 rest-port 与 REST API 版本有关，需要在容联控制台确认。
+### 7.2 音频监听（audio_listener.py）
 
-### 7.2 .env 新增
+使用 `tail -f` 风格的增量文件读取：
 
-```env
-OUTBOUND_ENABLED=true
-YUNTONGXUN_ACCOUNT_SID=your-account-sid
-YUNTONGXUN_ACCOUNT_TOKEN=your-account-token
-YUNTONGXUN_APP_ID=your-app-id
-OUTBOUND_CALLBACK_BASE_URL=https://your-tunnel.cpolar.top
+1. 以二进制方式打开 wav 文件
+2. 跳过 WAV header（44 字节）
+3. 每 50ms 读取一次新增数据
+4. 将 PCM 数据分块送入 VAD + ASR 流水线
+5. 维护读指针位置，避免重复读取
+
+文件格式：16kHz 采样率、16bit 单声道 PCM WAV（与火山 ASR 要求一致）。FreeSWITCH 录音参数通过 `uuid_record` 命令指定。
+
+### 7.3 VAD 与 ASR 处理（vad_processor.py）
+
+复用现有 VAD 和 ASR 模块：
+
+- 输入：PCM 音频块（16kHz, 16bit, mono）
+- VAD 检测语音起点和终点
+- 检测到一段完整语音后，调用火山 ASR 识别
+- 识别结果通过 HTTP POST 推送到 Java 后端：`POST /api/outbound/calls/{callId}/transcript`
+- 请求体：`{"text": "...", "duration_ms": 1500, "is_final": true}`
+
+### 7.4 TTS 合成（tts_service.py）
+
+复用现有火山 TTS：
+
+- 接收 Java 后端的 TTS 请求：`POST /outbound/tts`
+- 调用火山 TTS WebSocket 接口合成音频
+- 保存为 wav 文件到 `/tmp/h-agent/fs-audio/out_{callId}_{seq}.wav`
+- 返回文件路径
+
+### 7.5 会话管理（session_manager.py）
+
+维护活跃通话列表，每通电话对应：
+- `audio_path`: 录音文件路径
+- `listener_thread`: 监听线程
+- `vad_state`: VAD 状态机
+- `call_id`: 通话 ID
+
+### 7.6 FastAPI 端点
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/outbound/listen` | 开始监听指定通话的录音文件 |
+| POST | `/outbound/stop` | 停止监听 |
+| POST | `/outbound/tts` | TTS 合成，返回音频文件路径 |
+
+## 8. FreeSWITCH 配置
+
+### 8.1 安装
+
+macOS 安装：
+
+```bash
+brew install freeswitch
 ```
 
-## 8. 数据库迁移
+或使用 Docker（推荐，隔离性好）：
+
+```bash
+docker run -d --name freeswitch \
+  -p 5060:5060/udp \
+  -p 5060:5060/tcp \
+  -p 8021:8021 \
+  -p 16384-16394:16384-16394/udp \
+  -v /tmp/h-agent/fs-audio:/tmp/h-agent/fs-audio \
+  safarov/freeswitch
+```
+
+录音文件目录挂载到宿主机，Python 和 FreeSWITCH 共享。
+
+### 8.2 核心配置文件
+
+**`event_socket.conf.xml`** — 启用 ESL：
+
+```xml
+<configuration name="event_socket.conf" description="Socket Client">
+  <settings>
+    <param name="nat-map" value="false"/>
+    <param name="listen-ip" value="0.0.0.0"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="ClueCon"/>
+    <param name="apply-inbound-acl" value="loopback.auto"/>
+  </settings>
+</configuration>
+```
+
+**`sip_profiles/internal.xml`** — SIP 配置：
+
+```xml
+<profile name="internal">
+  <settings>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="sip-port" value="5060"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-port-range" value="16384-16394"/>
+    <param name="codec-prefs" value="PCMU,PCMA"/>
+  </settings>
+</profile>
+```
+
+使用 PCMU/PCMA（G.711）编码，与文件录音格式兼容，避免编解码转换。
+
+**`directory/default/1000.xml`** — 软电话分机账号（示例）：
+
+```xml
+<user id="1000">
+  <params>
+    <param name="password" value="1234"/>
+  </params>
+  <variables>
+    <variable name="user_context" value="default"/>
+  </variables>
+</user>
+```
+
+创建 10 个分机（1000-1009）供测试。
+
+**`dialplan/default/outbound.xml`** — 拨号计划：
+
+```xml
+<extension name="outbound-agent">
+  <condition field="destination_number" expression="^agent_(\w+)$">
+    <action application="answer"/>
+    <action application="set" data="call_id=$1"/>
+    <action application="set" data="recording_fifo=/tmp/h-agent/fs-audio/in_$1.wav"/>
+    <action application="uuid_record" data="${uuid} start /tmp/h-agent/fs-audio/in_$1.wav"/>
+  </condition>
+</extension>
+```
+
+这是呼入拨号计划（软电话呼入时触发）。外呼场景下，录音通过 Java 端的 `uuid_record` 命令启动，不依赖拨号计划。
+
+### 8.3 软电话配置
+
+以 Mac 上的 Telephone.app 为例：
+
+- 服务器：`127.0.0.1`（或 Docker 宿主机 IP）
+- 端口：`5060`
+- 用户名：`1000`
+- 密码：`1234`
+- 传输方式：UDP
+
+注册成功后，可以用另一个分机号（如 `1001`）互相拨打测试。
+
+## 9. 数据库迁移
 
 文件：`V20260920_01__create_outbound_tables.sql`
 
@@ -398,9 +605,6 @@ CREATE TABLE IF NOT EXISTS outbound_contacts (
     variables JSONB DEFAULT '{}',
     source VARCHAR(64) NOT NULL,
     consent_basis VARCHAR(256) NOT NULL,
-    follow_up_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    last_call_id VARCHAR(64),
-    last_call_outcome VARCHAR(32),
     dnc BOOLEAN NOT NULL DEFAULT FALSE,
     dnc_reason VARCHAR(256),
     dnc_at TIMESTAMP,
@@ -420,132 +624,124 @@ CREATE TABLE IF NOT EXISTS outbound_tasks (
     user_id BIGINT NOT NULL,
     name VARCHAR(120) NOT NULL,
     agent_id VARCHAR(128) NOT NULL,
-    agent_definition_version VARCHAR(64),
     scenario_text TEXT,
-    concurrency INT NOT NULL DEFAULT 1,
-    time_window_start TIME,
-    time_window_end TIME,
-    max_retry INT NOT NULL DEFAULT 3,
-    retry_interval_min INT NOT NULL DEFAULT 30,
+    contact_ids TEXT[] NOT NULL DEFAULT '{}',
     status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+    total_count INT NOT NULL DEFAULT 0,
+    completed_count INT NOT NULL DEFAULT 0,
+    connected_count INT NOT NULL DEFAULT 0,
     started_at TIMESTAMP,
     finished_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_outbound_tasks_status
-    ON outbound_tasks(status, updated_at)
-    WHERE status IN ('PENDING', 'RUNNING');
-
 CREATE INDEX IF NOT EXISTS idx_outbound_tasks_owner
     ON outbound_tasks(user_id, created_at DESC);
 
--- 任务条目
-CREATE TABLE IF NOT EXISTS outbound_task_items (
-    id VARCHAR(64) PRIMARY KEY,
-    task_id VARCHAR(64) NOT NULL REFERENCES outbound_tasks(id),
-    contact_id VARCHAR(64) NOT NULL REFERENCES outbound_contacts(id),
-    phone VARCHAR(20) NOT NULL,
-    name VARCHAR(64),
-    variables JSONB DEFAULT '{}',
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    attempt_count INT NOT NULL DEFAULT 0,
-    last_call_id VARCHAR(64),
-    next_attempt_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_outbound_task_items_pending
-    ON outbound_task_items(task_id, status, next_attempt_at)
-    WHERE status = 'PENDING';
-
-CREATE INDEX IF NOT EXISTS idx_outbound_task_items_task
-    ON outbound_task_items(task_id, status);
+CREATE INDEX IF NOT EXISTS idx_outbound_tasks_running
+    ON outbound_tasks(status) WHERE status = 'RUNNING';
 
 -- 单次通话
 CREATE TABLE IF NOT EXISTS outbound_calls (
     id VARCHAR(64) PRIMARY KEY,
-    task_id VARCHAR(64) REFERENCES outbound_tasks(id),
-    task_item_id VARCHAR(64) REFERENCES outbound_task_items(id),
-    contact_id VARCHAR(64) REFERENCES outbound_contacts(id),
+    task_id VARCHAR(64) NOT NULL REFERENCES outbound_tasks(id),
+    contact_id VARCHAR(64) NOT NULL REFERENCES outbound_contacts(id),
     user_id BIGINT NOT NULL,
+    phone VARCHAR(20) NOT NULL,
     agent_session_id VARCHAR(64),
-    yuntongxun_call_sid VARCHAR(64),
-    attempt_number INT NOT NULL,
+    voice_call_id VARCHAR(64),
+    freeswitch_uuid VARCHAR(64),
     status VARCHAR(32) NOT NULL DEFAULT 'INITIATED',
-    connect_status VARCHAR(32),
     direction VARCHAR(16) NOT NULL DEFAULT 'OUTBOUND',
     duration_sec INT,
-    recording_url VARCHAR(512),
-    transcript TEXT,
-    agent_summary TEXT,
+    recording_path VARCHAR(512),
     intent_label VARCHAR(32),
     intent_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+    hangup_cause VARCHAR(64),
     started_at TIMESTAMP NOT NULL DEFAULT NOW(),
     connected_at TIMESTAMP,
     ended_at TIMESTAMP,
-    callback_raw JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_outbound_calls_ytx_sid
-    ON outbound_calls(yuntongxun_call_sid);
-
-CREATE INDEX IF NOT EXISTS idx_outbound_calls_task_item
-    ON outbound_calls(task_item_id, attempt_number);
 
 CREATE INDEX IF NOT EXISTS idx_outbound_calls_task
     ON outbound_calls(task_id, started_at DESC);
 
--- 跟进记录
-CREATE TABLE IF NOT EXISTS outbound_follow_ups (
-    id VARCHAR(64) PRIMARY KEY,
-    call_id VARCHAR(64) REFERENCES outbound_calls(id),
-    contact_id VARCHAR(64) REFERENCES outbound_contacts(id),
-    user_id BIGINT NOT NULL,
-    intent VARCHAR(32),
-    appointment_time TIMESTAMP,
-    assignee VARCHAR(64),
-    result TEXT,
-    resolved BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS idx_outbound_calls_fs_uuid
+    ON outbound_calls(freeswitch_uuid);
 
-CREATE INDEX IF NOT EXISTS idx_outbound_follow_ups_unresolved
-    ON outbound_follow_ups(user_id, created_at)
-    WHERE resolved = FALSE;
+CREATE INDEX IF NOT EXISTS idx_outbound_calls_agent_session
+    ON outbound_calls(agent_session_id);
 
--- 禁呼记录
-CREATE TABLE IF NOT EXISTS outbound_dnc_entries (
-    id VARCHAR(64) PRIMARY KEY,
-    contact_id VARCHAR(64) REFERENCES outbound_contacts(id),
-    phone VARCHAR(20) NOT NULL,
-    user_id BIGINT NOT NULL,
-    reason VARCHAR(256) NOT NULL,
-    scope VARCHAR(16) NOT NULL DEFAULT 'USER',
-    active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_outbound_dnc_phone_user
-    ON outbound_dnc_entries(phone, user_id) WHERE active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_outbound_calls_active
+    ON outbound_calls(status, updated_at)
+    WHERE status IN ('INITIATED', 'RINGING', 'CONNECTED');
 ```
 
-## 9. API 契约
+## 10. 配置
 
-所有接口前缀 `/api/outbound`，除回调控制器外均需登录鉴权。请求体和响应体字段使用 camelCase，与现有 `VoiceCallController` 一致。
+### 10.1 application.yml 新增
 
-### 9.1 名单接口
+```yaml
+outbound:
+  enabled: ${OUTBOUND_ENABLED:false}
+  freeswitch:
+    host: ${FREESWITCH_HOST:127.0.0.1}
+    port: ${FREESWITCH_PORT:8021}
+    password: ${FREESWITCH_PASSWORD:ClueCon}
+    dialplan-context: ${FREESWITCH_DIALPLAN_CONTEXT:default}
+    originate-timeout: ${FREESWITCH_ORIGINATE_TIMEOUT:30s}
+    audio-dir: ${FREESWITCH_AUDIO_DIR:/tmp/h-agent/fs-audio}
+    max-call-seconds: ${FREESWITCH_MAX_CALL_SECONDS:300}
+  voice-service:
+    base-url: ${VOICE_SERVICE_BASE_URL:http://127.0.0.1:7860}
+    connect-timeout: ${VOICE_SERVICE_CONNECT_TIMEOUT:5s}
+    read-timeout: ${VOICE_SERVICE_READ_TIMEOUT:30s}
+  single-concurrent-lock:
+    key: ${OUTBOUND_LOCK_KEY:outbound:active_call}
+    ttl: ${OUTBOUND_LOCK_TTL:3600s}
+  task:
+    max-batch-size: ${OUTBOUND_MAX_BATCH_SIZE:100}
+    stale-call-check-interval: ${OUTBOUND_STALE_CALL_CHECK_INTERVAL:60s}
+    stale-call-threshold: ${OUTBOUND_STALE_CALL_THRESHOLD:5m}
+```
+
+### 10.2 .env 新增
+
+```env
+OUTBOUND_ENABLED=true
+FREESWITCH_HOST=127.0.0.1
+FREESWITCH_PORT=8021
+FREESWITCH_PASSWORD=ClueCon
+FREESWITCH_AUDIO_DIR=/tmp/h-agent/fs-audio
+VOICE_SERVICE_BASE_URL=http://127.0.0.1:7860
+```
+
+### 10.3 Python 侧配置
+
+在 `realtime-voice/.env` 新增：
+
+```env
+OUTBOUND_ENABLED=true
+OUTBOUND_BACKEND_URL=http://127.0.0.1:8081
+OUTBOUND_AUDIO_DIR=/tmp/h-agent/fs-audio
+OUTBOUND_ASR_SAMPLE_RATE=16000
+```
+
+## 11. API 契约
+
+所有接口前缀 `/api/outbound`，除语音服务回调外均需登录鉴权。
+
+### 11.1 名单接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/outbound/contacts/import` | 导入名单（CSV 文本或 JSON 数组） |
-| GET | `/api/outbound/contacts` | 分页查询，支持按状态、来源、禁呼筛选 |
+| POST | `/api/outbound/contacts/import` | 导入名单（JSON 数组） |
+| GET | `/api/outbound/contacts` | 分页查询，支持按禁呼筛选 |
 | PUT | `/api/outbound/contacts/{id}/dnc` | 标记禁呼 |
+| DELETE | `/api/outbound/contacts/{id}` | 删除名单条目 |
 
 导入请求体：
 
@@ -563,16 +759,17 @@ public record ContactInput(
 ) {}
 ```
 
-### 9.2 任务接口
+导入时校验：`contacts.size() <= 100`（单批上限），每个 `phone` 通过格式校验（号码格式正则，允许软电话分机号）。
+
+### 11.2 任务接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/outbound/tasks` | 创建任务 |
 | GET | `/api/outbound/tasks` | 列表，支持按状态筛选 |
-| GET | `/api/outbound/tasks/{id}` | 详情含执行明细 |
-| POST | `/api/outbound/tasks/{id}/start` | 启动 |
-| POST | `/api/outbound/tasks/{id}/pause` | 暂停 |
-| POST | `/api/outbound/tasks/{id}/terminate` | 终止 |
+| GET | `/api/outbound/tasks/{id}` | 详情（含进度统计和通话列表） |
+| POST | `/api/outbound/tasks/{id}/start` | 启动任务 |
+| POST | `/api/outbound/tasks/{id}/terminate` | 终止任务 |
 
 创建请求体：
 
@@ -581,47 +778,47 @@ public record CreateTask(
     @NotBlank String name,
     @NotBlank String agentId,
     String scenarioText,
-    @NotNull List<String> contactIds,
-    Integer concurrency,
-    LocalTime timeWindowStart,
-    LocalTime timeWindowEnd,
-    Integer maxRetry,
-    Integer retryIntervalMin
+    @NotEmpty List<String> contactIds
 ) {}
 ```
 
-`contactIds` 为用户已选择的名单条目 ID 列表。创建时后端生成名单快照写入 `outbound_task_items`。
+`contactIds` 来自名单，最多 100 个。`agentId` 首版固定为 HARNESS_STREAMING 顶级 Agent ID，前端选择器只展示通过电话能力验证的 Agent。
 
-### 9.3 通话接口
+### 11.3 通话接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/outbound/calls` | 通话流水，支持按任务、结果、时间筛选 |
-| GET | `/api/outbound/calls/{id}` | 通话详情：转写、录音、摘要、意向 |
+| GET | `/api/outbound/calls` | 通话列表，支持按任务、状态、时间筛选 |
+| GET | `/api/outbound/calls/{id}` | 通话详情：基本信息 + 录音 + 转写（关联 voice_turns）+ 意向 |
 | PUT | `/api/outbound/calls/{id}/intent` | 修正意向标签 |
 
-### 9.4 跟进接口
+通话详情中的转写和对话历史，通过 `agent_session_id` 关联查询 `voice_turns` 和 Agent 消息表得到，不额外存储。
+
+### 11.4 语音服务回调（内部）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/outbound/follow-ups` | 待处理队列，支持筛选 |
-| PUT | `/api/outbound/follow-ups/{id}` | 登记处理结果 |
+| POST | `/api/outbound/calls/{id}/transcript` | Python 推送识别结果 |
+| POST | `/api/outbound/calls/{id}/vad-event` | Python 推送 VAD 事件（用于 barge-in） |
 
-### 9.5 概览接口
+这两个端点由 Python 语音服务调用，使用内部 token 鉴权（配置 `voice-service.api-key`，请求头 `X-Internal-Key`），不走用户登录鉴权。
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/outbound/summary` | 今日拨打数、接通率、有意向数、进行中任务数 |
+```java
+public record TranscriptInput(
+    @NotBlank String text,
+    @NotNull Long durationMs,
+    @NotNull Boolean isFinal
+) {}
 
-### 9.6 回调接口
+public record VadEventInput(
+    @NotBlank String eventType,  // SPEECH_START / SPEECH_END
+    @NotNull Long timestampMs
+) {}
+```
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/api/outbound/callbacks/yuntongxun` | 容联回调入口，无需登录鉴权，需验签 |
+## 12. 前端页面设计
 
-## 10. 前端页面设计
-
-### 10.1 路由与文件
+### 12.1 路由与文件
 
 | 文件 | 用途 |
 | --- | --- |
@@ -630,37 +827,38 @@ public record CreateTask(
 
 从 `/me` 页面增加入口链接（与 automations 一致）。
 
-### 10.2 页面视图
+### 12.2 页面视图
 
-单页面、四个 tab，顶部概览条。
+单页面、两个 tab，顶部概览条。
 
-概览条：今日拨打数、接通率、有意向数、进行中任务数。数据来自 `GET /api/outbound/summary`。
+概览条：今日拨打数、接通率、进行中任务数。数据来自任务列表聚合。
 
-**名单 tab**（默认）：
-- 列表：号码、姓名、来源、跟进状态、最近通话结果、禁呼标记
-- 导入按钮：弹出对话框，粘贴 CSV 文本（`phone,name,source`），填写来源和授权依据
-- 筛选：按状态、来源、禁呼
-- 操作：标记禁呼
+**任务 tab**（默认）：
 
-**任务 tab**：
-- 卡片列表：名称、Agent、进度（已呼/总数）、接通率、有意向数、状态徽章
-- 创建向导：选择 Agent（复用 `listAgents`）→ 勾选名单条目 → 配置执行策略 → 填写业务背景
-- 操作：启动、暂停、终止、查看明细
-
-任务明细抽屉：条目列表（号码、状态、尝试次数、最近结果）、通话记录时间线。
+- 任务卡片列表：名称、Agent、进度（已呼/总数）、接通数、状态徽章
+- 创建按钮：弹出对话框
+  - 步骤 1：填写任务名称、选择 Agent（下拉，仅展示通过电话验证的 Agent）
+  - 步骤 2：填写沟通目标（textarea，作为 Agent 的 scenario_text）
+  - 步骤 3：选择名单条目（复选框列表，最多 100 个，显示已选计数）
+- 操作：启动、终止、查看详情
+- 任务详情抽屉：
+  - 基本信息（名称、Agent、沟通目标、状态、进度）
+  - 号码列表（号码、姓名、状态、通话时长）
+  - 通话记录时间线（时间、号码、状态、时长、意向）
 
 **通话记录 tab**：
-- 列表：时间、号码、任务名、接通状态、时长、意向
-- 详情抽屉：录音播放器、转写（第二阶段）、摘要、意向标签可修正
-- 筛选：按任务、结果、时间范围
 
-**跟进 tab**：
-- 列表：号码、意向、预约时间、负责人、处理状态
-- 操作：登记处理结果、改约、转禁呼
+- 列表：时间、号码、任务名、状态、时长、意向标签
+- 详情抽屉：
+  - 基本信息（号码、任务、状态、时间、时长、挂断原因）
+  - 录音播放器（播放本地录音文件）
+  - 对话转写（左右气泡，关联 voice_turns）
+  - 意向标签（可下拉修改，留痕 intent_overridden）
+- 筛选：按任务、状态、时间范围
 
-### 10.3 API 客户端
+### 12.3 API 客户端
 
-`frontend/lib/outbound.ts` 导出类型和请求函数，与 `automations.ts` 风格一致：
+`frontend/lib/outbound.ts`：
 
 ```typescript
 import { apiFetch } from "./http";
@@ -672,9 +870,6 @@ export type OutboundContact = {
   variables: Record<string, string>;
   source: string;
   consentBasis: string;
-  followUpStatus: string;
-  lastCallId: string | null;
-  lastCallOutcome: string | null;
   dnc: boolean;
   createdAt: string;
   updatedAt: string;
@@ -685,136 +880,147 @@ export type OutboundTask = {
   name: string;
   agentId: string;
   scenarioText: string | null;
-  concurrency: number;
   status: string;
-  // ...
+  totalCount: number;
+  completedCount: number;
+  connectedCount: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+};
+
+export type OutboundCall = {
+  id: string;
+  taskId: string;
+  contactId: string;
+  phone: string;
+  status: string;
+  durationSec: number | null;
+  intentLabel: string | null;
+  intentOverridden: boolean;
+  hangupCause: string | null;
+  startedAt: string;
+  connectedAt: string | null;
+  endedAt: string | null;
+  agentSessionId: string | null;
+};
+
+export type VoiceTurn = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  startedAt: string;
+  durationMs: number | null;
 };
 
 export async function listContacts(params?: URLSearchParams): Promise<PageResult<OutboundContact>> { ... }
 export async function importContacts(input: ImportContactsInput): Promise<void> { ... }
+export async function markDnc(id: string, reason: string): Promise<void> { ... }
+export async function listTasks(params?: URLSearchParams): Promise<PageResult<OutboundTask>> { ... }
+export async function getTask(id: string): Promise<OutboundTaskDetail> { ... }
 export async function createTask(input: CreateTaskInput): Promise<OutboundTask> { ... }
 export async function startTask(id: string): Promise<void> { ... }
-// ...
+export async function terminateTask(id: string): Promise<void> { ... }
+export async function listCalls(params?: URLSearchParams): Promise<PageResult<OutboundCall>> { ... }
+export async function getCall(id: string): Promise<OutboundCallDetail> { ... }
+export async function updateIntent(id: string, intentLabel: string): Promise<void> { ... }
 ```
 
-## 11. cpolar 配置
+## 13. 实施步骤
 
-### 11.1 安装与启动
+按依赖顺序排列，每步可独立验证。
 
-macOS 安装：`brew install cpolar`（或从 [cpolar.com](https://www.cpolar.com) 下载）。
+### 步骤 1：FreeSWITCH 安装与基础验证
 
-认证：注册 cpolar 账号后在控制台获取 authtoken，执行 `cpolar authtoken YOUR_TOKEN`。
+安装 FreeSWITCH（Docker 或 brew），配置 internal SIP profile 和 ESL。创建 2 个测试分机（1000、1001）。
 
-启动隧道：
+验证：
+- 软电话注册到 FreeSWITCH 成功
+- 两个软电话互打，能通话
+- ESL 客户端能连接 8021 端口，执行 `status` 命令返回正常
 
-```bash
-cpolar http 8081
-```
+### 步骤 2：数据库迁移
 
-输出一个 `https://{random}.cpolar.top` 公网 HTTPS 地址。固定域名需要付费（专业版 149 元/年起）。
+创建 `V20260920_01__create_outbound_tables.sql`（见 §9），放入 `backend/src/main/resources/db/migration/`。
 
-### 11.2 容联控制台配置
+验证：启动后端，Flyway 自动执行，三张表创建成功。`psql -h 169.254.210.181 -U h_agent -d h_agent_db -c "\dt outbound_*"` 看到三张表。
 
-登录容联云通讯控制台（[console.yuntongxun.com](https://console.yuntongxun.com)）：
+### 步骤 3：后端 domain 与 infrastructure
 
-1. 创建应用，获取 `AccountSid`、`AuthToken`、`AppId`
-2. 配置回调地址：`https://{your-tunnel}.cpolar.top/api/outbound/callbacks/yuntongxun`
-3. 绑定测试号码（测试阶段只能拨打已绑定的号码）
-4. 记录凭据写入 `.env`
+创建 `outbound/domain/` 三个数据类。创建 `OutboundStore.java`，封装三张表的 CRUD，使用 `JdbcTemplate` + `NamedParameterJdbcTemplate`，参照 `VoiceStore`。
 
-### 11.3 稳定性考量
+创建 `OutboundProperties.java`。在 `application.yml` 追加 `outbound` 配置块。
 
-cpolar 免费版地址随机变化，每次重启获得新域名。建议购买专业版（149 元/年）获取固定二级域名，避免每次重启后重新配置容联回调地址。
+创建 `FreeswitchEslClient.java`：ESL 连接管理、事件订阅、核心命令封装（originate / hangup / playAudio / startRecording / stopRecording）。
 
-cpolar 断线时容联回调无法到达，但通话仍会正常执行。恢复后可通过 `YuntongxunClient.queryCallDetail()` 主动查询补偿丢失的话单。任务引擎的主动查询补偿逻辑每 60 秒扫描 `status IN ('INITIATED','RINGING','CONNECTED')` 且 `updated_at < NOW() - INTERVAL '5 minutes'` 的通话记录，主动向容联查询状态。
+验证：后端启动无报错，ESL 连接成功，能发起 originate 呼叫软电话。
 
-## 12. 实施步骤
+### 步骤 4：Python 音频适配器
 
-### 第一阶段：数据闭环与容联对接
+创建 `realtime-voice/outbound/` 模块。实现 `audio_listener.py`（文件增量读取）、`vad_processor.py`（VAD + ASR）、`tts_service.py`（TTS 合成）、`main.py`（FastAPI 端点）。
 
-以下步骤按依赖顺序排列，每步可独立验证。
+验证：
+- 手动放一个 wav 文件到音频目录，调用 `startListening`，能增量读取并识别
+- 调用 `tts` 接口，能生成 wav 文件
+- 识别结果能推送到后端的 transcript 端点
 
-**步骤 1：数据库迁移**
+### 步骤 5：通话会话管理器
 
-创建 `V20260920_01__create_outbound_tables.sql`（见第 8 节），放入 `backend/src/main/resources/db/migration/`。启动后端验证 Flyway 自动执行、六张表创建成功。
+创建 `OutboundCallSessionManager.java`，实现：
+- 拨打发起与单并发锁
+- ESL 事件处理（CHANNEL_ANSWER / CHANNEL_HANGUP）
+- Agent Session 创建与对话编排
+- 音频桥接协调（启动录音 → 通知 Python → 接收转写 → TTS → 播放）
+- 挂断清理与资源释放
+- 兜底 stale call 检查
 
-验证：`psql -h 169.254.210.181 -U h_agent -d h_agent_db -c "\dt outbound_*"`
+创建 `VoiceServiceClient.java`，封装 Python 语音服务调用。
 
-**步骤 2：后端 domain 与 infrastructure**
+验证：用软电话手动接听一通外呼，能听到欢迎语，说话后能得到 Agent 回复，挂断后通话记录状态正确。
 
-创建 `outbound/domain/` 下六个数据类（Lombok `@Data`，字段与表对齐）。创建 `OutboundStore.java`，封装六张表的 CRUD，使用 `JdbcTemplate` + `NamedParameterJdbcTemplate`，参照 `VoiceStore` 的 `locked()` 和 `transaction()` 模式。
+### 步骤 6：业务模块与控制器
 
-创建 `OutboundProperties.java`（`@ConfigurationProperties(prefix = "outbound")`），字段见第 7 节。在 `application.yml` 末尾追加 `outbound` 配置块。
+创建 `OutboundContactModule`、`OutboundTaskModule`、`OutboundCallModule`。创建三个 REST 控制器。
 
-验证：后端启动无报错，`OutboundStore` 能插入和查询测试数据。
+验证：用 curl 调用每个端点，返回符合 `ApiResponse` 格式，数据正确写入数据库。
 
-**步骤 3：容联客户端**
+### 步骤 7：前端页面
 
-创建 `YuntongxunClient.java`，封装 `sig` 计算、REST 调用、录音下载。使用 Spring `RestClient`。先实现 `dialOut`（HuiBo 回拨）和 `queryCallDetail`。
+创建 `frontend/lib/outbound.ts`。创建 `frontend/app/outbound/page.tsx`，实现两个 tab 的列表、创建对话框、详情抽屉。在 `/me` 页面增加入口链接。
 
-创建 `DialingProvider` 接口和 `YuntongxunDialingProvider` 实现类。
+验证：浏览器访问 `/outbound`，能导入名单、创建任务、启动、查看通话详情。
 
-验证：用测试号码调用 `dialOut`，手机能接到电话；`queryCallDetail` 能返回通话状态。
+### 步骤 8：端到端验证
 
-**步骤 4：回调控制器**
+完整跑一次：导入 3 个测试号码 → 创建任务选 Agent 填沟通目标 → 启动 → 软电话接听 → 多轮对话 → 挂断 → 下一个号码自动拨打 → 全部完成 → 通话记录有转写和录音 → 可修改意向标签。
 
-创建 `OutboundCallbackController.java`，实现 `POST /api/outbound/callbacks/yuntongxun`。解析回调 JSON，按 `callSid` 幂等更新 `outbound_calls` 和 `outbound_task_items`。录音 URL 异步下载到本地文件系统（路径 `/tmp/h-agent/outbound/recordings/`）。
+## 14. 验收标准
 
-验证：通过 cpolar 隧道，容联通话结束后回调到达，数据库中通话记录状态正确更新。
+以用户行为和持久化结果为准：
 
-**步骤 5：业务模块与任务引擎**
+- 导入名单超过 100 个号码被拒绝，返回明确错误
+- 导入名单缺少 `consentBasis` 的条目被拒绝
+- 号码格式不合法（不符合分机号/手机号/SIP URI 任一格式）被拒绝
+- 任务启动后，立即开始拨打第一个号码，日志可见
+- 单并发：第二通在第一通结束后才开始，不会同时有两通进行中
+- 禁呼号码在任务执行中被跳过，通话记录 status 为 FAILED + 原因 DNC
+- 软电话接听后，能听到欢迎语，说话后 Agent 回复，支持多轮对话
+- 客户在 Agent 说话时插话，Agent 被打断，转为听客户说
+- 挂断后通话记录状态正确，duration_sec 与实际通话时长一致
+- 通话详情能看到完整转写（左右气泡）、录音可播放
+- 意向标签人工修改后 `intent_overridden = true`
+- 所有号码拨打完成后，任务自动标记 COMPLETED
+- 手动终止任务，正在进行的通话被挂断，剩余号码不再拨打
+- 异常崩溃后重启，stale call 检查能清理卡死的通话记录并释放锁
+- 对话历史通过 agent_session_id 关联查询，数据来自现有 voice_turns 表，无冗余存储
 
-创建 `OutboundContactModule`、`OutboundTaskModule`、`OutboundCallModule`、`OutboundFollowUpModule`。创建 `OutboundTaskEngine`（`@Scheduled` 定时任务），实现轮询、禁呼校验、呼出时段检查、条目状态转换、并发控制。
+## 15. 已知限制
 
-Redis 分布式锁：key `outbound:engine:lock`，使用 `SET NX EX 30`。
-
-验证：创建任务、启动、看到任务引擎日志、条目状态转换、通话记录写入。
-
-**步骤 6：REST 控制器**
-
-创建 `OutboundContactController`、`OutboundTaskController`、`OutboundCallController`、`OutboundFollowUpController`。参照 `VoiceCallController` 的写法：`@RestController` + `@RequestMapping` + `ApiResponse` 返回 + `AuthUserPrincipal` 鉴权。
-
-验证：用 curl 或 Postman 调用每个端点，返回符合 `ApiResponse` 格式。
-
-**步骤 7：前端页面**
-
-创建 `frontend/lib/outbound.ts`（类型 + API 函数）。创建 `frontend/app/outbound/page.tsx`，实现四个 tab 的列表和操作。在 `frontend/app/me/page.tsx` 增加入口链接。
-
-验证：浏览器访问 `/outbound`，能导入名单、创建任务、启动、查看通话记录、登记跟进。
-
-**步骤 8：端到端验证**
-
-用测试号码完整跑一次：导入名单 → 创建任务 → 启动 → 手机接听 → 挂断 → 通话记录出现在页面 → 录音可播放 → 标记意向 → 进入跟进队列。
-
-### 第二阶段：Agent 实时语音对话
-
-第一阶段交付后，通话只有录音和话单，Agent 不能在通话过程中实时对话。第二阶段需要将容联通话的音频桥接到已有语音运行核心（ASR/TTS/VAD），路径有两条：
-
-- 容联呼叫中心 WebSocket SDK（CCS），从通话中提取双向音频流，送入 Python 语音核心
-- FreeSWITCH 作为媒体网关（统一架构文档路线），容联只负责线路落地
-
-每通电话建立独立 Agent Session，Agent 按业务背景和话术要点对话。通话结束后，通话记录关联 Agent Session 的有效对话、Agent 摘要和意向判定。此阶段还需解决播放结算与有效消息提交的语义一致性（统一架构文档 §7、会话绑定语音设计 §5-7）。
-
-## 13. 验收标准
-
-第一阶段验收以用户行为和持久化结果为准，不以接口成功或页面显示为唯一依据：
-
-- 导入名单缺少 `consentBasis` 的条目被拒绝，返回明确错误信息
-- 创建任务选定 Agent 和名单条目后，任务条目表生成正确的名单快照
-- 任务启动后，任务引擎按呼出时段和并发限制调度拨打，日志可见调度过程
-- 禁呼条目在任务执行中被跳过，`outbound_task_items.status` 为 `DNC_SKIP`
-- 同一名单条目多次拨打，`outbound_calls` 表保留多行记录，`attempt_number` 递增
-- 容联回调重复投递同一 `callSid` 不产生重复记录或重复状态转换
-- 通话详情在录音到达前后均能正确展示，录音 URL 可播放
-- 意向标签的人工修正留痕（`intent_overridden = true`），未接听条目不被自动记为无意向
-- cpolar 断线后恢复，主动查询补偿逻辑能补全丢失的通话状态
-- 任务所有条目到达终态后，任务自动标记 `COMPLETED`
-
-## 14. 已知限制
-
-- 个人认证无法正式商用，仅限绑定测试号码拨打；正式上线需企业资质（调研文档 §4）
-- 容联 REST + 回调模式不支持实时双向音频流，第一阶段通话无 Agent 实时对话能力
-- cpolar 免费版地址随机，需付费固定域名以保证回调配置稳定
-- 任务引擎依赖单实例 Redis 锁，多实例部署需改用分布式调度器
-- IVR 功能费 100 元/月，TTS 功能费 200 元/月，在功能开通时产生
-- 容联 API 的 base-url 和 rest-port 需在控制台确认，不同版本可能不同
+- 首版仅支持软电话，不拨打真实手机号。真实 PSTN 线路需后续接入 SIP 中继或云服务商
+- 单并发全局锁，同一时间只能有一通外呼
+- 每批最多 100 个号码，每个号码只拨打一次，无自动重试
+- 音频桥接采用文件增量读写，延迟约 200-500ms，不是严格实时全双工
+- 仅适配 HARNESS_STREAMING 顶级 Agent，不支持子 Agent 选择
+- 录音文件存储在本地磁盘（`/tmp/h-agent/fs-audio/`），不做持久化归档
+- FreeSWITCH 运行在本地/Docker，不做高可用
+- barge-in 打断通过停止当前播放实现，打断后剩余 TTS 音频丢弃，不做续播
