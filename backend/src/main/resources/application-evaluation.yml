@@ -1,0 +1,19 @@
+spring:
+  config:
+    activate:
+      on-profile: evaluation
+  datasource:
+    url: ${EVALUATION_DB_URL}
+    username: ${EVALUATION_DB_USERNAME}
+    password: ${EVALUATION_DB_PASSWORD}
+  data:
+    redis:
+      host: ${EVALUATION_REDIS_HOST}
+      port: ${EVALUATION_REDIS_PORT:6379}
+      password: ${EVALUATION_REDIS_PASSWORD:}
+      database: ${EVALUATION_REDIS_DATABASE:15}
+
+evaluation:
+  enabled: true
+  required-jdbc-url-marker: ${EVALUATION_DB_URL_MARKER:h_agent_eval}
+  required-redis-database: ${EVALUATION_REDIS_DATABASE:15}

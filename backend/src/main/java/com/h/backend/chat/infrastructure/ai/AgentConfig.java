@@ -427,8 +427,12 @@ public class AgentConfig {
     }
 
     @Bean
-    public Agents.BankerAgent bankerAgent() {
-        Agents.BankTool bankTool = new Agents.BankTool();
+    public Agents.BankTool bankTool() {
+        return new Agents.BankTool();
+    }
+
+    @Bean
+    public Agents.BankerAgent bankerAgent(Agents.BankTool bankTool) {
         Agents.WithdrawAgent withdrawAgent = AgenticServices.agentBuilder(Agents.WithdrawAgent.class)
                 .chatModel(chatModel)
                 .listener(platformListener())

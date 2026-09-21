@@ -87,6 +87,20 @@ agent-observability:
   content:
     mode: ${LANGFUSE_CONTENT_MODE:structured}
 
+# 评测平台默认关闭。评测部署必须显式开启，并使用独立数据库、Redis、用户和对象存储范围。
+evaluation:
+  enabled: ${EVALUATION_ENABLED:false}
+  max-concurrent-trials: ${EVALUATION_MAX_CONCURRENT_TRIALS:1}
+  max-trials-per-experiment: ${EVALUATION_MAX_TRIALS_PER_EXPERIMENT:300}
+  default-trial-timeout: ${EVALUATION_DEFAULT_TRIAL_TIMEOUT:120s}
+  max-interaction-turns: ${EVALUATION_MAX_INTERACTION_TURNS:8}
+  max-tool-calls: ${EVALUATION_MAX_TOOL_CALLS:20}
+  judge-timeout: ${EVALUATION_JUDGE_TIMEOUT:60s}
+  judge-max-attempts: ${EVALUATION_JUDGE_MAX_ATTEMPTS:2}
+  max-evidence-bytes: ${EVALUATION_MAX_EVIDENCE_BYTES:1048576}
+  required-jdbc-url-marker: ${EVALUATION_DB_URL_MARKER:h_agent_eval}
+  required-redis-database: ${EVALUATION_REDIS_DATABASE:15}
+
 chat:
   harness:
     workspace-template: /tmp/h-agent/harness-workspace

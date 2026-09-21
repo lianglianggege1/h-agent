@@ -217,24 +217,47 @@ public class Agents {
     }
 
 
-    static class BankTool {
+    public static class BankTool {
 
         private final Map<String, Double> accounts = new HashMap<>();
+        private int toolWriteCount;
 
-        void clearAccounts() {
+        public synchronized void clearAccounts() {
+            resetState();
+        }
+
+        private void resetState() {
             accounts.clear();
+            toolWriteCount = 0;
+        }
+
+        public synchronized void resetToSingleAccount(String user, Double initialBalance) {
+            if (user == null || user.isBlank() || initialBalance == null) {
+                throw new IllegalArgumentException("user and initialBalance are required");
+            }
+            resetState();
+            accounts.put(user, initialBalance);
+        }
+
+        public synchronized Map<String, Double> snapshot() {
+            return Map.copyOf(accounts);
+        }
+
+        public synchronized int toolWriteCount() {
+            return toolWriteCount;
         }
 
         @Tool("创建指定用户账户，并设置初始余额")
-        void createAccount(@P("user name") String user, @P("amount") Double initialBalance) {
+        public synchronized void createAccount(@P("user name") String user, @P("amount") Double initialBalance) {
             if (accounts.containsKey(user)) {
                 throw new RuntimeException("Account for user " + user + " already exists");
             }
             accounts.put(user, initialBalance);
+            toolWriteCount++;
         }
 
         @Tool("获取指定用户账户余额")
-        double getBalance(@P("user name") String user) {
+        public synchronized double getBalance(@P("user name") String user) {
             Double balance = accounts.get(user);
             if (balance == null) {
                 throw new RuntimeException("No balance found for user " + user);
@@ -243,24 +266,26 @@ public class Agents {
         }
 
         @Tool("向指定用户账户存入对应金额，并返回最新账户余额")
-        Double credit(@P("user name") String user, @P("amount") Double amount) {
+        public synchronized Double credit(@P("user name") String user, @P("amount") Double amount) {
             Double balance = accounts.get(user);
             if (balance == null) {
                 throw new RuntimeException("No balance found for user " + user);
             }
             Double newBalance = balance + amount;
             accounts.put(user, newBalance);
+            toolWriteCount++;
             return newBalance;
         }
 
         @Tool("从指定用户账户支取对应金额，并返回最新账户余额")
-        Double withdraw(@P("user name") String user, @P("amount") Double amount) {
+        public synchronized Double withdraw(@P("user name") String user, @P("amount") Double amount) {
             Double balance = accounts.get(user);
             if (balance == null) {
                 throw new RuntimeException("No balance found for user " + user);
             }
             Double newBalance = balance - amount;
             accounts.put(user, newBalance);
+            toolWriteCount++;
             return newBalance;
         }
     }
