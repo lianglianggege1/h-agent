@@ -1,0 +1,29 @@
+name: minio
+
+services:
+  minio:
+    # 国内拉取慢可换阿里云镜像（已核实为同一 MinIO 版本，仅 tag 命名不同）：
+    # higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/minio:20260216
+    #   └─ 内含 release: RELEASE.2025-09-07T16-13-09Z（该仓库唯一且最新的 tag）
+    # 注：MinIO 社区版仓库已归档，此版本即社区版最后一个容器镜像
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --address ":9000" --console-address ":9001"
+    env_file: .env
+    ports:
+      - "0.0.0.0:9000:9000"
+      - "0.0.0.0:9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      - minio
+    env_file: .env
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c", "until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 2; done && mc mb --ignore-existing local/$$MINIO_DEFAULT_BUCKET"]
+
+volumes:
+  minio-data:

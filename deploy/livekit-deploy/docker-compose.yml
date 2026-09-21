@@ -1,0 +1,25 @@
+services:
+  livekit:
+    # 钉版本 v1.13.6（2026-08-26 稳定版）。daocloud 源已验证有 arm64/amd64
+    # 换回官方源: livekit/livekit-server:v1.13.6
+    image: docker.m.daocloud.io/livekit/livekit-server:v1.13.6
+    container_name: livekit
+    restart: unless-stopped
+    # Docker Desktop(macOS) 的 host 网络绑定的是内部 Linux VM，不是 Mac 本机——
+    # 之前用 host 模式导致 Mac/LAN 完全不可达。改用 bridge + 端口映射。
+    # WebRTC 走单 UDP 端口 mux（livekit.yaml rtc.udp_port=7882），映射一个 UDP 端口即可
+    ports:
+      - "7880:7880"      # 信号/HTTP API
+      - "7881:7881"      # WebRTC TCP 备选通道
+      - "7882:7882/udp"  # WebRTC UDP 媒体主通道
+    mem_limit: ${LIVEKIT_MEM_LIMIT:-768m}
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    environment:
+      TZ: Asia/Shanghai
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

@@ -1,0 +1,58 @@
+name: xxljob
+
+services:
+  mysql:
+    # 国内网络拉 Docker Hub 不稳，走 daocloud 镜像源（与 mem0-deploy 同源验证过）；
+    # tag 与官方 mysql:8.4 逐字节一致，直连顺畅时也可改回 mysql:8.4
+    image: docker.m.daocloud.io/library/mysql:8.4
+    container_name: xxljob-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --performance-schema=OFF   # 压内存：关性能采集，个人场景用不到
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=50
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - xxljob-mysql-data:/var/lib/mysql
+      - ./init/tables_xxl_job.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro   # 仅首次初始化执行
+    # 宿主机直连（DataGrip/Navicat 调试用），默认不开放；需要时取消下行注释
+    # ports:
+    #   - "127.0.0.1:33061:3306"
+    healthcheck:   # 给 admin 提供启动排序门，MySQL 初始化完成前 admin 不启动
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    mem_limit: ${MYSQL_MEM_LIMIT}
+
+  admin:
+    # 同上，daocloud 源（官方镜像同步，tag 一致）
+    image: docker.m.daocloud.io/xuxueli/xxl-job-admin:3.4.1   # 钉版本：2026-06 最新稳定版
+    container_name: xxljob-admin
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPTS: ${ADMIN_JAVA_OPTS}
+      # 官方镜像机制：PARAMS 里的值原样追加为 Spring Boot 启动参数
+      PARAMS: >-
+        --spring.datasource.url=jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+        --spring.datasource.username=${MYSQL_USER}
+        --spring.datasource.password=${MYSQL_PASSWORD}
+        --xxl.job.accessToken=${XXL_ACCESS_TOKEN}
+    ports:
+      - "0.0.0.0:${ADMIN_PORT}:8080"   # 局域网可访问，换宿主机 IP 无感
+    mem_limit: ${ADMIN_MEM_LIMIT}
+
+volumes:
+  xxljob-mysql-data:

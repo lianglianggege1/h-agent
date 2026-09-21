@@ -1,0 +1,79 @@
+name: mem0
+
+services:
+  mem0:
+    # mem0 官方自托管 REST 服务端（源码构建，钉在 repo/ 里克隆的 v2.0.19）
+    build:
+      context: ./repo/server
+      dockerfile: Dockerfile
+      # 基础镜像走国内镜像源（Docker Hub 直连超时）；ARG 透传给 Dockerfile 的 FROM
+      args:
+        BASE_IMAGE: docker.m.daocloud.io/library/python:3.12-slim
+    container_name: mem0-api
+    restart: unless-stopped
+    # 启动链: ①sed 禁用 embedder 的 dimensions 参数(bge-m3 非 matryoshka, 硅基流动会拒收
+    #         错误码 20015; pgvector 建表维度由 vector_store.config.embedding_model_dims 决定,
+    #         已通过 POST /configure 设为 1024 并持久化在 h_agent_mem0_app.settings)
+    #        ②sed 放开 CORS(官方只允许 DASHBOARD_URL 单一来源, 127.0.0.1/局域网 IP 访问
+    #         仪表盘登录会被浏览器拦成 Network ERROR; API 本身有 X-API-Key/Bearer 认证兜底)
+    #        ③alembic 建表迁移 ④uvicorn 起服务
+    # 注意: 必须用列表形式传 command——字符串形式会被 compose 剥离反斜杠(\[ 变 [), sed/grep 的
+    #       方括号转义全部失效, 补丁静默不打(第一版就栽在这)
+    command:
+      - sh
+      - -c
+      - |
+        PY=/usr/local/lib/python3.12/site-packages/mem0/embeddings/openai.py
+        grep -q 'self._pass_dimensions_to_api = self.config.embedding_dims is not None' $$PY \
+          && sed -i 's/self._pass_dimensions_to_api = self.config.embedding_dims is not None/self._pass_dimensions_to_api = False/' $$PY \
+          && echo '[patch] embedder dimensions 参数已禁用 (bge-m3 兼容)' \
+          || echo '[patch] 跳过: 目标行不存在'
+        MAIN=/app/main.py
+        grep -q 'allow_origins=\[DASHBOARD_URL\]' $$MAIN \
+          && sed -i 's|allow_origins=\[DASHBOARD_URL\]|allow_origin_regex=r"^https?://.*"|' $$MAIN \
+          && echo '[patch] CORS 已放开为任意来源' \
+          || echo '[patch] 跳过: CORS 目标行不存在'
+        alembic upgrade head \
+          && uvicorn main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    extra_hosts:
+      # 容器内访问宿主机本地 PG (5432) 用 host.docker.internal
+      - "host.docker.internal:host-gateway"
+    ports:
+      # REST API: http://localhost:8888 （仪表盘和 SDK 都调这个口）
+      - "0.0.0.0:8888:8000"
+    volumes:
+      - mem0-history:/app/history
+    networks:
+      - mem0_network
+
+  mem0-dashboard:
+    # 官方 Web 仪表盘（Next.js）：浏览记忆/审计日志/API Key 管理
+    build:
+      context: ./repo/server/dashboard
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: docker.m.daocloud.io/library/node:20-alpine
+    container_name: mem0-dashboard
+    restart: unless-stopped
+    ports:
+      # 3001 避开 Langfuse(3000)
+      - "0.0.0.0:3001:3000"
+    environment:
+      # 前端已打补丁(patches/dashboard/)改为浏览器运行时取 window.location.hostname 动态拼
+      # API 地址——从哪个 IP 打开页面就调哪个 IP 的 8888，宿主机换 IP 无需任何操作。
+      # 此变量现仅作服务端渲染(SSR)的 fallback，用容器内地址即可
+      NEXT_PUBLIC_API_URL: http://mem0:8000
+      NEXT_PUBLIC_INSTANCE_NAME: Mem0
+      API_INTERNAL_URL: http://mem0:8000
+    depends_on:
+      - mem0
+    networks:
+      - mem0_network
+
+volumes:
+  mem0-history:
+
+networks:
+  mem0_network:
+    driver: bridge

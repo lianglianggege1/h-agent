@@ -1,0 +1,104 @@
+name: langfuse
+
+# Langfuse v4 自托管最小化部署（个人本地）
+# 外部依赖:
+#   - Postgres: 宿主机本地 18.6（127.0.0.1:5432，账号 h_agent / 库 h_agent_obs）
+#   - Redis:    宿主机本地 7.2.5（127.0.0.1:6379，密码见 .env，策略 noeviction）
+#   - MinIO:    复用 minio-deploy（S3 存储）
+# 容器经 host.docker.internal 访问宿主机服务（Docker Desktop 环转环回，PG 的 scram 认证可用）
+# 参考: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
+
+services:
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:4.17.0
+    container_name: langfuse-web
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment: &langfuse-env
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      SALT: ${SALT}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: false
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: 6379
+      REDIS_AUTH: ${REDIS_AUTH}
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      # S3 → 复用宿主机上已部署的 MinIO（minio-deploy）
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://host.docker.internal:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      # web 覆盖为浏览器可达的外部地址（浏览器直传 MinIO 预签名 URL）
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:4.17.0
+    container_name: langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *langfuse-env
+      # worker 从容器内访问 MinIO，走内部地址
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://host.docker.internal:9000
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    volumes:
+      - langfuse-clickhouse:/var/lib/clickhouse
+    ports:
+      # 宿主机 JDBC/HTTP 客户端连接用: jdbc:clickhouse://localhost:8123/default
+      # 0.0.0.0 同时覆盖 IPv4/IPv6 回环（127.0.0.1 只绑 IPv4 时部分客户端连不上）
+      - "8123:8123"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 一次性：在已运行的 MinIO 里创建 langfuse 桶（幂等）
+  langfuse-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: langfuse-init
+    depends_on: []
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - until mc alias set local http://host.docker.internal:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do sleep 2; done && mc mb --ignore-existing local/${LANGFUSE_S3_BUCKET}
+
+volumes:
+  langfuse-clickhouse:
