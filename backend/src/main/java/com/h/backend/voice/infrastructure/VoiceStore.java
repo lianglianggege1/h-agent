@@ -54,16 +54,16 @@ public class VoiceStore {
     public void insert(VoiceCall c) {
         named.update("""
                 INSERT INTO voice_calls(id,user_id,session_id,request_id,prompt_id,system_prompt,model_name,
-                  room_name,participant_identity,claim_secret,state,created_at,updated_at)
+                  room_name,participant_identity,claim_secret,state,channel,agent_id,created_at,updated_at)
                 VALUES(:id,:userId,:sessionId,:requestId,:promptId,:systemPrompt,:modelName,
-                  :roomName,:participantIdentity,:claimSecret,:state,:createdAt,:updatedAt)
+                  :roomName,:participantIdentity,:claimSecret,:state,:channel,:agentId,:createdAt,:updatedAt)
                 """, new BeanPropertySqlParameterSource(c));
     }
     public void save(VoiceCall c) {
         c.setUpdatedAt(System.currentTimeMillis());
         named.update("""
                 UPDATE voice_calls SET dispatch_id=:dispatchId,worker_id=:workerId,worker_epoch=:workerEpoch,
-                worker_ready=:workerReady,participant_joined=:participantJoined,lease_until=:leaseUntil,
+                worker_ready=:workerReady,worker_ended=:workerEnded,participant_joined=:participantJoined,lease_until=:leaseUntil,
                 disconnected_at=:disconnectedAt,ending_at=:endingAt,state=:state,reason=:reason,context_dirty=:contextDirty,
                 cleanup_pending=:cleanupPending,updated_at=:updatedAt WHERE id=:id
                 """, new BeanPropertySqlParameterSource(c));
@@ -76,10 +76,24 @@ public class VoiceStore {
         return jdbc.query("SELECT * FROM voice_turns WHERE call_id=? AND state<>'COMMITTED'", BeanPropertyRowMapper.newInstance(VoiceTurn.class), callId)
                 .stream().findFirst().orElse(null);
     }
+    public String dialogueResult(String callId) {
+        List<VoiceTurn> turns = jdbc.query(
+                "SELECT * FROM voice_turns WHERE call_id=? AND turn_type='DIALOGUE' ORDER BY created_at",
+                BeanPropertyRowMapper.newInstance(VoiceTurn.class), callId);
+        if (turns.isEmpty()) return "NOT_STARTED";
+        if (turns.stream().anyMatch(t -> "FAILED".equals(t.getGenerationState()))) return "FAILED";
+        if (turns.stream().anyMatch(t -> "UNKNOWN".equals(t.getPlayoutState()))) return "UNKNOWN";
+        if (turns.stream().anyMatch(t -> "INTERRUPTED".equals(t.getPlayoutState())
+                || "CANCELLED".equals(t.getGenerationState()))) return "INTERRUPTED";
+        if (turns.stream().anyMatch(t -> "COMMITTED".equals(t.getState())
+                && "GENERATED".equals(t.getGenerationState())
+                && "COMPLETED".equals(t.getPlayoutState()))) return "COMPLETED";
+        return "UNKNOWN";
+    }
     public void insert(VoiceTurn t) {
         named.update("""
-                INSERT INTO voice_turns(id,call_id,run_id,user_message_id,utterance_id,user_text,created_at,updated_at)
-                VALUES(:id,:callId,:runId,:userMessageId,:utteranceId,:userText,:createdAt,:updatedAt)
+                INSERT INTO voice_turns(id,call_id,run_id,user_message_id,utterance_id,user_text,turn_type,created_at,updated_at)
+                VALUES(:id,:callId,:runId,:userMessageId,:utteranceId,:userText,:turnType,:createdAt,:updatedAt)
                 """, new BeanPropertySqlParameterSource(t));
     }
     public void save(VoiceTurn t) {

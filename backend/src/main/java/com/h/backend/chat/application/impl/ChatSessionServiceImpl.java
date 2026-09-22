@@ -31,6 +31,7 @@ import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.HarnessCollaborationService;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.backend.common.exception.BusinessException;
+import com.h.backend.voice.infrastructure.VoiceStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,6 +39,8 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -66,6 +69,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     private final HarnessCollaborationService harnessCollaborationService;
     private final AgentSessionMapper agentSessionMapper;
     private final ChatMessageResourceBinder resourceBinder;
+    private final ObjectProvider<VoiceStore> voiceStoreProvider;
 
     @Autowired
     public ChatSessionServiceImpl(
@@ -78,7 +82,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             ObjectProvider<AgentRegistry> agentRegistryProvider,
             HarnessCollaborationService harnessCollaborationService,
             AgentSessionMapper agentSessionMapper,
-            ChatMessageResourceBinder resourceBinder
+            ChatMessageResourceBinder resourceBinder,
+            ObjectProvider<VoiceStore> voiceStoreProvider
     ) {
         this.chatSessionMapper = chatSessionMapper;
         this.chatSessionMessageMapper = chatSessionMessageMapper;
@@ -91,6 +96,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.harnessCollaborationService = harnessCollaborationService;
         this.agentSessionMapper = Objects.requireNonNull(agentSessionMapper, "agentSessionMapper");
         this.resourceBinder = resourceBinder;
+        this.voiceStoreProvider = voiceStoreProvider;
     }
 
     public ChatSessionServiceImpl(
@@ -113,7 +119,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 agentRegistryProvider,
                 null,
                 agentSessionMapper,
-                new ChatMessageResourceBinder(chatMessageResourceMapper, objectMapper)
+                new ChatMessageResourceBinder(chatMessageResourceMapper, objectMapper),
+                null
         );
     }
 
@@ -160,6 +167,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         this.harnessCollaborationService = null;
         this.agentSessionMapper = Objects.requireNonNull(agentSessionMapper, "agentSessionMapper");
         this.resourceBinder = new ChatMessageResourceBinder(chatMessageResourceMapper, objectMapper);
+        this.voiceStoreProvider = null;
     }
 
     @Override
@@ -222,7 +230,52 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         entity.setUpdatedAt(now);
         registerRootAgentSession(entity, resolvedApprovalMode, now);
         chatSessionMapper.insert(entity);
-        chatMemorySnapshotService.markResident(entity.getSessionId());
+        markResidentAfterCommit(entity.getSessionId());
+        return toOpen(entity, DEFAULT_MESSAGE_PAGE_SIZE, null);
+    }
+
+    private void markResidentAfterCommit(String sessionId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            chatMemorySnapshotService.markResident(sessionId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                chatMemorySnapshotService.markResident(sessionId);
+            }
+        });
+    }
+
+    @Override
+    @Transactional
+    public ChatSessionOpenDto createPhoneSession(Long userId, Long promptId, String agentId) {
+        String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
+        ApprovalMode resolvedApprovalMode;
+        try {
+            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, null);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(40009, ex.getMessage());
+        }
+        Long resolvedPromptId = ChatAgentIds.STANDARD_CHAT.equals(resolvedAgentId)
+                ? systemPromptService.resolvePromptId(userId, promptId)
+                : null;
+        LocalDateTime now = LocalDateTime.now();
+        ChatSessionEntity entity = new ChatSessionEntity();
+        entity.setUserId(userId);
+        entity.setSessionId(UUID.randomUUID().toString());
+        entity.setPromptId(resolvedPromptId);
+        entity.setAgentId(resolvedAgentId);
+        entity.setTitle("外呼会话");
+        entity.setStatus(STATUS_ACTIVE);
+        entity.setLastUserMessage(null);
+        entity.setMessageCount(0);
+        entity.setLastActiveAt(now);
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
+        registerRootAgentSession(entity, resolvedApprovalMode, now);
+        chatSessionMapper.insert(entity);
+        markResidentAfterCommit(entity.getSessionId());
         return toOpen(entity, DEFAULT_MESSAGE_PAGE_SIZE, null);
     }
 
@@ -717,6 +770,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private void archiveOrDeleteIfEmpty(ChatSessionEntity session) {
+        if (voiceStoreProvider != null) {
+            VoiceStore voiceStore = voiceStoreProvider.getIfAvailable();
+            if (voiceStore != null && voiceStore.sessionBusy(session.getSessionId())) return;
+        }
         if ((session.getMessageCount() == null ? 0 : session.getMessageCount()) <= 0) {
             chatMemorySnapshotService.evict(session.getSessionId());
             chatMemorySnapshotService.deleteSnapshot(session.getSessionId());

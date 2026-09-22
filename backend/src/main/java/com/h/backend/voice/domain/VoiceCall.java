@@ -4,10 +4,11 @@ import lombok.Data;
 
 @Data
 public class VoiceCall {
-    private long endingAt;
-    private String id;
-    private Long userId;
-    private String sessionId;
+ private String channel = "BROWSER";
+ private long endingAt;
+ private String id;
+ private Long userId;
+ private String sessionId;
     private String requestId;
     private Long promptId;
     private String systemPrompt;
@@ -19,11 +20,13 @@ public class VoiceCall {
     private String workerId;
     private long workerEpoch;
     private boolean workerReady;
+    private boolean workerEnded;
     private boolean participantJoined;
     private long leaseUntil;
     private long disconnectedAt;
     private String state;
     private String reason;
+    private String agentId = "standard-chat";
     private boolean contextDirty;
     private boolean cleanupPending = true;
     private long createdAt;

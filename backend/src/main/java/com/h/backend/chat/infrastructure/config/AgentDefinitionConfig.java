@@ -13,6 +13,7 @@ import io.agentscope.harness.agent.HarnessAgent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.List;
 
@@ -20,7 +21,9 @@ import java.util.List;
 public class AgentDefinitionConfig {
 
     @Bean
-    public AgentDefinition harnessAgentDefinition(HarnessAgent harnessAgent) {
+    public AgentDefinition harnessAgentDefinition(
+            @Qualifier("harnessAgent") HarnessAgent harnessAgent
+    ) {
         return new AgentDefinition(
                 ChatAgentIds.HARNESS,
                 "协作 Agent",

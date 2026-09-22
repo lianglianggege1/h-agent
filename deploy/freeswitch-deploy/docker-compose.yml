@@ -1,0 +1,64 @@
+services:
+  freeswitch:
+    # 仅供 SIP、ESL 和上行音频候选验证。该归档镜像中的旧版
+    # mod_audio_fork 不会把 WebSocket 返回的 raw 音频直接播放给通话方，
+    # 因而不能作为生产双向媒体制品。
+    image: drachtio/drachtio-freeswitch-mrf:0.9.6
+    container_name: freeswitch
+    restart: unless-stopped
+    # drachtio 镜像支持命令行参数覆盖 SIP/RTP 配置，无需改 XML
+    command: >-
+      freeswitch
+      --sip-port ${SIP_PORT:-5060}
+      --event-socket-port ${ESL_PORT:-8021}
+      --password ${ESL_PASSWORD:-ClueCon}
+      --rtp-range-start ${RTP_PORT_START:-16384}
+      --rtp-range-end ${RTP_PORT_END:-16400}
+    ports:
+      - "${SIP_PORT:-5060}:${SIP_PORT:-5060}/udp"
+      - "${SIP_PORT:-5060}:${SIP_PORT:-5060}/tcp"
+      - "${ESL_PORT:-8021}:${ESL_PORT:-8021}/tcp"
+      - "${RTP_PORT_START:-16384}-${RTP_PORT_END:-16400}:${RTP_PORT_START:-16384}-${RTP_PORT_END:-16400}/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 覆盖 freeswitch.xml：补充 directory section + 覆盖 domain=127.0.0.1
+      - ./conf/freeswitch.xml:/usr/local/freeswitch/conf/freeswitch.xml:ro
+      # 覆盖 Sofia SIP profile：开启用户注册认证（drachtio 默认 mrf profile 不认证）
+      - ./conf/sip_profiles/internal.xml:/usr/local/freeswitch/conf/sip_profiles/internal.xml:ro
+      # 禁用 drachtio 默认 mrf profile（避免与 internal 端口冲突）
+      - /dev/null:/usr/local/freeswitch/conf/sip_profiles/mrf.xml:ro
+      # 分机配置
+      - ./conf/directory/default/1000.xml:/usr/local/freeswitch/conf/directory/default/1000.xml:ro
+      - ./conf/directory/default/1001.xml:/usr/local/freeswitch/conf/directory/default/1001.xml:ro
+      # 拨号计划
+      - ./conf/dialplan/default.xml:/usr/local/freeswitch/conf/dialplan/default.xml:ro
+    environment:
+      TZ: Asia/Shanghai
+    mem_limit: ${FS_MEM_LIMIT:-512m}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # Step 1 媒体验证探针（仅验证用，非生产组件）
+  probe:
+    image: python:3.12-slim
+    container_name: freeswitch-probe
+    profiles: ["probe"]
+    depends_on: [freeswitch]
+    volumes:
+      - ../../realtime-voice/scripts/test_mod_audio_fork.py:/app/probe.py:ro
+    working_dir: /app
+    command: python3 probe.py
+    environment:
+      TZ: Asia/Shanghai
+      ESL_HOST: freeswitch
+      WS_HOST_FOR_FS: probe
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"

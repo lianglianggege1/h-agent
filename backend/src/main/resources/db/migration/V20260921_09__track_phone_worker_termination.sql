@@ -1,0 +1,2 @@
+ALTER TABLE voice_calls
+    ADD COLUMN worker_ended BOOLEAN NOT NULL DEFAULT FALSE;

@@ -55,6 +55,10 @@ export default function MePage() {
           <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/skills">
             我的 Skill（版本管理）
           </Link>
+          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4" href="/outbound">
+            <span className="block text-sm font-semibold text-stone-700">外呼任务</span>
+            <span className="mt-1 block text-xs text-stone-400">导入授权名单并管理软电话外呼</span>
+          </Link>
 
           <p className="mt-6 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Harness Agent 能力</p>
           <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/automations">

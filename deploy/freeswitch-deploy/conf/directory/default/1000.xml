@@ -1,0 +1,13 @@
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="1000"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+      <variable name="effective_caller_id_name" value="Test Ext 1000"/>
+    </variables>
+  </user>
+</include>

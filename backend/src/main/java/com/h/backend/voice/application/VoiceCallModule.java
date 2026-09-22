@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.context.event.EventListener;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import jakarta.annotation.PreDestroy;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -46,6 +47,12 @@ public class VoiceCallModule {
                     if (t != null) {
                         t.setGenerationState("FAILED"); t.setFinalPlayout(true); t.setPlayoutState("UNKNOWN");
                         store.save(t);
+                    }
+                    // A PHONE call that was never claimed has no remote worker to
+                    // acknowledge termination. Once recovery rejects new claims, its
+                    // local worker lifecycle is therefore conclusively over.
+                    if ("PHONE".equals(call.getChannel()) && call.getWorkerId() == null) {
+                        call.setWorkerEnded(true);
                     }
                     call.setState("ENDING"); call.setReason("BACKEND_RESTARTED"); store.save(call); return null;
                 });
@@ -97,6 +104,64 @@ public class VoiceCallModule {
             throw new BusinessException(50300,"LiveKit 连接失败，请检查局域网语音服务");
         }
     }
+    @Transactional
+    public Map<String,Object> createPhoneCall(Long userId, String agentId, Long promptId, String requestId) {
+        return createPhoneCall(userId, agentId, promptId, requestId, "");
+    }
+
+    @Transactional
+    public Map<String,Object> createPhoneCall(
+            Long userId, String agentId, Long promptId, String requestId, String communicationGoal) {
+        log.info("[voice] create phone call userId={} agentId={} requestId={}", userId, agentId, requestId);
+        UUID.fromString(requestId);
+        var old = store.byRequest(userId, requestId);
+        if (old != null) {
+            if (!"PHONE".equals(old.getChannel())) throw new BusinessException(40900,"同一申请已关联非电话通话");
+            return phoneView(old);
+        }
+        var session = sessions.createPhoneSession(userId, promptId, agentId);
+        var meta = sessions.getSessionDetail(userId, session.session().sessionId());
+        VoiceCall c = new VoiceCall();
+        c.setChannel("PHONE");
+        c.setId(UUID.randomUUID().toString());
+        c.setUserId(userId);
+        c.setSessionId(session.session().sessionId());
+        c.setRequestId(requestId);
+        c.setAgentId(agentId);
+        c.setPromptId(meta.promptId());
+        // Harness sessions intentionally have no ordinary chat prompt. Its definition and
+        // capability binding are resolved by the Harness execution path.
+        String basePrompt = meta.promptId() == null ? "" : prompts.getSystemPrompt(userId, meta.promptId());
+        String goal = communicationGoal == null ? "" : communicationGoal.strip();
+        c.setSystemPrompt("""
+                这是一次对客电话。请保持所选 Agent 的身份，只使用允许公开的信息。
+                本通电话沟通目标：%s
+                %s
+                """.formatted(goal, basePrompt).strip());
+        c.setModelName(reply.modelName());
+        c.setClaimSecret(UUID.randomUUID().toString());
+        c.setState("PREPARING");
+        c.setCreatedAt(System.currentTimeMillis());
+        c.setUpdatedAt(c.getCreatedAt());
+        try {
+            store.insert(c);
+        } catch (DuplicateKeyException ex) {
+            var same = store.byRequest(userId, requestId);
+            if (same != null && "PHONE".equals(same.getChannel())) return phoneView(same);
+            throw new BusinessException(40900,"已有进行中的语音通话");
+        }
+        return phoneView(c);
+    }
+    private Map<String,Object> phoneView(VoiceCall c) {
+        Map<String,Object> out = new LinkedHashMap<>();
+        out.put("callId", c.getId());
+        out.put("sessionId", c.getSessionId());
+        out.put("channel", c.getChannel());
+        out.put("state", c.getState());
+        out.put("reason", c.getReason());
+        out.put("claimSecret", c.getClaimSecret());
+        return out;
+    }
     public VoiceCall owned(Long userId,String id) {
         var c=store.get(id); if (!userId.equals(c.getUserId())) throw new BusinessException(40404,"通话不存在"); return c;
     }
@@ -111,21 +176,24 @@ public class VoiceCallModule {
     public Map<String,Object> claim(String id,String room,String secret,String worker) {
         log.info("[voice] worker claiming callId={} room={} worker={}", id, room, worker);
         return store.locked(id,c->{
-            if (c.terminal() || "ENDING".equals(c.getState()) || !c.getRoomName().equals(room)
+            var roomOk = "PHONE".equals(c.getChannel()) || c.getRoomName().equals(room);
+            if (c.terminal() || "ENDING".equals(c.getState()) || !roomOk
                     || !java.security.MessageDigest.isEqual(c.getClaimSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8),secret.getBytes(java.nio.charset.StandardCharsets.UTF_8))) throw new BusinessException(40300,"通话任务无效");
             if (c.getWorkerId()!=null && !c.getWorkerId().equals(worker)) throw new BusinessException(40900,"通话已经被认领");
             if (c.getWorkerId()==null) { c.setWorkerId(worker); c.setWorkerEpoch(1); }
             else if (c.getLeaseUntil()<System.currentTimeMillis()) throw new BusinessException(40900,"Worker 租约已失效");
             c.setLeaseUntil(System.currentTimeMillis()+properties.getWorkerLeaseMs());store.save(c);
-            return Map.of("workerEpoch",c.getWorkerEpoch(),"participantIdentity",c.getParticipantIdentity(),"state",c.getState());
+            var out=new LinkedHashMap<String,Object>();
+            out.put("workerEpoch",c.getWorkerEpoch()); out.put("participantIdentity",c.getParticipantIdentity()); out.put("state",c.getState());
+            return out;
         });
     }
     public static void worker(VoiceCall c,long epoch) {
         if (epoch<=0 || c.getWorkerEpoch()!=epoch || c.getLeaseUntil()<System.currentTimeMillis() || c.terminal()) throw new BusinessException(40900,"通话 Worker 已失效");
     }
     public Map<String,Object> heartbeat(String id,long epoch,boolean workerReady) {
-        // Server-side participant lookup is the fallback when webhook delivery was lost.
-        boolean present=livekit.participantPresent(store.get(id));
+        var call = store.get(id);
+        boolean present = "PHONE".equals(call.getChannel()) ? call.isParticipantJoined() : livekit.participantPresent(call);
         return store.locked(id,c->{
             worker(c,epoch); c.setLeaseUntil(System.currentTimeMillis()+properties.getWorkerLeaseMs());
             c.setWorkerReady(workerReady); presence(c,present);
@@ -140,8 +208,19 @@ public class VoiceCallModule {
             if(c.getDisconnectedAt()==0)c.setDisconnectedAt(System.currentTimeMillis()); c.setState("RECONNECTING");
         }
     }
+    public Map<String,Object> setPhoneAnswered(String id) {
+        return store.locked(id, c -> {
+            if (!"PHONE".equals(c.getChannel())) throw new BusinessException(40300,"非电话通话");
+            if (c.terminal() || "ENDING".equals(c.getState())) throw new BusinessException(40300,"通话已结束");
+            c.setParticipantJoined(true);
+            presence(c, true);
+            store.save(c);
+            return Map.of("state", c.getState());
+        });
+    }
     public void webhook(tools.jackson.databind.JsonNode event) {
         var c=store.byRoom(event.path("room").path("name").asText()); if(c==null)return;
+        if ("PHONE".equals(c.getChannel())) return;
         if(c.terminal()) { if("participant_joined".equals(event.path("event").asText())) livekit.deleteRoom(c.getRoomName()); return; }
         // Reconcile current presence; delayed leave/join webhooks must not regress state.
         if(event.path("event").asText().startsWith("participant_")) {
@@ -154,9 +233,50 @@ public class VoiceCallModule {
         turns.getObject().stopCall(id);
         cleanup(id);
     }
+    public void workerEnded(String id, long epoch) {
+        store.locked(id, c -> {
+            if (c.getWorkerEpoch() != epoch || c.getWorkerId() == null) {
+                throw new BusinessException(40900, "通话 Worker 已失效");
+            }
+            c.setWorkerEnded(true);
+            if (!c.terminal()) {
+                if (!"ENDING".equals(c.getState())) c.setEndingAt(System.currentTimeMillis());
+                c.setState("ENDING");
+                if (c.getReason() == null) c.setReason("WORKER_ENDED");
+            }
+            store.save(c);
+            return null;
+        });
+        turns.getObject().stopCall(id);
+        cleanup(id);
+    }
+    /**
+     * Records the operator's explicit confirmation that a lost PHONE worker is no longer
+     * executing. Callers must first prove the remote phone channel is absent.
+     */
+    public void confirmPhoneWorkerEnded(String id, String reason) {
+        store.locked(id, c -> {
+            if (!"PHONE".equals(c.getChannel())) {
+                throw new BusinessException(40900, "非电话通话不能人工确认 Worker 结束");
+            }
+            c.setWorkerEnded(true);
+            c.setLeaseUntil(0);
+            if (c.getWorkerEpoch() > 0) c.setWorkerEpoch(c.getWorkerEpoch() + 1);
+            if (!c.terminal()) {
+                if (!"ENDING".equals(c.getState())) c.setEndingAt(System.currentTimeMillis());
+                c.setState("ENDING");
+                c.setReason(reason);
+            }
+            store.save(c);
+            return null;
+        });
+        turns.getObject().stopCall(id);
+        cleanup(id);
+    }
     public void cleanup(String id) {
         var c=store.get(id);
-        if("ENDING".equals(c.getState()) && store.openTurn(id)==null) {
+        boolean workerTerminationConfirmed = !"PHONE".equals(c.getChannel()) || c.isWorkerEnded();
+        if("ENDING".equals(c.getState()) && workerTerminationConfirmed && store.openTurn(id)==null) {
             turns.getObject().syncContext(id);
             store.locked(id,call->{call.setState(java.util.Set.of("USER_HANGUP","PARTICIPANT_LEFT","MAX_DURATION").contains(String.valueOf(call.getReason()))?"ENDED":"FAILED");store.save(call);return null;});
             var permit=permits.remove(id);if(permit!=null)permit.release();
@@ -167,8 +287,12 @@ public class VoiceCallModule {
             c=store.get(id);
         }
         if(c.terminal() && c.isCleanupPending()) {
-            try {livekit.deleteRoom(c.getRoomName());store.locked(id,call->{call.setCleanupPending(false);store.save(call);return null;});}
-            catch(RuntimeException ignored) { /* Durable cleanup_pending retries on the next sweep. */ }
+            if ("PHONE".equals(c.getChannel())) {
+                store.locked(id,call->{call.setCleanupPending(false);store.save(call);return null;});
+            } else {
+                try {livekit.deleteRoom(c.getRoomName());store.locked(id,call->{call.setCleanupPending(false);store.save(call);return null;});}
+                catch(RuntimeException ignored) { /* Durable cleanup_pending retries on the next sweep. */ }
+            }
         }
     }
     @Scheduled(fixedDelay=5000)

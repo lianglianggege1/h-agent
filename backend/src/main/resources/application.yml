@@ -195,7 +195,7 @@ agents:
 # enabled=true 时 Mem0 契约字段必须完整（URL/API key/contract version/openapi sha256），否则启动 fail-fast。
 memory:
   long-term:
-    enabled: true
+    enabled: false
     mem0:
       base-url: ${MEM0_BASE_URL:http://169.254.210.181:8888}
       # MEM0_BASE_API_KEY 是旧名称，只作兼容回退。
@@ -247,6 +247,27 @@ voice:
   worker-token: ${VOICE_WORKER_TOKEN:}
   agent-name: ${VOICE_AGENT_NAME:h-agent-voice}
 
+outbound:
+  enabled: ${OUTBOUND_ENABLED:false}
+  allowed-extensions: ${OUTBOUND_ALLOWED_EXTENSIONS:1000,1001}
+  internal-token: ${OUTBOUND_INTERNAL_TOKEN:}
+  media-verified: ${OUTBOUND_MEDIA_VERIFIED:false}
+  public-business-knowledge: ${OUTBOUND_PUBLIC_BUSINESS_KNOWLEDGE:未配置额外公开业务知识}
+  prepare-timeout-ms: 30000
+  ring-timeout-ms: 25000
+  reply-timeout-ms: 120000
+  max-call-duration-ms: 1800000
+  worker-url: ${OUTBOUND_WORKER_URL:http://127.0.0.1:8082}
+  worker-ws-url: ${OUTBOUND_WORKER_WS_URL:ws://127.0.0.1:8082/media}
+
+freeswitch:
+  esl:
+    host: ${FS_ESL_HOST:127.0.0.1}
+    port: ${FS_ESL_PORT:8021}
+    password: ${FS_ESL_PASSWORD:ClueCon}
+  sip:
+    domain: ${FS_SIP_DOMAIN:127.0.0.1}
+
 image-generation:
   minimax:
     base-url: ${IMAGE_BASE_URL:https://api.minimaxi.com}
@@ -272,7 +293,7 @@ generation:
     max-file-size: 524288000
 
 automation:
-  enabled: ${AUTOMATION_ENABLED:true}
+  enabled: ${AUTOMATION_ENABLED:false}
   recovery-delay: ${AUTOMATION_RECOVERY_DELAY:60s}
   batch-size: ${AUTOMATION_BATCH_SIZE:10}
   execution-timeout: ${AUTOMATION_EXECUTION_TIMEOUT:15m}

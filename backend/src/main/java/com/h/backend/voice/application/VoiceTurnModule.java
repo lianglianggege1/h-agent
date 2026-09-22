@@ -1,6 +1,8 @@
 package com.h.backend.voice.application;
 
 import com.h.backend.chat.application.*;
+import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.memory.ChatMemoryContext;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.voice.domain.*;
@@ -23,6 +25,8 @@ public class VoiceTurnModule {
     private final VoiceReply model;
     private final VoiceProperties config;
     private final ObjectProvider<VoiceCallModule> calls;
+    private final ObjectProvider<HarnessVoiceReply> harnessReplyProvider;
+    private final ObjectProvider<AgentRegistry> agentRegistryProvider;
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
     public record Event(String type, String utteranceId, int seq, String text, String status) { }
     private static class Job {
@@ -33,13 +37,66 @@ public class VoiceTurnModule {
         int seq;
     }
     public VoiceTurnModule(VoiceStore store, ChatSessionService sessions, AgentRunService runs,
-            ChatMemorySnapshotService memory, VoiceReply model, VoiceProperties config, ObjectProvider<VoiceCallModule> calls) {
+            ChatMemorySnapshotService memory, VoiceReply model, VoiceProperties config, ObjectProvider<VoiceCallModule> calls,
+            ObjectProvider<HarnessVoiceReply> harnessReplyProvider, ObjectProvider<AgentRegistry> agentRegistryProvider) {
         this.store=store;this.sessions=sessions;this.runs=runs;this.memory=memory;this.model=model;this.config=config;this.calls=calls;
+        this.harnessReplyProvider=harnessReplyProvider;this.agentRegistryProvider=agentRegistryProvider;
     }
     private VoiceTurn requireTurn(String call,String id) {
         var t=store.turn(call,id);if(t==null)throw new BusinessException(40404,"语音轮次不存在");return t;
     }
     public void getCallWorker(String callId, long epoch) { VoiceCallModule.worker(store.get(callId), epoch); }
+    private VoiceReply selectReply(String agentId) {
+        if (ChatAgentIds.HARNESS.equals(agentId)) {
+            var harness = harnessReplyProvider.getIfAvailable();
+            if (harness == null || !harness.supports(agentId)) throw new BusinessException(50300, "Harness 语音执行器不可用");
+            return harness;
+        }
+        return model;
+    }
+    private Object resolveAgentBean(String agentId) {
+        if (!ChatAgentIds.HARNESS.equals(agentId)) return null;
+        var registry = agentRegistryProvider.getIfAvailable();
+        if (registry == null) throw new BusinessException(50300, "Agent 注册表不可用");
+        return registry.requireEnabled(agentId).agentBean();
+    }
+    public Map<String,Object> submitOpening(String callId, long epoch) {
+        VoiceCallModule.worker(store.get(callId), epoch);
+        // voice_turns.id is a UUID.  Keep opening idempotent by deriving one from the
+        // call id instead of prefixing it and exceeding the database column width.
+        String turnId = UUID.nameUUIDFromBytes(("opening:" + callId).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        syncContext(callId);
+        VoiceTurn turn = store.locked(callId, c -> {
+            VoiceCallModule.worker(c, epoch);
+            var existing = store.turn(callId, turnId);
+            if (existing != null) return existing;
+            if (!"ACTIVE".equals(c.getState())) throw new BusinessException(40900, "通话尚未就绪");
+            if (store.openTurn(callId) != null) throw new BusinessException(40900, "上一轮尚未结算");
+            VoiceTurn t = new VoiceTurn();
+            t.setId(turnId); t.setCallId(callId); t.setTurnType("OPENING");
+            t.setUtteranceId(UUID.randomUUID().toString());
+            t.setCreatedAt(System.currentTimeMillis()); t.setUpdatedAt(t.getCreatedAt());
+            t.setRunId(runs.createRun(c.getSessionId(), c.getUserId(), c.getPromptId(), null, c.getModelName(), null).id());
+            store.insert(t); c.setContextDirty(true); store.save(c); return t;
+        });
+        if ("ACCEPTED".equals(turn.getGenerationState())) {
+            Job job = new Job();
+            if (jobs.putIfAbsent(turnId, job) == null) {
+                try {
+                    var c = store.get(callId);
+                    var ctx = new VoiceReplyContext(c.getUserId(), c.getSessionId(), c.getPromptId(), c.getAgentId(),
+                        resolveAgentBean(c.getAgentId()), c.getSystemPrompt(), history(c), "开始对话",
+                        turn.getRunId(), null, c.getModelName());
+                    var reply = selectReply(c.getAgentId());
+                    job.execution = reply.prepare(ctx, chunk -> onText(callId, turnId, job, chunk), status -> onTerminal(callId, turnId, job, status));
+                    store.locked(callId, locked -> { var t = requireTurn(callId, turnId); if ("ENDING".equals(locked.getState()) || locked.terminal() || t.generationTerminal()) job.stopped = true; if ("ACCEPTED".equals(t.getGenerationState())) { t.setGenerationState("GENERATING"); store.save(t); } return null; });
+                    if (job.stopped) job.execution.cancel();
+                    job.execution.start();
+                } catch (RuntimeException ex) { onTerminal(callId, turnId, job, "FAILED"); }
+            }
+        }
+        return turnView(store.turn(callId, turnId));
+    }
     public Map<String,Object> submit(String callId,long epoch,String turnId,String text) {
         VoiceCallModule.worker(store.get(callId),epoch);
         UUID.fromString(turnId);
@@ -64,7 +121,11 @@ public class VoiceTurnModule {
             if(jobs.putIfAbsent(turnId,job)==null) {
                 try {
                     var c=store.get(callId);
-                    job.execution=model.prepare(c.getSystemPrompt(),history(c),chunk->onText(callId,turnId,job,chunk),status->onTerminal(callId,turnId,job,status));
+                    var ctx=new VoiceReplyContext(c.getUserId(),c.getSessionId(),c.getPromptId(),c.getAgentId(),
+                        resolveAgentBean(c.getAgentId()),c.getSystemPrompt(),history(c),turn.getUserText(),
+                        turn.getRunId(),turn.getUserMessageId(),c.getModelName());
+                    var reply=selectReply(c.getAgentId());
+                    job.execution=reply.prepare(ctx,chunk->onText(callId,turnId,job,chunk),status->onTerminal(callId,turnId,job,status));
                     store.locked(callId,locked->{var t=requireTurn(callId,turnId);if("ENDING".equals(locked.getState()) || locked.terminal() || t.generationTerminal())job.stopped=true;if("ACCEPTED".equals(t.getGenerationState())){t.setGenerationState("GENERATING");store.save(t);}return null;});
                     if(job.stopped)job.execution.cancel();
                     job.execution.start();
@@ -162,7 +223,8 @@ public class VoiceTurnModule {
     public void syncContext(String callId) {
         store.locked(callId,c->{
             if(!c.isContextDirty())return null;
-            var context=new ChatMemoryContext(c.getUserId(),c.getPromptId(),c.getSessionId());
+            var context=new ChatMemoryContext(
+                    c.getUserId(), c.getPromptId(), c.getSessionId(), c.getAgentId(), "default");
             // No generated drafts enter this list. The dirty bit survives failures/restarts and gates the next turn.
             memory.cacheMemory(context,history(c));memory.flushNow(c.getSessionId());
             c.setContextDirty(false);store.save(c);return null;

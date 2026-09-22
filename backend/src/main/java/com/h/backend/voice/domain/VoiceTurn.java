@@ -20,6 +20,7 @@ public class VoiceTurn {
     private String confidence = "UNKNOWN";
     private boolean finalPlayout;
     private String state = "OPEN";
+    private String turnType = "DIALOGUE";
     private long createdAt;
     private long updatedAt;
 

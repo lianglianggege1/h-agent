@@ -52,6 +52,30 @@ class Control:
         self.client.headers["X-Voice-Worker-Epoch"] = str(result["workerEpoch"])
         return result
 
+    async def claim_phone(self, worker: str, secret: str) -> dict:
+        """PHONE calls don't use roomName; pass a placeholder for the worker epoch."""
+        result = await self.request("POST", "/claim", {
+            "roomName": "PHONE", "claimSecret": secret, "workerId": worker,
+        })
+        self.client.headers["X-Voice-Worker-Epoch"] = str(result["workerEpoch"])
+        return result
+
+    async def notify_answered(self) -> dict:
+        return await self.request("POST", "/answered")
+
+    async def notify_ready(self, ready: bool = True) -> dict:
+        return await self.request("POST", "/heartbeat", {"ready": ready})
+
+    async def start_opening(self) -> dict:
+        return await self.request("POST", "/opening")
+
+    async def submit_text(self, turn_id: str, text: str) -> dict:
+        return await self.request("POST", "/turns", {"turnId": turn_id, "text": text})
+
+    async def end_call(self) -> dict:
+        return await self.request("POST", "/end")
+
+
     async def events(self, path: str) -> AsyncIterator[dict]:
         # A consumed stream is never reopened or replayed into the synthesizer.
         async with self.client.stream("GET", path) as response:

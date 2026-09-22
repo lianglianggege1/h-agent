@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /** Same configured Java model, no tools or auto-writing ChatMemory. Owns the cancellable HTTP exchange. */
+@org.springframework.context.annotation.Primary
 @Component
 public class AnthropicVoiceReply implements VoiceReply {
     private final ChatModelEnvironment environment;

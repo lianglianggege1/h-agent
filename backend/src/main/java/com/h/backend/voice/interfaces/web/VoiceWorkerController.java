@@ -32,8 +32,13 @@ public class VoiceWorkerController {
     @PostMapping("/internal/voice/calls/{id}/turns/{turnId}/interrupt") public Map<String,Object> interrupt(@PathVariable String id,@PathVariable String turnId,@RequestHeader("X-Voice-Worker-Epoch") long epoch){return turns.interrupt(id,epoch,turnId);}
     @PutMapping("/internal/voice/calls/{id}/turns/{turnId}/playout") public Map<String,Object> playout(@PathVariable String id,@PathVariable String turnId,@RequestHeader("X-Voice-Worker-Epoch") long epoch,@Valid @RequestBody Playout r){return turns.playout(id,epoch,turnId,r.utteranceId(),r.revision(),r.status(),r.playedChars(),r.confidence(),r.last());}
     @PostMapping("/internal/voice/calls/{id}/end") public Map<String,String> end(@PathVariable String id,@RequestHeader("X-Voice-Worker-Epoch") long epoch){
-        // Validate even shutdown requests: expired workers cannot terminate a later owner.
-        turns.getCallWorker(id,epoch);calls.end(id,"WORKER_ENDED");return Map.of("state","ENDING");
-    }
-    @PostMapping("/internal/livekit/webhook") public void webhook(@RequestHeader("Authorization") String token,@RequestBody String body){calls.webhook(livekit.verifyWebhook(token,body));}
+ calls.workerEnded(id,epoch);return Map.of("state","ENDING");
+ }
+ @PostMapping("/internal/voice/calls/{id}/answered") public Map<String,Object> answered(@PathVariable String id,@RequestHeader("X-Voice-Worker-Epoch") long epoch){
+ turns.getCallWorker(id,epoch);return calls.setPhoneAnswered(id);
+ }
+ @PostMapping("/internal/voice/calls/{id}/opening") public Map<String,Object> opening(@PathVariable String id,@RequestHeader("X-Voice-Worker-Epoch") long epoch){
+ return turns.submitOpening(id,epoch);
+ }
+ @PostMapping("/internal/livekit/webhook") public void webhook(@RequestHeader("Authorization") String token,@RequestBody String body){calls.webhook(livekit.verifyWebhook(token,body));}
 }

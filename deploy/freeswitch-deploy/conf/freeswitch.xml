@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- 覆盖 drachtio 镜像的 freeswitch.xml，补充 directory section -->
+<document type="freeswitch/xml">
+  <!-- vars_diff.xml 和 vars.xml 仍由镜像自带，entrypoint.sh 的 sed 能正常修改 -->
+  <X-PRE-PROCESS cmd="include" data="vars_diff.xml"/>
+  <X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+  <!-- domain=127.0.0.1：软电话在宿主机上，通过端口映射注册 -->
+  <X-PRE-PROCESS cmd="set" data="domain=127.0.0.1"/>
+  <X-PRE-PROCESS cmd="set" data="domain_name=127.0.0.1"/>
+
+  <section name="configuration" description="Various Configuration">
+    <X-PRE-PROCESS cmd="include" data="autoload_configs/*.xml"/>
+  </section>
+
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <X-PRE-PROCESS cmd="include" data="dialplan/*.xml"/>
+  </section>
+
+  <!-- drachtio 镜像缺这个 section，导致 directory/default/*.xml 不被解析 -->
+  <section name="directory" description="User Directory">
+    <X-PRE-PROCESS cmd="include" data="directory/*.xml"/>
+  </section>
+
+</document>

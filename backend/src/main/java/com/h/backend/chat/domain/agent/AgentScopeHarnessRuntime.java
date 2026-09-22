@@ -61,6 +61,15 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
     @Override
     public Flux<AgentEvent> streamParent(
             Object agentBean,
+            List<Msg> messages,
+            RuntimeContext context
+    ) {
+        return requireHarnessAgent(agentBean).streamEvents(messages, context);
+    }
+
+    @Override
+    public Flux<AgentEvent> streamParent(
+            Object agentBean,
             String message,
             RuntimeContext context,
             ApprovalMode approvalMode

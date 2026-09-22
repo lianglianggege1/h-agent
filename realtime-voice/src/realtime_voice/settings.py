@@ -18,22 +18,31 @@ class Settings:
     tts_model: str
     tts_url: str
     greeting: str
+    # FreeSWITCH / Phone worker
+    outbound_internal_token: str
+    fs_esl_host: str
+    fs_esl_port: int
+    fs_esl_password: str
+    fs_sip_domain: str
+    phone_worker_port: int
 
     @classmethod
-    def load(cls):
+    def load(cls, *, require_livekit: bool = True):
         def required(name):
             value = os.environ.get(name, "").strip()
             if not value:
                 raise ValueError(f"{name} is required")
             return value
-        token = required("VOICE_WORKER_TOKEN")
+        token_name = "VOICE_WORKER_TOKEN" if require_livekit else "OUTBOUND_INTERNAL_TOKEN"
+        token = required(token_name)
         if len(token) < 32:
-            raise ValueError("VOICE_WORKER_TOKEN must contain at least 32 characters")
+            raise ValueError(f"{token_name} must contain at least 32 characters")
         url = required("JAVA_VOICE_URL")
         if urlparse(url).scheme not in ("http", "https"):
             raise ValueError("JAVA_VOICE_URL must be HTTP(S)")
-        for name in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
-            required(name)
+        if require_livekit:
+            for name in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+                required(name)
         return cls(
             url, token, required("HUOSHAN_ASR_API_KEY"),
             os.environ.get("HUOSHAN_ASR_RESOURCE_ID", "volc.bigasr.sauc.duration").strip(),
@@ -42,4 +51,10 @@ class Settings:
             required("HUOSHAN_TTS_RESOURCE_ID"), required("HUOSHAN_TTS_MODEL"),
             os.environ.get("HUOSHAN_TTS_WS_URL", "wss://openspeech.bytedance.com/api/v3/tts/bidirection").strip(),
             greeting=os.environ.get("VOICE_GREETING", DEFAULT_GREETING).strip(),
+            outbound_internal_token=os.environ.get("OUTBOUND_INTERNAL_TOKEN", "").strip(),
+            fs_esl_host=os.environ.get("FS_ESL_HOST", "127.0.0.1").strip(),
+            fs_esl_port=int(os.environ.get("FS_ESL_PORT", "8021").strip()),
+            fs_esl_password=os.environ.get("FS_ESL_PASSWORD", "ClueCon").strip(),
+            fs_sip_domain=os.environ.get("FS_SIP_DOMAIN", "127.0.0.1").strip(),
+            phone_worker_port=int(os.environ.get("PHONE_WORKER_PORT", "8082").strip()),
         )

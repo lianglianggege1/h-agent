@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!-- 覆盖 drachtio 默认 mrf profile，开启用户注册认证 -->
+<include>
+  <profile name="internal">
+    <domains>
+      <!-- parse=true 才会读取 directory/default/*.xml 做用户认证 -->
+      <domain name="all" alias="true" parse="true"/>
+    </domains>
+    <settings>
+      <param name="sip-trace" value="no"/>
+      <param name="rfc2833-pt" value="101"/>
+      <param name="dtmf-type" value="rfc2833"/>
+      <param name="inbound-late-negotiation" value="true"/>
+      <param name="rtp-ip" value="0.0.0.0"/>
+      <param name="sip-ip" value="0.0.0.0"/>
+      <param name="sip-port" value="$${sip_port}"/>
+      <param name="ext-rtp-ip" value="127.0.0.1"/>
+      <param name="ext-sip-ip" value="127.0.0.1"/>
+      <!-- 开启认证：软电话注册需要 401 challenge -->
+      <param name="auth-calls" value="true"/>
+      <param name="enable-timer" value="false"/>
+      <param name="user-agent-string" value="h-agent FreeSWITCH"/>
+      <param name="context" value="default"/>
+      <param name="rtp-timer-name" value="soft"/>
+      <param name="codec-prefs" value="$${global_codec_prefs}"/>
+      <param name="inbound-codec-negotiation" value="greedy"/>
+      <param name="inbound-reg-force-matching-username" value="true"/>
+      <param name="nonce-ttl" value="86400"/>
+      <param name="manage-presence" value="false"/>
+      <param name="enable-3pcc" value="true"/>
+    </settings>
+  </profile>
+</include>

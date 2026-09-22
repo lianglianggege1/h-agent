@@ -34,6 +34,8 @@ public interface ChatSessionService {
         return createSession(userId, promptId, agentId, null, currentSessionId);
     }
 
+    ChatSessionOpenDto createPhoneSession(Long userId, Long promptId, String agentId);
+
     ChatSessionOpenDto chooseActiveSession(Long userId, String selectedSessionId);
 
     ChatSessionOpenDto activateHistorySession(Long userId, String targetSessionId, String currentSessionId);

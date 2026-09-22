@@ -4,6 +4,7 @@ import com.h.agent.observability.lifecycle.ExecutionObservationCarrier;
 import com.h.backend.chat.domain.approval.ApprovalMode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.message.Msg;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -12,6 +13,9 @@ import java.util.List;
 public interface HarnessRuntime {
 
     Flux<AgentEvent> streamParent(Object agentBean, String message, RuntimeContext context);
+
+    /** Execute an explicitly supplied message history without loading a product chat session. */
+    Flux<AgentEvent> streamParent(Object agentBean, List<Msg> messages, RuntimeContext context);
 
     default Flux<AgentEvent> streamParent(
             Object agentBean,
