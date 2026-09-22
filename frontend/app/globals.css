@@ -104,3 +104,8 @@ body {
 .h-slider-captcha-widget .slider-move {
   color: #a1a1aa !important;
 }
+
+/* — 隐藏 tianai-captcha 底部 logo — */
+.h-slider-captcha-widget .slider-bottom .logo {
+  display: none !important;
+}
