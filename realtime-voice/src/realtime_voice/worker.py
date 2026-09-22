@@ -46,6 +46,11 @@ def played_prefix(generated: str, forwarded: str) -> int:
     return 0
 
 
+# HAssistant may still be finishing a model request or tool after speech is interrupted.
+# Allow its 120s model timeout plus cleanup, while keeping the next turn serialized.
+SETTLEMENT_TIMEOUT_SECONDS = 150
+
+
 class JavaAgent(Agent):
     def __init__(self, control: Control):
         super().__init__(instructions="Voice transport", llm=JavaModel())
@@ -57,7 +62,7 @@ class JavaAgent(Agent):
     async def on_user_turn_completed(self, turn_ctx, new_message):
         if self.settling:
             # Physical generation exit and final playout must precede the next Java run.
-            await asyncio.wait_for(asyncio.shield(self.settling), timeout=20)
+            await asyncio.wait_for(asyncio.shield(self.settling), timeout=SETTLEMENT_TIMEOUT_SECONDS + 5)
         if self.failed.is_set():
             raise RuntimeError("Previous voice turn did not settle")
 
@@ -114,7 +119,7 @@ class JavaAgent(Agent):
             "playedChars": chars, "confidence": "ESTIMATED", "last": True,
         })
         # Cancellation is asynchronous. Do not release the next turn until Java has exited.
-        async with asyncio.timeout(15):
+        async with asyncio.timeout(SETTLEMENT_TIMEOUT_SECONDS):
             while True:
                 state = await self.control.request("GET", f"/turns/{turn.id}")
                 if state["state"] == "COMMITTED":

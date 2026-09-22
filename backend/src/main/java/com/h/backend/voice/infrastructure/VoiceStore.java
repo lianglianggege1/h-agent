@@ -76,6 +76,10 @@ public class VoiceStore {
         return jdbc.query("SELECT * FROM voice_turns WHERE call_id=? AND state<>'COMMITTED'", BeanPropertyRowMapper.newInstance(VoiceTurn.class), callId)
                 .stream().findFirst().orElse(null);
     }
+    public VoiceTurn latestTurn(String callId) {
+        return jdbc.query("SELECT * FROM voice_turns WHERE call_id=? ORDER BY created_at DESC, run_id DESC LIMIT 1",
+                BeanPropertyRowMapper.newInstance(VoiceTurn.class), callId).stream().findFirst().orElse(null);
+    }
     public String dialogueResult(String callId) {
         List<VoiceTurn> turns = jdbc.query(
                 "SELECT * FROM voice_turns WHERE call_id=? AND turn_type='DIALOGUE' ORDER BY created_at",
@@ -92,14 +96,14 @@ public class VoiceStore {
     }
     public void insert(VoiceTurn t) {
         named.update("""
-                INSERT INTO voice_turns(id,call_id,run_id,user_message_id,utterance_id,user_text,turn_type,created_at,updated_at)
-                VALUES(:id,:callId,:runId,:userMessageId,:utteranceId,:userText,:turnType,:createdAt,:updatedAt)
+                INSERT INTO voice_turns(id,call_id,run_id,user_message_id,utterance_id,user_text,turn_type,memory_checkpoint,created_at,updated_at)
+                VALUES(:id,:callId,:runId,:userMessageId,:utteranceId,:userText,:turnType,:memoryCheckpoint,:createdAt,:updatedAt)
                 """, new BeanPropertySqlParameterSource(t));
     }
     public void save(VoiceTurn t) {
         t.setUpdatedAt(System.currentTimeMillis());
         named.update("""
-                UPDATE voice_turns SET assistant_message_id=:assistantMessageId,generated_text=:generatedText,
+                UPDATE voice_turns SET memory_checkpoint=:memoryCheckpoint,assistant_message_id=:assistantMessageId,generated_text=:generatedText,
                 generation_state=:generationState,playout_state=:playoutState,played_chars=:playedChars,
                 revision=:revision,confidence=:confidence,final_playout=:finalPlayout,state=:state,
                 updated_at=:updatedAt WHERE id=:id

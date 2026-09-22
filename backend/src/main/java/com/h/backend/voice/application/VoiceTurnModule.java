@@ -25,6 +25,7 @@ public class VoiceTurnModule {
     private final VoiceReply model;
     private final VoiceProperties config;
     private final ObjectProvider<VoiceCallModule> calls;
+    private final ObjectProvider<HAssistantVoiceReply> hAssistantReplyProvider;
     private final ObjectProvider<HarnessVoiceReply> harnessReplyProvider;
     private final ObjectProvider<AgentRegistry> agentRegistryProvider;
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
@@ -38,15 +39,26 @@ public class VoiceTurnModule {
     }
     public VoiceTurnModule(VoiceStore store, ChatSessionService sessions, AgentRunService runs,
             ChatMemorySnapshotService memory, VoiceReply model, VoiceProperties config, ObjectProvider<VoiceCallModule> calls,
-            ObjectProvider<HarnessVoiceReply> harnessReplyProvider, ObjectProvider<AgentRegistry> agentRegistryProvider) {
+            ObjectProvider<HarnessVoiceReply> harnessReplyProvider, ObjectProvider<AgentRegistry> agentRegistryProvider,
+            ObjectProvider<HAssistantVoiceReply> hAssistantReplyProvider) {
         this.store=store;this.sessions=sessions;this.runs=runs;this.memory=memory;this.model=model;this.config=config;this.calls=calls;
+        this.hAssistantReplyProvider=hAssistantReplyProvider;
         this.harnessReplyProvider=harnessReplyProvider;this.agentRegistryProvider=agentRegistryProvider;
     }
     private VoiceTurn requireTurn(String call,String id) {
         var t=store.turn(call,id);if(t==null)throw new BusinessException(40404,"语音轮次不存在");return t;
     }
     public void getCallWorker(String callId, long epoch) { VoiceCallModule.worker(store.get(callId), epoch); }
-    private VoiceReply selectReply(String agentId) {
+    private boolean usesHAssistant(VoiceCall call) {
+        return "BROWSER".equals(call.getChannel()) && ChatAgentIds.STANDARD_CHAT.equals(call.getAgentId());
+    }
+    private VoiceReply selectReply(VoiceCall call) {
+        String agentId = call.getAgentId();
+        if (usesHAssistant(call)) {
+            var assistant = hAssistantReplyProvider.getIfAvailable();
+            if (assistant == null) throw new BusinessException(50300, "HAssistant 语音执行器不可用");
+            return assistant;
+        }
         if (ChatAgentIds.HARNESS.equals(agentId)) {
             var harness = harnessReplyProvider.getIfAvailable();
             if (harness == null || !harness.supports(agentId)) throw new BusinessException(50300, "Harness 语音执行器不可用");
@@ -76,7 +88,11 @@ public class VoiceTurnModule {
             t.setId(turnId); t.setCallId(callId); t.setTurnType("OPENING");
             t.setUtteranceId(UUID.randomUUID().toString());
             t.setCreatedAt(System.currentTimeMillis()); t.setUpdatedAt(t.getCreatedAt());
-            t.setRunId(runs.createRun(c.getSessionId(), c.getUserId(), c.getPromptId(), null, c.getModelName(), null).id());
+            t.setRunId(runs.createRun(c.getSessionId(), c.getUserId(), c.getPromptId(), null, c.getAgentId(), null).id());
+            if (usesHAssistant(c)) {
+                t.setMemoryCheckpoint(ChatMessageSerializer.messagesToJson(
+                        memory.loadSnapshot(memoryContext(c)).orElseGet(() -> history(c))));
+            }
             store.insert(t); c.setContextDirty(true); store.save(c); return t;
         });
         if ("ACCEPTED".equals(turn.getGenerationState())) {
@@ -87,7 +103,7 @@ public class VoiceTurnModule {
                     var ctx = new VoiceReplyContext(c.getUserId(), c.getSessionId(), c.getPromptId(), c.getAgentId(),
                         resolveAgentBean(c.getAgentId()), c.getSystemPrompt(), history(c), "开始对话",
                         turn.getRunId(), null, c.getModelName());
-                    var reply = selectReply(c.getAgentId());
+                    var reply = selectReply(c);
                     job.execution = reply.prepare(ctx, chunk -> onText(callId, turnId, job, chunk), status -> onTerminal(callId, turnId, job, status));
                     store.locked(callId, locked -> { var t = requireTurn(callId, turnId); if ("ENDING".equals(locked.getState()) || locked.terminal() || t.generationTerminal()) job.stopped = true; if ("ACCEPTED".equals(t.getGenerationState())) { t.setGenerationState("GENERATING"); store.save(t); } return null; });
                     if (job.stopped) job.execution.cancel();
@@ -112,7 +128,16 @@ public class VoiceTurnModule {
             VoiceTurn t=new VoiceTurn(); t.setId(turnId);t.setCallId(callId);t.setUserText(text.strip());
             t.setUtteranceId(UUID.randomUUID().toString());t.setCreatedAt(System.currentTimeMillis());t.setUpdatedAt(t.getCreatedAt());
             t.setUserMessageId(sessions.appendUserMessage(c.getUserId(),c.getSessionId(),t.getUserText(),List.of()));
-            t.setRunId(runs.createRun(c.getSessionId(),c.getUserId(),c.getPromptId(),t.getUserMessageId(),c.getModelName(),null).id());
+            t.setRunId(runs.createRun(c.getSessionId(),c.getUserId(),c.getPromptId(),t.getUserMessageId(),c.getAgentId(),null).id());
+            if (usesHAssistant(c)) {
+                var checkpoint = new ArrayList<>(memory.loadSnapshot(memoryContext(c)).orElseGet(() -> {
+                    var previous = new ArrayList<>(history(c));
+                    if (!previous.isEmpty()) previous.removeLast();
+                    return previous;
+                }));
+                checkpoint.add(UserMessage.from(t.getUserText()));
+                t.setMemoryCheckpoint(ChatMessageSerializer.messagesToJson(checkpoint));
+            }
             store.insert(t);c.setContextDirty(true);store.save(c);return t;
         });
         // Exactly one local task; accepted rows survive response loss. A process restart fails them, never replays.
@@ -124,7 +149,7 @@ public class VoiceTurnModule {
                     var ctx=new VoiceReplyContext(c.getUserId(),c.getSessionId(),c.getPromptId(),c.getAgentId(),
                         resolveAgentBean(c.getAgentId()),c.getSystemPrompt(),history(c),turn.getUserText(),
                         turn.getRunId(),turn.getUserMessageId(),c.getModelName());
-                    var reply=selectReply(c.getAgentId());
+                    var reply=selectReply(c);
                     job.execution=reply.prepare(ctx,chunk->onText(callId,turnId,job,chunk),status->onTerminal(callId,turnId,job,status));
                     store.locked(callId,locked->{var t=requireTurn(callId,turnId);if("ENDING".equals(locked.getState()) || locked.terminal() || t.generationTerminal())job.stopped=true;if("ACCEPTED".equals(t.getGenerationState())){t.setGenerationState("GENERATING");store.save(t);}return null;});
                     if(job.stopped)job.execution.cancel();
@@ -166,6 +191,10 @@ public class VoiceTurnModule {
         store.locked(callId,c->{
             var t=requireTurn(callId,turnId);
             if(t.generationTerminal())return null;
+            if (usesHAssistant(c) && job.execution != null) {
+                var checkpoint = job.execution.checkpoint();
+                if (checkpoint != null) t.setMemoryCheckpoint(ChatMessageSerializer.messagesToJson(checkpoint));
+            }
             t.setGenerationState(status);store.save(t);
             job.events.tryEmitNext(new Event("generation_end",t.getUtteranceId(),job.seq,null,status));
             job.events.tryEmitComplete(); settle(c,t);return null;
@@ -220,13 +249,33 @@ public class VoiceTurnModule {
         }
         return out;
     }
+    private ChatMemoryContext memoryContext(VoiceCall c) {
+        return new ChatMemoryContext(c.getUserId(), c.getPromptId(), c.getSessionId(), c.getAgentId(), "default");
+    }
     public void syncContext(String callId) {
         store.locked(callId,c->{
             if(!c.isContextDirty())return null;
-            var context=new ChatMemoryContext(
-                    c.getUserId(), c.getPromptId(), c.getSessionId(), c.getAgentId(), "default");
-            // No generated drafts enter this list. The dirty bit survives failures/restarts and gates the next turn.
-            memory.cacheMemory(context,history(c));memory.flushNow(c.getSessionId());
+            List<ChatMessage> committed;
+            if (usesHAssistant(c)) {
+                // Do not overwrite the executing agent's memory or clear its recovery marker.
+                if (store.openTurn(callId) != null) return null;
+                var latest = store.latestTurn(callId);
+                if (latest != null && latest.getMemoryCheckpoint() != null) {
+                    committed = new ArrayList<>(ChatMessageDeserializer.messagesFromJson(latest.getMemoryCheckpoint()));
+                    String effective = latest.effectiveText();
+                    if (!effective.isBlank()) {
+                        String suffix = "COMPLETED".equals(latest.getPlayoutState()) ? ""
+                                : "\n（语音回复已中断，以上为播放进度估计）";
+                        committed.add(AiMessage.from(effective + suffix));
+                    }
+                } else {
+                    // Old calls (before the checkpoint migration) keep their existing recovery path.
+                    committed = history(c);
+                }
+            } else {
+                committed = history(c);
+            }
+            memory.cacheMemory(memoryContext(c),committed);memory.flushNow(c.getSessionId());
             c.setContextDirty(false);store.save(c);return null;
         });
     }

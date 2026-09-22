@@ -18,5 +18,6 @@ public interface VoiceReply {
     interface Execution {
         void start();
         void cancel();
+        default List<ChatMessage> checkpoint() { return null; }
     }
 }

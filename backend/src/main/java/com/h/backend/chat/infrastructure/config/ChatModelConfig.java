@@ -165,6 +165,7 @@ public class ChatModelConfig {
 
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
+                .chatRequestTransformer(redisChatMemoryStore::withGenerationInstructions)
                 // 唯一 RetrievalAugmentor：长期记忆 + 知识库，两条链路独立预算与注入标记
                 .retrievalAugmentor(standardChatContextAugmentor)
                 // 不同用户的系统提示词不一样

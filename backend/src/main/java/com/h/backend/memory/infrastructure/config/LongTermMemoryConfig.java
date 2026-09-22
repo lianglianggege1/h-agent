@@ -9,7 +9,7 @@ import com.h.backend.memory.domain.AgentMemoryPolicyCatalog;
 import com.h.backend.memory.infrastructure.LongTermMemoryRuntimeImpl;
 import com.h.backend.memory.infrastructure.UserMemoryCatalogImpl;
 import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentor;
-import com.h.backend.memory.infrastructure.langchain4j.LongTermMemoryContentRetriever;
+import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentorFactory;
 import com.h.backend.memory.infrastructure.mem0.Mem0Gateway;
 import com.h.backend.memory.infrastructure.mem0.Mem0HttpGateway;
 import com.h.backend.memory.infrastructure.persistence.mapper.LongTermMemoryRecordMapper;
@@ -65,15 +65,16 @@ public class LongTermMemoryConfig {
         return new DisabledUserMemoryCatalog();
     }
 
-    /** standard-chat 装配：长期记忆 + 知识库（依赖 promptId）。 */
+    /** standard-chat 装配：暂时关闭知识库 RAG，保留长期记忆召回。 */
     @Bean
     public ConversationContextAugmentor standardChatContextAugmentor(
             LongTermMemoryRuntime longTermMemoryRuntime,
             AgentMemoryPolicyCatalog policyCatalog,
             RetrievalAugmentor knowledgeRetrievalAugmentor) {
-        LongTermMemoryContentRetriever memoryRetriever = new LongTermMemoryContentRetriever(
-                longTermMemoryRuntime, policyCatalog, ChatAgentIds.STANDARD_CHAT);
-        return new ConversationContextAugmentor(memoryRetriever, knowledgeRetrievalAugmentor);
+        var factory = new ConversationContextAugmentorFactory(longTermMemoryRuntime, policyCatalog);
+        // 知识库 RAG 耗时较长，暂时停用；恢复时启用下面这行并移除 memoryOnly 返回。
+        // return factory.withKnowledge(ChatAgentIds.STANDARD_CHAT, knowledgeRetrievalAugmentor);
+        return factory.memoryOnly(ChatAgentIds.STANDARD_CHAT);
     }
 
     /** enabled=true 且 URL/API key/contract 不完整时启动 fail-fast。 */

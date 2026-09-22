@@ -16,6 +16,7 @@ import com.h.backend.voice.application.VoiceTurnModule;
 import com.h.backend.voice.domain.VoiceCall;
 import com.h.backend.voice.domain.VoiceTurn;
 import com.h.backend.voice.infrastructure.HarnessVoiceReply;
+import com.h.backend.voice.infrastructure.HAssistantVoiceReply;
 import com.h.backend.voice.infrastructure.VoiceProperties;
 import com.h.backend.voice.infrastructure.VoiceStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,7 @@ class VoiceTurnModuleStep4Test {
     private ObjectProvider<VoiceCallModule> calls;
     private ObjectProvider<HarnessVoiceReply> harnessReplyProvider;
     private ObjectProvider<AgentRegistry> agentRegistryProvider;
+    private ObjectProvider<HAssistantVoiceReply> hAssistantReplyProvider;
     private VoiceTurnModule module;
 
     @BeforeEach
@@ -60,9 +62,10 @@ class VoiceTurnModuleStep4Test {
         calls = mock(ObjectProvider.class);
         harnessReplyProvider = mock(ObjectProvider.class);
         agentRegistryProvider = mock(ObjectProvider.class);
+        hAssistantReplyProvider = mock(ObjectProvider.class);
 
         module = new VoiceTurnModule(store, sessions, runs, memory, model, config, calls,
-                harnessReplyProvider, agentRegistryProvider);
+                harnessReplyProvider, agentRegistryProvider, hAssistantReplyProvider);
 
         when(model.supports(anyString())).thenReturn(true);
         when(model.modelName()).thenReturn("test-model");
@@ -109,6 +112,79 @@ class VoiceTurnModuleStep4Test {
     }
     private void mockTurnCreated() {
         when(store.turn("call-1", OPENING_ID)).thenReturn(null, openingTurnView());
+    }
+
+    @Test
+    void browserVoiceUsesHAssistantAndKeepsTheActualSessionIdentity() {
+        var call = activePhoneCall("standard-chat");
+        call.setChannel("BROWSER");
+        when(store.get("call-1")).thenReturn(call);
+        mockLocked(call);
+        String turnId = UUID.randomUUID().toString();
+        var saved = new AtomicReference<VoiceTurn>();
+        when(store.turn("call-1", turnId)).thenAnswer(inv -> saved.get());
+        doAnswer(inv -> { saved.set(inv.getArgument(0)); return null; }).when(store).insert(any(VoiceTurn.class));
+        when(sessions.appendUserMessage(1L, "sess-1", "接着聊", List.of())).thenReturn(9L);
+        when(runs.createRun("sess-1", 1L, 1L, 9L, "standard-chat", null))
+                .thenReturn(new AgentRunService.AgentRunHandle(42L));
+        var assistant = mock(HAssistantVoiceReply.class);
+        var execution = mock(VoiceReply.Execution.class);
+        when(hAssistantReplyProvider.getIfAvailable()).thenReturn(assistant);
+        when(assistant.prepare(any(VoiceReplyContext.class), any(), any())).thenReturn(execution);
+
+        module.submit("call-1", 1, turnId, "接着聊");
+
+        verify(assistant).prepare(argThat((VoiceReplyContext ctx) ->
+                ctx.sessionId().equals("sess-1") && ctx.runId().equals(42L)
+                        && ctx.userMessageId().equals(9L) && ctx.agentId().equals("standard-chat")), any(), any());
+        verify(execution).start();
+        verify(model, never()).prepare(any(VoiceReplyContext.class), any(), any());
+        assertNotNull(saved.get().getMemoryCheckpoint());
+    }
+
+    @Test
+    void browserSettlementPreservesToolContextAndOnlyPlayedTextAcrossRetries() {
+        var call = activePhoneCall("standard-chat");
+        call.setChannel("BROWSER");
+        call.setContextDirty(true);
+        mockLocked(call);
+        var user = dev.langchain4j.data.message.UserMessage.from("查订单");
+        var tool = dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
+                .id("lookup-1").name("lookup").arguments("{}").build();
+        var checkpoint = List.<dev.langchain4j.data.message.ChatMessage>of(user,
+                dev.langchain4j.data.message.AiMessage.from(tool),
+                dev.langchain4j.data.message.ToolExecutionResultMessage.from(tool, "已发货"));
+        var turn = new VoiceTurn();
+        turn.setState("COMMITTED");
+        turn.setMemoryCheckpoint(dev.langchain4j.data.message.ChatMessageSerializer.messagesToJson(checkpoint));
+        turn.setGeneratedText("订单已发货，明天到达");
+        turn.setPlayedChars(5);
+        turn.setPlayoutState("INTERRUPTED");
+        when(store.latestTurn("call-1")).thenReturn(turn);
+
+        module.syncContext("call-1");
+        // Simulate the DB dirty-bit transaction failing after the memory cache write.
+        call.setContextDirty(true);
+        module.syncContext("call-1");
+
+        var expected = new java.util.ArrayList<>(checkpoint);
+        expected.add(dev.langchain4j.data.message.AiMessage.from("订单已发货\n（语音回复已中断，以上为播放进度估计）"));
+        verify(memory, times(2)).cacheMemory(any(), eq(expected));
+        verify(sessions, never()).getSessionMessages(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void contextRepairCannotReplaceMemoryWhileAgentIsStillRunning() {
+        var call = activePhoneCall("standard-chat");
+        call.setChannel("BROWSER");
+        call.setContextDirty(true);
+        mockLocked(call);
+        when(store.openTurn("call-1")).thenReturn(new VoiceTurn());
+
+        module.syncContext("call-1");
+
+        verifyNoInteractions(memory);
+        assertTrue(call.isContextDirty());
     }
 
     // ── 开场轮次使用固定幂等身份 ──

@@ -12,6 +12,7 @@ public class VoiceTurn {
     private Long assistantMessageId;
     private String utteranceId;
     private String userText;
+    private String memoryCheckpoint;
     private String generatedText = "";
     private String generationState = "ACCEPTED";
     private String playoutState = "NOT_STARTED";
