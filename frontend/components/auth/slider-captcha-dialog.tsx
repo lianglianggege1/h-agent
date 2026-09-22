@@ -24,8 +24,8 @@ export type SliderCaptchaDialogProps = {
 };
 
 const CAPTCHA_STYLE: TacStyle = {
-  moveTrackMaskBgColor: "#fde68a",
-  moveTrackMaskBorderColor: "#d97706",
+  moveTrackMaskBgColor: "#dbeafe",
+  moveTrackMaskBorderColor: "#3b82f6",
 };
 
 export function SliderCaptchaDialog(props: SliderCaptchaDialogProps) {

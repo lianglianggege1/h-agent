@@ -43,3 +43,64 @@ body {
     zoom: 0.86;
   }
 }
+
+/*
+ * tianai-captcha 滑条视觉覆写
+ * 手柄宽度 63px 是 tac.min.js 拖拽范围计算的硬编码基准，不可修改。
+ * 仅做视觉层圆角、纹理、颜色覆写，不触碰尺寸和定位逻辑。
+ */
+
+/* — 滑动轨道：胶囊化 — */
+.h-slider-captcha-widget .slider-move-track {
+  border-radius: 999px !important;
+  border: 1px solid #e4e4e7 !important;
+  background: #f4f4f5 !important;
+}
+
+/* — 滑动遮罩：跟随胶囊圆角 — */
+.h-slider-captcha-widget #tianai-captcha-slider-move-track-mask {
+  border-radius: 999px !important;
+}
+
+/* — 滑块手柄：圆角胶囊 + 清除SDK内联背景图 + 阴影 — */
+.h-slider-captcha-widget .slider-move-btn {
+  border-radius: 28px !important;
+  background-image: none !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16) !important;
+  border: 1px solid #e4e4e7 !important;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease !important;
+}
+
+.h-slider-captcha-widget .slider-move-btn:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22) !important;
+}
+
+.h-slider-captcha-widget .slider-move-btn:active {
+  cursor: grabbing !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* — 抓握纹理：三条蓝色竖线，用伪元素叠加在手柄中心 — */
+.h-slider-captcha-widget .slider-move-btn::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 14px !important;
+  height: 16px !important;
+  background-image: linear-gradient(
+    to right,
+    #3b82f6 0, #3b82f6 2px,
+    transparent 2px, transparent 6px,
+    #3b82f6 6px, #3b82f6 8px,
+    transparent 8px, transparent 12px,
+    #3b82f6 12px, #3b82f6 14px
+  ) !important;
+  pointer-events: none !important;
+}
+
+/* — 轨道提示文字：颜色微调 — */
+.h-slider-captcha-widget .slider-move {
+  color: #a1a1aa !important;
+}
