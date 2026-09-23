@@ -32,3 +32,13 @@ Java 测试使用 GraalVM JDK 21 和 `-Djava.version=21 -Dmaven.compiler.release
 - [ ] 浏览器语音和普通文字聊天回归。
 
 在以上项目完成并记录环境、协议样例和实际时间数据之前，保持 `OUTBOUND_ENABLED=false`。
+
+## 2026-09-23 下行无声修复进展
+
+已补齐旧版 `mod_audio_fork` 的 `playAudio` JSON 与 ESL 回放适配。
+隔离的 `drachtio/drachtio-freeswitch-mrf:v1.10.1-full` 测试环境中，真实 SIP/RTP 探针
+重现了旧 binary 下行的零音频，并确认新链路输出 50 个有声 RTP 包，插话停止、下一轮
+恢复均通过。详见 [修复验证记录](2026-09-23-outbound-playback-fix.md)。
+
+这不替代上述清单：目标 `0.9.6` 镜像、真实软电话听音、三轮 ASR/Agent/TTS 对话与
+完整故障恢复仍待目标环境复验。本次未修改 `.env` 的验收标记。

@@ -1,8 +1,8 @@
 services:
   freeswitch:
-    # 仅供 SIP、ESL 和上行音频候选验证。该归档镜像中的旧版
-    # mod_audio_fork 不会把 WebSocket 返回的 raw 音频直接播放给通话方，
-    # 因而不能作为生产双向媒体制品。
+    # 旧版 mod_audio_fork 的下行必须使用 playAudio JSON + ESL 播放桥。
+    # Python phone-worker 已实现落盘事件 -> uuid_broadcast -> PLAYBACK_STOP；
+    # 不能直接发送 binary PCM，也不能省略 worker 的 FS_ESL_* 配置。
     image: drachtio/drachtio-freeswitch-mrf:0.9.6
     container_name: freeswitch
     restart: unless-stopped

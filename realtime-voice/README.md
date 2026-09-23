@@ -35,3 +35,16 @@ seconds). This can delay the next utterance when an interrupted tool/model is sl
 
 Deploy the backend with Flyway migration
 `V20260922_01__add_voice_memory_checkpoint.sql` and restart the browser voice worker.
+
+## Phone downlink with legacy mod_audio_fork
+
+The phone worker sends base64 PCM16LE in `playAudio` JSON. It subscribes to
+call-scoped ESL file events, plays each file using `uuid_broadcast ... aleg`, and
+settles the Java turn only after matching `PLAYBACK_STOP` events. `FS_ESL_*` must
+point to the same FreeSWITCH as Java; preparation fails if ESL cannot be subscribed.
+Audio chunks are bounded to 400 ms and backpressured. Interruption cancels the
+producer and clears playback with `uuid_break ... all`. Browser LiveKit I/O is unchanged.
+
+Run `uv run pytest tests` for the protocol regressions. The headless real SIP/RTP
+probe is `scripts/verify_freeswitch_rtp.py`; see
+[verification and deployment instructions](../docs/verification/2026-09-23-outbound-playback-fix.md).

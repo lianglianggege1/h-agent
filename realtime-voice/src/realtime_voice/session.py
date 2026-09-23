@@ -116,6 +116,10 @@ class VoiceSession:
                 turn, result.status, result.played_chars, result.confidence
             )
         except asyncio.CancelledError:
+            # Cancel TTS delivery before any control-plane I/O can block interruption.
+            if not audio_task.cancelling():
+                audio_task.cancel()
+            await asyncio.gather(audio_task, return_exceptions=True)
             await self.control.request("POST", f"/turns/{turn.id}/interrupt")
             await self._settle(turn, "INTERRUPTED", 0, "UNKNOWN")
             raise

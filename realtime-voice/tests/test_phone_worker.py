@@ -1,5 +1,4 @@
 import asyncio
-import json
 import time
 from unittest.mock import AsyncMock
 
@@ -52,38 +51,11 @@ async def test_audio_input_queue_is_bounded_and_keeps_latest_frames():
 
 
 @pytest.mark.asyncio
-async def test_stop_playback_uses_audio_fork_kill_message():
-    transport = FreeswitchIO("call-1")
-    socket = AsyncMock()
-    socket.closed = False
-    transport._socket = socket
-
+async def test_stop_playback_uses_esl_bridge():
+    playback = AsyncMock()
+    transport = FreeswitchIO("call-1", playback=playback)
     await transport.stop_playback()
-
-    socket.send_json.assert_awaited_once_with({"type": "killAudio"})
-
-
-@pytest.mark.asyncio
-async def test_playout_ack_is_correlated_to_the_java_turn_id():
-    transport = FreeswitchIO("call-1")
-    socket = AsyncMock()
-    socket.closed = False
-    transport._socket = socket
-
-    waiter = asyncio.create_task(transport.wait_playout("java-turn", timeout=0.2))
-    await asyncio.sleep(0)
-    transport._accept_control(json.dumps({
-        "type": "playback",
-        "turnId": "java-turn",
-        "status": "COMPLETED",
-        "playedChars": 4,
-        "confidence": "ALIGNED",
-    }))
-
-    result = await waiter
-    assert result.turn_id == "java-turn"
-    assert result.status == "COMPLETED"
-    assert result.played_chars == 4
+    playback.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -215,3 +187,29 @@ async def test_prepare_returns_only_after_worker_dependencies_are_ready():
     assert response.status == 200
     assert body["status"] == "ready"
     assert time.monotonic() - started >= 0.03
+
+
+@pytest.mark.asyncio
+async def test_prepare_fails_before_dialing_when_playback_events_cannot_be_subscribed(monkeypatch):
+    from realtime_voice import phone_worker
+
+    control, session, esl = AsyncMock(), AsyncMock(), AsyncMock()
+    esl.ready = False
+    esl.start.side_effect = ConnectionError("ESL unreachable")
+    monkeypatch.setattr(phone_worker, "Control", lambda *_args: control)
+    monkeypatch.setattr(phone_worker, "VoiceSession", lambda *_args: session)
+    monkeypatch.setattr(phone_worker, "PlaybackEsl", lambda *_args: esl)
+    worker = PhoneWorkerApp(settings())
+    client = TestClient(TestServer(worker.app))
+    await client.start_server()
+    try:
+        response = await client.post("/prepare", headers={"Authorization": f"Bearer {'x' * 32}"}, json={
+            "callId": "400bd6aa-c07a-40bc-926c-cc1f9230990e", "extension": "1000",
+            "agentId": "harness", "claimSecret": "claim-secret", "sessionId": "session-1",
+        })
+        assert response.status == 503
+        session.start_asr.assert_not_awaited()
+        control.notify_ready.assert_not_awaited()
+    finally:
+        await worker.stop()
+        await client.close()

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass, field
 
 from aiohttp import WSMsgType, web
+
+from realtime_voice.freeswitch_playback import AudioForkPlayback, PlayoutResult
 
 logger = logging.getLogger("realtime_voice.freeswitch_io")
 
@@ -20,19 +21,12 @@ class AudioFrame:
     sample_rate: int = SAMPLE_RATE
 
 
-@dataclass(frozen=True)
-class PlayoutResult:
-    turn_id: str
-    status: str
-    played_chars: int
-    confidence: str
-
-
 @dataclass
 class FreeswitchIO:
     """Owns one authenticated-by-call-id media connection and its bounded input queue."""
 
     call_id: str
+    playback: AudioForkPlayback | None = None
     _audio_queue: asyncio.Queue[AudioFrame | None] = field(
         default_factory=lambda: asyncio.Queue(maxsize=MAX_QUEUE_FRAMES)
     )
@@ -40,7 +34,6 @@ class FreeswitchIO:
     _connected: asyncio.Event = field(default_factory=asyncio.Event)
     _closed: bool = False
     _frame_count: int = 0
-    _playout_waiters: dict[str, asyncio.Future[PlayoutResult]] = field(default_factory=dict)
 
     async def serve(self, request: web.Request) -> web.WebSocketResponse:
         if self._socket is not None and not self._socket.closed:
@@ -59,8 +52,6 @@ class FreeswitchIO:
                 if message.type is WSMsgType.BINARY:
                     self._frame_count += 1
                     self._offer_audio(AudioFrame(bytes(message.data)))
-                elif message.type is WSMsgType.TEXT:
-                    self._accept_control(message.data)
                 elif message.type is WSMsgType.ERROR:
                     raise socket.exception() or RuntimeError("media websocket failed")
         finally:
@@ -92,82 +83,41 @@ class FreeswitchIO:
     async def read_audio(self) -> AudioFrame | None:
         return await self._audio_queue.get()
 
-    async def send_audio(self, pcm: bytes) -> None:
+    def _playback_socket(self):
         socket = self._socket
-        if socket is None or socket.closed or self._closed:
-            raise ConnectionError("FreeSWITCH media is not connected")
-        await socket.send_bytes(pcm)
+        if socket is None or socket.closed or self._closed or self.playback is None:
+            raise ConnectionError("FreeSWITCH playback is not connected")
+        return socket
+
+    async def send_audio(self, pcm: bytes) -> None:
+        socket = self._playback_socket()
+        await self.playback.send_audio(pcm, socket.send_json)
 
     async def finish_playback(
         self, turn_id: str, generated_chars: int, timeout: float = 10.0
     ) -> PlayoutResult:
-        socket = self._socket
-        if socket is None or socket.closed or self._closed:
-            raise ConnectionError("FreeSWITCH media is not connected")
-        waiter = self._playout_waiters.get(turn_id)
-        if waiter is None or waiter.done():
-            waiter = asyncio.get_running_loop().create_future()
-            self._playout_waiters[turn_id] = waiter
-        await socket.send_json({
-            "type": "endPlayback",
-            "turnId": turn_id,
-            "generatedChars": generated_chars,
-        })
-        return await self.wait_playout(turn_id, timeout)
-
-    async def wait_playout(self, turn_id: str, timeout: float) -> PlayoutResult:
-        waiter = self._playout_waiters.get(turn_id)
-        if waiter is None or waiter.done():
-            waiter = asyncio.get_running_loop().create_future()
-            self._playout_waiters[turn_id] = waiter
-        try:
-            return await asyncio.wait_for(asyncio.shield(waiter), timeout)
-        except TimeoutError:
-            return PlayoutResult(turn_id, "UNKNOWN", 0, "UNKNOWN")
-        finally:
-            self._playout_waiters.pop(turn_id, None)
-
-    def _accept_control(self, raw: str) -> None:
-        try:
-            message = json.loads(raw)
-            if message.get("type") != "playback":
-                return
-            turn_id = str(message["turnId"])
-            status = str(message["status"])
-            confidence = str(message.get("confidence", "UNKNOWN"))
-            played_chars = int(message.get("playedChars", 0))
-            if status not in {"COMPLETED", "INTERRUPTED", "UNKNOWN"}:
-                raise ValueError("invalid playout status")
-            if confidence not in {"ALIGNED", "ESTIMATED", "UNKNOWN"} or played_chars < 0:
-                raise ValueError("invalid playout result")
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            logger.warning("[FS-IO] ignored invalid media control call=%s", self.call_id)
-            return
-        waiter = self._playout_waiters.get(turn_id)
-        if waiter is not None and not waiter.done():
-            waiter.set_result(PlayoutResult(turn_id, status, played_chars, confidence))
+        socket = self._playback_socket()
+        return await self.playback.finish(turn_id, generated_chars, socket.send_json, timeout)
 
     async def stop_playback(self) -> None:
-        """Tell the selected media module to drop queued outbound audio."""
-        socket = self._socket
-        if socket is not None and not socket.closed:
-            await socket.send_json({"type": "killAudio"})
+        if self.playback is not None:
+            await self.playback.stop()
 
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        if self.playback is not None:
+            await self.playback.close()
         socket = self._socket
         if socket is not None and not socket.closed:
             await socket.close(code=1000, message=b"call ended")
-        for turn_id, waiter in list(self._playout_waiters.items()):
-            if not waiter.done():
-                waiter.set_result(PlayoutResult(turn_id, "UNKNOWN", 0, "UNKNOWN"))
         self._offer_end()
 
     @property
     def connected(self) -> bool:
-        return self._socket is not None and not self._socket.closed
+        return (self._socket is not None and not self._socket.closed
+                and self.playback is not None and self.playback.ready)
 
     @property
     def frame_count(self) -> int:

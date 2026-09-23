@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from realtime_voice.control import Control
 from realtime_voice.freeswitch_io import FreeswitchIO
+from realtime_voice.freeswitch_playback import AudioForkPlayback, PlaybackEsl
 from realtime_voice.session import Turn, VoiceSession
 from realtime_voice.settings import Settings
 
@@ -113,7 +114,9 @@ class PhoneWorkerApp:
             session_id=body["sessionId"],
             prompt_id=body.get("promptId"),
             communication_goal=body.get("communicationGoal", ""),
-            fs_io=FreeswitchIO(call_id),
+            fs_io=FreeswitchIO(call_id, playback=AudioForkPlayback(call_id, PlaybackEsl(
+                self.settings.fs_esl_host, self.settings.fs_esl_port, self.settings.fs_esl_password,
+            ))),
         )
         self._sessions[call_id] = ctx
         ctx.task = asyncio.create_task(self._run_call(ctx), name=f"phone-call-{call_id}")
@@ -163,10 +166,13 @@ class PhoneWorkerApp:
             async def on_final(text: str) -> None:
                 asyncio.create_task(self._handle_transcript(ctx, text))
 
+            await ctx.fs_io.playback.start()
             await ctx.session.start_asr(on_final)
             ctx.heartbeat = asyncio.create_task(self._keep_lease(ctx))
             ctx.prepared.set()
             await ctx.fs_io.wait_connected(timeout=60)
+            if not ctx.fs_io.connected:
+                raise ConnectionError("FreeSWITCH playback is unavailable")
             await control.notify_answered()
             await control.notify_ready(ready=True)
             ctx.audio_pump = asyncio.create_task(self._pump_input(ctx))
@@ -178,6 +184,7 @@ class PhoneWorkerApp:
                 ),
                 name=f"opening-{ctx.call_id}",
             )
+            ctx.reply_task.add_done_callback(lambda task: self._reply_finished(ctx, task))
             await ctx.finished.wait()
         except TimeoutError:
             logger.warning("[phone-worker] media connection timeout call=%s", ctx.call_id)
@@ -198,9 +205,18 @@ class PhoneWorkerApp:
             await control.close()
             self._sessions.pop(ctx.call_id, None)
 
+    def _reply_finished(self, ctx: PhoneCallContext, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("[phone-worker] reply failed call=%s", ctx.call_id,
+                         exc_info=task.exception())
+            ctx.finished.set()
+
     async def _keep_lease(self, ctx: PhoneCallContext) -> None:
         assert ctx.control is not None
         while not ctx.finished.is_set():
+            if ctx.prepared.is_set() and not ctx.fs_io.playback.ready:
+                ctx.finished.set()
+                return
             state = await ctx.control.notify_ready(ready=ctx.fs_io.connected)
             if state.get("state") in {"ENDING", "ENDED", "FAILED"}:
                 ctx.finished.set()
@@ -219,8 +235,14 @@ class PhoneWorkerApp:
     async def _handle_transcript(self, ctx: PhoneCallContext, text: str) -> None:
         assert ctx.control is not None and ctx.session is not None
         async with ctx.turn_lock:
+            if ctx.cleaned or ctx.finished.is_set():
+                return
+            # Stop the producer first; otherwise it can refill playback after break.
+            if ctx.reply_task is not None and not ctx.reply_task.done():
+                ctx.reply_task.cancel()
             await ctx.fs_io.stop_playback()
-            await ctx.session.interrupt_reply()
+            if ctx.reply_task is not None:
+                await asyncio.gather(ctx.reply_task, return_exceptions=True)
             turn = ctx.session.begin_turn(str(uuid.uuid4()))
             turn.accepted = await ctx.control.submit_text(turn.id, text)
             ctx.reply_task = asyncio.create_task(
@@ -229,6 +251,7 @@ class PhoneWorkerApp:
                 ),
                 name=f"phone-turn-{turn.id}",
             )
+            ctx.reply_task.add_done_callback(lambda task: self._reply_finished(ctx, task))
 
     async def start(self) -> None:
         self._runner = web.AppRunner(self.app)

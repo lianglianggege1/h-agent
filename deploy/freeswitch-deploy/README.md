@@ -1,32 +1,26 @@
 # FreeSWITCH 候选验证环境
 
-此目录用于验证外呼的 SIP、RTP、ESL 和上行音频链路，不能作为已经通过验收的
-生产双向媒体环境。默认镜像是已归档的
-`drachtio/drachtio-freeswitch-mrf:0.9.6`，其中的旧版 `mod_audio_fork` 可以把
-通话音频发送到 WebSocket，但 WebSocket 返回的 raw 音频只会落临时文件并发出事件，
-不会自动播放给通话方。因此它不满足实施计划要求的实时回灌、插话清队列和播放完成确认。
+此目录提供外呼的 SIP、RTP、ESL 与 `mod_audio_fork` 环境。默认镜像仍为
+`drachtio/drachtio-freeswitch-mrf:0.9.6`。Python phone-worker 已补齐旧模块的下行适配：
 
-上游依据：
+1. worker 将 16 kHz、单声道、PCM16LE 音频以 `playAudio` JSON（base64）发给模块；
+2. 模块写入临时 `.r16` 文件，发出 `mod_audio_fork::play_audio` ESL 事件；
+3. worker 根据本通话、当前音频块的事件，通过 `uuid_broadcast ... aleg` 回放文件；
+4. 等待同一文件的 `PLAYBACK_STOP`，再发送下一块，最终关联到 Java turn；
+5. 插话取消发送中的音频，再执行 `uuid_break ... all`；迟到的旧块事件不会重新播放。
 
-- [drachtio FreeSWITCH 镜像](https://github.com/drachtio/docker-drachtio-freeswitch-mrf)
-- [旧版 mod_audio_fork 协议](https://github.com/mdslaney/drachtio-freeswitch-modules/tree/main/modules/mod_audio_fork)
+每块最多 400 ms，采用背压，不在 FreeSWITCH 中预排长播放列表。临时文件由模块在
+通话结束时删除。无需共享文件卷，也无需更换媒体模块；worker 必须能访问该
+FreeSWITCH 的 ESL，且 `FS_ESL_HOST/PORT/PASSWORD` 必须与 Java 指向同一实例。
 
-在选定一个许可清楚、版本固定且真实通话验收通过的双向媒体制品前，保持
-`OUTBOUND_ENABLED=false`。
+旧模块仍然不会自动播放 WebSocket 音频：binary 帧被丢弃，`playAudio` JSON 只负责
+落盘和发事件。不要绕过 Python 的 ESL 播放桥。
+[上游协议](https://github.com/mdslaney/drachtio-freeswitch-modules/blob/main/modules/mod_audio_fork/README.md)。
 
-## 能验证的范围
-
-- 两个软电话分机能注册并互拨；
-- Java 能通过 ESL 发起、查询和挂断通话；
-- `mod_audio_fork` 能以 `audio.drachtio.org` 子协议连接 WebSocket；
-- 客户的 L16 mono 16 kHz 音频能到达探针。
-
-以下结果仍需要目标双向模块和真实软电话证明：
-
-- Python 的 PCM 被软电话实际播放；
-- 插话会立刻清空远端播放队列，旧音频不会恢复；
-- 播放完成或中断事件可以关联到一个 utterance；
-- 模块来源、版本和许可可以固定并复现。
+自动化 SIP/RTP 探针已在本机缓存的 `v1.10.1-full` 旧模块镜像验证收音、回放和插话。
+默认 `0.9.6` 与目标软电话仍须按
+[`outbound-softphone-acceptance.md`](../../docs/verification/outbound-softphone-acceptance.md)
+验收，不能据此将 `OUTBOUND_MEDIA_VERIFIED` 标记为已验收。
 
 ## 启动
 
@@ -58,7 +52,7 @@ docker exec freeswitch fs_cli -x "sofia status profile internal reg"
 
 让两个软电话分别注册 1000、1001，再完成一次人工互拨，确认 SIP 和 RTP 基础链路。
 
-## 候选探针
+## 旧链路诊断探针
 
 探针会拨打 1000，启动如下命令，并记录 WebSocket 可观测事实：
 
@@ -74,6 +68,13 @@ docker compose --profile probe run --rm probe
 
 探针打印 `Python 已写出 PCM: OBSERVED` 只表示字节已经写到 WebSocket。它不会把该
 结果算作软电话播放成功，也不会把 `uuid_audio_fork stop` 算作插话清队列成功。
+
+## 双向 RTP 回归探针
+
+新探针直接调用与 worker 相同的播放适配器，自动应答自己的测试 SIP 端点，检查
+接收端真实 RTP 是否含音频，并验证插话后旧音频不恢复。它不拨打用户分机，也不需要
+Java、ASR 或 TTS 服务。运行方式和已验证镜像见
+[修复验证记录](../../docs/verification/2026-09-23-outbound-playback-fix.md)。
 
 ## 配置文件
 
