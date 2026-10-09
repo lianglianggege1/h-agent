@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
@@ -19,6 +20,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class FreeswitchDialingProviderTest {
+
+    @Test
+    void originateTargetsTheRegisteredUserEndpoint() {
+        FreeswitchEslClient esl = spy(new FreeswitchEslClient("127.0.0.1", 8021, "secret"));
+        doReturn(new FreeswitchEslClient.EslResponse("+OK"))
+                .when(esl).sendBgApi(anyString(), anyString());
+
+        esl.originate("call-1", "1000", "127.0.0.1", "ws://media");
+
+        verify(esl).sendBgApi("originate",
+                "{origination_uuid=call-1,ignore_early_media=true}user/1000@127.0.0.1 &park()");
+    }
 
     @Test
     void audioForkUsesSymbolicSampleRateAndMetadataArgument() {

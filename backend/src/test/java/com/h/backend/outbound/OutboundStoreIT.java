@@ -49,6 +49,19 @@ class OutboundStoreIT {
         assertTrue(contacts.getFirst().isDnc(), "DNC should not be removed by re-import");
     }
 
+    // ── 解除禁呼 ──
+
+    @Test
+    void clearDnc_removesDncFlag() {
+        store.importContacts(USER_A, List.of(contact("1500", "a")));
+        Long contactId = store.listContacts(USER_A, 1, 10).getFirst().getId();
+        store.markDnc(USER_A, contactId);
+        assertTrue(store.listContacts(USER_A, 1, 10).getFirst().isDnc());
+
+        store.clearDnc(USER_A, contactId);
+        assertFalse(store.listContacts(USER_A, 1, 10).getFirst().isDnc());
+    }
+
     // ── (user_id, phone) 唯一约束 ──
 
     @Test

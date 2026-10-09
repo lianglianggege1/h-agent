@@ -78,7 +78,7 @@ public class FreeswitchEslClient {
 
     public EslResponse originate(String uuid, String extension, String domain, String wsUrl) {
         String arg = "{origination_uuid=" + uuid + ",ignore_early_media=true}" +
-                "sofia/internal/" + extension + "@" + domain + " &park()";
+                "user/" + extension + "@" + domain + " &park()";
         return sendBgApi("originate", arg);
     }
 
