@@ -45,6 +45,14 @@ public class OutboundController {
         return ApiResponse.ok(Map.of("status", "dnc"));
     }
 
+    @DeleteMapping("/contacts/{id}/dnc")
+    public ApiResponse<Map<String, String>> clearDnc(
+            @AuthenticationPrincipal AuthUserPrincipal user,
+            @PathVariable Long id) {
+        outbound.clearDnc(user.userId(), id);
+        return ApiResponse.ok(Map.of("status", "active"));
+    }
+
     // ── Tasks ──
 
     public record CreateTaskRequest(

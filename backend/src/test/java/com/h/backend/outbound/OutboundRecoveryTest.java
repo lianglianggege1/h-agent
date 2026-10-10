@@ -6,6 +6,7 @@ import com.h.backend.outbound.domain.Task;
 import com.h.backend.outbound.infrastructure.OutboundProperties;
 import com.h.backend.outbound.infrastructure.OutboundStore;
 import com.h.backend.outbound.infrastructure.DialingProvider;
+import com.h.backend.outbound.infrastructure.FreeswitchDialingProvider;
 import com.h.backend.outbound.infrastructure.PhoneWorkerClient;
 import com.h.backend.voice.application.VoiceCallModule;
 import com.h.backend.voice.domain.VoiceCall;
@@ -405,5 +406,31 @@ class OutboundRecoveryTest {
         assertTrue(call.isRemoteEnded());
         assertEquals("PAUSED", task.getStatus());
         verify(voiceCalls).end("voice-1", "DIAL_FAILED");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void remoteHangupPreservesTheFreeswitchCause() {
+        VoiceCallModule voiceCalls = mock(VoiceCallModule.class);
+        VoiceStore voiceStore = mock(VoiceStore.class);
+        ObjectProvider<PhoneWorkerClient> workerProvider = mock(ObjectProvider.class);
+        ObjectProvider<DialingProvider> dialingProvider = mock(ObjectProvider.class);
+        ObjectProvider<com.h.backend.chat.domain.agent.AgentRegistry> registryProvider = mock(ObjectProvider.class);
+        Environment environment = mock(Environment.class);
+        module = new OutboundModule(store, properties, voiceCalls, voiceStore,
+                workerProvider, dialingProvider, registryProvider, environment);
+
+        Call call = new Call();
+        call.setId(1L);
+        call.setVoiceCallId("voice-1");
+        call.setStage("DIALING");
+        when(store.findByVoiceCallId("voice-1")).thenReturn(call);
+        mockLockedCall(call);
+
+        module.onFreeswitchFact(new FreeswitchDialingProvider.CallFact(
+                "voice-1", "HUNG_UP", "NORMAL_TEMPORARY_FAILURE"));
+
+        verify(voiceCalls).end("voice-1", "NORMAL_TEMPORARY_FAILURE");
+        assertEquals("NORMAL_TEMPORARY_FAILURE", call.getReason());
     }
 }

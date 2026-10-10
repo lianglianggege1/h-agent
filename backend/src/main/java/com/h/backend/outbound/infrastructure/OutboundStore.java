@@ -61,6 +61,11 @@ public class OutboundStore {
         if (rows == 0) throw new BusinessException(40404, "联系人不存在");
     }
 
+    public void clearDnc(Long userId, Long contactId) {
+        int rows = jdbc.update("UPDATE outbound_contacts SET dnc=false WHERE id=? AND user_id=?", contactId, userId);
+        if (rows == 0) throw new BusinessException(40404, "联系人不存在");
+    }
+
     public List<Contact> listContacts(Long userId, int page, int size) {
         int offset = Math.max(0, (page - 1) * size);
         return jdbc.query("SELECT * FROM outbound_contacts WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?",

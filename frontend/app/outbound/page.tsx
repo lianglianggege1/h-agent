@@ -20,6 +20,7 @@ import {
   listContacts,
   listOutboundTasks,
   listPhoneAgents,
+  clearContactDnc,
   markContactDnc,
   parseContactRows,
   reconcileOutboundCall,
@@ -142,6 +143,20 @@ export default function OutboundPage() {
       setSelectedContacts((current) => current.filter((id) => id !== contact.id));
     } catch (updateError) {
       setError(errorText(updateError, "禁呼更新失败"));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleClearDnc(contact: OutboundContact) {
+    if (!window.confirm(`解除 ${contact.phone} 的禁呼？`)) return;
+    setBusy(`dnc-${contact.id}`);
+    setError("");
+    try {
+      await clearContactDnc(contact.id);
+      setContacts((current) => current.map((item) => item.id === contact.id ? { ...item, dnc: false } : item));
+    } catch (updateError) {
+      setError(errorText(updateError, "解除禁呼失败"));
     } finally {
       setBusy("");
     }
@@ -271,7 +286,13 @@ export default function OutboundPage() {
                       <p className="font-semibold">{contact.phone} <span className="font-normal text-stone-500">{contact.name}</span></p>
                       <p className="mt-1 break-words text-xs text-stone-400">{contact.consentBasis}</p>
                     </div>
-                    {contact.dnc ? <Badge value="STOPPED" label="禁呼" /> : (
+                    {contact.dnc ? (
+                      <span className="flex items-center gap-2">
+                        <Badge value="STOPPED" label="禁呼" />
+                        <button type="button" disabled={busy === `dnc-${contact.id}`} onClick={() => void handleClearDnc(contact)}
+                          className="text-xs font-semibold text-emerald-600 disabled:opacity-50">解除</button>
+                      </span>
+                    ) : (
                       <button type="button" disabled={busy === `dnc-${contact.id}`} onClick={() => void handleDnc(contact)}
                         className="text-xs font-semibold text-red-600 disabled:opacity-50">标记禁呼</button>
                     )}

@@ -85,6 +85,10 @@ export function markContactDnc(id: number) {
   return apiFetch<{ status: string }>(`/api/outbound/contacts/${id}/dnc`, { method: "PUT" });
 }
 
+export function clearContactDnc(id: number) {
+  return apiFetch<{ status: string }>(`/api/outbound/contacts/${id}/dnc`, { method: "DELETE" });
+}
+
 export function listPhoneAgents() {
   return apiFetch<{ items: PhoneAgent[] }>("/api/outbound/agents");
 }

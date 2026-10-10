@@ -112,6 +112,10 @@ public class OutboundModule {
         store.markDnc(userId, contactId);
     }
 
+    public void clearDnc(Long userId, Long contactId) {
+        store.clearDnc(userId, contactId);
+    }
+
     public Map<String, Object> listContacts(Long userId, int page, int size) {
         int p = Math.max(1, page);
         int s = Math.min(Math.max(1, size), 100);
@@ -489,8 +493,9 @@ public class OutboundModule {
             return;
         }
         if ("HUNG_UP".equals(fact.type())) {
+            String endReason = fact.cause() == null ? "REMOTE_HANGUP" : fact.cause();
             try {
-                if (voiceCalls != null) voiceCalls.end(fact.voiceCallId(), "USER_HANGUP");
+                if (voiceCalls != null) voiceCalls.end(fact.voiceCallId(), endReason);
                 PhoneWorkerClient worker = workerProvider == null ? null : workerProvider.getIfAvailable();
                 if (worker != null) worker.cleanup(fact.voiceCallId());
             } catch (RuntimeException ex) {
@@ -501,7 +506,7 @@ public class OutboundModule {
                     current.setOriginateState("SETTLED");
                     current.setRemoteEnded(true);
                     current.setStage("ENDING");
-                    current.setReason(fact.cause() == null ? "REMOTE_HANGUP" : fact.cause());
+                    current.setReason(endReason);
                     store.updateCall(current);
                 }
                 return null;
