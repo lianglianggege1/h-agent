@@ -7,6 +7,7 @@ import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.CustomerIn
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.Emergencies;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.*;
+import com.h.backend.chat.infrastructure.ai.decision.JevDecisionNodes;
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
@@ -42,6 +43,9 @@ public class AgentConfig {
     private ChatModel chatModel;
 
     @Resource
+    private JevDecisionNodes jevDecisionNodes;
+
+    @Resource
     private AgentStepListener agentStepListener;
 
     @Resource
@@ -66,11 +70,7 @@ public class AgentConfig {
 
     @Bean
     public ExportAssistant exportAssistant() {
-        Agents.CategoryRouter categoryRouter = AgenticServices.agentBuilder(Agents.CategoryRouter.class)
-                .chatModel(chatModel)
-                .listener(platformListener())
-                .outputKey("category")
-                .build();
+        Object categoryRouter = jevDecisionNodes.categoryRouter(chatModel, platformListener());
 
         Agents.MedicalExpert medicalExpert = AgenticServices.agentBuilder(Agents.MedicalExpert.class)
                 .chatModel(chatModel)
@@ -321,11 +321,7 @@ public class AgentConfig {
                 .outputKey("story")
                 .build();
 
-        Agents.StyleScorer styleScorer = AgenticServices.agentBuilder(Agents.StyleScorer.class)
-                .chatModel(chatModel)
-                .listener(platformListener())
-                .outputKey("score")
-                .build();
+        Object styleScorer = jevDecisionNodes.styleScorer(chatModel, platformListener());
 
         UntypedAgent storyCreator = AgenticServices.sequenceBuilder()
                 .name("故事创作")

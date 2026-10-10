@@ -79,9 +79,13 @@ class EmbeddingConfigTest {
     @Test
     void contentRetrieverShouldFailClosedWhenPromptScopeIsMissing() {
         CapturingEmbeddingStore store = new CapturingEmbeddingStore();
-        EmbeddingModel model = textSegments -> Response.from(
-                textSegments.stream().map(ignored -> new Embedding(new float[]{0.1f, 0.2f})).toList()
-        );
+        EmbeddingModel model = new EmbeddingModel() {
+            @Override
+            public Response<List<Embedding>> embedAll(List<TextSegment> textSegments) {
+                return Response.from(textSegments.stream()
+                        .map(ignored -> new Embedding(new float[]{0.1f, 0.2f})).toList());
+            }
+        };
 
         ContentRetriever retriever = new EmbeddingConfig()
                 .knowledgeContentRetriever(store, model, new KnowledgeProperties());

@@ -15,7 +15,7 @@
     <description>h-agent Backend Service</description>
     <properties>
         <java.version>26</java.version>
-        <langchain4j.version>1.17.0</langchain4j.version>
+        <langchain4j.version>1.22.0</langchain4j.version>
         <lombok.version>1.18.46</lombok.version>
         <agentscope.version>2.0.2</agentscope.version>
         <xxl-job.version>3.4.1</xxl-job.version>
@@ -76,7 +76,24 @@
         </pluginRepository>
     </pluginRepositories>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-typesafe</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.xuxueli</groupId>
             <artifactId>xxl-job-core</artifactId>
@@ -221,77 +238,64 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-core</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic-patterns</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-embeddings-all-minilm-l6-v2-q -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-embeddings-bge-small-zh-v15-q</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-pgvector -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-pgvector</artifactId>
-            <version>${langchain4j.version}-beta27</version>
             <scope>compile</scope>
         </dependency>
         <!-- 文档解析：一个 parser 通吃 md/txt/doc/docx/xls/xlsx -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-document-parser-apache-tika</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-anthropic</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
 
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-agentic-a2a -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-agentic-a2a</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
 
         <!-- Source: https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-web-search-engine-tavily -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-web-search-engine-tavily</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
 
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-mcp</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
 
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-skills</artifactId>
-            <version>${langchain4j.version}-beta27</version>
         </dependency>
 
         <dependency>

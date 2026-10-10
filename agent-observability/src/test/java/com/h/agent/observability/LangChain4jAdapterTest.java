@@ -1,6 +1,14 @@
 package com.h.agent.observability;
 
 import com.h.agent.observability.langchain4j.ObservingAgentListener;
+import com.h.agent.observability.langchain4j.ObservingDecisionModelListener;
+import dev.langchain4j.model.decision.DecisionModel;
+import dev.langchain4j.model.decision.listener.DecisionModelListener;
+import dev.langchain4j.model.decision.request.DecisionRequest;
+import dev.langchain4j.model.decision.request.YesNoQuestion;
+import dev.langchain4j.model.decision.response.DecisionResponse;
+import dev.langchain4j.model.decision.response.YesNoAnswer;
+import dev.langchain4j.model.output.TokenUsage;
 import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
 import com.h.agent.observability.langchain4j.ObservingToolProvider;
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
@@ -51,6 +59,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Contract tests for the LangChain4j adapters. They replicate the framework's real
@@ -517,6 +526,65 @@ class LangChain4jAdapterTest {
                     public void onError(Throwable error) {
                     }
                 });
+    }
+
+    @Test
+    void decisionListenerParentsGenerationAndRecordsUsageAndTypedOutput() {
+        observability = create();
+        var listener = new ObservingDecisionModelListener(observability);
+        DecisionModel model = new DecisionModel() {
+            @Override
+            public List<DecisionModelListener> listeners() {
+                return List.of(listener);
+            }
+
+            @Override
+            public DecisionResponse doDecide(DecisionRequest request) {
+                return DecisionResponse.builder().answer("match", YesNoAnswer.of(0.9))
+                        .modelName("jev-test").tokenUsage(new TokenUsage(10, 2, 12)).build();
+            }
+        };
+        var root = observability.start(executionStart());
+        try (var ignored = root.scope()) {
+            var request = DecisionRequest.builder().input(Map.of("story", "hello"))
+                    .question("match", YesNoQuestion.builder().text("Does it match?").build())
+                    .build();
+            assertEquals(0.9, model.decide(request).yesNo("match").probability());
+        }
+        root.succeed(null);
+        observability.flushForTest();
+
+        SpanData generation = spanByName(exporter.getFinishedSpanItems(), "gen_ai.decision.model");
+        SpanData rootSpan = spanByName(exporter.getFinishedSpanItems(), "agent.run");
+        assertEquals(rootSpan.getSpanId(), generation.getParentSpanId());
+        assertEquals("jev-test", generation.getAttributes().get(AttributeKey.stringKey(HAttrs.GEN_AI_RESPONSE_MODEL)));
+        assertEquals(12L, generation.getAttributes().get(AttributeKey.longKey(HAttrs.GEN_AI_USAGE_TOTAL_TOKENS)));
+        assertTrue(generation.getAttributes().get(AttributeKey.stringKey(HAttrs.OUTPUT)).contains("0.9"));
+    }
+
+    @Test
+    void decisionListenerClosesErrorObservationAndPropagatesModelFailure() {
+        observability = create();
+        var listener = new ObservingDecisionModelListener(observability);
+        DecisionModel model = new DecisionModel() {
+            @Override
+            public List<DecisionModelListener> listeners() {
+                return List.of(listener);
+            }
+
+            @Override
+            public DecisionResponse doDecide(DecisionRequest request) {
+                throw new IllegalStateException("timeout");
+            }
+        };
+        var request = DecisionRequest.builder().input("hello")
+                .question("match", YesNoQuestion.builder().text("Does it match?").build()).build();
+
+        assertThrows(IllegalStateException.class, () -> model.decide(request));
+        observability.flushForTest();
+
+        SpanData generation = spanByName(exporter.getFinishedSpanItems(), "gen_ai.decision.model");
+        assertEquals("failure", generation.getAttributes().get(AttributeKey.stringKey(HAttrs.OUTCOME)));
     }
 
     private SpanData spanByName(List<SpanData> spans, String name) {

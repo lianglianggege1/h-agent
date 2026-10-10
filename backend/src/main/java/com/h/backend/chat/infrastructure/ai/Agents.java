@@ -9,6 +9,7 @@ import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import dev.langchain4j.internal.Json;
 import dev.langchain4j.invocation.InvocationParameters;
+import dev.langchain4j.model.output.structured.Description;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -22,8 +23,14 @@ import java.util.Map;
 public class Agents {
 
     public enum RequestCategory {
-        //  法律类、医疗类、技术类、未知类
-        LEGAL, MEDICAL, TECHNICAL, UNKNOWN
+        @Description("主要请求法律、合同、权利义务、诉讼或法规方面的帮助")
+        LEGAL,
+        @Description("主要请求疾病、症状、治疗、药物或健康方面的帮助")
+        MEDICAL,
+        @Description("主要请求编程、软件、硬件、网络或工程故障方面的帮助")
+        TECHNICAL,
+        @Description("请求不属于法律、医疗或技术领域，或信息不足以确定主要领域")
+        UNKNOWN
     }
 
     public interface CategoryRouter {

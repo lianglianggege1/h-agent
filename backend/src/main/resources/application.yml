@@ -74,6 +74,14 @@ human-verification:
   key-prefix: h-agent:human-verification
   subject-hmac-secret: ${CAPTCHA_SUBJECT_HMAC_SECRET:}
 
+typesafe:
+  enabled: ${TYPESAFE_ENABLED:false}
+  api-key: ${TYPESAFE_API_KEY:}
+  base-url: ${TYPESAFE_BASE_URL:https://api.typesafe.ai}
+  model-name: ${TYPESAFE_MODEL_NAME:jev-1.13.0}
+  timeout: ${TYPESAFE_TIMEOUT:2s}
+  max-retries: ${TYPESAFE_MAX_RETRIES:0}
+
 agent-observability:
   enabled: ${AGENT_OBSERVABILITY_ENABLED:auto}
   service-name: backend
