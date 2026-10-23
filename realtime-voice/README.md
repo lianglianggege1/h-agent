@@ -12,7 +12,11 @@ uv run voice-worker download-files   # pre-download the VAD weights
 uv run voice-worker dev              # = python -m livekit.agents start src/realtime_voice/worker.py --dev
 ```
 
-The script forwards to `python -m livekit.agents`; the subcommands the old rich Python CLI offered through the agent script are deprecated, so add no new callers of them.
+For outbound phone calls, set `OUTBOUND_INTERNAL_TOKEN` to the same random token
+as the Java backend (at least 32 characters), then run `uv run phone-worker`
+in a separate terminal.
+
+The `voice-worker` script forwards to `python -m livekit.agents`; the subcommands the old rich Python CLI offered through the agent script are deprecated, so add no new callers of them.
 The worker claims each dispatch with the one-time secret in its metadata. Its Java bearer token is separate from LiveKit credentials and browser room tokens. Run one Java backend instance for v1; restart recovery intentionally fails unfinished calls rather than replaying a model request.
 
 ASR final text becomes a user message only after LiveKit closes a user turn. Assistant text becomes a chat message only after playout settles. On interruption, Java stores the estimated played prefix with an interruption marker; generated but unplayed text is never inserted into shared context.
