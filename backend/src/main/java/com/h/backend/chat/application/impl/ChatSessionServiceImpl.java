@@ -781,6 +781,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             chatSessionMapper.deleteById(session.getId());
             AgentSessionEntity root = agentSessionMapper.selectBySessionId(session.getSessionId());
             if (root != null) {
+                agentSessionMapper.deleteRunsInSessionTree(root.getSessionId());
                 agentSessionMapper.deleteById(root.getId());
             }
             return;

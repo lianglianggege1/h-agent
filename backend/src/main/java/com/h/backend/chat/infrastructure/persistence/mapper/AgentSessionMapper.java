@@ -2,6 +2,7 @@ package com.h.backend.chat.infrastructure.persistence.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -40,4 +41,15 @@ public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
             RETURNING message_count
             """)
     Integer nextMessageSequence(@Param("sessionId") String sessionId);
+
+    /** 删除会话树（根 + 全部子孙）关联的 AgentRun；无消息的运行（如语音开场）不随消息级联删除，需在此显式清理。 */
+    @Delete("""
+            WITH RECURSIVE tree AS (
+                SELECT session_id FROM agent_sessions WHERE session_id = #{sessionId}
+                UNION ALL
+                SELECT s.session_id FROM agent_sessions s JOIN tree t ON s.parent_session_id = t.session_id
+            )
+            DELETE FROM agent_runs r USING tree t WHERE r.session_id = t.session_id
+            """)
+    int deleteRunsInSessionTree(@Param("sessionId") String sessionId);
 }
