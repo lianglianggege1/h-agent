@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.agent.observability.lifecycle.AgentExecutionStart;
+import com.h.agent.observability.lifecycle.ObservationScope;
 import com.h.agent.observability.semantic.ArtifactReferenceBlock;
 import com.h.agent.observability.semantic.ArtifactUse;
 import com.h.agent.observability.semantic.ContentCaptureState;
@@ -350,6 +351,7 @@ public class ChatServiceImpl implements ChatService {
         // permit 由当前准备阶段或后续 executor 任一方释放，但整个请求只能释放一次。
         AtomicBoolean permitReleased = new AtomicBoolean();
         AgentExecutionObservation observation = null;
+        ObservationScope executionScope = null;
         AgentRunService.AgentRunHandle runHandle = null;
         boolean subagentTurnStarted = false;
         String subagentExecutionId = null;
@@ -415,11 +417,6 @@ public class ChatServiceImpl implements ChatService {
                 emitIfActive(sink, new ChatStreamEvent("run_started", "", null, runHandle.id()));
             }
             String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
-            // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
-            // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
-            if (skillRuntimeService != null && !address.subagent()) {
-                skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
-            }
             observation = observability.start(new AgentExecutionStart(
                     "agent.run",
                     address.rootSessionId(),
@@ -432,6 +429,7 @@ public class ChatServiceImpl implements ChatService {
                     Map.of(),
                     agentInputContent(persistedUserMessage, userMessage)
             ));
+            executionScope = observation.scope();
             try {
                 String traceId = observation.traceId();
                 if (traceId != null) {
@@ -446,6 +444,11 @@ public class ChatServiceImpl implements ChatService {
                 // 回写失败只记录受限日志；Agent 继续执行，观测不改变业务行为。
                 log.warn("Failed to write trace id back to agent run runId={}: {}",
                         runHandle.id(), traceWriteError.getMessage());
+            }
+            // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
+            // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
+            if (skillRuntimeService != null && !address.subagent()) {
+                skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
             }
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
@@ -507,6 +510,10 @@ public class ChatServiceImpl implements ChatService {
                 emitAndCompleteIfActive(sink, new ChatStreamEvent("error", publicMessage));
             } finally {
                 releasePermitOnce(permit, permitReleased);
+            }
+        } finally {
+            if (executionScope != null) {
+                executionScope.close();
             }
         }
     }

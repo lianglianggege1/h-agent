@@ -1,5 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
+import com.h.backend.shared.infrastructure.web.ExecutionLogContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,6 +12,8 @@ public class ChatStreamAsyncConfig {
 
     @Bean(destroyMethod = "close")
     public ExecutorService chatStreamExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
+        var threads = Thread.ofVirtual().name("chat-stream-", 0).factory();
+        return Executors.newThreadPerTaskExecutor(task ->
+                threads.newThread(ExecutionLogContext.wrap(task)));
     }
 }

@@ -53,7 +53,12 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
     @Override
     public void chat(ChatRequest request, StreamingChatResponseHandler handler) {
         AgentObservation observation = startGeneration(request);
-        delegate.chat(request, new ObservingHandler(handler, observation));
+        try (ObservationScope scope = observability.scope(observation.context())) {
+            delegate.chat(request, new ObservingHandler(handler, observation));
+        } catch (RuntimeException | Error error) {
+            observation.fail(error);
+            throw error;
+        }
     }
 
     private AgentObservation startGeneration(ChatRequest request) {
@@ -91,48 +96,64 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         @Override
         public void onPartialResponse(String partialResponse) {
-            if (partialText.length() < 256 * 1024) {
-                partialText.append(partialResponse == null ? "" : partialResponse);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                if (partialText.length() < 256 * 1024) {
+                    partialText.append(partialResponse == null ? "" : partialResponse);
+                }
+                delegate.onPartialResponse(partialResponse);
             }
-            delegate.onPartialResponse(partialResponse);
         }
 
         @Override
         public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-            if (partialResponse != null && partialResponse.text() != null && partialText.length() < 256 * 1024) {
-                partialText.append(partialResponse.text());
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                if (partialResponse != null && partialResponse.text() != null && partialText.length() < 256 * 1024) {
+                    partialText.append(partialResponse.text());
+                }
+                delegate.onPartialResponse(partialResponse, context);
             }
-            delegate.onPartialResponse(partialResponse, context);
         }
 
         @Override
         public void onPartialThinking(PartialThinking partialThinking) {
-            delegate.onPartialThinking(partialThinking);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onPartialThinking(partialThinking);
+            }
         }
 
         @Override
         public void onPartialThinking(PartialThinking partialThinking, PartialThinkingContext context) {
-            delegate.onPartialThinking(partialThinking, context);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onPartialThinking(partialThinking, context);
+            }
         }
 
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall) {
-            delegate.onPartialToolCall(partialToolCall);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onPartialToolCall(partialToolCall);
+            }
         }
 
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall, PartialToolCallContext context) {
-            delegate.onPartialToolCall(partialToolCall, context);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onPartialToolCall(partialToolCall, context);
+            }
         }
 
         @Override
         public void onCompleteToolCall(CompleteToolCall completeToolCall) {
-            delegate.onCompleteToolCall(completeToolCall);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onCompleteToolCall(completeToolCall);
+            }
         }
 
         @Override
         public void onUnmappedRawEvent(Object rawEvent) {
-            delegate.onUnmappedRawEvent(rawEvent);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                delegate.onUnmappedRawEvent(rawEvent);
+            }
         }
 
         @Override
@@ -172,10 +193,12 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         @Override
         public void onError(Throwable error) {
-            try {
-                observation.fail(error);
-            } finally {
-                delegate.onError(error);
+            try (ObservationScope scope = observability.scope(observation.context())) {
+                try {
+                    observation.fail(error);
+                } finally {
+                    delegate.onError(error);
+                }
             }
         }
     }

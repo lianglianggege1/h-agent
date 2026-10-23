@@ -101,15 +101,46 @@ class LangChain4jAdapterTest {
     }
 
     private static AgentInstance agentInstance(String name) {
+        return agentInstance(name, null);
+    }
+
+    private static AgentInstance agentInstance(String name, AgentInstance parent) {
         return (AgentInstance) Proxy.newProxyInstance(
                 AgentInstance.class.getClassLoader(),
                 new Class<?>[]{AgentInstance.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "name", "agentId" -> name;
+                    case "parent" -> parent;
                     case "hashCode" -> System.identityHashCode(proxy);
                     case "equals" -> proxy == args[0];
                     default -> null;
                 });
+    }
+
+    @Test
+    void parallelAgentOnAnotherThreadRemainsChildOfItsActivePlanner() throws Exception {
+        observability = create();
+        ObservingAgentListener listener = new ObservingAgentListener(observability);
+        AgenticScope scope = agenticScope();
+        AgentInstance parent = agentInstance("router");
+        AgentInstance child = agentInstance("expert", parent);
+        Map<String, Object> inputs = Map.of("request", "hello");
+        AgentExecutionObservation execution = observability.start(executionStart());
+        try (var ignored = execution.scope()) {
+            listener.beforeAgentInvocation(new AgentRequest(scope, parent, inputs));
+            otherThread.submit(() -> {
+                listener.beforeAgentInvocation(new AgentRequest(scope, child, inputs));
+                listener.afterAgentInvocation(new AgentResponse(scope, child, inputs, "answer", null, null));
+            }).get();
+            listener.afterAgentInvocation(new AgentResponse(scope, parent, inputs, "done", null, null));
+        }
+        execution.succeed(null);
+        observability.flushForTest();
+        var spans = exporter.getFinishedSpanItems();
+        var parentSpan = spans.stream().filter(span -> span.getName().equals("agent.router")).findFirst().orElseThrow();
+        var childSpan = spans.stream().filter(span -> span.getName().equals("agent.expert")).findFirst().orElseThrow();
+        assertEquals(parentSpan.getSpanId(), childSpan.getParentSpanId());
+        assertEquals(parentSpan.getTraceId(), childSpan.getTraceId());
     }
 
     private static AgenticScope agenticScope() {

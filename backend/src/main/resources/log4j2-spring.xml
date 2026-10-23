@@ -4,7 +4,8 @@
      - $${spring:spring.application.name}：$$ 表示延迟到日志事件时解析（Spring Environment 就绪后才能取到值）
      - (%file:%line\)：\) 是转义写法，输出字面 ")"；Async 上必须 includeLocation=true 才有文件行号
      - Async 默认 blocking=true（队列满时阻塞等待而非丢弃），保证大模型完整请求体/响应体日志不丢
-     - traceId/spanId 由 TraceMdcFilter 注入 MDC，支持 X-Trace-Id / X-Span-Id 请求头透传 -->
+     - traceId/spanId 优先由 TraceLogContextDataInjector 从当前 OTel Span 获取；
+       无活动 Span 时使用 TraceMdcFilter / ExecutionLogContext 提供的 MDC -->
 <Configuration monitorInterval="5">
 
     <Properties>

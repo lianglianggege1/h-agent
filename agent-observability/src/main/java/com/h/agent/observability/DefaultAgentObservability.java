@@ -179,6 +179,8 @@ final class DefaultAgentObservability implements AgentObservability {
         }
         applyStartAttributes(builder, start.attributes());
         if (linkedPrimary != null && linkedPrimary.otelContext() != null) {
+            // Maintenance is a separate trace even when Primary is still current on this thread.
+            builder.setNoParent();
             io.opentelemetry.api.trace.SpanContext linked =
                     Span.fromContext(linkedPrimary.otelContext()).getSpanContext();
             if (linked.isValid()) {

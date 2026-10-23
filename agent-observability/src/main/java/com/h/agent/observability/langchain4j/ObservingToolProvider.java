@@ -82,7 +82,7 @@ public final class ObservingToolProvider implements ToolProvider {
         @Override
         public String execute(ToolExecutionRequest request, Object memoryId) {
             AgentObservation observation = startTool(request);
-            try {
+            try (var scope = observability.scope(observation.context())) {
                 String result = delegate.execute(request, memoryId);
                 observation.output(toolOutput(request, toolName(request), result, ToolArtifactCollector.drain()));
                 observation.succeed();
@@ -102,7 +102,7 @@ public final class ObservingToolProvider implements ToolProvider {
         public dev.langchain4j.service.tool.ToolExecutionResult executeWithContext(
                 ToolExecutionRequest request, dev.langchain4j.invocation.InvocationContext context) {
             AgentObservation observation = startTool(request);
-            try {
+            try (var scope = observability.scope(observation.context())) {
                 dev.langchain4j.service.tool.ToolExecutionResult result =
                         delegate.executeWithContext(request, context);
                 observation.output(toolOutput(request, toolName(request),

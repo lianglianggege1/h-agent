@@ -33,7 +33,7 @@ public final class ObservingChatModel implements ChatModel {
     @Override
     public ChatResponse chat(ChatRequest request) {
         AgentObservation observation = startGeneration(request);
-        try {
+        try (var scope = observability.scope(observation.context())) {
             ChatResponse response = delegate.chat(request);
             recordCompletion(observation, response);
             return response;

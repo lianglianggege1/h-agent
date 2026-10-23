@@ -6,6 +6,7 @@ import com.h.agent.observability.HAttrs;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.agent.observability.lifecycle.ObservationScope;
+import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.agent.observability.semantic.SemanticBlock;
 import com.h.agent.observability.semantic.SemanticContent;
 import com.h.agent.observability.semantic.TextBlock;
@@ -23,6 +24,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -53,7 +55,7 @@ public final class ObservingAgentListener implements AgentListener {
         AgentObservation observation = observability.span(
                 ObservationSpec.of("agent." + safeName(agentName(request)), HObsKind.AGENT, "langchain4j",
                         Map.of(HAttrs.AGENT_ID, agentName(request))),
-                observability.currentContext());
+                parentContext(request));
         observation.input(semanticInput(request.inputs()));
         ObservationScope scope = observability.scope(observation.context());
         active.put(key, new ActiveInvocation(observation, scope));
@@ -117,6 +119,21 @@ public final class ObservingAgentListener implements AgentListener {
     }
 
     private final ConcurrentMap<String, AgentObservation> toolObservations = new ConcurrentHashMap<>();
+
+    private ObservationContext parentContext(AgentRequest request) {
+        // Parallel planners do not propagate thread-local context to their executor threads.
+        for (AgentInstance parent = request.agent().parent(); parent != null; parent = parent.parent()) {
+            for (var entry : active.entrySet()) {
+                InvocationKey key = entry.getKey();
+                if (key.scope() == request.agenticScope()
+                        && (key.agent() == parent || parent.agentId() != null
+                        && Objects.equals(key.agent().agentId(), parent.agentId()))) {
+                    return entry.getValue().observation().context();
+                }
+            }
+        }
+        return observability.currentContext();
+    }
 
     private static String toolKey(ToolExecutionRequest request) {
         return request == null || request.id() == null ? String.valueOf(System.identityHashCode(request))
