@@ -12,6 +12,71 @@
 .thread { min-width: 0; }
 .thread [data-copilotkit] { min-width: 0; }
 
+/* Scope typography to SDK messages so cards and composer controls keep their sizing. */
+.thread [class~="cpk:prose"] {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.thread [data-testid="copilot-user-message"] {
+  padding-top: 1.25rem;
+}
+
+.thread [data-testid="copilot-user-message"] > [class~="cpk:prose"] {
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.875rem;
+}
+
+.thread [class~="cpk:prose"] :where(p, ul, ol, blockquote, pre, table) {
+  margin-block: 0.6em;
+}
+
+/* Streamdown adds block spacing alongside the SDK's prose styles. */
+.thread [class~="cpk:prose"] [class~="space-y-4"] > :not(:last-child) {
+  margin-block-end: 0.6em;
+}
+
+.thread [class~="cpk:prose"] :where(li) {
+  margin-block: 0.2em;
+}
+
+.thread [class~="cpk:prose"] :where(li > p) {
+  margin-block: 0.25em;
+}
+
+.thread [class~="cpk:prose"] :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1em 0.4em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.thread [class~="cpk:prose"] :where(h1) { font-size: 1.125rem; }
+.thread [class~="cpk:prose"] :where(h2) { font-size: 1rem; }
+.thread [class~="cpk:prose"] :where(h3, h4, h5, h6) { font-size: 0.875rem; }
+
+.thread [class~="cpk:prose"] :where(code) {
+  font-size: 0.9em;
+}
+
+.thread [class~="cpk:prose"] :where(pre) {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.thread [class~="cpk:prose"] :where(pre code) { font-size: inherit; }
+.thread [class~="cpk:prose"] :where(hr) { margin-block: 1em; }
+
+.thread [class~="cpk:prose"] > :first-child,
+.thread [class~="cpk:prose"] [class~="space-y-4"] > :first-child {
+  margin-block-start: 0;
+}
+
+.thread [class~="cpk:prose"] > :last-child,
+.thread [class~="cpk:prose"] [class~="space-y-4"] > :last-child {
+  margin-block-end: 0;
+}
+
 /* The SDK caps both message and composer wrappers at 768px by default. */
 @media (min-width: 768px) {
   .thread [class~="cpk:max-w-3xl"] { max-width: calc(100% - 48px); }
