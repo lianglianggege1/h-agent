@@ -23,6 +23,9 @@ public class SystemPromptEntity {
     @TableField("is_default")
     private Boolean isDefault;
 
+    @TableField("deleted_at")
+    private LocalDateTime deletedAt;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 
@@ -67,6 +70,14 @@ public class SystemPromptEntity {
 
     public void setIsDefault(Boolean isDefault) {
         this.isDefault = isDefault;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
     }
 
     public LocalDateTime getCreatedAt() {

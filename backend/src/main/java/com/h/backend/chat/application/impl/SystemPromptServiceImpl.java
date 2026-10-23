@@ -1,6 +1,7 @@
 package com.h.backend.chat.application.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.h.backend.chat.interfaces.dto.CreateSystemPromptRequest;
 import com.h.backend.chat.interfaces.dto.SystemPromptResponse;
 import com.h.backend.chat.interfaces.dto.UpdateSystemPromptRequest;
@@ -33,7 +34,12 @@ public class SystemPromptServiceImpl implements SystemPromptService {
     @Override
     @Transactional
     public List<SystemPromptResponse> listPrompts(Long userId) {
-        ensureDefaultPrompt(userId);
+        systemPromptMapper.lockOwner(userId);
+        // Seed only a first visit. Refreshing after deleting the last prompt stays empty.
+        if (systemPromptMapper.selectCount(new LambdaQueryWrapper<SystemPromptEntity>()
+                .eq(SystemPromptEntity::getUserId, userId)) == 0) {
+            ensureDefaultPrompt(userId);
+        }
         return systemPromptMapper.selectList(userPromptsQuery(userId))
                 .stream()
                 .map(this::toResponse)
@@ -43,12 +49,14 @@ public class SystemPromptServiceImpl implements SystemPromptService {
     @Override
     @Transactional
     public SystemPromptResponse createPrompt(Long userId, CreateSystemPromptRequest request) {
-        ensureDefaultPrompt(userId);
+        systemPromptMapper.lockOwner(userId);
         SystemPromptEntity entity = new SystemPromptEntity();
         entity.setUserId(userId);
         entity.setName(request.name().trim());
         entity.setContent(request.content().trim());
-        entity.setIsDefault(false);
+        entity.setIsDefault(systemPromptMapper.selectCount(new LambdaQueryWrapper<SystemPromptEntity>()
+                .eq(SystemPromptEntity::getUserId, userId)
+                .isNull(SystemPromptEntity::getDeletedAt)) == 0);
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
         systemPromptMapper.insert(entity);
@@ -58,7 +66,8 @@ public class SystemPromptServiceImpl implements SystemPromptService {
     @Override
     @Transactional
     public SystemPromptResponse updatePrompt(Long userId, Long promptId, UpdateSystemPromptRequest request) {
-        SystemPromptEntity entity = getOwnedPrompt(userId, promptId);
+        systemPromptMapper.lockOwner(userId);
+        SystemPromptEntity entity = getActiveOwnedPrompt(userId, promptId);
         entity.setName(request.name().trim());
         entity.setContent(request.content().trim());
         entity.setUpdatedAt(LocalDateTime.now());
@@ -69,9 +78,15 @@ public class SystemPromptServiceImpl implements SystemPromptService {
     @Override
     @Transactional
     public void deletePrompt(Long userId, Long promptId) {
-        SystemPromptEntity entity = getOwnedPrompt(userId, promptId);
-        systemPromptMapper.deleteById(entity.getId());
-        if (Boolean.TRUE.equals(entity.getIsDefault())) {
+        systemPromptMapper.lockOwner(userId);
+        SystemPromptEntity entity = getActiveOwnedPrompt(userId, promptId);
+        boolean wasDefault = Boolean.TRUE.equals(entity.getIsDefault());
+        // Historical sessions, runs and knowledge keep their prompt identity and content.
+        entity.setDeletedAt(LocalDateTime.now());
+        entity.setUpdatedAt(entity.getDeletedAt());
+        entity.setIsDefault(false);
+        systemPromptMapper.updateById(entity);
+        if (wasDefault) {
             SystemPromptEntity next = systemPromptMapper.selectList(userPromptsQuery(userId)).stream().findFirst().orElse(null);
             if (next != null) {
                 markDefault(userId, next.getId());
@@ -82,7 +97,8 @@ public class SystemPromptServiceImpl implements SystemPromptService {
     @Override
     @Transactional
     public SystemPromptResponse setDefaultPrompt(Long userId, Long promptId) {
-        SystemPromptEntity entity = getOwnedPrompt(userId, promptId);
+        systemPromptMapper.lockOwner(userId);
+        SystemPromptEntity entity = getActiveOwnedPrompt(userId, promptId);
         markDefault(userId, entity.getId());
         entity.setIsDefault(true);
         return toResponse(entity);
@@ -94,12 +110,14 @@ public class SystemPromptServiceImpl implements SystemPromptService {
         if (promptId != null) {
             return getOwnedPrompt(userId, promptId).getId();
         }
+        systemPromptMapper.lockOwner(userId);
         return ensureDefaultPrompt(userId).getId();
     }
 
     @Override
     @Transactional
     public String getSystemPrompt(Long userId, Long promptId) {
+        // Deleted prompts remain readable by their owner for existing conversations.
         return getOwnedPrompt(userId, promptId).getContent();
     }
 
@@ -107,6 +125,7 @@ public class SystemPromptServiceImpl implements SystemPromptService {
         SystemPromptEntity defaultPrompt = systemPromptMapper.selectList(new LambdaQueryWrapper<SystemPromptEntity>()
                         .eq(SystemPromptEntity::getUserId, userId)
                         .eq(SystemPromptEntity::getIsDefault, true)
+                        .isNull(SystemPromptEntity::getDeletedAt)
                         .orderByAsc(SystemPromptEntity::getId))
                 .stream()
                 .findFirst()
@@ -149,22 +168,34 @@ public class SystemPromptServiceImpl implements SystemPromptService {
         return entity;
     }
 
-    private void markDefault(Long userId, Long promptId) {
-        List<SystemPromptEntity> prompts = systemPromptMapper.selectList(userPromptsQuery(userId));
-        LocalDateTime now = LocalDateTime.now();
-        for (SystemPromptEntity prompt : prompts) {
-            boolean isDefault = prompt.getId().equals(promptId);
-            if (!Boolean.valueOf(isDefault).equals(prompt.getIsDefault())) {
-                prompt.setIsDefault(isDefault);
-                prompt.setUpdatedAt(now);
-                systemPromptMapper.updateById(prompt);
-            }
+    private SystemPromptEntity getActiveOwnedPrompt(Long userId, Long promptId) {
+        SystemPromptEntity entity = getOwnedPrompt(userId, promptId);
+        if (entity.getDeletedAt() != null) {
+            throw new BusinessException(40001, "提示词不存在");
         }
+        return entity;
+    }
+
+    private void markDefault(Long userId, Long promptId) {
+        LocalDateTime now = LocalDateTime.now();
+        // Clear the previous default first so the unique index holds during the switch.
+        systemPromptMapper.update(null, new LambdaUpdateWrapper<SystemPromptEntity>()
+                .eq(SystemPromptEntity::getUserId, userId)
+                .eq(SystemPromptEntity::getIsDefault, true)
+                .set(SystemPromptEntity::getIsDefault, false)
+                .set(SystemPromptEntity::getUpdatedAt, now));
+        systemPromptMapper.update(null, new LambdaUpdateWrapper<SystemPromptEntity>()
+                .eq(SystemPromptEntity::getUserId, userId)
+                .eq(SystemPromptEntity::getId, promptId)
+                .isNull(SystemPromptEntity::getDeletedAt)
+                .set(SystemPromptEntity::getIsDefault, true)
+                .set(SystemPromptEntity::getUpdatedAt, now));
     }
 
     private LambdaQueryWrapper<SystemPromptEntity> userPromptsQuery(Long userId) {
         return new LambdaQueryWrapper<SystemPromptEntity>()
                 .eq(SystemPromptEntity::getUserId, userId)
+                .isNull(SystemPromptEntity::getDeletedAt)
                 .orderByDesc(SystemPromptEntity::getIsDefault)
                 .orderByAsc(SystemPromptEntity::getCreatedAt)
                 .orderByAsc(SystemPromptEntity::getId);
