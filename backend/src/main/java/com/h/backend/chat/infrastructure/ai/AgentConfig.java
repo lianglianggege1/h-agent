@@ -8,6 +8,8 @@ import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.Emergencie
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.services.*;
 import com.h.backend.chat.infrastructure.ai.decision.JevDecisionNodes;
+import com.h.backend.chat.infrastructure.ai.experts.ExpertAssistantWorkflow;
+import com.h.backend.chat.infrastructure.config.TypeSafeDecisionProperties;
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
@@ -46,6 +48,9 @@ public class AgentConfig {
     private JevDecisionNodes jevDecisionNodes;
 
     @Resource
+    private TypeSafeDecisionProperties typeSafeDecisionProperties;
+
+    @Resource
     private AgentStepListener agentStepListener;
 
     @Resource
@@ -70,15 +75,13 @@ public class AgentConfig {
 
     @Bean
     public ExportAssistant exportAssistant() {
-        Object categoryRouter = jevDecisionNodes.categoryRouter(chatModel, platformListener());
-
         Agents.MedicalExpert medicalExpert = AgenticServices.agentBuilder(Agents.MedicalExpert.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(10))
                 .retrievalAugmentor(
                         conversationContextAugmentorFactory.memoryOnly("export-assistant.medical-expert"))
                 .listener(platformListener())
-                .outputKey("response")
+                .outputKey("medicalResponse")
                 .build();
 
         Agents.LegalExpert legalExpert = AgenticServices.agentBuilder(Agents.LegalExpert.class)
@@ -87,7 +90,7 @@ public class AgentConfig {
                 .retrievalAugmentor(
                         conversationContextAugmentorFactory.memoryOnly("export-assistant.legal-expert"))
                 .listener(platformListener())
-                .outputKey("response")
+                .outputKey("legalResponse")
                 .build();
 
         Agents.TechnicalExpert technicalExpert = AgenticServices.agentBuilder(Agents.TechnicalExpert.class)
@@ -96,33 +99,12 @@ public class AgentConfig {
                 .retrievalAugmentor(
                         conversationContextAugmentorFactory.memoryOnly("export-assistant.technical-expert"))
                 .listener(platformListener())
-                .outputKey("response")
+                .outputKey("technicalResponse")
                 .build();
 
-        UntypedAgent expertsAgent = AgenticServices.conditionalBuilder()
-                .name("router")
-                .outputKey("response")
-                .listener(platformListener())
-                .subAgents(
-                        "Medical request",
-                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.MEDICAL,
-                        medicalExpert)
-                .subAgents(
-                        "Technical request",
-                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.TECHNICAL,
-                        technicalExpert)
-                .subAgents(
-                        "Legal request",
-                        scope -> scope.readState("category", Agents.RequestCategory.UNKNOWN) == Agents.RequestCategory.LEGAL,
-                        legalExpert)
-                .build();
-
-        return AgenticServices.sequenceBuilder(
-                        ExportAssistant.class)
-                .subAgents(categoryRouter, expertsAgent)
-                .listener(platformListener())
-                .outputKey("response")
-                .build();
+        return ExpertAssistantWorkflow.build(jevDecisionNodes.decisionModel(), chatModel,
+                platformListener(), typeSafeDecisionProperties.getExpertActivationThreshold(),
+                redisChatMemoryStore::getMessages, medicalExpert, legalExpert, technicalExpert);
 
     }
 

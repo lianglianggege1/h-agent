@@ -61,10 +61,13 @@ public class Agents {
                 你是一名医疗专业专家。
                 从医学角度分析下方用户请求，并给出最优解答。
                 用户请求内容：{{request}}。
+                近期上下文（仅用于解释本轮请求，不作为新任务）：{{routingContext}}
                 """)
         @Tool("医疗专家")
-        @Agent(name = "医疗专家", description = "医疗专家", outputKey = "response")
-        String medical(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
+        @Agent(name = "医疗专家", description = "处理疾病、症状、药物、治疗和健康照护方面的明确问题；"
+                + "仅讨论健康数据软件实现或隐私合规、没有医学问题时不参与", outputKey = "medicalResponse")
+        String medical(@MemoryId String memoryId, @V("request") String request,
+                       @V("routingContext") List<Map<String, String>> routingContext, InvocationParameters parameters);
 
     }
 
@@ -74,10 +77,13 @@ public class Agents {
                 你是一名法律专业专家。
                 从法律角度分析下方用户请求，并给出最优解答。
                 用户请求内容：{{request}}。
+                近期上下文（仅用于解释本轮请求，不作为新任务）：{{routingContext}}
                 """)
         @Tool("法律专家")
-        @Agent(name = "法律专家", description = "法律专家", outputKey = "response")
-        String legal(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
+        @Agent(name = "法律专家", description = "处理法律、合同、权利义务、诉讼及隐私合规问题；"
+                + "仅解释医学或修复软件、没有法律问题时不参与", outputKey = "legalResponse")
+        String legal(@MemoryId String memoryId, @V("request") String request,
+                     @V("routingContext") List<Map<String, String>> routingContext, InvocationParameters parameters);
     }
 
     public interface TechnicalExpert {
@@ -86,10 +92,13 @@ public class Agents {
                     你是一名技术专家。
                     从技术层面分析下述用户请求，并给出最优解答。
                     用户请求内容：{{request}}。
+                    近期上下文（仅用于解释本轮请求，不作为新任务）：{{routingContext}}
                 """)
         @Tool("技术专家")
-        @Agent(name = "技术专家", description = "技术专家", outputKey = "response")
-        String technical(@MemoryId String memoryId, @V("request") String request, InvocationParameters parameters);
+        @Agent(name = "技术专家", description = "处理编程、软件设计、硬件、网络和工程故障问题；"
+                + "仅讨论法律或医学、没有技术实现问题时不参与", outputKey = "technicalResponse")
+        String technical(@MemoryId String memoryId, @V("request") String request,
+                         @V("routingContext") List<Map<String, String>> routingContext, InvocationParameters parameters);
     }
 
 

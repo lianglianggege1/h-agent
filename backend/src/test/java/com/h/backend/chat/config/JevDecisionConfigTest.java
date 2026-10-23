@@ -6,6 +6,8 @@ import com.h.backend.chat.infrastructure.ai.decision.JevDecisionConfig;
 import com.h.backend.chat.infrastructure.ai.decision.JevDecisionNodes;
 import com.h.backend.chat.infrastructure.config.TypeSafeDecisionProperties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,5 +54,23 @@ class JevDecisionConfigTest {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).hasRootCauseMessage("typesafe.timeout must be positive");
                 });
+    }
+
+    @Test
+    void expertActivationThresholdIsBoundWhenJevIsDisabled() {
+        runner.withPropertyValues("typesafe.expert-activation-threshold=0.75").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(TypeSafeDecisionProperties.class).getExpertActivationThreshold()).isEqualTo(0.75);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "1", "-0.1", "NaN"})
+    void invalidExpertThresholdFailsFastEvenWithJevDisabled(String value) {
+        runner.withPropertyValues("typesafe.expert-activation-threshold=" + value).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                    "typesafe.expert-activation-threshold must be strictly between 0 and 1");
+        });
     }
 }

@@ -15,9 +15,16 @@ public final class JevDecisionNodes {
 
     private static final Logger log = LoggerFactory.getLogger(JevDecisionNodes.class);
     private final JevDecisions decisions;
+    private final DecisionModel model;
 
     public JevDecisionNodes(DecisionModel model) {
+        this.model = model;
         this.decisions = model == null ? null : DecisionServices.create(JevDecisions.class, model);
+    }
+
+    /** Shared provider model, or null when TypeSafe is disabled. */
+    public DecisionModel decisionModel() {
+        return model;
     }
 
     public Object categoryRouter(ChatModel chatModel, AgentListener listener) {

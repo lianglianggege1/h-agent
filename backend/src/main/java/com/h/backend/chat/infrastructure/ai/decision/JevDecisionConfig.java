@@ -16,6 +16,7 @@ public class JevDecisionConfig {
 
     @Bean
     public JevDecisionNodes jevDecisionNodes(TypeSafeDecisionProperties properties, AgentObservability observability) {
+        properties.validateExpertRouting();
         if (!properties.isEnabled()) {
             return new JevDecisionNodes(null);
         }

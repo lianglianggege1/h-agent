@@ -13,6 +13,21 @@ public class TypeSafeDecisionProperties {
     private String modelName = "jev-1.13.0";
     private Duration timeout = Duration.ofSeconds(2);
     private int maxRetries;
+    private double expertActivationThreshold = 0.6;
+
+    public void validateExpertRouting() {
+        if (!Double.isFinite(expertActivationThreshold) || expertActivationThreshold <= 0 || expertActivationThreshold >= 1) {
+            throw new IllegalArgumentException("typesafe.expert-activation-threshold must be strictly between 0 and 1");
+        }
+    }
+
+    public double getExpertActivationThreshold() {
+        return expertActivationThreshold;
+    }
+
+    public void setExpertActivationThreshold(double expertActivationThreshold) {
+        this.expertActivationThreshold = expertActivationThreshold;
+    }
 
     public void validateEnabled() {
         if (apiKey == null || apiKey.isBlank()) {

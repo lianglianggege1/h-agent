@@ -81,6 +81,7 @@ typesafe:
   model-name: ${TYPESAFE_MODEL_NAME:jev-1.13.0}
   timeout: ${TYPESAFE_TIMEOUT:2s}
   max-retries: ${TYPESAFE_MAX_RETRIES:0}
+  expert-activation-threshold: ${TYPESAFE_EXPERT_ACTIVATION_THRESHOLD:0.6}
 
 agent-observability:
   enabled: ${AGENT_OBSERVABILITY_ENABLED:auto}
