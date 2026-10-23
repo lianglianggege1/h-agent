@@ -90,6 +90,12 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
     private final ExecutionCompletionListener completionListener;
     private final FailureListener failureListener;
     private final EventListener eventListener;
+    private HarnessExecutionRegistry executionRegistry;
+
+    public HarnessSubagentLifecycleMiddleware withExecutionRegistry(HarnessExecutionRegistry registry) {
+        this.executionRegistry = registry;
+        return this;
+    }
 
     public HarnessSubagentLifecycleMiddleware(CompletionListener completionListener) {
         this((userId, sessionId, assignment) -> { }, adaptCompletion(completionListener),
@@ -172,7 +178,9 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
         AtomicBoolean terminalProjected = new AtomicBoolean(false);
         // 这是子 Agent 真正收到输入的生命周期边界，不依赖父工具何时发送 TOOL_CALL_END。
         assignmentListener.onStarted(userId, sessionId, assignment);
-        return next.apply(input).doOnNext(event -> {
+        Flux<AgentEvent> execution = next.apply(input);
+        if (executionRegistry != null) execution = executionRegistry.track(userId, sessionId, execution);
+        return execution.doOnNext(event -> {
             if (event instanceof AgentStartEvent startEvent) {
                 if (executionId.get() == null || executionId.get().isBlank()) {
                     executionId.set(startEvent.getReplyId());
@@ -223,7 +231,8 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
                         assignment,
                         executionId.get(),
                         reasoningFrom(context),
-                        HarnessSubagentFailureReason.EXECUTION_ERROR,
+                        error instanceof java.util.concurrent.CancellationException
+                                ? HarnessSubagentFailureReason.CANCELLED : HarnessSubagentFailureReason.EXECUTION_ERROR,
                         error.getMessage() == null || error.getMessage().isBlank()
                                 ? error.getClass().getSimpleName()
                                 : error.getMessage()

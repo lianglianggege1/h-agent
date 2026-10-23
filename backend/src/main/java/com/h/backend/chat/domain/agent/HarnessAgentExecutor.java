@@ -453,6 +453,10 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 );
             }
             // sequence 按原始 AgentEvent 流严格递增；每条事件都通过同一 SSE 信封向前端发送。
+            if (com.h.backend.chat.application.agui.ChatExecutionCancellation.from(command.sink()) != null) {
+                // Internal-only SDK event seam. Never serialize raw AgentEvents on the legacy HTTP endpoint.
+                emit(new ChatStreamEvent("agent_event", "", null, event));
+            }
             emit(eventMapper.map(
                     command.runHandle().id(),
                     sequence.incrementAndGet(),

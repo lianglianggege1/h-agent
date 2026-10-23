@@ -302,6 +302,12 @@ public class ChatServiceImpl implements ChatService {
             List<ChatMessageResourceUseDto> resources
     ) {
         try {
+            com.h.backend.chat.application.agui.ChatExecutionCancellation.check(sink);
+            var cancellation = com.h.backend.chat.application.agui.ChatExecutionCancellation.from(sink);
+            if (cancellation != null) {
+                Thread worker = Thread.currentThread();
+                cancellation.onCancel(worker::interrupt);
+            }
             chatSessionService.assertActiveSession(
                     userId,
                     sessionId,
@@ -348,6 +354,7 @@ public class ChatServiceImpl implements ChatService {
         boolean subagentTurnStarted = false;
         String subagentExecutionId = null;
         try {
+            com.h.backend.chat.application.agui.ChatExecutionCancellation.check(sink);
             AgentDefinition agent = resolveAgent(agentId);
             boolean standardChat = agent.runtimeType() == AgentRuntimeType.STANDARD_STREAMING_CHAT;
             // Prompt 只属于标准聊天；Harness/领域 Agent 固定由其 agent 定义驱动，不能借用标准 Prompt 校验。
@@ -404,6 +411,9 @@ public class ChatServiceImpl implements ChatService {
                     agent.agentId(),
                     null
             );
+            if (com.h.backend.chat.application.agui.ChatExecutionCancellation.from(sink) != null) {
+                emitIfActive(sink, new ChatStreamEvent("run_started", "", null, runHandle.id()));
+            }
             String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
             // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
             // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
@@ -439,6 +449,7 @@ public class ChatServiceImpl implements ChatService {
             }
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());
+            com.h.backend.chat.application.agui.ChatExecutionCancellation.check(sink);
             executor.execute(new ChatAgentExecutionCommand(
                     sink,
                     userId,

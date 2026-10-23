@@ -5,6 +5,9 @@ import dev.langchain4j.agentic.observability.AgentInvocationError;
 import dev.langchain4j.agentic.observability.AgentListener;
 import dev.langchain4j.agentic.observability.AgentRequest;
 import dev.langchain4j.agentic.observability.AgentResponse;
+import dev.langchain4j.agentic.observability.BeforeAgentToolExecution;
+import dev.langchain4j.agentic.observability.AfterAgentToolExecution;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.scope.AgenticScope;
 import org.springframework.stereotype.Component;
@@ -28,6 +31,7 @@ public class AgentStepListener implements AgentListener {
 
     @Override
     public void beforeAgentInvocation(AgentRequest request) {
+        bridge.checkpoint(request.agenticScope().memoryId());
         InvocationKey key = key(request.agenticScope(), request.agent(), request.inputs());
         String invocationId = newInvocationId(request.agent());
         invocationIds.put(key, invocationId);
@@ -49,6 +53,23 @@ public class AgentStepListener implements AgentListener {
     @Override
     public boolean inheritedBySubagents() {
         return true;
+    }
+
+    @Override
+    public void beforeAgentToolExecution(BeforeAgentToolExecution execution) {
+        Object memoryId = execution.agenticScope().memoryId();
+        bridge.checkpoint(memoryId);
+        var request = execution.toolExecution().request();
+        bridge.emitTool(memoryId, new ChatStreamEvent("tool_start", "", null,
+                Map.of("id", request.id(), "name", request.name())));
+    }
+
+    @Override
+    public void afterAgentToolExecution(AfterAgentToolExecution execution) {
+        var tool = execution.toolExecution();
+        bridge.emitTool(execution.agenticScope().memoryId(), new ChatStreamEvent("tool_result", "", null,
+                Map.of("id", tool.request().id(), "name", tool.request().name(),
+                        "result", java.util.Objects.toString(tool.result(), ""), "failed", tool.hasFailed())));
     }
 
     private AgentStepPayloadDto payload(AgentInstance agent, String status, String invocationId) {

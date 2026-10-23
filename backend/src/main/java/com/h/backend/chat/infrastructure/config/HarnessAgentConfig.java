@@ -280,7 +280,9 @@ public class HarnessAgentConfig {
     @Bean
     public HarnessSubagentLifecycleMiddleware harnessSubagentLifecycleMiddleware(
             @Lazy HarnessCollaborationService harnessCollaborationService,
-            HarnessSubagentEventRelay subagentEventRelay
+            HarnessSubagentEventRelay subagentEventRelay,
+            com.h.backend.chat.domain.agent.HarnessExecutionRegistry executionRegistry,
+            com.h.backend.chat.application.agui.AguiSubagentRecorder aguiRecorder
     ) {
         return new HarnessSubagentLifecycleMiddleware(
                 (userId, sessionId, assignment) -> {
@@ -323,6 +325,8 @@ public class HarnessAgentConfig {
                                 Long.valueOf(userId), sessionId, executionId,
                                 reason, message, reasoning
                         );
+                        aguiRecorder.fail(userId, sessionId,
+                                reason == com.h.backend.chat.application.HarnessSubagentFailureReason.CANCELLED, message);
                     } catch (RuntimeException error) {
                         log.warn("Failed to project failed subagent result sessionId={}: {}",
                                 sessionId, error.getMessage());
@@ -331,10 +335,11 @@ public class HarnessAgentConfig {
                 (userId, sessionId, event) -> {
                     if (userId != null && !userId.isBlank()
                             && sessionId != null && sessionId.startsWith("sub-")) {
+                        aguiRecorder.record(userId, sessionId, event);
                         subagentEventRelay.publish(userId, sessionId, event);
                     }
                 }
-        );
+        ).withExecutionRegistry(executionRegistry);
     }
 
     @Bean(destroyMethod = "close")

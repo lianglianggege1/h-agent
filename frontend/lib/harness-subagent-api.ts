@@ -1,5 +1,5 @@
-import { apiFetch, apiHarnessEventStream } from "./http.ts";
-import type { HarnessAgentEvent, HarnessSubagentSummary } from "./harness-subagent-types";
+import { apiFetch } from "./http.ts";
+import type { HarnessSubagentSummary } from "./harness-subagent-types";
 
 type MessageResourceUse = {
   resourceId: string;
@@ -10,18 +10,6 @@ type MessageResourceUse = {
 export function getHarnessSubagents(parentSessionId: string) {
   return apiFetch<HarnessSubagentSummary[]>(
     `/api/chat/sessions/${encodeURIComponent(parentSessionId)}/subagents`,
-  );
-}
-
-export function observeHarnessSubagentEvents(
-  sessionId: string,
-  onEvent: (event: HarnessAgentEvent) => void,
-  signal?: AbortSignal,
-) {
-  return apiHarnessEventStream(
-    `/api/chat/agent-sessions/${encodeURIComponent(sessionId)}/events`,
-    onEvent,
-    signal,
   );
 }
 

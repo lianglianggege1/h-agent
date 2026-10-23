@@ -47,14 +47,22 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
 
     @Override
     public void execute(ChatAgentExecutionCommand command) {
+        var cancellation = com.h.backend.chat.application.agui.ChatExecutionCancellation.from(command.sink());
+        Thread executingThread = Thread.currentThread();
+        if (cancellation != null) cancellation.onCancel(executingThread::interrupt);
         agentStepEventBridge.register(command.memoryId(), payload -> emitAgentStep(command, payload));
+        if (cancellation != null) agentStepEventBridge.registerExecution(command.memoryId(),
+                event -> emitIfActive(command.sink(), event),
+                () -> com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink()));
         try {
             // agent 调用链在当前线程同步执行；执行观测作用域把 Agent/Generation/Tool Span
             // 挂到本次运行。
             ResultWithAgenticScope<String> result;
             try (ObservationScope ignored = command.observation().scope()) {
+                com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink());
                 result = executeSelectedAgent(command);
             }
+            com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink());
             String reply = result == null || result.result() == null ? "" : result.result();
             if (reply.isBlank()) {
                 IllegalStateException error = new IllegalStateException("AI 未返回有效内容");

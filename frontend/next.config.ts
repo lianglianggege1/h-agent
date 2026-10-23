@@ -17,12 +17,10 @@ const nextConfig: NextConfig = {
     "192.168.1.3",
   ],
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${backendApiBaseUrl}/api/:path*`,
-      },
-    ];
+    return {
+      // App Router endpoints (CopilotKit) must win over the Java API fallback.
+      fallback: [{ source: "/api/:path*", destination: `${backendApiBaseUrl}/api/:path*` }],
+    };
   },
 };
 
