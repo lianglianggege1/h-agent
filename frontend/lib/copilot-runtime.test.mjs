@@ -57,7 +57,8 @@ test("official SDK relays Java events and submits only new user text with owned 
       { id: "card", role: "activity", activityType: "h-agent.progress", content: { status: "COMPLETED" } },
       { id: "new", role: "user", content: "hello" },
     ],
-    tools: [], context: [], state: { fakeServerState: true }, forwardedProps: { resources: [] },
+    tools: [], context: [], state: { fakeServerState: true },
+    forwardedProps: { resources: [{ resourceId: "history-image", role: "REFERENCE", source: "HISTORY" }] },
   }));
   assert.equal(response.status, 200);
   const wire = await response.text();
@@ -65,6 +66,7 @@ test("official SDK relays Java events and submits only new user text with owned 
   assert.ok(wire.includes("ACTIVITY_SNAPSHOT"));
   assert.deepEqual(submitted.input.messages, [{ id: "new", role: "user", content: "hello" }]);
   assert.deepEqual(submitted.input.state, {});
+  assert.deepEqual(submitted.input.forwardedProps.resources, [{ resourceId: "history-image", role: "REFERENCE", source: "HISTORY" }]);
   assert.equal(submitted.headers.get("cookie"), "access_token=alice");
   assert.equal(submitted.headers.get("x-user-id"), null);
 });

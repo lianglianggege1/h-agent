@@ -35,8 +35,8 @@ class JavaAgentRunner extends AgentRunner {
   }
 
   run({ input }: AgentRunnerRunRequest) {
-    // AgentScope's Java model predates activity message inputs. Product history is server-owned;
-    // UI activity/tool history is never submitted as model context or interpreted as a new turn.
+    // Product history is server-owned. UI activity/tool history is never submitted
+    // as model context or interpreted as a new turn.
     const messages = input.messages.filter((message) => message.role === "user" && typeof message.content === "string").slice(-1);
     return this.agent().run({ ...input, messages, state: {}, tools: [], context: [] });
   }

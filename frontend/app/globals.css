@@ -25,8 +25,6 @@
 }
 .agui-button:disabled { opacity: 0.5; cursor: wait; }
 .agui-button-primary { background: #292524; color: white; border-color: #292524; }
-.agui-thread { --copilot-kit-primary-color: #b45309; --copilot-kit-background-color: #f7f4ea; }
-.agui-thread [data-copilotkit-chat] { height: 100%; min-height: 0; }
 @keyframes agui-pulse { 50% { opacity: 0.35; } }
 .agui-pulse { animation: agui-pulse 1.8s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .agui-pulse { animation: none; } }

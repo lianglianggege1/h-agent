@@ -90,6 +90,16 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.ag-ui.community</groupId>
+            <artifactId>java-server</artifactId>
+            <version>0.1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.ag-ui.community</groupId>
+            <artifactId>ag-ui-spring-server-core</artifactId>
+            <version>4.1.0</version>
+        </dependency>
+        <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-extensions-agui</artifactId>
             <version>${agentscope.version}</version>

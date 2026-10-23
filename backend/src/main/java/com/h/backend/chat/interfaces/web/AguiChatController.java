@@ -4,15 +4,17 @@ import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
 import com.h.backend.common.api.ApiResponse;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
-import com.h.backend.chat.application.agui.AguiEventJson;
-import io.agentscope.core.agui.event.AguiEvent;
-import io.agentscope.core.agui.model.RunAgentInput;
-import io.agentscope.core.util.JsonUtils;
+import com.agui.community.core.agent.RunAgentInput;
+import com.agui.community.core.event.RunFinishedEvent;
+import com.agui.community.core.event.RunErrorEvent;
+import com.agui.community.core.serialization.Serializer;
+import com.agui.community.server.SseEventEncoder;
+import com.agui.community.server.OutputStreamEventSink;
 import com.h.backend.common.exception.BusinessException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -24,33 +26,43 @@ import java.util.Map;
 public class AguiChatController {
     private final AguiChatRuntime runtime;
     private final ChatStreamProperties properties;
-    private final AguiEventJson encoder = new AguiEventJson();
+    private final Serializer serializer;
+    private final SseEventEncoder encoder;
 
-    public AguiChatController(AguiChatRuntime runtime, ChatStreamProperties properties) {
+    public AguiChatController(AguiChatRuntime runtime, ChatStreamProperties properties, Serializer serializer) {
         this.runtime = runtime;
         this.properties = properties;
+        this.serializer = serializer;
+        this.encoder = new SseEventEncoder(serializer);
     }
 
     @PostMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<Flux<ServerSentEvent<String>>> run(@AuthenticationPrincipal AuthUserPrincipal principal,
+    public ResponseEntity<StreamingResponseBody> run(@AuthenticationPrincipal AuthUserPrincipal principal,
                                           @RequestBody String requestBody) {
         final RunAgentInput input;
         try {
-            // AgentScope owns its Jackson 2 content codec; Boot 4's Jackson 3 does not read
-            // the SDK's MessageContent deserializer annotations.
-            input = JsonUtils.getJsonCodec().fromJson(requestBody, RunAgentInput.class);
+            input = serializer.deserialize(requestBody, RunAgentInput.class);
             if (input == null) throw new IllegalArgumentException("Missing AG-UI input");
         } catch (RuntimeException ex) {
             throw new BusinessException(40000, "AG-UI 请求格式无效");
         }
-        record Frame(ServerSentEvent<String> event, boolean terminal) { }
+        record Frame(String encoded, boolean terminal) { }
         Flux<Frame> events = runtime.run(principal.userId(), input).map(event -> new Frame(
-                ServerSentEvent.<String>builder().data(encoder.encode(event)).build(),
-                event instanceof AguiEvent.RunFinished || event instanceof AguiEvent.RunError));
+                encoder.encode(event), event instanceof RunFinishedEvent || event instanceof RunErrorEvent));
         Flux<Frame> heartbeats = Flux.interval(properties.getHeartbeatInterval()).map(tick -> new Frame(
-                ServerSentEvent.<String>builder().comment("keepalive").build(), false));
-        Flux<ServerSentEvent<String>> body = Flux.concat(Flux.just(ServerSentEvent.<String>builder().comment("keepalive").build()),
-                Flux.merge(events, heartbeats).takeUntil(Frame::terminal).map(Frame::event));
+                ": keepalive\n\n", false));
+        Flux<String> frames = Flux.concat(Flux.just(": keepalive\n\n"),
+                Flux.merge(events, heartbeats).takeUntil(Frame::terminal).map(Frame::encoded));
+        // MVC's virtual-thread executor writes the SDK frames directly, without an SseEmitter wrapping them.
+        StreamingResponseBody body = output -> {
+            var sink = new OutputStreamEventSink(output);
+            try (var stream = frames.toStream(1)) {
+                var iterator = stream.iterator();
+                while (iterator.hasNext()) sink.write(iterator.next());
+            } finally {
+                sink.close();
+            }
+        };
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
                 .cacheControl(CacheControl.noCache().cachePrivate().noTransform())
                 .header("X-Accel-Buffering", "no").body(body);

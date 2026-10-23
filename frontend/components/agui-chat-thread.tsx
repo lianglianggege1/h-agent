@@ -1,16 +1,49 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { CopilotChat, useAgent, useCopilotKit, useRenderTool, type CopilotChatViewProps } from "@copilotkit/react-core/v2";
-import type { Message } from "@ag-ui/core";
+import { CopilotChat, CopilotChatInput, useAgent, useCopilotKit, useRenderTool, type CopilotChatViewProps, type CopilotChatInputProps } from "@copilotkit/react-core/v2";
 import { apiFetch } from "@/lib/http";
 import { getChatSessionMessages, type ChatSessionMessage } from "@/lib/chat-sessions";
 import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { ToolResult, ResourceReferenceContext } from "@/components/agui-cards";
-import { orderProductMessages } from "@/lib/agui-messages";
+import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
+import styles from "./agui-chat-thread.module.css";
+import { ChatAttachmentPicker } from "./chat-attachment-picker";
+import { historyReferenceImages, selectHistoryReference } from "@/lib/reference-images";
 
-type ThreadActions = { submit: (text: string) => void; addFile: () => void; disabled: boolean };
+type ThreadActions = {
+  submit: (text: string) => void;
+  addFile: () => void;
+  disabled: boolean;
+  attachments: UploadedResource[];
+  uploading: boolean;
+  removeFile: (id: string) => void;
+};
 const Actions = createContext<ThreadActions | null>(null);
+
+function AttachmentMenuButton() {
+  const actions = useContext(Actions);
+  return <button type="button" aria-label="添加附件" onClick={actions?.addFile} disabled={actions?.disabled}
+    className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-2xl text-stone-600 hover:bg-stone-100 disabled:opacity-40">＋</button>;
+}
+
+function ThreadInput(props: CopilotChatInputProps) {
+  const actions = useContext(Actions);
+  return <>
+    {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-md flex-wrap gap-2 px-4" aria-label="待发送附件">
+      {actions.attachments.map((item) => <span key={item.resourceId} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
+        {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : null}
+        <span>{item.role === "REFERENCE" ? "参考图 · " : ""}{item.fileName}</span>
+        <button aria-label={"移除 " + item.fileName} onClick={() => actions.removeFile(item.resourceId)}>×</button>
+      </span>)}
+      {actions.uploading ? <span className="text-xs text-stone-500">上传中…</span> : null}
+    </div> : null}
+    <CopilotChatInput {...props} addMenuButton={AttachmentMenuButton} onAddFile={actions?.addFile}
+      textArea={{ placeholder: "输入消息…", maxLength: 4000, disabled: actions?.disabled }} />
+  </>;
+}
+
+const ProductInput = Object.assign(ThreadInput, CopilotChatInput);
 
 function ThreadView(props: CopilotChatViewProps) {
   const actions = useContext(Actions);
@@ -21,12 +54,8 @@ function ThreadView(props: CopilotChatViewProps) {
       actions.submit(value);
       props.onInputChange?.("");
     }}
-    input={{ onAddFile: actions?.addFile, textArea: { placeholder: "输入消息…", maxLength: 4000, disabled: actions?.disabled } }}
+    input={ProductInput}
   />;
-}
-
-function productMessage(message: ChatSessionMessage): Message {
-  return { id: message.id, role: message.role === "user" ? "user" : "assistant", content: message.content };
 }
 
 export function AguiChatThread({ threadId, onChanged }: { threadId: string; onChanged?: () => void }) {
@@ -40,7 +69,9 @@ export function AguiChatThread({ threadId, onChanged }: { threadId: string; onCh
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const historyMessages = useRef<ChatSessionMessage[]>([]);
   const onChangedRef = useRef(onChanged);
   useEffect(() => { onChangedRef.current = onChanged; }, [onChanged]);
 
@@ -57,7 +88,7 @@ export function AguiChatThread({ threadId, onChanged }: { threadId: string; onCh
       },
     });
     void getChatSessionMessages(threadId, 100).then((page) => {
-      if (!disposed) { setBeforeSeq(page.nextBeforeSeq); setHasOlder(page.hasMore); }
+      if (!disposed) { historyMessages.current = page.messages; setBeforeSeq(page.nextBeforeSeq); setHasOlder(page.hasMore); }
     }).catch((failure) => { if (!disposed) setError(failure instanceof Error ? failure.message : "历史加载失败"); });
     return () => { disposed = true; subscription.unsubscribe(); };
   }, [agent, isReady, threadId]);
@@ -90,7 +121,8 @@ export function AguiChatThread({ threadId, onChanged }: { threadId: string; onCh
     try {
       const page = await getChatSessionMessages(threadId, 50, beforeSeq);
       const ids = new Set(agent.messages.map((message) => message.id));
-      agent.setMessages([...page.messages.filter((message) => message.messageType !== "REASONING" && !ids.has(message.id)).map(productMessage), ...agent.messages]);
+      agent.setMessages([...productHistoryMessages(page.messages, historyMessages.current).filter((message) => !ids.has(message.id)), ...agent.messages]);
+      historyMessages.current = [...page.messages, ...historyMessages.current];
       setBeforeSeq(page.nextBeforeSeq); setHasOlder(page.hasMore);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "历史加载失败"); }
     finally { setLoadingOlder(false); }
@@ -116,7 +148,7 @@ export function AguiChatThread({ threadId, onChanged }: { threadId: string; onCh
     return () => { clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
   }, [agent, refresh]);
 
-  return <section className="agui-thread flex min-h-0 flex-1 flex-col" aria-label="对话">
+  return <section className={`${styles.thread} flex min-h-0 flex-1 flex-col`} aria-label="对话">
     <div className="flex shrink-0 items-center justify-between px-4 py-2 text-xs text-stone-500">
       {hasOlder ? <button className="underline disabled:opacity-40" disabled={loadingOlder || agent.isRunning} onClick={() => void loadOlder()}>{loadingOlder ? "加载中…" : "加载更早消息"}</button> : <span />}
       <button className="underline" onClick={() => void refresh()}>恢复连接</button>
@@ -132,16 +164,14 @@ export function AguiChatThread({ threadId, onChanged }: { threadId: string; onCh
         .catch((failure) => setError(failure instanceof Error ? failure.message : "上传失败"))
         .finally(() => setUploading(false));
     }} />
-    {attachments.length || uploading ? <div className="flex shrink-0 flex-wrap gap-2 px-4 py-2">
-      {attachments.map((item) => <span key={item.resourceId} className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs">{item.fileName}<button aria-label={"移除 " + item.fileName} className="ml-2" onClick={() => setAttachments((current) => current.filter((resource) => resource.resourceId !== item.resourceId))}>×</button></span>)}
-      {uploading ? <span className="text-xs text-stone-500">上传中…</span> : null}
-    </div> : null}
-    <ResourceReferenceContext.Provider value={(resource) => setAttachments((current) => [
-      ...current.filter((item) => item.resourceId !== resource.id && item.role !== "REFERENCE"),
-      { resourceId: resource.id, type: resource.type, role: "REFERENCE", source: "HISTORY", viewUrl: resource.viewUrl,
-        downloadUrl: resource.downloadUrl, fileName: resource.fileName, mimeType: resource.mimeType, fileSize: resource.fileSize ?? 0 },
-    ])}>
-    <Actions.Provider value={{ submit: (value) => void submit(value), addFile: () => fileInput.current?.click(), disabled: !isReady || agent.isRunning || uploading || waiting }}>
+    {pickerOpen ? <ChatAttachmentPicker images={historyReferenceImages(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
+      onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
+      onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
+      onClose={() => setPickerOpen(false)} /> : null}
+    <ResourceReferenceContext.Provider value={(resource) => setAttachments((current) => selectHistoryReference(current, resource))}>
+    <Actions.Provider value={{ submit: (value) => void submit(value), addFile: () => setPickerOpen(true),
+      disabled: !isReady || agent.isRunning || uploading || waiting, attachments, uploading,
+      removeFile: (id) => setAttachments((current) => current.filter((resource) => resource.resourceId !== id)) }}>
       {isReady ? <CopilotChat agentId={localAgentId} threadId={threadId} chatView={ThreadView} className="min-h-0 flex-1" throttleMs={40}
         onStop={() => void stop()} inspectorTools={false}
         labels={{ chatInputPlaceholder: "输入消息…" }}

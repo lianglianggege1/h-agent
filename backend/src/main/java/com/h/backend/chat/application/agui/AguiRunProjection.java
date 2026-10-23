@@ -1,12 +1,10 @@
 package com.h.backend.chat.application.agui;
 
 import com.h.backend.chat.interfaces.dto.*;
-import io.agentscope.core.agui.adapter.AguiAdapterConfig;
-import io.agentscope.core.agui.adapter.strategy.AgentEventConverterRegistry;
-import io.agentscope.core.agui.adapter.strategy.AguiStreamContext;
-import io.agentscope.core.agui.event.AguiEvent;
-import io.agentscope.core.agui.event.AguiEventType;
-import io.agentscope.core.agui.model.AguiMessage;
+import com.agui.community.core.event.*;
+import com.agui.community.core.message.AssistantMessage;
+import com.agui.community.core.message.Message;
+import com.agui.community.core.message.Role;
 import io.agentscope.core.event.AgentEvent;
 
 import java.util.*;
@@ -17,9 +15,9 @@ public final class AguiRunProjection {
     public static final String ACTIVITY_TYPE = "h-agent.progress";
     private final String threadId;
     private final String runId;
-    private final Consumer<AguiEvent> output;
-    private final AguiStreamContext context;
-    private final AgentEventConverterRegistry converters = new AgentEventConverterRegistry();
+    private final Consumer<Event> output;
+    private HarnessAguiAdapter harnessAdapter;
+    private final Set<String> openText = new LinkedHashSet<>();
     private final Map<String, Map<String, Object>> steps = new LinkedHashMap<>();
     private final Map<String, Map<String, Object>> activities = new LinkedHashMap<>();
     private final Map<String, StringBuilder> text = new LinkedHashMap<>();
@@ -30,14 +28,10 @@ public final class AguiRunProjection {
     private String anchorMessageId;
     private String anchorPlacement = "AFTER";
 
-    public AguiRunProjection(String threadId, String runId, Consumer<AguiEvent> output) {
+    public AguiRunProjection(String threadId, String runId, Consumer<Event> output) {
         this.threadId = threadId;
         this.runId = runId;
         this.output = output;
-        AguiAdapterConfig config = AguiAdapterConfig.builder()
-                .emitToolCallArgs(false).enableReasoning(false)
-                .baseEventPropertiesEnricherEnabled(false).build();
-        context = new AguiStreamContext(threadId, runId, config);
     }
 
     public String status() { return status; }
@@ -50,20 +44,14 @@ public final class AguiRunProjection {
             case "agent_event" -> {
                 harness = true;
                 AgentEvent source = (AgentEvent) event.payload();
-                // Binary/data blocks stay in the authorized resource delivery channel, as before migration.
-                if (source instanceof io.agentscope.core.event.ToolResultDataDeltaEvent) break;
-                for (AguiEvent converted : converters.convert(source, context)) {
-                    // The product commit/approval boundary, not AgentEnd, owns the transport terminal.
-                    if (converted instanceof AguiEvent.RunStarted || converted instanceof AguiEvent.RunFinished
-                            || converted instanceof AguiEvent.Raw || converted instanceof AguiEvent.Custom) continue;
-                    publish(converted);
-                }
+                if (harnessAdapter == null) harnessAdapter = new HarnessAguiAdapter(threadId, runId);
+                harnessAdapter.accept(source).forEach(this::publish);
             }
             case "chunk" -> {
                 if (!harness && event.content() != null && !event.content().isEmpty()) {
-                    context.beginEvent();
-                    context.appendTextDelta("answer-" + runId, event.content());
-                    context.drainEvents().forEach(this::publish);
+                    String id = "answer-" + runId;
+                    if (!openText.contains(id)) publish(new TextMessageStartEvent(id, Role.ASSISTANT));
+                    publish(new TextMessageContentEvent(id, event.content()));
                 }
             }
             case "reasoning" -> {
@@ -75,25 +63,23 @@ public final class AguiRunProjection {
                 String key = "step-" + step.invocationId() + "-" + step.nodeId();
                 String phase = Objects.toString(step.status(), "running").toLowerCase(Locale.ROOT);
                 step(key, step.nodeName(), phase, null);
-                if ("running".equals(phase)) output.accept(new AguiEvent.StepStarted(threadId, runId, key));
-                else output.accept(new AguiEvent.StepFinished(threadId, runId, key));
+                if ("running".equals(phase)) output.accept(new StepStartedEvent(key));
+                else output.accept(new StepFinishedEvent(key));
             }
             case "tool_start", "tool_result" -> {
                 @SuppressWarnings("unchecked") Map<String, Object> tool = (Map<String, Object>) event.payload();
                 String id = Objects.toString(tool.get("id"));
                 String name = Objects.toString(tool.get("name"));
-                context.beginEvent();
                 if ("tool_start".equals(event.type())) {
-                    context.startToolCall(id, name);
-                    context.appendToolCallArgs(id, "{}");
-                    context.endToolCall(id);
+                    publish(new ToolCallStartEvent(id, name));
+                    publish(new ToolCallArgsEvent(id, "{}"));
+                    publish(new ToolCallEndEvent(id));
                 } else {
-                    output.accept(new AguiEvent.ToolCallResult(threadId, runId, id,
-                            limited(Objects.toString(tool.get("result"), ""), 8000), "tool", "result-" + id));
+                    output.accept(new ToolCallResultEvent("result-" + id, id,
+                            limited(Objects.toString(tool.get("result"), ""), 8000)));
                     step("tool-" + id, name, Boolean.TRUE.equals(tool.get("failed")) ? "failed" : "completed",
                             limited(Objects.toString(tool.get("result"), ""), 8000));
                 }
-                context.drainEvents().forEach(this::publish);
             }
             case "harness_event" -> {
                 HarnessAgentEventPayload payload = (HarnessAgentEventPayload) event.payload();
@@ -131,17 +117,21 @@ public final class AguiRunProjection {
         }
     }
 
-    private void publish(AguiEvent event) {
-        if (event instanceof AguiEvent.ToolCallResult result) {
-            event = new AguiEvent.ToolCallResult(threadId, runId, result.toolCallId(),
-                    limited(result.content(), 8000), result.role(), result.messageId());
+    private void publish(Event event) {
+        if (event instanceof ToolCallResultEvent result) {
+            event = new ToolCallResultEvent(result.messageId(), result.toolCallId(),
+                    limited(result.content(), 8000), result.role(), null, null);
         }
-        if (event instanceof AguiEvent.TextMessageStart start) text.putIfAbsent(start.messageId(), new StringBuilder());
-        if (event instanceof AguiEvent.TextMessageContent content) {
+        if (event instanceof TextMessageStartEvent start) {
+            openText.add(start.messageId());
+            text.putIfAbsent(start.messageId(), new StringBuilder());
+        }
+        if (event instanceof TextMessageEndEvent end) openText.remove(end.messageId());
+        if (event instanceof TextMessageContentEvent content) {
             text.computeIfAbsent(content.messageId(), ignored -> new StringBuilder()).append(content.delta());
         }
-        if (event instanceof AguiEvent.ToolCallStart tool) step("tool-" + tool.toolCallId(), tool.toolCallName(), "running", null);
-        if (event instanceof AguiEvent.ToolCallResult result) {
+        if (event instanceof ToolCallStartEvent tool) step("tool-" + tool.toolCallId(), tool.toolCallName(), "running", null);
+        if (event instanceof ToolCallResultEvent result) {
             Map<String, Object> previous = steps.get("tool-" + result.toolCallId());
             step("tool-" + result.toolCallId(), previous == null ? "工具" : Objects.toString(previous.get("name")),
                     "completed", limited(result.content(), 8000));
@@ -179,7 +169,7 @@ public final class AguiRunProjection {
         value.put("activityType", type);
         value.put("content", anchored);
         activities.put(id, value);
-        output.accept(new AguiEvent.ActivitySnapshot(threadId, runId, id, type, anchored, true));
+        output.accept(new ActivitySnapshotEvent(id, type, anchored));
     }
 
     public void refreshProgress() {
@@ -205,11 +195,14 @@ public final class AguiRunProjection {
 
     public void interrupted() { status = "INTERRUPTED"; }
 
-    public void closeMessages() { context.finishPendingEvents().forEach(this::publish); }
+    public void closeMessages() {
+        if (harnessAdapter != null) harnessAdapter.finish().forEach(this::publish);
+        for (String id : List.copyOf(openText)) publish(new TextMessageEndEvent(id));
+    }
 
-    public List<AguiMessage> partialMessages() {
+    public List<Message> partialMessages() {
         return text.entrySet().stream().filter(entry -> !entry.getValue().isEmpty())
-                .map(entry -> AguiMessage.assistantMessage(entry.getKey(), entry.getValue().toString())).toList();
+                .<Message>map(entry -> new AssistantMessage(entry.getKey(), entry.getValue().toString())).toList();
     }
 
     public Map<String, Object> snapshot() {
@@ -254,16 +247,16 @@ public final class AguiRunProjection {
         }
     }
 
-    public List<AguiEvent> activityEvents() { return activityEvents(threadId, runId, snapshot()); }
+    public List<Event> activityEvents() { return activityEvents(snapshot()); }
 
     @SuppressWarnings("unchecked")
-    public static List<AguiEvent> activityEvents(String threadId, String runId, Map<String, Object> snapshot) {
-        List<AguiEvent> events = new ArrayList<>();
+    public static List<Event> activityEvents(Map<String, Object> snapshot) {
+        List<Event> events = new ArrayList<>();
         for (Object item : (List<?>) snapshot.getOrDefault("activities", List.of())) {
             Map<String, Object> activity = (Map<String, Object>) item;
-            events.add(new AguiEvent.ActivitySnapshot(threadId, runId,
+            events.add(new ActivitySnapshotEvent(
                     Objects.toString(activity.get("id")), Objects.toString(activity.get("activityType")),
-                    (Map<String, Object>) activity.get("content"), true));
+                    (Map<String, Object>) activity.get("content")));
         }
         return events;
     }

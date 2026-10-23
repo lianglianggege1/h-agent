@@ -1,0 +1,10 @@
+.thread [data-copilotkit] {
+  --background: #f7f4ea;
+  --foreground: #1f1b16;
+  --primary: #b45309;
+}
+
+.thread [data-testid="copilot-chat"] {
+  height: 100%;
+  min-height: 0;
+}

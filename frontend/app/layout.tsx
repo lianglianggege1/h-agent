@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import "./globals.css";
 import "@copilotkit/react-core/v2/styles.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "H-Agent",

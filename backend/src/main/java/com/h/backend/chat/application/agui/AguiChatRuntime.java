@@ -9,9 +9,9 @@ import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
 import com.h.backend.chat.interfaces.dto.*;
 import com.h.backend.common.exception.BusinessException;
-import io.agentscope.core.agui.event.AguiEvent;
-import io.agentscope.core.agui.model.AguiMessage;
-import io.agentscope.core.agui.model.RunAgentInput;
+import com.agui.community.core.event.*;
+import com.agui.community.core.message.*;
+import com.agui.community.core.agent.RunAgentInput;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -68,33 +68,33 @@ public class AguiChatRuntime {
         this.subagents = subagents;
     }
 
-    public Flux<AguiEvent> run(Long userId, RunAgentInput input) {
-        validateId(input.getThreadId());
-        validateId(input.getRunId());
-        AgentSessionEntity session = owned(userId, input.getThreadId());
-        if (Boolean.TRUE.equals(input.getForwardedProp("observe"))) return observe(userId, input);
+    public Flux<Event> run(Long userId, RunAgentInput input) {
+        validateId(input.threadId());
+        validateId(input.runId());
+        AgentSessionEntity session = owned(userId, input.threadId());
+        if (Boolean.TRUE.equals(forwarded(input, "observe"))) return observe(userId, input);
 
-        String approvalId = string(input.getForwardedProp("approvalId"));
-        String message = input.getMessages() == null ? "" : input.getMessages().stream()
-                .filter(Objects::nonNull).filter(AguiMessage::isUserMessage).reduce((a, b) -> b).map(AguiMessage::getTextContent).orElse("");
+        String approvalId = string(forwarded(input, "approvalId"));
+        String message = input.messages() == null ? "" : input.messages().stream()
+                .filter(UserMessage.class::isInstance).map(UserMessage.class::cast).reduce((a, b) -> b).map(UserMessage::content).orElse("");
         if (approvalId == null && (message == null || message.isBlank() || message.length() > 4000)) {
             throw new BusinessException(40000, "消息不能为空且长度不能超过 4000");
         }
         List<ChatMessageResourceUseDto> resources;
         try {
-            resources = input.getForwardedProp("resources") == null ? List.of()
-                    : json.convertValue(input.getForwardedProp("resources"), new TypeReference<>() { });
+            resources = forwarded(input, "resources") == null ? List.of()
+                    : json.convertValue(forwarded(input, "resources"), new TypeReference<>() { });
         } catch (RuntimeException ex) { throw new BusinessException(40000, "附件格式无效"); }
         if (resources.size() > 20) throw new BusinessException(40000, "一次最多发送 20 个附件");
         if (resources.stream().anyMatch(resource -> resource == null || string(resource.resourceId()) == null
                 || string(resource.role()) == null || string(resource.source()) == null)) {
             throw new BusinessException(40000, "附件身份、角色和来源不能为空");
         }
-        String decision = string(input.getForwardedProp("decision"));
-        String hash = hash(json.writeValueAsString(Arrays.asList(input.getThreadId(), message, resources, approvalId, decision)));
-        AguiRunSnapshotMapper.Snapshot existing = snapshots.find(userId, input.getRunId());
+        String decision = string(forwarded(input, "decision"));
+        String hash = hash(json.writeValueAsString(Arrays.asList(input.threadId(), message, resources, approvalId, decision)));
+        AguiRunSnapshotMapper.Snapshot existing = snapshots.find(userId, input.runId());
         if (existing != null) {
-            if (!existing.sessionId().equals(input.getThreadId()) || !existing.requestHash().equals(hash)) {
+            if (!existing.sessionId().equals(input.threadId()) || !existing.requestHash().equals(hash)) {
                 throw new BusinessException(40901, "runId 已被其他请求使用");
             }
             return observe(userId, input);
@@ -104,7 +104,7 @@ public class AguiChatRuntime {
         String resumeAnchor = null;
         if (approvalId != null) {
             ApprovalRequestDto pending = approvalRequests.getOwned(userId, approvalId);
-            if (!input.getThreadId().equals(pending.sessionId())) throw new BusinessException(40300, "审批会话不匹配");
+            if (!input.threadId().equals(pending.sessionId())) throw new BusinessException(40300, "审批会话不匹配");
             ApprovalDecision parsed;
             try { parsed = ApprovalDecision.valueOf(Objects.toString(decision, "")); }
             catch (IllegalArgumentException ex) { throw new BusinessException(40000, "批准决定无效"); }
@@ -117,16 +117,16 @@ public class AguiChatRuntime {
             // Only the last new user text is accepted. Submitted history/state/tools never override server context.
             source = chat.streamChat(userId, promptId, root.getAgentId(), session.getSessionId(), message.trim(), resources);
         }
-        reconcile(userId, input.getThreadId());
-        ActiveRun run = new ActiveRun(userId, input.getThreadId(), input.getRunId());
+        reconcile(userId, input.threadId());
+        ActiveRun run = new ActiveRun(userId, input.threadId(), input.runId());
         if (resumeAnchor != null) run.projection.anchor(resumeAnchor, "AFTER");
         try {
-            snapshots.insert(new AguiRunSnapshotMapper.Snapshot(input.getRunId(), input.getThreadId(), userId,
+            snapshots.insert(new AguiRunSnapshotMapper.Snapshot(input.runId(), input.threadId(), userId,
                     hash, "RUNNING", json.writeValueAsString(run.projection.snapshot()), null));
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(40901, "当前会话已有运行中任务，请刷新进度");
         }
-        active.put(input.getRunId(), run);
+        active.put(input.runId(), run);
         Flux<ChatStreamEvent> execution = source.contextWrite(context -> context.put(ChatExecutionCancellation.CONTEXT_KEY, run.cancellation));
         // Deliberately independent subscription: cancelling the browser only removes its observer.
         run.ticker = Flux.interval(Duration.ofSeconds(1)).subscribe(tick -> run.checkpoint());
@@ -152,23 +152,23 @@ public class AguiChatRuntime {
         return result;
     }
 
-    private Flux<AguiEvent> observe(Long userId, RunAgentInput input) {
-        ActiveRun current = active.get(input.getRunId());
-        if (current != null && current.userId.equals(userId) && current.threadId.equals(input.getThreadId())) return current.events();
+    private Flux<Event> observe(Long userId, RunAgentInput input) {
+        ActiveRun current = active.get(input.runId());
+        if (current != null && current.userId.equals(userId) && current.threadId.equals(input.threadId())) return current.events();
         // A fresh Runtime process can reattach using the Java thread identity, without resending a message.
         current = active.values().stream().filter(run -> run.userId.equals(userId)
-                && run.threadId.equals(input.getThreadId())).findFirst().orElse(null);
+                && run.threadId.equals(input.threadId())).findFirst().orElse(null);
         if (current != null) return current.events();
         java.util.concurrent.atomic.AtomicBoolean first = new java.util.concurrent.atomic.AtomicBoolean(true);
         return Flux.defer(() -> {
-            var state = thread(userId, input.getThreadId());
-            List<AguiEvent> events = initialEvents(userId, input.getThreadId(), input.getRunId(), null);
-            if (!first.getAndSet(false)) events.removeIf(event -> event instanceof AguiEvent.RunStarted);
-            if (!Boolean.TRUE.equals(state.get("executing"))) events.add(new AguiEvent.RunFinished(input.getThreadId(), input.getRunId()));
+            var state = thread(userId, input.threadId());
+            List<Event> events = initialEvents(userId, input.threadId(), input.runId(), null);
+            if (!first.getAndSet(false)) events.removeIf(event -> event instanceof RunStartedEvent);
+            if (!Boolean.TRUE.equals(state.get("executing"))) events.add(new RunFinishedEvent(input.threadId(), input.runId()));
             return Flux.fromIterable(events);
         }).subscribeOn(Schedulers.boundedElastic())
                 .repeatWhen(completions -> completions.delayElements(Duration.ofSeconds(1)))
-                .takeUntil(event -> event instanceof AguiEvent.RunFinished || event instanceof AguiEvent.RunError);
+                .takeUntil(event -> event instanceof RunFinishedEvent || event instanceof RunErrorEvent);
     }
 
     public void stop(Long userId, String threadId, String expectedRunId) {
@@ -253,28 +253,32 @@ public class AguiChatRuntime {
         return session;
     }
 
-    private List<AguiEvent> initialEvents(Long userId, String threadId, String runId, ActiveRun live) {
-        List<AguiEvent> result = new ArrayList<>();
-        List<AguiEvent> extras = new ArrayList<>();
+    private List<Event> initialEvents(Long userId, String threadId, String runId, ActiveRun live) {
+        List<Event> result = new ArrayList<>();
+        List<Event> extras = new ArrayList<>();
         List<AguiRunSnapshotMapper.Snapshot> rows = snapshots.list(userId, threadId);
-        result.add(new AguiEvent.RunStarted(threadId, runId));
-        List<AguiMessage> messages = new ArrayList<>();
-        for (ChatSessionMessageDto message : sessions.getSessionMessages(userId, threadId, 100, null).messages()) {
+        result.add(new RunStartedEvent(threadId, runId));
+        List<Message> messages = new ArrayList<>();
+        List<ChatSessionMessageDto> history = sessions.getSessionMessages(userId, threadId, 100, null).messages();
+        for (int index = 0; index < history.size(); index++) {
+            ChatSessionMessageDto message = history.get(index);
             if ("REASONING".equals(message.messageType())) {
-                extras.add(new AguiEvent.ActivitySnapshot(threadId, runId, "reasoning-" + message.id(),
-                        "h-agent.reasoning", Map.of("text", Objects.toString(message.content(), "")), true));
+                extras.add(new ActivitySnapshotEvent("reasoning-" + message.id(),
+                        "h-agent.reasoning", historyCard(history, index)));
                 continue;
             }
             if ("system".equals(message.role())) {
-                extras.add(new AguiEvent.ActivitySnapshot(threadId, runId, "assignment-" + message.id(),
-                        "h-agent.assignment", Map.of("text", Objects.toString(message.content(), "")), true));
+                extras.add(new ActivitySnapshotEvent("assignment-" + message.id(),
+                        "h-agent.assignment", historyCard(history, index)));
                 continue;
             }
-            messages.add(AguiMessage.textMessage(message.id(), "user".equals(message.role()) ? "user" : "assistant",
-                    Objects.toString(message.content(), ""), null, null));
+            messages.add("user".equals(message.role())
+                    ? new UserMessage(message.id(), Objects.toString(message.content(), ""))
+                    : new AssistantMessage(message.id(), Objects.toString(message.content(), "")));
             if (message.resources() != null && !message.resources().isEmpty() || message.payload() != null) {
-                extras.add(new AguiEvent.ActivitySnapshot(threadId, runId, "resource-" + message.id(),
-                        "h-agent.resource", Map.of("message", message), true));
+                extras.add(new ActivitySnapshotEvent("resource-" + message.id(),
+                        "h-agent.resource", Map.of("message", message,
+                                "anchorMessageId", message.id(), "anchorPlacement", "AFTER")));
             }
         }
         for (var row : rows) {
@@ -282,13 +286,13 @@ public class AguiChatRuntime {
             Map<String, Object> snapshot = read(row);
             for (Object raw : (List<?>) snapshot.getOrDefault("partialMessages", List.of())) {
                 @SuppressWarnings("unchecked") Map<String, Object> message = (Map<String, Object>) raw;
-                messages.add(AguiMessage.assistantMessage(Objects.toString(message.get("id")), Objects.toString(message.get("content"), "")));
+                messages.add(new AssistantMessage(Objects.toString(message.get("id")), Objects.toString(message.get("content"), "")));
             }
         }
         if (live != null) messages.addAll(live.projection.partialMessages());
-        result.add(new AguiEvent.MessagesSnapshot(threadId, runId, messages));
+        result.add(new MessagesSnapshotEvent(messages));
         for (var row : rows) {
-            if (live == null || !row.runId().equals(live.runId)) result.addAll(AguiRunProjection.activityEvents(threadId, row.runId(), read(row)));
+            if (live == null || !row.runId().equals(live.runId)) result.addAll(AguiRunProjection.activityEvents(read(row)));
         }
         if (live != null) result.addAll(live.projection.activityEvents());
         result.addAll(extras);
@@ -297,13 +301,46 @@ public class AguiChatRuntime {
             var view = proposals.describe(anchored.proposal());
             var dto = AutomationProposalDto.from(anchored, view.name(), view.instruction(), view.agentId(),
                     view.cronExpression(), view.zoneId(), view.deliverySink(), view.upcomingFires());
-            result.add(new AguiEvent.ActivitySnapshot(threadId, runId, "automation-" + dto.id(),
-                    "h-agent.automation", Map.of("proposal", dto), true));
+            result.add(new ActivitySnapshotEvent("automation-" + dto.id(),
+                    "h-agent.automation", Map.of("proposal", dto)));
         }
         ApprovalRequestDto pending = approvalRequests.findPending(userId, threadId);
-        if (pending != null) result.add(new AguiEvent.ActivitySnapshot(threadId, runId, "approval-" + pending.approvalId(),
-                "h-agent.approval", Map.of("approval", pending), true));
+        if (pending != null) result.add(new ActivitySnapshotEvent("approval-" + pending.approvalId(),
+                "h-agent.approval", Map.of("approval", pending)));
         return result;
+    }
+
+    /** Keep historical cards beside their product messages, including pre-AG-UI conversations. */
+    private Map<String, Object> historyCard(List<ChatSessionMessageDto> history, int index) {
+        ChatSessionMessageDto message = history.get(index);
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("text", Objects.toString(message.content(), ""));
+        int next = index + 1;
+        // The previous UI attached reasoning to the final answer after intervening generated images.
+        if ("REASONING".equals(message.messageType())) {
+            while (next < history.size() && "IMAGE".equals(history.get(next).messageType())) next++;
+            if (next >= history.size() || !("AI".equals(history.get(next).messageType())
+                    || "blocked".equals(history.get(next).role()))) next = index + 1;
+        }
+        for (int candidate = next; candidate < history.size(); candidate++) {
+            if (historyText(history.get(candidate))) {
+                content.put("anchorMessageId", history.get(candidate).id());
+                content.put("anchorPlacement", "BEFORE");
+                return content;
+            }
+        }
+        for (int candidate = index - 1; candidate >= 0; candidate--) {
+            if (historyText(history.get(candidate))) {
+                content.put("anchorMessageId", history.get(candidate).id());
+                content.put("anchorPlacement", "AFTER");
+                break;
+            }
+        }
+        return content;
+    }
+
+    private static boolean historyText(ChatSessionMessageDto message) {
+        return !"REASONING".equals(message.messageType()) && !"system".equals(message.role());
     }
 
     @SuppressWarnings("unchecked")
@@ -332,6 +369,10 @@ public class AguiChatRuntime {
         return state;
     }
 
+    private static Object forwarded(RunAgentInput input, String name) {
+        return input.forwardedProps() instanceof Map<?, ?> values ? values.get(name) : null;
+    }
+
     private static String string(Object value) { return value instanceof String text && !text.isBlank() ? text : null; }
     private static void validateId(String id) {
         if (id == null || id.isBlank() || id.length() > 128) throw new BusinessException(40000, "threadId/runId 无效");
@@ -349,7 +390,7 @@ public class AguiChatRuntime {
         private final String threadId;
         private final String runId;
         private final ChatExecutionCancellation cancellation = new ChatExecutionCancellation();
-        private final List<FluxSink<AguiEvent>> observers = new ArrayList<>();
+        private final List<FluxSink<Event>> observers = new ArrayList<>();
         private final AguiRunProjection projection;
         private Disposable upstream;
         private Disposable ticker;
@@ -363,12 +404,12 @@ public class AguiChatRuntime {
             projection = new AguiRunProjection(threadId, runId, this::publish);
         }
 
-        private void publish(AguiEvent event) {
-            for (FluxSink<AguiEvent> observer : List.copyOf(observers)) if (!observer.isCancelled()) observer.next(event);
+        private void publish(Event event) {
+            for (FluxSink<Event> observer : List.copyOf(observers)) if (!observer.isCancelled()) observer.next(event);
         }
 
-        private Flux<AguiEvent> events() {
-            return Flux.<AguiEvent>create(sink -> {
+        private Flux<Event> events() {
+            return Flux.<Event>create(sink -> {
                 synchronized (this) {
                     initialEvents(userId, threadId, runId, this).forEach(sink::next);
                     if (finished) {
@@ -413,9 +454,9 @@ public class AguiChatRuntime {
         }
 
         private void refreshMessages() {
-            List<AguiEvent> events = initialEvents(userId, threadId, runId, this);
+            List<Event> events = initialEvents(userId, threadId, runId, this);
             // Do not restart an existing transport lifecycle when replacing authoritative messages.
-            events.stream().filter(event -> !(event instanceof AguiEvent.RunStarted)).forEach(this::publish);
+            events.stream().filter(event -> !(event instanceof RunStartedEvent)).forEach(this::publish);
         }
 
         private void refreshProposals() {
@@ -452,11 +493,11 @@ public class AguiChatRuntime {
             finish();
         }
 
-        private AguiEvent terminalEvent() {
+        private Event terminalEvent() {
             if ("FAILED".equals(projection.status()) || "INTERRUPTED".equals(projection.status())) {
-                return new AguiEvent.RunError(threadId, runId, "任务未完成，请展开过程查看详情", projection.status());
+                return new RunErrorEvent("任务未完成，请展开过程查看详情", projection.status(), null, null);
             }
-            return new AguiEvent.RunFinished(threadId, runId);
+            return new RunFinishedEvent(threadId, runId);
         }
 
         private void finish() {

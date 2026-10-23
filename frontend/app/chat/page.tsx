@@ -104,11 +104,17 @@ function ChatWorkspace() {
     }).catch(() => {});
   }, [sessionId, refreshChildren]);
 
+  function chatHref(id: string) {
+    const params = new URLSearchParams({ sessionId: id });
+    if (process.env.NODE_ENV === "development" && search.get("debug") === "1") params.set("debug", "1");
+    return "/chat?" + params.toString();
+  }
+
   async function choose(id: string) {
     setCreating(true);
     try {
       const detail = await resolveChatSession(id);
-      hydrate(detail); router.replace("/chat?sessionId=" + encodeURIComponent(detail.session.sessionId), { scroll: false });
+      hydrate(detail); router.replace(chatHref(detail.session.sessionId), { scroll: false });
     } catch (failure) { setError(failure instanceof Error ? failure.message : "恢复会话失败"); }
     finally { setCreating(false); }
   }
@@ -120,7 +126,7 @@ function ChatWorkspace() {
       const detail = await createChatSession({ currentSessionId: sessionId, agentId, promptId: promptId ?? null,
         approvalMode: agentId === harnessId ? approvalMode : null });
       hydrate(detail); setPickerOpen(false); setHistoryOpen(false);
-      router.replace("/chat?sessionId=" + encodeURIComponent(detail.session.sessionId), { scroll: false });
+      router.replace(chatHref(detail.session.sessionId), { scroll: false });
     } catch (failure) { setError(failure instanceof Error ? failure.message : "创建会话失败"); }
     finally { setCreating(false); }
   }
@@ -141,7 +147,7 @@ function ChatWorkspace() {
     try {
       const detail = await activateHistorySession(id, sessionId);
       hydrate(detail); setHistoryOpen(false);
-      router.replace("/chat?sessionId=" + encodeURIComponent(id), { scroll: false });
+      router.replace(chatHref(id), { scroll: false });
     } catch (failure) { setError(failure instanceof Error ? failure.message : "打开会话失败"); }
     finally { setCreating(false); }
   }
@@ -153,7 +159,7 @@ function ChatWorkspace() {
     && (domain === "全部" || agent.domain === domain)
     && [agent.displayName, agent.summary, agent.domain, ...agent.tags].join(" ").toLowerCase().includes(agentQuery.toLowerCase()));
 
-  return <main className="flex h-dvh flex-col overflow-hidden bg-[#f7f4ea] text-stone-900">
+  return <main className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden bg-[#f7f4ea] text-stone-900">
     <header className="z-10 shrink-0 border-b border-stone-200 bg-[#f7f4ea]/95 px-4 py-3">
       <div className="mx-auto flex max-w-5xl items-center gap-3">
         <button className="agui-button" aria-label="打开历史会话" onClick={() => { setHistoryOpen(true); void loadHistory(true); }}>☰</button>
@@ -183,7 +189,7 @@ function ChatWorkspace() {
 
     {selected && sessionId ? <div className="fixed inset-0 z-30 flex justify-end bg-stone-950/25">
       <button className="absolute inset-0" aria-label="关闭子 Agent 对话" onClick={() => setSelectedChild(null)} />
-      <aside className="relative flex h-full w-full max-w-xl flex-col bg-[#f7f4ea] shadow-2xl">
+      <aside className="relative flex h-full w-[92%] max-w-md flex-col bg-[#f7f4ea] shadow-2xl">
         <header className="shrink-0 border-b border-stone-200 p-4">
           <div className="flex items-center justify-between"><div><h2 className="font-semibold">{selected.displayName}</h2><p className="mt-1 text-xs text-stone-500">{childStatus[selected.status]} · 关闭面板后任务继续执行</p></div><button className="agui-button" onClick={() => setSelectedChild(null)}>关闭</button></div>
           {selected.parentSessionId !== sessionId ? <button className="mt-2 text-xs text-amber-800 underline" onClick={() => setSelectedChild(selected.parentSessionId)}>返回上级 Agent</button> : null}
@@ -225,11 +231,17 @@ function ChatWorkspace() {
   </main>;
 }
 
+function ChatRuntime() {
+  const search = useSearchParams();
+  const enableInspector = process.env.NODE_ENV === "development" && search.get("debug") === "1";
+  return <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false} credentials="include"
+      renderActivityMessages={activityRenderers} enableInspector={enableInspector}>
+      <ChatWorkspace />
+    </CopilotKit>;
+}
+
 export default function ChatPage() {
   return <Suspense fallback={<main className="min-h-dvh bg-[#f7f4ea]" />}>
-    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false} credentials="include"
-      renderActivityMessages={activityRenderers} enableInspector={process.env.NODE_ENV === "development"}>
-      <ChatWorkspace />
-    </CopilotKit>
+    <ChatRuntime />
   </Suspense>;
 }

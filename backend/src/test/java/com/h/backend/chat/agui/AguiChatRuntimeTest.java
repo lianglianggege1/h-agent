@@ -9,8 +9,8 @@ import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
 import com.h.backend.chat.interfaces.dto.*;
 import com.h.backend.common.exception.BusinessException;
-import io.agentscope.core.agui.model.AguiMessage;
-import io.agentscope.core.agui.model.RunAgentInput;
+import com.agui.community.core.message.UserMessage;
+import com.agui.community.core.agent.RunAgentInput;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,8 +125,35 @@ class AguiChatRuntimeTest {
     }
 
     static RunAgentInput input(String runId, String thread, String message) {
-        return RunAgentInput.builder().threadId(thread).runId(runId)
-                .messages(List.of(AguiMessage.userMessage("user-1", message))).forwardedProps(Map.of()).build();
+        return new RunAgentInput(thread, runId, null, List.of(new UserMessage("user-1", message)), List.of(), List.of(), Map.of());
+    }
+
+    @Test
+    void restoredReasoningAndResourcesKeepTheirOriginalTurnPositions() {
+        var history = List.of(
+                new ChatSessionMessageDto("u1", "user", "USER", "first", null, List.of(), null),
+                new ChatSessionMessageDto("r1", "assistant", "REASONING", "thinking", null, List.of(), null),
+                new ChatSessionMessageDto("i1", "assistant", "IMAGE", "", null, List.of(
+                        new ChatMessageResourceDto("image", "IMAGE", "OUTPUT", "/view", "/download", "image.png",
+                                "image/png", 1L, null, null, null, null)), null),
+                new ChatSessionMessageDto("a1", "assistant", "AI", "first answer", null, List.of(), null),
+                new ChatSessionMessageDto("u2", "user", "USER", "second", null, List.of(), null),
+                new ChatSessionMessageDto("r2", "assistant", "REASONING", "next thinking", null, List.of(), null),
+                new ChatSessionMessageDto("a2", "assistant", "AI", "second answer", null, List.of(), null));
+        when(sessions.getSessionMessages(1L, "root", 100, null))
+                .thenReturn(new ChatSessionMessagesPageDto("root", history, false, null));
+        var input = new RunAgentInput("root", "observe", null, List.of(), List.of(), List.of(), Map.of("observe", true));
+        var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
+        var cards = events.stream().filter(com.agui.community.core.event.ActivitySnapshotEvent.class::isInstance)
+                .map(com.agui.community.core.event.ActivitySnapshotEvent.class::cast)
+                .collect(java.util.stream.Collectors.toMap(com.agui.community.core.event.ActivitySnapshotEvent::messageId,
+                        card -> (Map<?, ?>) card.content()));
+        // The old UI displays generated images, then the reasoning attached to the final answer.
+        assertEquals("a1", cards.get("reasoning-r1").get("anchorMessageId"));
+        assertEquals("BEFORE", cards.get("reasoning-r1").get("anchorPlacement"));
+        assertEquals("i1", cards.get("resource-i1").get("anchorMessageId"));
+        assertEquals("AFTER", cards.get("resource-i1").get("anchorPlacement"));
+        assertEquals("a2", cards.get("reasoning-r2").get("anchorMessageId"));
     }
 
     @Test
@@ -167,10 +194,9 @@ class AguiChatRuntimeTest {
                 }));
         rows.put("old", new AguiRunSnapshotMapper.Snapshot("old", "root", 1L, "hash", "WAITING_APPROVAL",
                 "{\"runId\":\"old\",\"status\":\"WAITING_APPROVAL\",\"activities\":[{\"id\":\"approval-approval\",\"activityType\":\"h-agent.approval\",\"content\":{\"approval\":{\"approvalId\":\"approval\"}}}]}", null));
-        var input = RunAgentInput.builder().threadId("root").runId("resume")
-                .messages(List.of()).forwardedProps(Map.of("approvalId", "approval", "decision", "APPROVE")).build();
+        var input = new RunAgentInput("root", "resume", null, List.of(), List.of(), List.of(), Map.of("approvalId", "approval", "decision", "APPROVE"));
         var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
-        assertTrue(events.stream().anyMatch(io.agentscope.core.agui.event.AguiEvent.RunFinished.class::isInstance));
+        assertTrue(events.stream().anyMatch(com.agui.community.core.event.RunFinishedEvent.class::isInstance));
         assertEquals("COMPLETED", rows.get("resume").status());
         var historical = (List<Map<String, Object>>) runtime.thread(1L, "root").get("runs");
         assertEquals("RESUMED", historical.stream().filter(run -> "old".equals(run.get("runId"))).findFirst().orElseThrow().get("status"));

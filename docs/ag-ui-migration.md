@@ -4,7 +4,9 @@
 
 - `@copilotkit/react-core` / `@copilotkit/runtime` 1.79.1，使用 `/v2` 入口。
 - `@ag-ui/client` / `@ag-ui/core` 1.0.2，与 CopilotKit 的依赖版本一致；RxJS 7.8.1。
-- `io.agentscope:agentscope-extensions-agui:2.0.2`。复用 `RunAgentInput`、`AguiEvent`、`AguiEventEncoder`、`AgentEventConverterRegistry` 与 `AguiStreamContext`。
+- `com.ag-ui.community:java-server:0.1.1`（传递引入 `java-core`），复用标准 `RunAgentInput`、消息、事件和 `SseEventEncoder`。
+- `com.ag-ui.community:ag-ui-spring-server-core:4.1.0`，复用 `JacksonSerializer`。该模块不依赖 Spring，不会升级本项目的 Spring Boot。
+- `io.agentscope:agentscope-extensions-agui:2.0.2` 仅在 `HarnessAguiAdapter` 内复用 `AgentEventConverterRegistry`、`AguiStreamContext` 和官方编码器，将 Harness 原始事件转换为社区 SDK 的标准事件。
 
 参考：[CopilotKit Runtime](https://docs.copilotkit.ai/deepagents/backend/copilot-runtime)、[AG-UI HttpAgent](https://docs.ag-ui.com/sdk/js/client/http-agent)。不需要配置 CopilotKit 云账户。
 
@@ -24,9 +26,9 @@ AG-UI `threadId` 是实际 Agent Session（包括子会话）；`runId` 是一�
 
 普通 LangChain4j 聊天和同步 Agent 工作流以原生回调映射标准文本、步骤及工具事件；同步工作流只流送真实步骤与最终结果。Harness 原始 AgentEvent 仅通过内部接缝交给官方转换器，父回复不会重复拼接旧 chunk，也不会拼入子 Agent 的文本。旧后端 SSE 接口仍可兼容已有消费者，网页端已经移除自写 SSE 解析。
 
-SDK 的 Jackson 2 MessageContent 解码器与 Boot 4 默认 Jackson 3 不兼容，因此入口由 SDK `JsonCodec` 读取请求；SSE 数据由 SDK encoder 生成 JSON，再由 Spring 的 `ServerSentEvent` 包装一次。
+后端对外协议全部使用社区 Java SDK。`AguiSdkConfig` 配置社区 `JacksonSerializer`，启用 Java 时间类型及 ISO 时间格式，与 Boot 4 的 Jackson 3 业务持久化互不干扰。社区 `SseEventEncoder` 生成完整 SSE 帧，`OutputStreamEventSink` 在现有 Spring MVC 虚拟线程执行器中逐帧写出并刷新响应，避免 `SseEmitter` 重复包装。旧的自定义 `AguiEventJson` 已移除。
 
-`AguiEventJson` 只移除 AgentScope 2.0.2 在非运行生命周期事件上附加的旧 `threadId/runId` 字段，避免 AG-UI 1.x 严格校验逐条输出字段丢弃警告。协议事件及其 JSON 仍由官方 SDK 生成。
+AgentScope 协议类型被限制在 Harness 适配器内部：官方转换后的 JSON 由社区序列化器读取为标准事件，旧版额外字段不再进入对外编码。LangChain4j 路径直接生成社区 SDK 的文本、步骤和工具事件，不使用 AgentScope 的流上下文。
 
 ## 持久化和执行控制
 
@@ -37,6 +39,12 @@ Flyway `V20261023_01__agui_run_snapshots.sql` 新增 `chat_interaction_runs`，�
 执行中的根任务每秒更新快照，委派子任务每两秒更新快照。跨连接或服务实例观察时读取同一份持久化快照；停止请求也保存在数据库中交给执行实例处理。超过 60 秒没有心跳的任务会被标记为中断，保留已保存的过程，不自动重复执行工具。
 
 ## 界面与扩展卡片
+
+聊天页面保留居中、最大 448px 的窄版布局。CopilotKit Inspector 默认关闭；仅在开发环境下，在聊天页 URL 加上 `debug=1`（例如 `/chat?sessionId=...&debug=1`）才显示调试面板。移除该参数即可关闭，生产构建始终关闭。
+
+历史恢复时，思考和父 Agent 委托卡片关联到相邻消息，资源卡片关联到所属消息，避免因 activity 快照晚于正文到达而被追加到会话尾部。保留原有“生成图片后展示思考及最终正文”的排列；加载更早消息时使用同样的投影，并包含后一页上下文，避免分页拆开思考与正文后错位。
+
+输入框“＋ → 从历史选择”可选择当前会话生成过的图片作为参考图。支持加载更早历史、去重、预览、移除及保留其他附件；图片卡片的“用作参考”使用相同逻辑。发送时仅提交业务资源身份与 `REFERENCE/HISTORY`，资源归属仍由后端校验。
 
 `components/agui-chat-thread.tsx` 为每个父/子会话注册独立 SDK 代理，使用 CopilotKit Chat、消息状态与工具渲染。`components/agui-cards.tsx` 注册 activity 类型、Zod schema 和 React renderer。
 
