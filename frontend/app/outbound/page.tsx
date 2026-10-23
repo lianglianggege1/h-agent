@@ -241,12 +241,12 @@ export default function OutboundPage() {
     }
   }
 
-  if (loading) return <main className="min-h-screen bg-[#f7f4ea]" />;
+  if (loading) return <main className="workspace-page" />;
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <header className="flex flex-col gap-4 rounded-[2rem] border border-stone-200/80 bg-white/90 p-6 shadow-[0_24px_60px_rgba(76,59,36,0.12)] sm:flex-row sm:items-end sm:justify-between">
+    <main className="workspace-page text-stone-900">
+      <div className="workspace-container space-y-5">
+        <header className="flex flex-col gap-4 rounded-2xl border border-stone-200/80 bg-white p-6 shadow-sm sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Softphone outbound</p>
             <h1 className="mt-2 text-3xl font-semibold">外呼任务</h1>
@@ -260,7 +260,7 @@ export default function OutboundPage() {
 
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <section className="space-y-5">
-            <form onSubmit={handleImport} className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-sm">
+            <form onSubmit={handleImport} className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold">1. 导入授权名单</h2>
               <p className="mt-1 text-xs text-stone-500">每行：分机, 姓名, 授权依据；也支持 Tab 分隔，最多 100 条。</p>
               <textarea required rows={5} value={importText} onChange={(event) => setImportText(event.target.value)}
@@ -271,7 +271,7 @@ export default function OutboundPage() {
               </button>
             </form>
 
-            <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-sm">
+            <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">名单</h2>
                 <span className="text-xs text-stone-400">已选 {selectedContacts.length}</span>
@@ -303,7 +303,7 @@ export default function OutboundPage() {
           </section>
 
           <section className="space-y-5">
-            <form onSubmit={handleCreateTask} className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-sm">
+            <form onSubmit={handleCreateTask} className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold">2. 创建任务</h2>
               {agents.length === 0 ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-700">当前没有已验证的电话 Agent。</p> : null}
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -328,7 +328,7 @@ export default function OutboundPage() {
               </button>
             </form>
 
-            <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-sm">
+            <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold">3. 任务与进度</h2>
               <div className="mt-3 space-y-2">
                 {tasks.length === 0 ? <p className="py-8 text-center text-sm text-stone-400">尚未创建任务</p> : tasks.map((task) => (
@@ -348,7 +348,7 @@ export default function OutboundPage() {
         </div>
 
         {detail ? (
-          <section className="rounded-[2rem] border border-stone-200/80 bg-white/95 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.10)]">
+          <section className="rounded-2xl border border-stone-200/80 bg-white/95 p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="flex items-center gap-3"><h2 className="text-xl font-semibold">{detail.name}</h2><Badge value={detail.status} label={taskLabels[detail.status]} /></div>

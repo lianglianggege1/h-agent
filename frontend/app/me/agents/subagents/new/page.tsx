@@ -49,13 +49,13 @@ export default function NewSubagentPage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-lg border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container space-y-4">
+        <header className="rounded-lg border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href="/me/agents">
             返回 Agent 管理
           </Link>
@@ -66,7 +66,7 @@ export default function NewSubagentPage() {
         </header>
 
         <form
-          className="space-y-4 rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm"
+          className="space-y-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm"
           onSubmit={handleSubmit}
         >
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}

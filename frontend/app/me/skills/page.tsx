@@ -106,13 +106,13 @@ export default function SkillsPage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container space-y-4">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href="/me">
             返回我的
           </Link>
@@ -128,7 +128,7 @@ export default function SkillsPage() {
         ) : null}
         {error ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <button
             className="w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800"
             type="button"
@@ -142,7 +142,7 @@ export default function SkillsPage() {
           </button>
 
           {createOpen ? (
-            <form className="mt-4 space-y-3" onSubmit={handleCreate}>
+            <form className="workspace-form-grid mt-4" onSubmit={handleCreate}>
               <div>
                 <label className="block text-sm font-semibold text-stone-700" htmlFor="skill-key">
                   标识（skillKey）
@@ -210,7 +210,7 @@ export default function SkillsPage() {
           ) : null}
         </section>
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.2em] text-amber-700">User Skills</p>
@@ -225,7 +225,7 @@ export default function SkillsPage() {
             </p>
           ) : null}
 
-          <div className="mt-4 space-y-3">
+          <div className="workspace-card-grid mt-4">
             {skills.map((skill) => (
               <article key={skill.id} className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
                 <div className="flex items-start justify-between gap-3">

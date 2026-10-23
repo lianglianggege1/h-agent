@@ -95,6 +95,14 @@ export default function MemoryPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (dirty && !window.confirm("有未保存的修改，确认离开将丢弃本地草稿。")) event.preventDefault();
+    };
+    window.addEventListener("h-agent:before-navigate", handler);
+    return () => window.removeEventListener("h-agent:before-navigate", handler);
+  }, [dirty]);
+
   const handleSave = useCallback(async () => {
     if (state.mode !== "edit" || overLimit || state.revisionStale || state.document === null) {
       return;
@@ -166,7 +174,7 @@ export default function MemoryPage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   const readSections = state.mode === "read" && state.document !== null
@@ -178,9 +186,9 @@ export default function MemoryPage() {
   const sections = state.mode === "read" ? readSections : editSections;
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-5">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container workspace-memory-layout">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link
             className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700"
             href="/me"
@@ -200,13 +208,13 @@ export default function MemoryPage() {
         </header>
 
         {state.mode === "loading" && (
-          <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
             <p className="text-sm text-stone-500">正在加载长期记忆…</p>
           </div>
         )}
 
         {state.mode === "error" && (
-          <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
             <p className="text-sm font-medium text-stone-700">{state.loadError}</p>
             <button
               className="mt-3 rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white"
@@ -219,7 +227,7 @@ export default function MemoryPage() {
         )}
 
         {sections.length > 0 && state.mode !== "error" && state.mode !== "loading" && (
-          <nav className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <nav className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700">章节</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {sections.map((section, index) => (
@@ -237,7 +245,7 @@ export default function MemoryPage() {
         )}
 
         {state.mode === "read" && state.document !== null && (
-          <article className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <article className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
             {state.document.content.trim() === "" ? (
               <p className="text-sm text-stone-500">暂无记忆内容，点击下方按钮开始记录。</p>
             ) : (
@@ -256,7 +264,7 @@ export default function MemoryPage() {
         )}
 
         {(state.mode === "edit" || state.mode === "saving") && (
-          <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
             {state.revisionStale && (
               <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
                 <p className="text-xs leading-5 text-amber-800">
@@ -318,7 +326,7 @@ export default function MemoryPage() {
         )}
 
         {state.mode === "conflict" && (
-          <div className="rounded-[2rem] border border-amber-200/80 bg-amber-50/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <div className="rounded-2xl border border-amber-200/80 bg-amber-50/90 p-5 shadow-sm backdrop-blur">
             <h2 className="text-sm font-semibold text-amber-900">内容已过期</h2>
             <p className="mt-1 text-xs leading-5 text-amber-800">
               记忆已被其他会话更新。重新加载会丢弃本地草稿并显示最新内容；也可以先复制下方草稿再重新加载。

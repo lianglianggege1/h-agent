@@ -389,14 +389,14 @@ export default function SkillWorkspacePage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   if (loading || !skill) {
     return (
-      <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-        <section className="mx-auto w-full max-w-md space-y-4">
-          <p className="rounded-2xl bg-white/90 px-4 py-5 text-sm text-stone-500">
+      <main className="workspace-page text-stone-900">
+        <section className="workspace-container workspace-detail-layout">
+          <p className="rounded-2xl bg-white px-4 py-5 text-sm text-stone-500">
             {error ? error : "加载中..."}
           </p>
         </section>
@@ -405,9 +405,9 @@ export default function SkillWorkspacePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container workspace-detail-layout">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href="/me/skills">
             返回 Skill 列表
           </Link>
@@ -465,7 +465,7 @@ export default function SkillWorkspacePage() {
           onAssetUpload={(file) => void handleAssetUpload(file)}
         />
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Releases</p>
@@ -531,7 +531,7 @@ export default function SkillWorkspacePage() {
           )}
         </section>
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Settings</p>
           <h2 className="mt-1 text-lg font-semibold">设置</h2>
           <div className="mt-4 space-y-3">
@@ -617,7 +617,7 @@ function ProposalSection(props: ProposalSectionProps) {
 
   if (proposalMissing) {
     return (
-      <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+      <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
         <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Proposal</p>
         <h2 className="mt-1 text-lg font-semibold">草稿</h2>
         <p className="mt-3 text-sm leading-6 text-stone-500">当前没有进行中的草稿。</p>
@@ -637,7 +637,7 @@ function ProposalSection(props: ProposalSectionProps) {
 
   return (
     <section className="space-y-4">
-      <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+      <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Proposal</p>
@@ -784,7 +784,7 @@ function ProposalSection(props: ProposalSectionProps) {
       </section>
 
       <form
-        className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur"
+        className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur"
         onSubmit={props.onPublishSubmit}
       >
         <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Publish</p>

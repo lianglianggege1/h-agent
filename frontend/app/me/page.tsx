@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthUser, getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
+import { WorkspaceIcon } from "@/components/workspace-shell";
 
 export default function MePage() {
   const router = useRouter();
@@ -29,57 +30,36 @@ export default function MePage() {
   }
 
   if (!user) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-5">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container space-y-5">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <p className="text-xs uppercase tracking-[0.28em] text-amber-700">H-Agent</p>
-          <h1 className="mt-2 text-2xl font-semibold">我的</h1>
-          <p className="mt-3 text-sm text-stone-500">{user.email}</p>
+          <h1 className="mt-2 text-2xl font-semibold">个人设置</h1>
+          <p className="mt-3 text-sm text-stone-500">让助手更了解你，也更适合你的工作。</p>
         </header>
 
-        <div className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
-          <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">基础能力</p>
-          <Link className="mt-2 block rounded-2xl bg-stone-900 px-4 py-4 text-sm font-semibold text-white" href="/me/system-prompts">
-            SystemPrompt 管理
-          </Link>
-          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/knowledge">
-            知识库管理
-          </Link>
-          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/agents">
-            领域 Agent 管理
-          </Link>
-          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/me/skills">
-            我的 Skill（版本管理）
-          </Link>
-          <Link className="mt-3 block rounded-2xl border border-stone-200 px-4 py-4" href="/outbound">
-            <span className="block text-sm font-semibold text-stone-700">外呼任务</span>
-            <span className="mt-1 block text-xs text-stone-400">导入授权名单并管理软电话外呼</span>
-          </Link>
-
-          <p className="mt-6 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Harness Agent 能力</p>
-          <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/automations">
-            <span className="block text-sm font-semibold text-stone-700">自动化任务</span>
-            <span className="mt-1 block text-xs text-stone-400">定时任务与待确认提案管理</span>
-          </Link>
-          <Link className="mt-2 block rounded-2xl border border-stone-200 px-4 py-4" href="/me/memory">
-            <span className="block text-sm font-semibold text-stone-700">用户长期记忆</span>
-            <span className="mt-1 block text-xs text-stone-400">查看和编辑 Harness Agent 的长期记忆</span>
-          </Link>
-
-          <Link className="mt-6 block rounded-2xl border border-stone-200 px-4 py-4 text-sm font-semibold text-stone-700" href="/chat">
-            返回聊天
-          </Link>
-          <button
-            className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 text-left text-sm font-semibold text-stone-700"
-            type="button"
-            onClick={handleLogout}
-          >
-            退出登录
-          </button>
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-stone-200 bg-white p-5">
+          <div className="min-w-0"><p className="text-sm font-semibold">账号</p><p className="mt-1 break-all text-sm text-stone-500">{user.email}</p></div>
+          <button className="agui-button shrink-0" type="button" onClick={handleLogout}>退出登录</button>
+        </div>
+        <div className="pt-3"><h2 className="text-sm font-semibold">工作区设置</h2><p className="mt-1 text-xs text-stone-500">管理助手的能力、资源和工作方式。</p></div>
+        <div className="workspace-card-grid">
+          {[
+            { href: "/me/system-prompts", icon: "prompt", title: "提示词", description: "设置助手角色、指令和默认提示词" },
+            { href: "/me/knowledge", icon: "book", title: "知识库", description: "上传资料，为助手提供专属知识" },
+            { href: "/me/agents", icon: "agents", title: "智能体管理", description: "查看编排拓扑，管理子智能体定义" },
+            { href: "/me/skills", icon: "skills", title: "我的技能", description: "编辑技能草稿，管理发布与生效版本" },
+            { href: "/automations", icon: "clock", title: "自动化任务", description: "管理定时任务、执行记录和待确认提案" },
+            { href: "/me/memory", icon: "memory", title: "长期记忆", description: "查看和编辑跨会话共享的长期记忆" },
+            { href: "/outbound", icon: "phone", title: "外呼任务", description: "导入授权名单，管理软电话外呼" },
+          ].map((item) => <Link key={item.href} href={item.href} className="group rounded-2xl border border-stone-200 bg-white p-6 transition hover:border-stone-400">
+            <div className="mb-5 flex items-center justify-between"><span className="rounded-xl bg-stone-100 p-2.5 text-stone-600"><WorkspaceIcon name={item.icon} /></span><span className="text-stone-400 transition group-hover:translate-x-1">↗</span></div>
+            <h3 className="text-sm font-semibold">{item.title}</h3><p className="mt-2 text-xs leading-5 text-stone-500">{item.description}</p>
+          </Link>)}
         </div>
       </section>
     </main>

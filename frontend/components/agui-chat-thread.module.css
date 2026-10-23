@@ -1,10 +1,18 @@
 .thread [data-copilotkit] {
-  --background: #f7f4ea;
-  --foreground: #1f1b16;
-  --primary: #b45309;
+  --background: #ffffff;
+  --foreground: #25262b;
+  --primary: #4f46e5;
 }
 
 .thread [data-testid="copilot-chat"] {
   height: 100%;
   min-height: 0;
+}
+
+.thread { min-width: 0; }
+.thread [data-copilotkit] { min-width: 0; }
+
+/* The SDK caps both message and composer wrappers at 768px by default. */
+@media (min-width: 768px) {
+  .thread [class~="cpk:max-w-3xl"] { max-width: calc(100% - 48px); }
 }

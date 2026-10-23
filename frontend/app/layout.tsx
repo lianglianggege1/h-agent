@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "@copilotkit/react-core/v2/styles.css";
 import "./globals.css";
+import { WorkspaceShell } from "@/components/workspace-shell";
 
 export const metadata: Metadata = {
   title: "H-Agent",
@@ -14,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col"><WorkspaceShell>{children}</WorkspaceShell></body>
     </html>
   );
 }

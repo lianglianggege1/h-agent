@@ -166,7 +166,7 @@ function CallScreen() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 bg-stone-50 p-6 text-stone-800">
+    <main className="workspace-container flex h-full flex-col gap-6 p-5 text-stone-800 sm:p-8">
       <header><p className="text-sm text-stone-500">当前聊天 · 语音通话</p>
         <h1 className="mt-2 text-2xl font-semibold">{labels[state] ?? "与 Agent 通话"}</h1>
         <p className="mt-2 text-sm text-stone-500">直接说话即可，Agent 回复时也可以插话。确认的对话文字会保存在当前聊天中。</p>

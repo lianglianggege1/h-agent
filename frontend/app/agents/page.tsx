@@ -53,15 +53,11 @@ export default function AgentsPage() {
       .finally(() => setBootstrapping(false));
   }, [router]);
 
-  function handleSelectAgent(agent: AgentSummary) {
-    router.push(agentChatHref(agent.agentId));
-  }
-
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] text-stone-900">
-      <section className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-4">
-        <header className="sticky top-0 z-20 -mx-4 border-b border-stone-200/70 bg-[#f7f4ea]/95 px-4 pb-3 pt-4 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container flex flex-col">
+        <header className="border-b border-stone-200 pb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-medium text-amber-700">领域 Agent</p>
               <h1 className="mt-1 text-xl font-semibold">专业问答</h1>
@@ -99,38 +95,9 @@ export default function AgentsPage() {
           </div>
         </header>
 
-        <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
-          {filteredAgents.map((agent) => (
-            <button
-              key={agent.agentId}
-              className="w-64 shrink-0 rounded-lg border border-stone-200 bg-white/80 p-3 text-left shadow-sm transition hover:border-stone-900 hover:bg-white"
-              type="button"
-              onClick={() => handleSelectAgent(agent)}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs text-amber-700">{agent.domain}</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-stone-900">{agent.displayName}</p>
-                </div>
-                <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-[11px] text-stone-500">
-                  {agent.runtimeType}
-                </span>
-              </div>
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-stone-500">{agent.summary}</p>
-              <div className="mt-3 flex flex-wrap gap-1">
-                {agent.tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </button>
-          ))}
-        </div>
-
         {error ? <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
-        <div className="mt-4 flex-1 space-y-3">
+        <div className="workspace-card-grid mt-6">
           {bootstrapping ? (
             <div className="rounded-lg border border-stone-200 bg-white/85 px-4 py-3 text-sm text-stone-500">
               正在加载 Agent...
@@ -141,7 +108,7 @@ export default function AgentsPage() {
             </div>
           ) : (
             filteredAgents.map((agent) => (
-              <article key={agent.agentId} className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
+              <article key={agent.agentId} className="workspace-agent-card rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs text-amber-700">{agent.domain}</p>

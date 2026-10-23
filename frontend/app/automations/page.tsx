@@ -253,8 +253,8 @@ export default function AutomationsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff9df_0%,transparent_35%),linear-gradient(145deg,#f7f4ea_0%,#eee7d8_100%)] text-stone-900">
-      <section className="mx-auto min-h-screen w-full max-w-6xl px-5 pb-16 pt-8 sm:px-8">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container pb-8">
         <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">

@@ -172,12 +172,12 @@ export default function AgentTopologyPage() {
   }, [agentId, router]);
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[#f7f8fa]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8fa] px-4 py-5 text-slate-900 sm:px-6">
-      <section className="mx-auto w-full max-w-6xl space-y-4">
+    <main className="workspace-page text-slate-900">
+      <section className="workspace-container space-y-4">
         <header className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
           <Link className="text-sm font-medium text-emerald-700" href="/me/agents">
             返回 Agent 管理

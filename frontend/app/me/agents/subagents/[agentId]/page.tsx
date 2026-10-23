@@ -216,13 +216,13 @@ export default function SubagentEditPage({ params }: { params: Promise<{ agentId
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-lg border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container space-y-4">
+        <header className="rounded-lg border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href="/me/agents">
             返回 Agent 管理
           </Link>
@@ -253,7 +253,7 @@ export default function SubagentEditPage({ params }: { params: Promise<{ agentId
         {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
         {isBuiltin ? (
-          <section className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
+          <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-stone-700">定义 Markdown（只读）</h2>
             <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-50 p-3 font-mono text-xs leading-5 text-stone-700">
               {detail?.currentMarkdown ?? "加载中…"}
@@ -261,7 +261,7 @@ export default function SubagentEditPage({ params }: { params: Promise<{ agentId
           </section>
         ) : (
           <>
-            <section className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
+            <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-stone-700" htmlFor="subagent-markdown">
                   定义 Markdown
@@ -345,7 +345,7 @@ export default function SubagentEditPage({ params }: { params: Promise<{ agentId
               ) : null}
             </section>
 
-            <section className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
+            <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
               <h2 className="text-sm font-semibold text-stone-700">校验结果</h2>
               {issues.length === 0 ? (
                 <p className="mt-2 text-sm text-stone-400">暂无校验问题。</p>
@@ -373,7 +373,7 @@ export default function SubagentEditPage({ params }: { params: Promise<{ agentId
               )}
             </section>
 
-            <section className="rounded-lg border border-stone-200 bg-white/90 p-4 shadow-sm">
+            <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
               <h2 className="text-sm font-semibold text-stone-700">发布版本</h2>
               {versions.length === 0 ? (
                 <p className="mt-2 text-sm text-stone-400">尚未发布任何版本。</p>

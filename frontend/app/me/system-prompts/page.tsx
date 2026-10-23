@@ -108,13 +108,13 @@ export default function SystemPromptsPage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container workspace-prompt-editor">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href="/me">
             返回我的
           </Link>
@@ -122,14 +122,14 @@ export default function SystemPromptsPage() {
           <p className="mt-2 text-sm text-stone-500">创建你的私有系统提示词，并选择一个作为默认助手。</p>
         </header>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="workspace-prompt-list">
           {prompts.map((prompt) => (
             <button
               key={prompt.id}
               className={`shrink-0 rounded-full border px-4 py-2 text-sm shadow-sm ${
                 prompt.id === selectedId
                   ? "border-stone-900 bg-stone-900 text-white"
-                  : "border-stone-200 bg-white/90 text-stone-600"
+                  : "border-stone-200 bg-white text-stone-600"
               }`}
               type="button"
               onClick={() => selectPrompt(prompt)}
@@ -139,7 +139,7 @@ export default function SystemPromptsPage() {
             </button>
           ))}
           <button
-            className="shrink-0 rounded-full border border-stone-200 bg-white/90 px-4 py-2 text-sm text-stone-600 shadow-sm"
+            className="shrink-0 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm text-stone-600 shadow-sm"
             type="button"
             onClick={startCreate}
           >
@@ -148,7 +148,7 @@ export default function SystemPromptsPage() {
         </div>
 
         <form
-          className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur"
+          className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur"
           onSubmit={handleSubmit}
         >
           {message ? <p className="mb-3 rounded-2xl bg-stone-100 px-4 py-3 text-sm text-stone-700">{message}</p> : null}
@@ -168,13 +168,13 @@ export default function SystemPromptsPage() {
           </label>
           <textarea
             id="prompt-content"
-            className="mt-2 min-h-56 w-full resize-none rounded-2xl border border-stone-200 bg-stone-50/60 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+            className="mt-2 min-h-[360px] w-full resize-none rounded-2xl border border-stone-200 bg-stone-50/60 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
             value={form.content}
             onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
             maxLength={8000}
           />
 
-          <div className="mt-4 grid grid-cols-1 gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               className="rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:bg-stone-400"
               type="submit"

@@ -30,7 +30,7 @@ function AttachmentMenuButton() {
 function ThreadInput(props: CopilotChatInputProps) {
   const actions = useContext(Actions);
   return <>
-    {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-md flex-wrap gap-2 px-4" aria-label="待发送附件">
+    {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[1000px] flex-wrap gap-2 px-4" aria-label="待发送附件">
       {actions.attachments.map((item) => <span key={item.resourceId} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
         {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : null}
         <span>{item.role === "REFERENCE" ? "参考图 · " : ""}{item.fileName}</span>

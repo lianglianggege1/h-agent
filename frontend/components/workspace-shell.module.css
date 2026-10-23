@@ -1,0 +1,51 @@
+.shell { display: flex; height: 100dvh; overflow: hidden; background: #f8f9fb; color: #25262b; }
+.sidebar { width: 248px; flex: 0 0 248px; display: flex; min-height: 0; flex-direction: column; background: #f1f3f6; border-right: 1px solid #e5e7eb; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 22px 16px 18px; }
+.brandLink { display: flex; flex: 1; min-width: 0; align-items: center; gap: 11px; font-size: 16px; font-weight: 650; letter-spacing: -.4px; }
+.logo { display: grid; place-items: center; width: 33px; height: 33px; flex-shrink: 0; border-radius: 11px; color: white; background: #292b35; font-size: 18px; font-weight: 700; }
+.brandCaption { display: block; margin-top: 3px; color: #8a8e9a; font-size: 10px; font-weight: 400; letter-spacing: .4px; }
+.iconButton { display: grid; width: 32px; height: 32px; flex-shrink: 0; place-items: center; border-radius: 8px; color: #777c89; cursor: pointer; }
+.iconButton:hover { background: #e5e8ee; color: #292b35; }
+.navigation { padding: 0 12px; overflow-y: auto; flex-shrink: 0; }
+.group { margin-bottom: 12px; }
+.groupLabel { padding: 9px 12px 7px; font-size: 10px; color: #9296a1; letter-spacing: .1em; }
+.navLink { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 9px; color: #6a6f7b; font-size: 13px; transition: background .15s, color .15s; }
+.navLink:hover { background: #e7eaf0; color: #25262b; }
+.active { background: #e3e7ee; color: #25262b; font-weight: 600; }
+.navLink svg { flex-shrink: 0; }
+.sidebarSlot { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.slotContent { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.account { border-top: 1px solid #e1e5eb; margin: 0 12px; padding: 12px 0; }
+.accountHint { margin-left: auto; color: #969ca7; }
+.body { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.content { flex: 1; min-height: 0; min-width: 0; overflow: auto; outline: none; }
+.mobileBar, .mobileClose, .overlay { display: none; }
+.collapsed .sidebar { width: 72px; flex-basis: 72px; }
+.collapsed .brand { flex-direction: column; padding: 20px 12px 12px; }
+.collapsed .brandLink { flex: none; }
+.collapsed .label, .collapsed .groupLabel, .collapsed .sidebarSlot { display: none; }
+.collapsed .navLink { justify-content: center; padding: 12px 0; }
+.collapsed .group + .group { padding-top: 10px; border-top: 1px solid #e1e5eb; }
+.skip { position: fixed; left: 270px; top: -80px; z-index: 100; border-radius: 8px; background: #25262b; padding: 10px 16px; color: white; }
+.skip:focus { top: 12px; }
+.shell :is(a, button, input):focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; }
+
+@media (max-width: 1023px) {
+  .sidebar, .collapsed .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 70; width: min(290px, 86vw); transform: translateX(-100%); visibility: hidden; transition: transform .2s, visibility .2s; }
+  .mobileOpen .sidebar { transform: translateX(0); visibility: visible; }
+  .overlay { display: block; position: fixed; inset: 0; z-index: 60; background: #12172266; }
+  .mobileBar { display: flex; height: 54px; flex-shrink: 0; align-items: center; gap: 12px; border-bottom: 1px solid #e5e7eb; background: #fff; padding: 0 14px; }
+  .mobileBar a { font-size: 14px; font-weight: 650; }
+  .mobileBar > span { margin-left: auto; font-size: 12px; color: #8a8e9a; }
+  .desktopToggle { display: none; }
+  .mobileClose { display: grid; }
+  .collapsed .brand { flex-direction: row; padding: 22px 16px 18px; }
+  .collapsed .brandLink { flex: 1; }
+  .collapsed .label, .collapsed .groupLabel { display: block; }
+  .collapsed .sidebarSlot { display: flex; }
+  .collapsed .navLink { justify-content: flex-start; padding: 9px 12px; }
+  .collapsed .group + .group { padding-top: 0; border-top: 0; }
+  .skip { left: 16px; }
+}
+@media (max-height: 700px) { .navigation { flex-shrink: 1; } .brand { padding-block: 12px; } .group { margin-bottom: 4px; } .navLink { padding-block: 7px; } }
+@media (prefers-reduced-motion: reduce) { .sidebar, .navLink { transition: none; } }

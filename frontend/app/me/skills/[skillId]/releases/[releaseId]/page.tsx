@@ -194,14 +194,14 @@ export default function ReleaseDetailPage() {
   }
 
   if (!authenticated) {
-    return <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)]" />;
+    return <main className="workspace-page" />;
   }
 
   if (loading || !release || !skill) {
     return (
-      <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-        <section className="mx-auto w-full max-w-md space-y-4">
-          <p className="rounded-2xl bg-white/90 px-4 py-5 text-sm text-stone-500">
+      <main className="workspace-page text-stone-900">
+        <section className="workspace-container workspace-detail-layout">
+          <p className="rounded-2xl bg-white px-4 py-5 text-sm text-stone-500">
             {error ? error : "加载中..."}
           </p>
         </section>
@@ -212,9 +212,9 @@ export default function ReleaseDetailPage() {
   const summary = release.summary;
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f4ea_0%,#efe8d7_100%)] px-4 py-6 text-stone-900">
-      <section className="mx-auto w-full max-w-md space-y-4">
-        <header className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-5 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container workspace-detail-layout">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
           <Link className="text-sm text-amber-700" href={`/me/skills/${skillId}`}>
             返回 {skill.displayName} 工作区
           </Link>
@@ -268,7 +268,7 @@ export default function ReleaseDetailPage() {
         ) : null}
         {error ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Integrity</p>
           <h2 className="mt-1 text-lg font-semibold">完整性</h2>
           <dl className="mt-3 grid grid-cols-1 gap-2 text-xs text-stone-500">
@@ -294,7 +294,7 @@ export default function ReleaseDetailPage() {
           ) : null}
         </section>
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Files</p>
           <h2 className="mt-1 text-lg font-semibold">文件（{release.files.length}）</h2>
           <div className="mt-4 space-y-2">
@@ -336,7 +336,7 @@ export default function ReleaseDetailPage() {
         </section>
 
         {otherReleases.length > 0 ? (
-          <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+          <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
             <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Diff</p>
             <h2 className="mt-1 text-lg font-semibold">版本比较</h2>
             <p className="mt-2 text-xs leading-5 text-stone-500">
@@ -349,7 +349,7 @@ export default function ReleaseDetailPage() {
                   className={`shrink-0 rounded-full border px-4 py-2 text-sm transition ${
                     compareFromId === item.id
                       ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 bg-white/90 text-stone-600"
+                      : "border-stone-200 bg-white text-stone-600"
                   }`}
                   type="button"
                   onClick={() => void runCompare(item.id)}
@@ -396,7 +396,7 @@ export default function ReleaseDetailPage() {
           </section>
         ) : null}
 
-        <section className="rounded-[2rem] border border-stone-200/80 bg-white/90 p-4 shadow-[0_24px_60px_rgba(76,59,36,0.12)] backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
           <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Actions</p>
           <h2 className="mt-1 text-lg font-semibold">操作</h2>
           <div className="mt-4 space-y-3">
