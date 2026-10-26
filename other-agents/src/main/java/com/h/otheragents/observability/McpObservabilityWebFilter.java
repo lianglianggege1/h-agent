@@ -8,6 +8,8 @@ import com.h.agent.observability.ObservationSpec;
 import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.agent.observability.lifecycle.ObservationScope;
 import com.h.otheragents.mcp.McpEndpointProperties;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
@@ -38,10 +40,18 @@ public class McpObservabilityWebFilter implements WebFilter {
 
     private final AgentObservability observability;
     private final McpEndpointProperties mcpProperties;
+    private final String orderMcpPath;
 
     public McpObservabilityWebFilter(AgentObservability observability, McpEndpointProperties mcpProperties) {
+        this(observability, mcpProperties, "/orders/mcp");
+    }
+
+    @Autowired
+    public McpObservabilityWebFilter(AgentObservability observability, McpEndpointProperties mcpProperties,
+                                    @Value("${order-demo.mcp.path:/orders/mcp}") String orderMcpPath) {
         this.observability = observability;
         this.mcpProperties = mcpProperties;
+        this.orderMcpPath = orderMcpPath;
     }
 
     @Override
@@ -66,6 +76,10 @@ public class McpObservabilityWebFilter implements WebFilter {
     }
 
     private boolean isConfiguredMcpPath(String path) {
+        // The order MCP server is registered separately from the general endpoint map.
+        if (path.equals(orderMcpPath)) {
+            return true;
+        }
         for (McpEndpointProperties.Endpoint endpoint : mcpProperties.getEndpoints().values()) {
             if (path.equals(endpoint.getPath())) {
                 return true;

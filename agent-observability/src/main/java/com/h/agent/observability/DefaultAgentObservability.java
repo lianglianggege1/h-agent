@@ -14,6 +14,7 @@ import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.ContextKey;
 import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapPropagator;
@@ -39,7 +40,9 @@ final class DefaultAgentObservability implements AgentObservability {
 
     private static final Logger LOG = Logger.getLogger(DefaultAgentObservability.class.getName());
 
-    private static final ThreadLocal<ObservationContext> CURRENT = new ThreadLocal<>();
+    // AgentScope/Reactor propagates OTel Context across schedulers. Keep the full
+    // local metadata in that same carrier, rather than an independent ThreadLocal.
+    private static final ContextKey<ObservationMetadata> METADATA = ContextKey.named("h.agent.observation.metadata");
 
     private static final TextMapSetter<Map<String, String>> MAP_SETTER = (carrier, key, value) -> {
         if (carrier != null && key != null && value != null) {
@@ -197,22 +200,14 @@ final class DefaultAgentObservability implements AgentObservability {
 
     private static final class ScopeHolder implements com.h.agent.observability.lifecycle.ObservationScope {
 
-        private final ObservationContext previous;
         private final io.opentelemetry.context.Scope otelScope;
 
         ScopeHolder(ObservationContext current) {
-            this.previous = CURRENT.get();
-            this.otelScope = current.otelContext().makeCurrent();
-            CURRENT.set(current);
+            this.otelScope = current.otelContext().with(METADATA, current.metadata()).makeCurrent();
         }
 
         @Override
         public void close() {
-            if (previous == null) {
-                CURRENT.remove();
-            } else {
-                CURRENT.set(previous);
-            }
             otelScope.close();
         }
     }
@@ -231,7 +226,7 @@ final class DefaultAgentObservability implements AgentObservability {
         if (metadata.tags() != null && !metadata.tags().isEmpty()) {
             baggage.put(HAttrs.BAGGAGE_TRACE_TAGS, String.join(",", metadata.tags()));
         }
-        return baggage.build().storeInContext(context);
+        return baggage.build().storeInContext(context).with(METADATA, metadata);
     }
 
     @Override
@@ -259,7 +254,8 @@ final class DefaultAgentObservability implements AgentObservability {
         builder.setAttribute(HAttrs.CONTENT_CAPTURE_MODE, config.contentMode().name());
         Span span = builder.startSpan();
         ObservationContext context = ObservationContext.of(
-                span.storeInContext(effectiveParent == null ? Context.current() : effectiveParent.otelContext()),
+                span.storeInContext(effectiveParent == null ? Context.current() : effectiveParent.otelContext())
+                        .with(METADATA, metadata),
                 metadata);
         return new DefaultAgentObservation(span, context, this);
     }
@@ -305,11 +301,9 @@ final class DefaultAgentObservability implements AgentObservability {
 
     @Override
     public ObservationContext currentContext() {
-        ObservationContext current = CURRENT.get();
-        if (current != null) {
-            return current;
-        }
-        return ObservationContext.of(Context.current(), ObservationMetadata.empty());
+        Context context = Context.current();
+        ObservationMetadata metadata = context.get(METADATA);
+        return ObservationContext.of(context, metadata != null ? metadata : metadataFromBaggage(context));
     }
 
     @Override
@@ -326,13 +320,19 @@ final class DefaultAgentObservability implements AgentObservability {
         if (headers == null || headers.isEmpty()) {
             return ObservationContext.root();
         }
-        Context extracted = propagator.extract(Context.current(), new HashMap<>(headers), MAP_GETTER);
-        Baggage baggage = Baggage.fromContext(extracted);
+        // Incoming requests must not inherit metadata from an unrelated local execution.
+        Context extracted = propagator.extract(Context.root(), new HashMap<>(headers), MAP_GETTER);
+        ObservationMetadata metadata = metadataFromBaggage(extracted);
+        return ObservationContext.of(extracted.with(METADATA, metadata), metadata);
+    }
+
+    private static ObservationMetadata metadataFromBaggage(Context context) {
+        Baggage baggage = Baggage.fromContext(context);
         String sessionId = baggage.getEntryValue(HAttrs.BAGGAGE_SESSION_ID);
         String userId = baggage.getEntryValue(HAttrs.BAGGAGE_USER_ID);
         String traceName = baggage.getEntryValue(HAttrs.BAGGAGE_TRACE_NAME);
         String tags = baggage.getEntryValue(HAttrs.BAGGAGE_TRACE_TAGS);
-        ObservationMetadata metadata = new ObservationMetadata(
+        return new ObservationMetadata(
                 sessionId,
                 userId,
                 traceName,
@@ -341,7 +341,6 @@ final class DefaultAgentObservability implements AgentObservability {
                 null,
                 null
         );
-        return ObservationContext.of(extracted, metadata);
     }
 
     @Override

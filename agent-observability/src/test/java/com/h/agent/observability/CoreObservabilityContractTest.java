@@ -61,6 +61,69 @@ class CoreObservabilityContractTest {
     }
 
     @Test
+    void otelContextPropagationAcrossThreadsRetainsUserAndSessionMetadata() throws Exception {
+        observability = create(1.0);
+        AgentExecutionObservation root = observability.start(executionStart());
+        try (var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            workers.submit(root.observationContext().otelContext().wrap(() -> {
+                try (AgentObservation tool = observability.span(
+                        ObservationSpec.of("tool after thread hop", HObsKind.TOOL, "mcp-server"),
+                        observability.currentContext())) {
+                    tool.succeed();
+                }
+            })).get();
+        }
+        root.succeed(null);
+        observability.flushForTest();
+        SpanData tool = spanByName(exporter.getFinishedSpanItems(), "tool after thread hop");
+        assertEquals(root.traceId(), tool.getTraceId());
+        assertEquals("42", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.LANGFUSE_USER_ID)));
+        assertEquals("session-1", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.LANGFUSE_SESSION_ID)));
+        assertEquals("run-1", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.ROOT_RUN_ID)));
+        assertEquals("as-1", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.AGENT_SESSION_ID)));
+    }
+
+    @Test
+    void metadataIsRestoredWhenAWorkerThreadIsReusedForAnotherSession() throws Exception {
+        observability = create(1.0);
+        var first = observability.start(executionStart());
+        var second = observability.start(new AgentExecutionStart("agent.run", "session-2", 84L,
+                "harness-agent", "as-2", "CHAT", "run-2", List.of(), Map.of(), null));
+        try (var worker = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            for (var root : List.of(first, second)) {
+                worker.submit(root.observationContext().otelContext().wrap(() -> {
+                    try (var tool = observability.span(ObservationSpec.of("tool " + root.traceId(), HObsKind.TOOL, "agentscope"),
+                            observability.currentContext())) {
+                        assertEquals(root.observationContext().metadata(), tool.context().metadata());
+                        tool.succeed();
+                    }
+                })).get();
+            }
+            worker.submit(() -> {
+                assertNull(observability.currentContext().metadata().userId());
+                assertNull(observability.currentContext().metadata().sessionId());
+            }).get();
+        }
+        first.succeed(null);
+        second.succeed(null);
+    }
+
+    @Test
+    void incomingRequestWithoutBaggageDoesNotBorrowTheCurrentUsersMetadata() {
+        observability = create(1.0);
+        var root = observability.start(executionStart());
+        Map<String, String> headers = new HashMap<>();
+        observability.inject(root.observationContext(), headers);
+        headers.remove("baggage");
+        try (var scope = root.scope()) {
+            var extracted = observability.extract(headers);
+            assertNull(extracted.metadata().userId());
+            assertNull(extracted.metadata().sessionId());
+        }
+        root.succeed(null);
+    }
+
+    @Test
     void rootExecutionFormsCausalTreeWithSemanticContentAndLangfuseAttributes() throws Exception {
         observability = create(1.0);
         AgentExecutionObservation root = observability.start(executionStart());

@@ -63,6 +63,44 @@ class McpObservabilityWebFilterTest {
     }
 
     @Test
+    void customOrderMcpPathUsesTheSameTraceBridge() {
+        observability = create();
+        var filter = new McpObservabilityWebFilter(observability, properties(), "/custom-orders/mcp");
+        filter.filter(exchange(HttpMethod.POST, "/orders/mcp", Map.of()), chain()).block();
+        AgentObservabilityTesting.flush(observability);
+        assertTrue(exporter.getFinishedSpanItems().isEmpty());
+        filter.filter(exchange(HttpMethod.POST, "/custom-orders/mcp", Map.of()), chain()).block();
+        AgentObservabilityTesting.flush(observability);
+        assertNotNull(spanByName("remote_call mcp.server"));
+    }
+
+    @Test
+    void orderEndpointPreservesIncomingTraceAndBusinessIdentity() {
+        observability = create();
+        var root = observability.start(new com.h.agent.observability.lifecycle.AgentExecutionStart(
+                "agent.run", "order-session", 42L, "order-processing-assistant", "order-session",
+                "CHAT", "order-run", java.util.List.of(), Map.of(), null));
+        Map<String, String> headers = new HashMap<>();
+        observability.inject(root.observationContext(), headers);
+        var request = exchange(HttpMethod.POST, "/orders/mcp", headers);
+        var filter = new McpObservabilityWebFilter(observability, properties());
+        filter.filter(request, exchange -> Mono.fromRunnable(() -> {
+            var parent = (ObservationContext) exchange.getAttribute(McpObservability.EXCHANGE_ATTRIBUTE);
+            try (var tool = observability.span(ObservationSpec.of("tool order_query", HObsKind.TOOL, "mcp-server"), parent)) {
+                tool.succeed();
+            }
+        })).block();
+        root.succeed(null);
+        AgentObservabilityTesting.flush(observability);
+        var tool = spanByName("tool order_query");
+        assertEquals(root.traceId(), tool.getTraceId(), "orders MCP must stay in the incoming business trace");
+        var server = spanByName("remote_call mcp.server");
+        assertEquals(server.getSpanId(), tool.getParentSpanId());
+        assertEquals("42", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.LANGFUSE_USER_ID)));
+        assertEquals("order-session", tool.getAttributes().get(AttributeKey.stringKey(HAttrs.LANGFUSE_SESSION_ID)));
+    }
+
+    @Test
     void postContinuesClientTraceAndExposesContextToTransportExtractor() {
         observability = create();
         McpObservabilityWebFilter filter = new McpObservabilityWebFilter(observability, properties());

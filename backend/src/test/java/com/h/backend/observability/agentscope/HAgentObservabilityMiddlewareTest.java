@@ -75,6 +75,36 @@ class HAgentObservabilityMiddlewareTest {
     }
 
     @Test
+    void asynchronousAgentScopeCallbacksPreserveBusinessIdentityAndCurrentParent() {
+        observability = create();
+        var middleware = new HAgentObservabilityMiddleware(observability);
+        var root = observability.start(executionStart());
+        var runtime = RuntimeContext.builder().userId("1").sessionId("session-1")
+                .put(com.h.agent.observability.lifecycle.ExecutionObservationCarrier.class,
+                        new com.h.agent.observability.lifecycle.ExecutionObservationCarrier(observability, root, null))
+                .build();
+        middleware.onAgent(agent("harness-agent", "harness"), runtime,
+                new AgentInput(List.of(userMessage("query an order"))),
+                input -> Flux.<AgentEvent>defer(() -> {
+                    try (var remote = observability.span(
+                            com.h.agent.observability.ObservationSpec.of("remote_call from agentscope",
+                                    com.h.agent.observability.HObsKind.REMOTE_CALL, "mcp-client"),
+                            observability.currentContext())) {
+                        remote.succeed();
+                    }
+                    return Flux.just(new AgentEndEvent("reply-1"));
+                }).subscribeOn(Schedulers.boundedElastic())).blockLast();
+        root.succeed(null);
+        AgentObservabilityTesting.flush(observability);
+        var agent = spanByName(exporter.getFinishedSpanItems(), "agent.harness-agent");
+        var remote = spanByName(exporter.getFinishedSpanItems(), "remote_call from agentscope");
+        assertEquals(root.traceId(), remote.getTraceId());
+        assertEquals(agent.getSpanId(), remote.getParentSpanId());
+        assertEquals("1", remote.getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("langfuse.user.id")));
+        assertEquals("session-1", remote.getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("langfuse.session.id")));
+    }
+
+    @Test
     void keepsCausalTreeAcrossReactorThreadHops() {
         observability = create();
         HAgentObservabilityMiddleware middleware = new HAgentObservabilityMiddleware(observability);

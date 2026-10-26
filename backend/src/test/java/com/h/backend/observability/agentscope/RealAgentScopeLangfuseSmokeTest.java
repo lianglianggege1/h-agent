@@ -148,6 +148,15 @@ class RealAgentScopeLangfuseSmokeTest {
                     input -> Flux.concat(
                             Flux.defer(() -> modelRound(middleware, agent, runtimeContext, true)),
                             Flux.defer(() -> actingRound(middleware, agent, runtimeContext)),
+                            Flux.<AgentEvent>defer(() -> {
+                                try (var nested = observability.span(
+                                        com.h.agent.observability.ObservationSpec.of("tool.context-probe",
+                                                com.h.agent.observability.HObsKind.TOOL, "agentscope"),
+                                        observability.currentContext())) {
+                                    nested.succeed();
+                                }
+                                return Flux.empty();
+                            }).subscribeOn(Schedulers.boundedElastic()),
                             Flux.defer(() -> modelRound(middleware, agent, runtimeContext, false)),
                             Flux.just(
                                     new AgentResultEvent(assistantMessage(
@@ -163,7 +172,12 @@ class RealAgentScopeLangfuseSmokeTest {
         assertNotNull(traceId);
         System.out.println("[agentscope-smoke] traceId=" + traceId + " sessionId=" + sessionId);
 
-        List<JsonNode> observations = awaitObservations(traceId, 5);
+        List<JsonNode> observations = awaitObservations(traceId, 6);
+        for (JsonNode observation : observations) {
+            assertEquals("42", observation.path("userId").asText(), "each AgentScope observation must retain the user");
+            assertEquals(sessionId, observation.path("sessionId").asText(), "each AgentScope observation must retain the session");
+            assertEquals(traceId, observation.path("traceId").asText());
+        }
         JsonNode run = byName(observations, "agent.run");
         JsonNode agentObs = byName(observations, "agent.harness-agent");
         JsonNode tool = byName(observations, "tool.search");
@@ -183,6 +197,8 @@ class RealAgentScopeLangfuseSmokeTest {
                 "generation round 2 must be a child of the agent span");
         assertEquals(agentObs.path("id").asText(), tool.path("parentObservationId").asText(),
                 "tool must be a child of the agent span");
+        assertEquals(agentObs.path("id").asText(), byName(observations, "tool.context-probe").path("parentObservationId").asText(),
+                "a callback using only the propagated OTel context must stay under its AgentScope parent");
 
         assertEquals("SPAN", agentObs.path("type").asText().toUpperCase());
         assertEquals("SPAN", tool.path("type").asText().toUpperCase());

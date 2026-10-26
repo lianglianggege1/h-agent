@@ -3,6 +3,10 @@ server:
   http2:
     enabled: false
 
+logging:
+  pattern:
+    correlation: "[TraceId:%X{traceId:--}] [SpanId:%X{spanId:--}] "
+
 other-agents:
   a2a:
     public-url: http://localhost:8082

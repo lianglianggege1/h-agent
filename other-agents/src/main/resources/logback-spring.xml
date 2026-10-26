@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <!-- Capture the current OTel context on the calling thread, including unsampled
+         spans, without writing IDs into thread-local MDC or creating new spans. -->
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.mdc.v1_0.OpenTelemetryAppender">
+        <traceIdKey>traceId</traceIdKey>
+        <spanIdKey>spanId</spanIdKey>
+        <appender-ref ref="CONSOLE"/>
+    </appender>
+    <root level="${ROOT_LOG_LEVEL:-INFO}">
+        <appender-ref ref="OTEL"/>
+    </root>
+</configuration>
