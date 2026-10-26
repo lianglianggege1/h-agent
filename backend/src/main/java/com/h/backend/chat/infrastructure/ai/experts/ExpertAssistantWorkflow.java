@@ -6,7 +6,7 @@ import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.observability.AgentListener;
 import dev.langchain4j.agentic.agent.ErrorRecoveryResult;
 import dev.langchain4j.agentic.scope.AgenticScope;
-import dev.langchain4j.agentic.patterns.decisionrouter.DecisionRouterPlanner;
+import com.h.backend.chat.infrastructure.ai.TopologyAwareDecisionRouterPlanner;
 import dev.langchain4j.agentic.planner.Action;
 import dev.langchain4j.agentic.planner.AgentArgument;
 import dev.langchain4j.agentic.planner.Planner;
@@ -184,7 +184,7 @@ public final class ExpertAssistantWorkflow {
             outcome.set(result);
             return result.response();
         };
-        return new DecisionRouterPlanner(recording, threshold) {
+        return new TopologyAwareDecisionRouterPlanner(recording, threshold) {
             @Override
             public Action firstAction(PlanningContext context) {
                 Action action = super.firstAction(context);

@@ -46,6 +46,8 @@ public class AguiChatRuntime {
     private final HarnessExecutionRegistry harnessExecutions;
     private final HarnessSubagentMapper subagents;
     private final Map<String, ActiveRun> active = new ConcurrentHashMap<>();
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private com.h.backend.order.OrderJobMapper orderJobs;
 
     public AguiChatRuntime(ChatService chat, ChatSessionService sessions, HarnessApprovalService approvals,
                            ApprovalRequestService approvalRequests, AutomationProposalModule proposals,
@@ -69,6 +71,19 @@ public class AguiChatRuntime {
     }
 
     public Flux<Event> run(Long userId, RunAgentInput input) {
+        return run(userId,input,null);
+    }
+
+    public Flux<Event> continueOrder(Long userId,RunAgentInput input,Long userMessageId){
+        var session=owned(userId,input.threadId());
+        if(!com.h.backend.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId()))
+            throw new BusinessException(40300,"订单恢复会话不匹配");
+        var message=sessions.getOwnedMessage(userId,input.threadId(),userMessageId);
+        if(message==null || !"user".equals(message.role()))throw new BusinessException(40300,"恢复消息不属于当前用户会话");
+        return run(userId,input,userMessageId);
+    }
+
+    private Flux<Event> run(Long userId,RunAgentInput input,Long continuationMessageId){
         validateId(input.threadId());
         validateId(input.runId());
         AgentSessionEntity session = owned(userId, input.threadId());
@@ -116,6 +131,8 @@ public class AguiChatRuntime {
             Long promptId = sessions.getSessionDetail(userId, root.getSessionId()).promptId();
             // Only the last new user text is accepted. Submitted history/state/tools never override server context.
             source = chat.streamChat(userId, promptId, root.getAgentId(), session.getSessionId(), message.trim(), resources);
+            if(continuationMessageId!=null)source=source.contextWrite(context->context.put(
+                    com.h.backend.order.OrderContinuation.class,new com.h.backend.order.OrderContinuation(continuationMessageId)));
         }
         reconcile(userId, input.threadId());
         ActiveRun run = new ActiveRun(userId, input.threadId(), input.runId());
@@ -125,6 +142,11 @@ public class AguiChatRuntime {
                     hash, "RUNNING", json.writeValueAsString(run.projection.snapshot()), null));
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(40901, "当前会话已有运行中任务，请刷新进度");
+        }
+        if(orderJobs!=null && com.h.backend.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId())
+                && approvalId==null && !input.runId().startsWith("order-notify-")){
+            orderJobs.supersedeRecoveries(userId,input.threadId());
+            orderJobs.registerRun(input.runId(),userId,input.threadId(),message.trim());
         }
         active.put(input.runId(), run);
         Flux<ChatStreamEvent> execution = source.contextWrite(context -> context.put(ChatExecutionCancellation.CONTEXT_KEY, run.cancellation));
@@ -150,6 +172,22 @@ public class AguiChatRuntime {
         result.put("runs", rows.stream().map(this::read).toList());
         result.put("messages", sessions.getSessionMessages(userId, threadId, 100, null));
         return result;
+    }
+
+    /** Persist an authoritative business projection even when no browser is connected. */
+    public void publishOrders(Long userId, String threadId, String deliveryId, Map<String,Object> payload) {
+        owned(userId,threadId);
+        String runId="order-"+deliveryId;
+        AguiRunProjection projection=new AguiRunProjection(threadId,runId,event -> { });
+        var history=sessions.getSessionMessages(userId,threadId,100,null).messages();
+        if(!history.isEmpty()) projection.anchor(history.getLast().id(),"AFTER");
+        projection.orders(payload);
+        projection.accept(new ChatStreamEvent("done",""));
+        String state=json.writeValueAsString(projection.snapshot());
+        if(snapshots.find(userId,runId)==null) {
+            try {snapshots.insert(new AguiRunSnapshotMapper.Snapshot(runId,threadId,userId,deliveryId,"COMPLETED",state,null));}
+            catch(DuplicateKeyException duplicate){snapshots.update(runId,userId,"COMPLETED",state);}
+        } else snapshots.update(runId,userId,"COMPLETED",state);
     }
 
     private Flux<Event> observe(Long userId, RunAgentInput input) {
@@ -182,6 +220,7 @@ public class AguiChatRuntime {
         descendants(userId, threadId, tree);
         Collections.reverse(tree);
         for (String id : tree) {
+            if(orderJobs!=null){orderJobs.cancel(userId,id);orderJobs.cancelRecovery(userId,id);}
             snapshots.requestStop(userId, id, id.equals(threadId) ? expectedRunId : null);
             for (ActiveRun run : List.copyOf(active.values())) {
                 if (run.userId.equals(userId) && run.threadId.equals(id)) run.stop();
@@ -451,6 +490,7 @@ public class AguiChatRuntime {
 
         private void save() {
             snapshots.update(runId, userId, projection.status(), json.writeValueAsString(projection.snapshot()));
+            if(orderJobs!=null)orderJobs.runStatus(runId,projection.status());
         }
 
         private void refreshMessages() {

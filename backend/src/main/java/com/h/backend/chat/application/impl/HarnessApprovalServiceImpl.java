@@ -37,6 +37,8 @@ public class HarnessApprovalServiceImpl implements HarnessApprovalService {
     private final HarnessCollaborationService collaborationService;
     private final AgentRegistry agentRegistry;
     private final HarnessAgentExecutor executor;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper sessionMapper;
 
     public HarnessApprovalServiceImpl(
             ApprovalRequestService approvalRequestService,
@@ -99,7 +101,15 @@ public class HarnessApprovalServiceImpl implements HarnessApprovalService {
                 ApprovalRequestService.ApprovalResolution resolution =
                         approvalRequestService.decide(userId, approvalId, decision);
                 resumed = true;
-                AgentDefinition agent = agentRegistry.requireEnabled(ChatAgentIds.HARNESS);
+                String rootAgentId = ChatAgentIds.HARNESS;
+                if (sessionMapper != null) {
+                    var root = sessionMapper.selectBySessionId(pending.rootSessionId());
+                    if (root == null || !userId.equals(root.getUserId())) throw new BusinessException(40404,"审批所属助手不存在");
+                    rootAgentId = root.getAgentId();
+                }
+                AgentDefinition agent = agentRegistry.requireEnabled(rootAgentId);
+                if (agent.runtimeType() != com.h.backend.chat.domain.agent.AgentRuntimeType.HARNESS_STREAMING)
+                    throw new BusinessException(40008,"该助手不支持 Harness 审批");
                 AgentExecutionObservation observation = startResumeObservation(
                         userId, pending, address, run, agent
                 );

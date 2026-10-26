@@ -208,7 +208,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
         ApprovalMode resolvedApprovalMode;
         try {
-            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, approvalMode);
+            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, supportsHarness(resolvedAgentId), approvalMode);
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(40009, ex.getMessage());
         }
@@ -253,7 +253,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         String resolvedAgentId = StringUtils.isBlank(agentId) ? ChatAgentIds.STANDARD_CHAT : agentId;
         ApprovalMode resolvedApprovalMode;
         try {
-            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, null);
+            resolvedApprovalMode = ApprovalMode.resolveForNewSession(resolvedAgentId, supportsHarness(resolvedAgentId), null);
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(40009, ex.getMessage());
         }
@@ -846,7 +846,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     private ChatSessionOpenDto toOpen(ChatSessionEntity session, int limit, Integer beforeSeq) {
         List<HarnessSubagentSummaryDto> subagents = null;
-        if (ChatAgentIds.HARNESS.equals(session.getAgentId())) {
+        if (supportsHarness(session.getAgentId())) {
             subagents = harnessCollaborationService == null
                     ? List.of()
                     : harnessCollaborationService.listSubagents(session.getUserId(), session.getSessionId());
@@ -914,6 +914,10 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 .findFirst()
                 .map(this::toAgentMetadata)
                 .orElseGet(() -> new AgentMetadata(agentId, "未知", "UNKNOWN"));
+    }
+
+    private boolean supportsHarness(String agentId) {
+        return "HARNESS_STREAMING".equals(resolveAgentMetadata(agentId).runtimeType()) || ChatAgentIds.isHarness(agentId);
     }
 
     private AgentMetadata toAgentMetadata(AgentDefinition definition) {

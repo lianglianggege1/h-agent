@@ -17,7 +17,11 @@ public enum ApprovalMode {
      * 显式发送它默认选中的 {@link #DEFAULT}。非 Harness Agent 不拥有批准模式。</p>
      */
     public static ApprovalMode resolveForNewSession(String agentId, ApprovalMode requested) {
-        if (!ChatAgentIds.HARNESS.equals(agentId)) {
+        return resolveForNewSession(agentId,ChatAgentIds.isHarness(agentId),requested);
+    }
+
+    public static ApprovalMode resolveForNewSession(String agentId, boolean harness, ApprovalMode requested) {
+        if (!harness) {
             if (requested != null) {
                 throw new IllegalArgumentException("批准模式只适用于 Harness Agent");
             }

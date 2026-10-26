@@ -18,10 +18,15 @@ public final class ObservingMcpTransportContextExtractor implements McpTransport
 
     @Override
     public McpTransportContext extract(ServerRequest request) {
+        Map<String, Object> metadata = new java.util.HashMap<>();
+        String user = request.headers().firstHeader("X-Order-User-Id");
+        String actor = request.headers().firstHeader("X-Order-Actor");
+        if (user != null) metadata.put(com.h.otheragents.order.OrderDemoMcpTools.USER_CONTEXT, user);
+        if (actor != null) metadata.put(com.h.otheragents.order.OrderDemoMcpTools.ACTOR_CONTEXT, actor);
         Object context = request.exchange().getAttributes().get(McpObservability.EXCHANGE_ATTRIBUTE);
         if (context instanceof ObservationContext observationContext) {
-            return McpTransportContext.create(Map.of(McpObservability.TRANSPORT_METADATA_KEY, observationContext));
+            metadata.put(McpObservability.TRANSPORT_METADATA_KEY, observationContext);
         }
-        return McpTransportContext.EMPTY;
+        return metadata.isEmpty() ? McpTransportContext.EMPTY : McpTransportContext.create(metadata);
     }
 }

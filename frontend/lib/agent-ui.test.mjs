@@ -6,7 +6,21 @@ import {
   isVisibleSubagentTurn,
   visibleAgentSteps,
   visibleTopologyStateKeys,
+  decisionRouterSummary,
 } from "./agent-ui.ts";
+
+test("decisionRouterSummary explains multi-select threshold and parallel dispatch", () => {
+  assert.deepEqual(decisionRouterSummary({
+    selectionMode: "MULTIPLE", activationThreshold: 0.75, dispatchMode: "PARALLEL",
+  }), ["决策路由 · 独立多选", "参与概率 ≥ 0.75", "命中专家并行执行；可以全部不选"]);
+});
+
+test("decisionRouterSummary explains single choice without a threshold", () => {
+  assert.deepEqual(decisionRouterSummary({
+    selectionMode: "SINGLE", activationThreshold: null, dispatchMode: "SINGLE",
+  }), ["决策路由 · 单选", "选择概率最高的一个 Agent"]);
+  assert.deepEqual(decisionRouterSummary(null), []);
+});
 
 test("visibleAgentSteps keeps only child executable agent states", () => {
   const steps = [

@@ -3,9 +3,11 @@ package com.h.backend.chat.domain.agent;
 import com.h.backend.chat.interfaces.dto.AgentSummaryDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyNodeDto;
+import com.h.backend.chat.interfaces.dto.DecisionRouterMetaDto;
 import com.h.backend.chat.interfaces.dto.LoopMetaDto;
 import com.h.backend.chat.interfaces.dto.StateKeyDto;
 import dev.langchain4j.agentic.planner.AgentArgument;
+import dev.langchain4j.agentic.patterns.decisionrouter.DecisionRouterPlanner;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.agentic.planner.Planner;
@@ -33,7 +35,8 @@ public class AgentTopologyMapper {
     }
 
     private AgentTopologyNodeDto toNode(AgentInstance agent, String condition) {
-        Map<String, String> conditions = conditionsOf(agent);
+        DecisionRouterMetaDto decisionRouter = decisionRouterMeta(agent);
+        Map<String, String> conditions = conditionsOf(agent, decisionRouter);
         List<AgentTopologyNodeDto> children = subagents(agent).stream()
                 .map(child -> toNode(child, conditions.get(child.agentId())))
                 .toList();
@@ -54,6 +57,7 @@ public class AgentTopologyMapper {
                 condition,
                 agent.async(),
                 loopMeta(agent),
+                decisionRouter,
                 children
         );
     }
@@ -70,13 +74,24 @@ public class AgentTopologyMapper {
         );
     }
 
-    private Map<String, String> conditionsOf(AgentInstance agent) {
+    private Map<String, String> conditionsOf(AgentInstance agent, DecisionRouterMetaDto decisionRouter) {
         if (agent.topology() != AgenticSystemTopology.ROUTER) {
             return Map.of();
         }
 
         Map<String, String> conditions = new LinkedHashMap<>();
-        for (ConditionalAgent conditionalAgent : agent.as(ConditionalAgentInstance.class).conditionalSubagents()) {
+        if (decisionRouter != null) {
+            String condition = decisionRouter.activationThreshold() == null
+                    ? "Highest choice probability"
+                    : "P(Yes) >= " + decisionRouter.activationThreshold();
+            for (AgentInstance child : subagents(agent)) {
+                conditions.put(child.agentId(), condition);
+            }
+            return conditions;
+        }
+
+        ConditionalAgentInstance router = agent.as(ConditionalAgentInstance.class);
+        for (ConditionalAgent conditionalAgent : router.conditionalSubagents()) {
             if (conditionalAgent.condition() == null) {
                 continue;
             }
@@ -94,6 +109,18 @@ public class AgentTopologyMapper {
 
         LoopAgentInstance loop = agent.as(LoopAgentInstance.class);
         return new LoopMetaDto(loop.maxIterations(), loop.exitCondition(), loop.testExitAtLoopEnd());
+    }
+
+    private DecisionRouterMetaDto decisionRouterMeta(AgentInstance agent) {
+        Class<? extends Planner> plannerType = agent.plannerType();
+        if (agent.topology() != AgenticSystemTopology.ROUTER || plannerType == null
+                || !DecisionRouterPlanner.class.isAssignableFrom(plannerType)) {
+            return null;
+        }
+
+        DecisionRouterAgentInstance router = agent.as(DecisionRouterAgentInstance.class);
+        return new DecisionRouterMetaDto(router.selectionMode().name(), router.activationThreshold(),
+                router.selectionMode() == DecisionRouterAgentInstance.SelectionMode.MULTIPLE ? "PARALLEL" : "SINGLE");
     }
 
     private List<StateKeyDto> collectStateKeys(AgentInstance root) {

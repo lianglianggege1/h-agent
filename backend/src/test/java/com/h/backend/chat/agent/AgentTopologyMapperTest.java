@@ -2,6 +2,8 @@ package com.h.backend.chat.domain.agent;
 
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyNodeDto;
+import dev.langchain4j.agentic.AgenticServices;
+import com.h.backend.chat.infrastructure.ai.TopologyAwareDecisionRouterPlanner;
 import dev.langchain4j.agentic.planner.AgentArgument;
 import dev.langchain4j.agentic.planner.Action;
 import dev.langchain4j.agentic.planner.AgentInstance;
@@ -24,6 +26,66 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentTopologyMapperTest {
+
+    @Test
+    void mapsSingleChoiceDecisionRouterMetadata() {
+        var child = AgenticServices.nonAiAgentBuilder(scope -> "answer")
+                .name("expert").outputKey("answer").build();
+        AgentInstance router = (AgentInstance) AgenticServices.plannerBuilder()
+                .subAgents(child)
+                .planner(() -> new TopologyAwareDecisionRouterPlanner(request -> {
+                    throw new AssertionError("Topology inspection must not invoke the decision model");
+                }))
+                .build();
+
+        var root = mapRealAgent(router).root();
+
+        assertEquals("ROUTER", root.topology());
+        assertEquals("TopologyAwareDecisionRouterPlanner", root.plannerType());
+        assertEquals("SINGLE", root.decisionRouter().selectionMode());
+        assertEquals("SINGLE", root.decisionRouter().dispatchMode());
+        assertNull(root.decisionRouter().activationThreshold());
+        assertEquals(1, root.children().size());
+        assertEquals("expert", root.children().getFirst().name());
+        assertEquals("Highest choice probability", root.children().getFirst().condition());
+    }
+
+    @Test
+    void mapsRealConditionalRouterMetadata() {
+        var child = AgenticServices.nonAiAgentBuilder(scope -> "answer")
+                .name("expert").outputKey("answer").build();
+        AgentInstance router = (AgentInstance) AgenticServices.conditionalBuilder()
+                .subAgents("needs expert", scope -> true, child).build();
+
+        var root = mapRealAgent(router).root();
+
+        assertEquals("ROUTER", root.topology());
+        assertEquals("needs expert", root.children().getFirst().condition());
+        assertNull(root.decisionRouter());
+    }
+
+    @Test
+    void mapsRealLoopMetadata() {
+        var child = AgenticServices.nonAiAgentBuilder(scope -> "answer")
+                .name("attempt").outputKey("answer").build();
+        AgentInstance loop = (AgentInstance) AgenticServices.loopBuilder()
+                .subAgents(child).maxIterations(4)
+                .exitCondition("done", scope -> true).testExitAtLoopEnd(false).build();
+
+        var root = mapRealAgent(loop).root();
+
+        assertEquals("LOOP", root.topology());
+        assertEquals(4, root.loop().maxIterations());
+        assertEquals("done", root.loop().exitCondition());
+        assertFalse(root.loop().testExitAtLoopEnd());
+        assertEquals("attempt", root.children().getFirst().name());
+    }
+
+    private AgentTopologyDto mapRealAgent(AgentInstance agent) {
+        var definition = new AgentDefinition("test", "Test", "test", List.of(), "summary", agent,
+                AgentRuntimeType.AGENTIC_SYNC, true);
+        return new AgentTopologyMapper().from(definition, agent);
+    }
 
     @Test
     void mapsSequenceWithChildrenAndStateKeys() {

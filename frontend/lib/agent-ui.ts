@@ -1,7 +1,19 @@
-import type { AgentTopologyNode } from "./agents";
+import type { AgentTopologyDecisionRouter, AgentTopologyNode } from "./agents";
 import type { RenderableTurn, UiAgentStep } from "./chat-message-state";
 
 const CONTAINER_TOPOLOGIES = new Set(["SEQUENCE", "ROUTER", "LOOP", "PARALLEL", "STAR"]);
+
+export function decisionRouterSummary(router: AgentTopologyDecisionRouter | null | undefined): string[] {
+  if (!router) return [];
+  if (router.selectionMode === "SINGLE") {
+    return ["决策路由 · 单选", "选择概率最高的一个 Agent"];
+  }
+  return [
+    "决策路由 · 独立多选",
+    `参与概率 ≥ ${router.activationThreshold}`,
+    "命中专家并行执行；可以全部不选",
+  ];
+}
 
 export function agentStepStatusText(status: UiAgentStep["status"]) {
   if (status === "running") return "执行中";

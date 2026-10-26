@@ -47,6 +47,14 @@ public class HarnessMemoryDocumentManager {
 
     private final BaseStore store;
     private final Clock clock;
+    private String namespaceAgentId = ChatAgentIds.HARNESS;
+
+    public HarnessMemoryDocumentManager forAssistant(String agentId) {
+        if (!ChatAgentIds.isHarness(agentId)) throw new IllegalArgumentException("未知的持久化助手");
+        HarnessMemoryDocumentManager scoped = new HarnessMemoryDocumentManager(store, clock);
+        scoped.namespaceAgentId = agentId;
+        return scoped;
+    }
 
     @Autowired
     public HarnessMemoryDocumentManager(@Qualifier("harnessWorkspaceStore") BaseStore store) {
@@ -177,7 +185,7 @@ public class HarnessMemoryDocumentManager {
         return new HarnessMemoryDocumentException(Kind.CONTENT_CORRUPT);
     }
 
-    private static List<String> namespace(long userId) {
-        return List.of("agents", ChatAgentIds.HARNESS, "users", String.valueOf(userId), "root");
+    private List<String> namespace(long userId) {
+        return List.of("agents", namespaceAgentId, "users", String.valueOf(userId), "root");
     }
 }

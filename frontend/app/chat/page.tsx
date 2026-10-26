@@ -22,6 +22,7 @@ import { buildCallHref } from "@/lib/voice-call";
 
 const standardId = "standard-chat";
 const harnessId = "harness-agent";
+const orderId = "order-processing-assistant";
 const childStatus: Record<string, string> = { AVAILABLE: "可对话", RUNNING: "执行中", COMPLETED: "已完成", FAILED: "失败" };
 
 function ChatWorkspace() {
@@ -71,7 +72,7 @@ function ChatWorkspace() {
       if (requestedSession) {
         detail = await activateHistorySession(requestedSession, currentSession.current?.session.sessionId);
       } else if (requestedAgent && detail?.session.agentId !== requestedAgent) {
-        detail = await createChatSession({ agentId: requestedAgent, approvalMode: requestedAgent === harnessId ? "DEFAULT" : null });
+        detail = await createChatSession({ agentId: requestedAgent, approvalMode: [harnessId, orderId].includes(requestedAgent) ? "DEFAULT" : null });
       } else if (bootstrap.resolution === "choose") {
         setCandidates(bootstrap.candidates);
       }
@@ -136,7 +137,7 @@ function ChatWorkspace() {
     setCreating(true);
     try {
       const detail = await createChatSession({ currentSessionId: sessionId, agentId, promptId: promptId ?? null,
-        approvalMode: agentId === harnessId ? approvalMode : null });
+        approvalMode: [harnessId, orderId].includes(agentId) ? approvalMode : null });
       hydrate(detail); setPickerOpen(false);
       router.replace(chatHref(detail.session.sessionId), { scroll: false });
     } catch (failure) { setError(failure instanceof Error ? failure.message : "创建会话失败"); }
@@ -166,7 +167,7 @@ function ChatWorkspace() {
 
   const selected = children.find((child) => child.sessionId === selectedChild);
   const directChildren = children.filter((child) => child.parentSessionId === sessionId);
-  const domains = ["全部", ...new Set(catalog.filter((agent) => agent.runtimeType === "AGENTIC_SYNC").map((agent) => agent.domain))];
+  const domains = ["全部", ...new Set(catalog.filter((agent) => agent.agentId !== standardId && agent.agentId !== harnessId).map((agent) => agent.domain))];
   const filtered = catalog.filter((agent) => agent.enabled && agent.agentId !== standardId && agent.agentId !== harnessId
     && (domain === "全部" || agent.domain === domain)
     && [agent.displayName, agent.summary, agent.domain, ...agent.tags].join(" ").toLowerCase().includes(agentQuery.toLowerCase()));
@@ -209,7 +210,7 @@ function ChatWorkspace() {
     </header>
     {error ? <div role="alert" className="mx-4 mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
-      : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn} /></div>
+      : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn} orderAssistant={open?.session.agentId === orderId} /></div>
       : <div className="grid flex-1 place-items-center p-6"><div className="text-center"><div className="chat-welcome-logo">H</div><h1 className="mt-5 text-2xl font-semibold tracking-tight">今天想完成什么？</h1><p className="mt-3 text-sm text-stone-500">从一个问题开始，让想法成为行动。</p><button className="agui-button agui-button-primary mt-6" onClick={() => setPickerOpen(true)}>开始新会话</button></div></div>}
 
     {selected && sessionId ? <div className="fixed inset-0 z-30 flex justify-end bg-stone-950/25">

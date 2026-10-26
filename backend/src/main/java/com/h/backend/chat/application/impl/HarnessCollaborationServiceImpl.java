@@ -48,6 +48,8 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
     private final HarnessSubagentMapper harnessSubagentMapper;
     private final ChatMessageResourceBinder resourceBinder;
     private final ConcurrentMap<PendingAssignmentKey, String> pendingAssignments = new ConcurrentHashMap<>();
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.h.backend.chat.domain.agent.AgentRegistry> registryProvider;
 
     public HarnessCollaborationServiceImpl(
             ChatSessionMapper chatSessionMapper,
@@ -533,7 +535,10 @@ public class HarnessCollaborationServiceImpl implements HarnessCollaborationServ
         if (root == null || !userId.equals(root.getUserId())) {
             throw new BusinessException(40404, "会话不存在");
         }
-        if (!ChatAgentIds.HARNESS.equals(root.getAgentId())) {
+        boolean harness = registryProvider == null ? ChatAgentIds.isHarness(root.getAgentId())
+                : registryProvider.getObject().requireEnabled(root.getAgentId()).runtimeType()
+                    == com.h.backend.chat.domain.agent.AgentRuntimeType.HARNESS_STREAMING;
+        if (!harness) {
             throw new BusinessException(40008, "会话不是协作 Agent 会话");
         }
         return root;

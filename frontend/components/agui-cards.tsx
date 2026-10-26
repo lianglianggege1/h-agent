@@ -12,6 +12,7 @@ import {
 import type { ChatSessionMessage, ChatMessageResource } from "@/lib/chat-sessions";
 import type { HarnessSubagentSummary } from "@/lib/harness-subagent-types";
 import { MarkdownContent } from "@/components/markdown-content";
+import { OrderCard, type OrderCardContent } from "@/components/order/order-card";
 
 const progressSchema = z.object({
   runId: z.string(), status: z.string(), reasoning: z.string().default(""),
@@ -142,6 +143,9 @@ function SubagentCard({ content }: { content: { subagent: HarnessSubagentSummary
 }
 
 export const activityRenderers = [
+  { activityType: "h-agent.order", content: z.custom<OrderCardContent>(), render: OrderCard },
+  { activityType: "h-agent.ticket", content: z.custom<OrderCardContent>(), render: OrderCard },
+  { activityType: "h-agent.order-decision", content: z.custom<OrderCardContent>(), render: OrderCard },
   { activityType: "h-agent.progress", content: progressSchema, render: ProgressCard },
   { activityType: "h-agent.automation", content: z.object({ proposal: z.custom<AutomationProposal>() }), render: AutomationCard },
   { activityType: "h-agent.approval", content: z.object({ approval: z.custom<ApprovalRequest>() }), render: ApprovalCard },

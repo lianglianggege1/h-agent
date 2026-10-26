@@ -149,7 +149,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
         boolean parentTurn = command.gatewaySubagentId() == null;
         // 父 turn 开始时生成不可变 Catalog 快照（设计 7.1）：定义在 turn 中途发布或停用
         // 不影响本轮执行；Execution 持有同一 snapshot 用于 exposure 版本固定。
-        SubagentTurnSnapshot snapshot = parentTurn ? snapshotForTurn(command.userId()) : null;
+        SubagentTurnSnapshot snapshot = parentTurn && ChatAgentIds.HARNESS.equals(command.agent().agentId())
+                ? snapshotForTurn(command.userId()) : null;
         // 观测阶段载体（设计 7.3）：PRIMARY 在产品结果提交后原子结束，之后的后置工作
         // （记忆提取/整理/Hook）延迟创建并进入 Maintenance trace。
         ExecutionObservationCarrier carrier = new ExecutionObservationCarrier(

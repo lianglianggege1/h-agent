@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AgentTopology, AgentTopologyNode, getAgentTopology } from "@/lib/agents";
-import { collectTopologyLegend, topologyLabel, topologyTone } from "@/lib/agent-ui";
+import { collectTopologyLegend, decisionRouterSummary, topologyLabel, topologyTone } from "@/lib/agent-ui";
 import { getCurrentUser } from "@/lib/auth";
 import { agentChatHref } from "@/lib/chat-agent-mode";
 import { savePostLoginRedirect } from "@/lib/session";
@@ -92,6 +92,17 @@ function LoopInfo({ node }: { node: AgentTopologyNode }) {
   );
 }
 
+function DecisionRouterInfo({ node }: { node: AgentTopologyNode }) {
+  const summary = decisionRouterSummary(node.decisionRouter);
+  if (!summary.length) return null;
+
+  return (
+    <div className="mt-2 space-y-1 rounded border border-red-100 bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-800">
+      {summary.map((line) => <p key={line}>{line}</p>)}
+    </div>
+  );
+}
+
 function TopologyNodeView({ node }: { node: AgentTopologyNode }) {
   const hasChildren = node.children.length > 0;
   const tone = toneClass(topologyTone(node.topology));
@@ -113,7 +124,7 @@ function TopologyNodeView({ node }: { node: AgentTopologyNode }) {
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-[10px] font-bold ${tone.badge}`}>
-            {topologyLabel(node.topology)}
+            {node.decisionRouter ? "Decision Router" : topologyLabel(node.topology)}
           </span>
           <span className="min-w-0 truncate text-sm font-semibold text-slate-900" title={node.name}>
             {node.name}
@@ -130,6 +141,7 @@ function TopologyNodeView({ node }: { node: AgentTopologyNode }) {
           <Detail label="Desc" value={node.description} />
           <Detail label="Returns" value={node.returnType} />
           <LoopInfo node={node} />
+          <DecisionRouterInfo node={node} />
         </div>
       </div>
 

@@ -80,7 +80,8 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                     harnessAgent.getDelegate(),
                     context.getUserId(),
                     context.getSessionId(),
-                    approvalMode
+                    approvalMode,
+                    harnessAgent.getWorkspaceManager().getWorkspace().toString()
             );
         }
         return harnessAgent.streamEvents(message, context);

@@ -59,9 +59,8 @@ public class McpEndpointServers implements AutoCloseable {
                     WebFluxStreamableServerTransportProvider.builder()
                             .messageEndpoint(endpoint.getPath())
                             .securityValidator(new BearerTokenMcpSecurityValidator(endpoint.getToken()));
-            if (observability != null) {
-                transportProviderBuilder.contextExtractor(new ObservingMcpTransportContextExtractor());
-            }
+            // Business identity must still be available when tracing is disabled.
+            transportProviderBuilder.contextExtractor(new ObservingMcpTransportContextExtractor());
             WebFluxStreamableServerTransportProvider transportProvider = transportProviderBuilder.build();
 
             List<McpServerFeatures.AsyncToolSpecification> toolSpecifications =

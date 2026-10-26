@@ -119,6 +119,7 @@ public final class AguiRunProjection {
 
     private void publish(Event event) {
         if (event instanceof ToolCallResultEvent result) {
+            orderResult(result.content());
             event = new ToolCallResultEvent(result.messageId(), result.toolCallId(),
                     limited(result.content(), 8000), result.role(), null, null);
         }
@@ -137,6 +138,38 @@ public final class AguiRunProjection {
                     "completed", limited(result.content(), 8000));
         }
         output.accept(event);
+    }
+
+    private void orderResult(String content) {
+        if (content == null || !content.contains("order-demo")) return;
+        try {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = json.readTree(content);
+            if (node.isTextual()) node = json.readTree(node.textValue());
+            if (node.isArray() && !node.isEmpty() && node.get(0).has("text")) node = json.readTree(node.get(0).get("text").asText());
+            if (!"order-demo".equals(node.path("kind").asText())) return;
+            orders(json.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>() { }));
+        } catch (RuntimeException | java.io.IOException ignored) { /* Ordinary tool output is not a business card. */ }
+    }
+
+    public void orders(Map<String,Object> payload) {
+        if (!"order-demo".equals(payload.get("kind")) || !(payload.get("orders") instanceof List<?> orders)) return;
+        for (Object raw : orders) {
+            if (!(raw instanceof Map<?,?> order) || order.get("id") == null) continue;
+            String id = Objects.toString(order.get("id"));
+            Map<String,Object> content = Map.of("order",order,"generation",payload.get("generation"),"threadId",threadId);
+            activity("order-"+threadId+"-"+id,"h-agent.order",content);
+            if(order.get("tickets") instanceof List<?> tickets) for(Object rawTicket:tickets){
+                if(!(rawTicket instanceof Map<?,?> ticket) || ticket.get("id")==null)continue;
+                Map<String,Object> ticketContent=new LinkedHashMap<>(content);ticketContent.put("ticketId",ticket.get("id"));
+                activity("ticket-"+threadId+"-"+ticket.get("id"),"h-agent.ticket",ticketContent);
+            }
+            if(order.get("decisions") instanceof List<?> decisions) for(Object rawDecision:decisions){
+                if(!(rawDecision instanceof Map<?,?> decision) || decision.get("id")==null)continue;
+                Map<String,Object> decisionContent=new LinkedHashMap<>(content);decisionContent.put("decisionId",decision.get("id"));
+                activity("order-decision-"+threadId+"-"+decision.get("id"),"h-agent.order-decision",decisionContent);
+            }
+        }
     }
 
     private void step(String id, String name, String phase, String result) {

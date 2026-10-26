@@ -18,6 +18,10 @@ other-agents:
 spring:
   application:
     name: other-agents
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
   ai:
     mcp:
       server:
@@ -25,9 +29,9 @@ spring:
         enabled: false
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://127.0.0.1:5432/h_agent_db
-    username: h_agent
-    password: h_agent
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5432/h_agent_db}
+    username: ${DB_USERNAME:h_agent}
+    password: ${DB_PASSWORD:h_agent}
   data:
     redis:
       host: 127.0.0.1
@@ -43,8 +47,8 @@ spring:
           min-idle: 5
         shutdown-timeout: 100ms
   flyway:
-    enabled: true
-    locations: classpath:db/migration
+    # OrderDemoPersistenceConfig owns an independent schema and migration history.
+    enabled: false
   servlet:
     multipart:
       max-file-size: 10MB

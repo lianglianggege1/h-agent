@@ -48,6 +48,10 @@ public class AgentScopeApprovalAdapter {
             String sessionId,
             ApprovalMode mode
     ) {
+        applyMode(agent,userId,sessionId,mode,workspaceRoot);
+    }
+
+    public void applyMode(ReActAgent agent,String userId,String sessionId,ApprovalMode mode,String actualWorkspace) {
         Objects.requireNonNull(agent, "agent");
         Objects.requireNonNull(mode, "approval mode");
         PermissionContextState current =
@@ -57,9 +61,13 @@ public class AgentScopeApprovalAdapter {
         copyRules(current.getAllowRules(), builder::addAllowRule);
         copyRules(current.getDenyRules(), builder::addDenyRule);
         copyRules(current.getAskRules(), builder::addAskRule);
+        if (mode == ApprovalMode.EXPLORE) {
+            builder.addDenyRule("order_operate",new PermissionRule("order_operate",null,
+                    io.agentscope.core.permission.PermissionBehavior.DENY,"read-only-mode"));
+        }
         builder.addWorkingDirectory(
-                workspaceRoot,
-                new AdditionalWorkingDirectory(workspaceRoot, "projectSettings")
+                actualWorkspace,
+                new AdditionalWorkingDirectory(actualWorkspace, "projectSettings")
         );
         agent.replacePermissionContext(userId, sessionId, builder.build());
     }

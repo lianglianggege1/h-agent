@@ -195,7 +195,7 @@ agents:
       base-url: http://localhost:8082
   mcp:
     other-agents:
-      enabled: false
+      enabled: true
       url: http://localhost:8082/test1/mcp
       token: ${MCP_TEST1_TOKEN:dev-token-test1}
       tool-execution-timeout-seconds: 4

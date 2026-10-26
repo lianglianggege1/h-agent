@@ -12,6 +12,7 @@ import com.h.agent.observability.semantic.SemanticContent;
 import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.domain.agent.ChatAgentExecutor;
@@ -381,7 +382,12 @@ public class ChatServiceImpl implements ChatService {
             }
 
             Long userMessageId;
-            if (!address.subagent()) {
+            var continuation=sink.contextView().<com.h.backend.order.OrderContinuation>getOrDefault(com.h.backend.order.OrderContinuation.class,null);
+            if(continuation!=null && !address.subagent() && ChatAgentIds.ORDER_PROCESSING.equals(agent.agentId())){
+                var existing=chatSessionService.getOwnedMessage(userId,address.rootSessionId(),continuation.userMessageId());
+                if(existing==null || !"user".equals(existing.role()))throw new BusinessException(40300,"恢复请求的原消息无效");
+                userMessageId=continuation.userMessageId();
+            } else if (!address.subagent()) {
                 // 顶级 Agent 的用户消息写入顶级聊天会话。
                 userMessageId = chatSessionService.appendUserMessage(
                         userId, address.rootSessionId(), userMessage, resources

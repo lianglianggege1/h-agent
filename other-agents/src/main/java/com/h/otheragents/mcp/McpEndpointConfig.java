@@ -32,7 +32,7 @@ public class McpEndpointConfig {
     }
 
     @Bean
-    RouterFunction<?> mcpEndpointsRouterFunction(McpEndpointServers mcpEndpointServers) {
+    RouterFunction<?> mcpEndpointsRouterFunction(@org.springframework.beans.factory.annotation.Qualifier("mcpEndpointServers") McpEndpointServers mcpEndpointServers) {
         return mcpEndpointServers.routerFunction();
     }
 }

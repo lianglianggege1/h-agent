@@ -16,6 +16,12 @@ export type AgentTopologyLoop = {
   testExitAtLoopEnd: boolean | null;
 };
 
+export type AgentTopologyDecisionRouter = {
+  selectionMode: "SINGLE" | "MULTIPLE";
+  activationThreshold: number | null;
+  dispatchMode: "SINGLE" | "PARALLEL";
+};
+
 export type AgentTopologyNode = {
   nodeId: string;
   name: string;
@@ -29,6 +35,7 @@ export type AgentTopologyNode = {
   condition: string | null;
   async: boolean | null;
   loop: AgentTopologyLoop | null;
+  decisionRouter: AgentTopologyDecisionRouter | null;
   children: AgentTopologyNode[];
 };
 

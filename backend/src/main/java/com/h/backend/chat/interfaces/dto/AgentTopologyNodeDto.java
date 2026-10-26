@@ -15,6 +15,7 @@ public record AgentTopologyNodeDto(
         String condition,
         Boolean async,
         LoopMetaDto loop,
+        DecisionRouterMetaDto decisionRouter,
         List<AgentTopologyNodeDto> children
 ) {
 }
