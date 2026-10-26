@@ -19,11 +19,16 @@ public final class AguiRunProjection {
     private HarnessAguiAdapter harnessAdapter;
     private final Set<String> openText = new LinkedHashSet<>();
     private final Map<String, Map<String, Object>> steps = new LinkedHashMap<>();
+    private final Map<String, String> toolPhases = new HashMap<>();
     private final Map<String, Map<String, Object>> activities = new LinkedHashMap<>();
     private final Map<String, StringBuilder> text = new LinkedHashMap<>();
+    private final List<Map<String, Object>> entries = new ArrayList<>();
     private boolean harness;
     private String status = "RUNNING";
-    private String reasoning = "";
+    private Long startedAt = System.currentTimeMillis();
+    private Long processEndedAt;
+    private boolean answerStarted;
+    private boolean reasoningOpen;
     private Long businessRunId;
     private String anchorMessageId;
     private String anchorPlacement = "AFTER";
@@ -44,6 +49,15 @@ public final class AguiRunProjection {
             case "agent_event" -> {
                 harness = true;
                 AgentEvent source = (AgentEvent) event.payload();
+                if ((source.getSource() == null || source.getSource().isBlank())
+                        && source instanceof io.agentscope.core.event.ToolResultEndEvent result && result.getState() != null) {
+                    toolPhases.put(result.getToolCallId(), switch (result.getState()) {
+                        case ERROR, DENIED -> "failed";
+                        case INTERRUPTED -> "cancelled";
+                        case RUNNING -> "running";
+                        case SUCCESS -> "completed";
+                    });
+                }
                 if (harnessAdapter == null) harnessAdapter = new HarnessAguiAdapter(threadId, runId);
                 harnessAdapter.accept(source).forEach(this::publish);
             }
@@ -55,8 +69,7 @@ public final class AguiRunProjection {
                 }
             }
             case "reasoning" -> {
-                reasoning = limited(reasoning + Objects.toString(event.content(), ""), 16000);
-                // Sent together with the next product snapshot; token deltas are not database events.
+                reasoning(Objects.toString(event.content(), ""));
             }
             case "agent_step" -> {
                 AgentStepPayloadDto step = (AgentStepPayloadDto) event.payload();
@@ -86,10 +99,6 @@ public final class AguiRunProjection {
                 if (payload.projection() != null && payload.projection().subagent() != null) {
                     activity("subagent-" + payload.projection().subagent().sessionId(), "h-agent.subagent",
                             Map.of("subagent", payload.projection().subagent()));
-                }
-                if ("MODEL_STATUS".equals(payload.kind())) {
-                    String id = "model-" + Objects.toString(payload.data().get("agentSessionId"), threadId);
-                    step(id, "模型生成", "END".equals(payload.phase()) ? "completed" : "running", null);
                 }
             }
             case "image", "resource" -> {
@@ -129,13 +138,21 @@ public final class AguiRunProjection {
         }
         if (event instanceof TextMessageEndEvent end) openText.remove(end.messageId());
         if (event instanceof TextMessageContentEvent content) {
+            reasoningOpen = false;
+            if (!answerStarted && !content.delta().isEmpty()) {
+                ensureProgress();
+                answerStarted = true;
+                processEndedAt = System.currentTimeMillis();
+                progressDelta(List.of(new JsonPatchOperation("add", "/answerStarted", true),
+                        new JsonPatchOperation("add", "/processEndedAt", processEndedAt)));
+            }
             text.computeIfAbsent(content.messageId(), ignored -> new StringBuilder()).append(content.delta());
         }
         if (event instanceof ToolCallStartEvent tool) step("tool-" + tool.toolCallId(), tool.toolCallName(), "running", null);
         if (event instanceof ToolCallResultEvent result) {
             Map<String, Object> previous = steps.get("tool-" + result.toolCallId());
             step("tool-" + result.toolCallId(), previous == null ? "工具" : Objects.toString(previous.get("name")),
-                    "completed", limited(result.content(), 8000));
+                    toolPhases.getOrDefault(result.toolCallId(), "completed"), limited(result.content(), 8000));
         }
         output.accept(event);
     }
@@ -173,12 +190,73 @@ public final class AguiRunProjection {
     }
 
     private void step(String id, String name, String phase, String result) {
+        ensureProgress();
+        boolean added = !steps.containsKey(id);
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("id", id);
         value.put("name", name);
         value.put("status", phase);
+        value.put("kind", id.startsWith("tool-") ? "tool" : "step");
         if (result != null && !result.isBlank()) value.put("result", result);
         steps.put(id, value);
+        List<JsonPatchOperation> patch = new ArrayList<>();
+        if (added) {
+            reasoningOpen = false;
+            Map<String, Object> entry = Map.of("id", id, "type", "step", "stepId", id);
+            entries.add(entry);
+            patch.add(new JsonPatchOperation("add", "/entries/-", entry));
+        }
+        patch.add(new JsonPatchOperation("replace", "/steps", steps.values().stream().map(Map::copyOf).toList()));
+        progressDelta(patch);
+    }
+
+    private void reasoning(String delta) {
+        if (delta.isEmpty()) return;
+        ensureProgress();
+        JsonPatchOperation patch;
+        if (reasoningOpen) {
+            int index = entries.size() - 1;
+            Map<String, Object> previous = entries.get(index);
+            @SuppressWarnings("unchecked") List<String> chunks = (List<String>) previous.get("chunks");
+            // Snapshots retain compact text blocks, never a token/event log. On the wire,
+            // append only the new delta; reconnect starts again from a compact snapshot.
+            entries.set(index, Map.of("id", previous.get("id"), "type", "reasoning",
+                    "chunks", List.of(chunks.getFirst() + delta)));
+            patch = new JsonPatchOperation("add", "/entries/" + index + "/chunks/-", delta);
+        } else {
+            Map<String, Object> entry = Map.of("id", "reasoning-" + entries.size(),
+                    "type", "reasoning", "chunks", List.of(delta));
+            entries.add(entry);
+            reasoningOpen = true;
+            patch = new JsonPatchOperation("add", "/entries/-", entry);
+        }
+        progressDelta(List.of(patch));
+    }
+
+    private void ensureProgress() {
+        if (!activities.containsKey("progress-" + runId)) refreshProgress();
+    }
+
+    private Map<String, Object> progressContent() {
+        Map<String, Object> progress = new LinkedHashMap<>();
+        progress.put("runId", runId);
+        progress.put("status", status);
+        progress.put("steps", steps.values().stream().map(Map::copyOf).toList());
+        progress.put("entries", List.copyOf(entries));
+        progress.put("answerStarted", answerStarted);
+        if (startedAt != null) progress.put("startedAt", startedAt);
+        if (processEndedAt != null) progress.put("processEndedAt", processEndedAt);
+        if (anchorMessageId != null) {
+            progress.put("anchorMessageId", anchorMessageId);
+            progress.put("anchorPlacement", anchorPlacement);
+        }
+        return progress;
+    }
+
+    private void progressDelta(List<JsonPatchOperation> patch) {
+        activities.put("progress-" + runId, Map.of("id", "progress-" + runId,
+                "activityType", ACTIVITY_TYPE, "content", progressContent()));
+        output.accept(new ActivityDeltaEvent("progress-" + runId, ACTIVITY_TYPE, patch));
     }
 
     public void resource(ChatSessionMessageDto message) {
@@ -206,17 +284,13 @@ public final class AguiRunProjection {
     }
 
     public void refreshProgress() {
+        if (terminal() && processEndedAt == null) processEndedAt = System.currentTimeMillis();
         if (terminal()) steps.values().forEach(step -> {
             if ("running".equalsIgnoreCase(Objects.toString(step.get("status")))) {
                 step.put("status", "COMPLETED".equals(status) ? "completed" : "WAITING_APPROVAL".equals(status) ? "waiting" : "cancelled");
             }
         });
-        Map<String, Object> progress = new LinkedHashMap<>();
-        progress.put("runId", runId);
-        progress.put("status", status);
-        progress.put("steps", List.copyOf(steps.values()));
-        progress.put("reasoning", reasoning);
-        activity("progress-" + runId, ACTIVITY_TYPE, progress);
+        activity("progress-" + runId, ACTIVITY_TYPE, progressContent());
     }
 
     public void stop() {
@@ -267,7 +341,15 @@ public final class AguiRunProjection {
             activities.put(Objects.toString(activity.get("id")), activity);
             if (ACTIVITY_TYPE.equals(activity.get("activityType"))) {
                 Map<String, Object> progress = (Map<String, Object>) activity.get("content");
-                reasoning = Objects.toString(progress.get("reasoning"), "");
+                startedAt = progress.get("startedAt") instanceof Number time ? time.longValue() : null;
+                processEndedAt = progress.get("processEndedAt") instanceof Number time ? time.longValue() : null;
+                answerStarted = Boolean.TRUE.equals(progress.get("answerStarted"));
+                for (Object entry : (List<?>) progress.getOrDefault("entries", List.of())) {
+                    entries.add(new LinkedHashMap<>((Map<String, Object>) entry));
+                }
+                if (entries.isEmpty() && progress.get("reasoning") instanceof String legacy && !legacy.isBlank()) {
+                    entries.add(Map.of("id", "reasoning-legacy", "type", "reasoning", "chunks", List.of(legacy)));
+                }
                 for (Object value : (List<?>) progress.getOrDefault("steps", List.of())) {
                     Map<String, Object> step = new LinkedHashMap<>((Map<String, Object>) value);
                     steps.put(Objects.toString(step.get("id")), step);

@@ -15,6 +15,27 @@
   overflow-wrap: anywhere;
 }
 
+.agui-progress { margin-block: .4rem; overflow-wrap: anywhere; color: #777c88; font-size: .8125rem; }
+.agui-progress-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; padding: .35rem 0; text-align: left; cursor: pointer; line-height: 1.5; }
+.agui-progress-toggle:hover { color: #454956; }
+.agui-progress-toggle:focus-visible { outline: 2px solid #a5a8bb; outline-offset: 3px; border-radius: 3px; }
+.agui-progress-chevron { flex-shrink: 0; transition: transform .15s; }
+.agui-progress-chevron[data-open="true"] { transform: rotate(90deg); }
+.agui-progress-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.agui-progress-meta { color: #969ba7; font-size: .75rem; font-weight: 400; }
+.agui-progress-body { padding: .45rem 0 .35rem 1.05rem; }
+.agui-progress-timeline { list-style: none; margin: 0; padding: 0 0 0 .8rem; border-left: 1px solid #e5e7eb; }
+.agui-progress-timeline > li + li { margin-top: .65rem; }
+.agui-progress-reasoning { white-space: pre-wrap; line-height: 1.75; }
+.agui-progress-step summary { display: flex; align-items: baseline; gap: .65rem; cursor: pointer; list-style: none; }
+.agui-progress-step summary::-webkit-details-marker { display: none; }
+.agui-progress-step summary::before { content: "›"; }
+.agui-progress-step details[open] > summary::before { content: "⌄"; }
+.agui-progress-step[data-failed="true"], .agui-progress-error { color: #b45309; }
+.agui-progress-error { margin-block: .25rem; padding-left: 1.05rem; white-space: pre-wrap; line-height: 1.6; }
+.agui-progress-result { margin-top: .5rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; font-size: .75rem; line-height: 1.6; }
+@media (prefers-reduced-motion: reduce) { .agui-progress-chevron { transition: none; } }
+
 .agui-button {
   border: 1px solid #e2e5ea;
   border-radius: 0.6rem;

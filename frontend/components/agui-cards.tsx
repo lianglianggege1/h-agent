@@ -11,13 +11,9 @@ import {
 } from "@/lib/automations";
 import type { ChatSessionMessage, ChatMessageResource } from "@/lib/chat-sessions";
 import type { HarnessSubagentSummary } from "@/lib/harness-subagent-types";
+import { ProgressCard, progressSchema, HistoricalReasoning } from "@/components/agui-progress";
 import { MarkdownContent } from "@/components/markdown-content";
 import { OrderCard, type OrderCardContent } from "@/components/order/order-card";
-
-const progressSchema = z.object({
-  runId: z.string(), status: z.string(), reasoning: z.string().default(""),
-  steps: z.array(z.object({ id: z.string(), name: z.string(), status: z.string(), result: z.string().optional() })),
-});
 
 const statusLabels: Record<string, string> = {
   RUNNING: "执行中", WAITING_APPROVAL: "等待你的批准", COMPLETED: "已完成", FAILED: "执行失败",
@@ -26,24 +22,6 @@ const statusLabels: Record<string, string> = {
   running: "执行中", started: "执行中", start: "执行中", completed: "已完成", end: "已完成",
   failed: "失败", cancelled: "已停止", delta: "执行中",
 };
-
-export function ProgressCard({ content }: { content: z.infer<typeof progressSchema> }) {
-  const current = content.steps.filter((step) => ["running", "start", "started"].includes(step.status.toLowerCase())).at(-1);
-  return <details className="agui-card agui-progress">
-    <summary className="cursor-pointer font-medium">
-      <span className={content.status === "RUNNING" ? "agui-pulse" : ""}>●</span>{" "}
-      {content.status === "RUNNING" ? (current ? "正在执行：" + current.name : "Agent 正在处理") : statusLabels[content.status] ?? content.status}
-      <span className="ml-3 text-xs text-stone-500">查看过程 · {content.steps.length} 项</span>
-    </summary>
-    <ol className="mt-3 space-y-2">
-      {content.steps.map((step) => <li key={step.id} className="rounded-lg bg-white/70 p-3">
-        <div className="flex justify-between gap-3"><span>{step.name}</span><span className="text-xs text-stone-500">{statusLabels[step.status] ?? step.status}</span></div>
-        {step.result ? <details className="mt-2"><summary className="cursor-pointer text-xs text-stone-500">查看结果</summary><pre className="mt-2 whitespace-pre-wrap break-all text-xs">{step.result}</pre></details> : null}
-      </li>)}
-    </ol>
-    {content.reasoning ? <details className="mt-3"><summary className="cursor-pointer text-xs text-stone-500">思考过程</summary><div className="mt-2 whitespace-pre-wrap text-xs leading-6 text-stone-600">{content.reasoning}</div></details> : null}
-  </details>;
-}
 
 export function AutomationCard({ content }: { content: { proposal: AutomationProposal } }) {
   const [proposal, setProposal] = useState(content.proposal);
@@ -121,19 +99,42 @@ export function ApprovalCard({ content, agent }: { content: { approval: Approval
   </article>;
 }
 
-export const ResourceReferenceContext = createContext<((resource: ChatMessageResource) => void) | null>(null);
+export const ResourceReferenceContext = createContext<{
+  selectedIds: ReadonlySet<string>;
+  toggle: (resource: ChatMessageResource) => void;
+} | null>(null);
 
 export function ResourceCard({ content }: { content: { message: ChatSessionMessage } }) {
-  const reference = useContext(ResourceReferenceContext);
+  const references = useContext(ResourceReferenceContext);
   return <article className="agui-card space-y-3">
     {content.message.payload?.status ? <p className="text-xs text-stone-500">生成状态：{content.message.payload.status}</p> : null}
-    {content.message.resources?.map((resource) => <div key={resource.id} className="space-y-2">
-      {resource.mimeType.startsWith("image/") ? <a href={resource.viewUrl} target="_blank" rel="noreferrer"><picture><img src={resource.viewUrl} alt={resource.fileName} className="max-h-96 rounded-xl object-contain" /></picture></a>
-        : resource.mimeType.startsWith("video/") ? <video src={resource.viewUrl} controls className="max-h-96 rounded-xl" />
-        : resource.mimeType.startsWith("audio/") ? <audio src={resource.viewUrl} controls className="w-full" /> : null}
-      <a href={resource.downloadUrl} download={resource.fileName} className="inline-block text-sm text-amber-800 underline">下载 {resource.fileName}</a>
-      {reference && resource.mimeType.startsWith("image/") ? <button className="agui-button ml-3" onClick={() => reference(resource)}>用作参考</button> : null}
-    </div>)}
+    {content.message.resources?.map((resource) => {
+      const selected = references?.selectedIds.has(resource.id) ?? false;
+      return <div key={resource.id} className="space-y-2">
+        {resource.mimeType.startsWith("image/") ? <a href={resource.viewUrl} target="_blank" rel="noreferrer"><picture><img src={resource.viewUrl} alt={resource.fileName} className="max-h-96 rounded-xl object-contain" /></picture></a>
+          : resource.mimeType.startsWith("video/") ? <video src={resource.viewUrl} controls className="max-h-96 rounded-xl" />
+          : resource.mimeType.startsWith("audio/") ? <audio src={resource.viewUrl} controls className="w-full" /> : null}
+        <div className="flex items-center gap-1">
+          <a href={resource.downloadUrl} download={resource.fileName} aria-label={`下载 ${resource.fileName}`} title="下载"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5" />
+            </svg>
+          </a>
+          {references && resource.mimeType.startsWith("image/") ? <button type="button"
+            aria-pressed={selected}
+            aria-label={`${selected ? "取消引用" : "引用"} ${resource.fileName}`}
+            title={selected ? "取消引用" : "引用图片"}
+            onClick={() => references.toggle(resource)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 ${selected ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d={selected ? "m5 12 4 4 10-10" : "m9 5-5 5 5 5M4 10h9a7 7 0 0 1 7 7v2"} />
+            </svg>
+            {selected ? "已引用" : "引用"}
+          </button> : null}
+        </div>
+      </div>;
+    })}
   </article>;
 }
 
@@ -151,7 +152,7 @@ export const activityRenderers = [
   { activityType: "h-agent.approval", content: z.object({ approval: z.custom<ApprovalRequest>() }), render: ApprovalCard },
   { activityType: "h-agent.resource", content: z.object({ message: z.custom<ChatSessionMessage>() }), render: ResourceCard },
   { activityType: "h-agent.subagent", content: z.object({ subagent: z.custom<HarnessSubagentSummary>() }), render: SubagentCard },
-  { activityType: "h-agent.reasoning", content: z.object({ text: z.string() }), render: ({ content }: { content: { text: string } }) => <details className="agui-card"><summary className="cursor-pointer text-stone-500">思考过程</summary><div className="mt-2 whitespace-pre-wrap text-xs leading-6">{content.text}</div></details> },
+  { activityType: "h-agent.reasoning", content: z.object({ text: z.string() }), render: HistoricalReasoning },
   { activityType: "h-agent.assignment", content: z.object({ text: z.string() }), render: ({ content }: { content: { text: string } }) => <article className="agui-card"><h3 className="text-xs font-semibold text-amber-800">父 Agent 的委托</h3><p className="mt-2 whitespace-pre-wrap leading-6">{content.text}</p></article> },
 ];
 

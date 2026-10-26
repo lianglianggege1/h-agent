@@ -51,9 +51,9 @@ function ThreadInput(props: CopilotChatInputProps) {
       </div>
     </div> : null}
     {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[1000px] flex-wrap gap-2 px-4" aria-label="待发送附件">
-      {actions.attachments.map((item) => <span key={item.resourceId} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
+      {actions.attachments.map((item) => <span key={item.resourceId} title={item.fileName} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
         {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : null}
-        <span>{item.role === "REFERENCE" ? "参考图 · " : ""}{item.fileName}</span>
+        <span>{item.role === "REFERENCE" ? "引用图片" : item.fileName}</span>
         <button aria-label={"移除 " + item.fileName} onClick={() => actions.removeFile(item.resourceId)}>×</button>
       </span>)}
       {actions.uploading ? <span className="text-xs text-stone-500">上传中…</span> : null}
@@ -207,7 +207,16 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
       onClose={() => setPickerOpen(false)} /> : null}
     {orderPickerOpen ? <OrderPicker threadId={threadId} onClose={() => setOrderPickerOpen(false)} onReference={setOrderReference} /> : null}
     <OrderReferenceContext.Provider value={setOrderReference}>
-    <ResourceReferenceContext.Provider value={(resource) => setAttachments((current) => selectHistoryReference(current, resource))}>
+    <ResourceReferenceContext.Provider value={{
+      selectedIds: new Set(attachments.filter((item) => item.role === "REFERENCE").map((item) => item.resourceId)),
+      toggle: (resource) => {
+        setAttachments((current) => current.some((item) => item.resourceId === resource.id && item.role === "REFERENCE")
+          ? current.filter((item) => item.resourceId !== resource.id) : selectHistoryReference(current, resource));
+        if (!attachments.some((item) => item.resourceId === resource.id && item.role === "REFERENCE")) {
+          threadElement.current?.querySelector("textarea")?.focus();
+        }
+      },
+    }}>
     <Actions.Provider value={{ submit: (value) => void submit(value), addFile: () => setPickerOpen(true),
       disabled: !isReady || agent.isRunning || uploading || waiting, attachments, uploading,
       removeFile: (id) => setAttachments((current) => current.filter((resource) => resource.resourceId !== id)),

@@ -65,3 +65,43 @@ test("a page boundary between reasoning, image and answer keeps the original ord
   assert.deepEqual(orderProductMessages([...older, ...current]).map((item) => item.id),
     ["user", "image", "resource-image", "reasoning-reason", "answer"]);
 });
+
+test("a turn has one process across live tools, history recovery and approval continuation", () => {
+  const history = productHistoryMessages([
+    historicalMessage("user", "USER", "request"), historicalMessage("reason", "REASONING", "thinking"),
+    historicalMessage("answer", "AI", "answer"),
+  ]);
+  const before = { id: "p1", role: "activity", activityType: "h-agent.progress", content: {
+    runId: "r1", status: "RESUMED", anchorMessageId: "user", startedAt: 1000, processEndedAt: 3000,
+    entries: [{ id: "reasoning-0", type: "reasoning", chunks: ["thinking"] }, { id: "tool-call", type: "step", stepId: "tool-call" }],
+    steps: [{ id: "tool-call", kind: "tool", name: "search", status: "completed" }],
+  } };
+  const after = { id: "p2", role: "activity", activityType: "h-agent.progress", content: {
+    runId: "r2", status: "COMPLETED", anchorMessageId: "user", startedAt: 5000, processEndedAt: 9000,
+    entries: [{ id: "reasoning-0", type: "reasoning", chunks: ["confirmed"] }], steps: [],
+  } };
+  const tool = { id: "call-message", role: "assistant", toolCalls: [{ id: "call", type: "function", function: { name: "search", arguments: "{}" } }] };
+  const toolResult = { id: "call-result", role: "tool", toolCallId: "call", content: "result" };
+  const projected = orderProductMessages([...history, before, tool, toolResult, after]);
+  assert.deepEqual(projected.map((message) => message.id), ["user", "p1", "answer"]);
+  const process = projected[1].content;
+  assert.equal(process.status, "COMPLETED");
+  assert.equal(process.answerStarted, true);
+  assert.equal(process.runId, "r1", "Continuation retains the same reader preference identity");
+  assert.equal(process.steps.length, 1);
+  assert.deepEqual(process.entries.filter((entry) => entry.type === "reasoning").flatMap((entry) => entry.chunks), ["thinking", "confirmed"]);
+  assert.equal(new Set(process.entries.map((entry) => entry.id)).size, 3, "Block identities remain distinct across runs");
+  assert.equal(before.content.status, "RESUMED", "SDK state must not be mutated by a view transform");
+});
+
+test("a resource caption does not close a process before actual answer content", () => {
+  const process = { id: "process", role: "activity", activityType: "h-agent.progress", content: {
+    runId: "run", status: "RUNNING", anchorMessageId: "user", answerStarted: false,
+    entries: [{ id: "reasoning", type: "reasoning", chunks: ["整理中"] }], steps: [],
+  } };
+  const projected = orderProductMessages([
+    { id: "user", role: "user", content: "生成图片并解释" },
+    { id: "image", role: "assistant", content: "图片已生成" }, process,
+  ]);
+  assert.equal(projected.find((message) => message.id === "process").content.answerStarted, false);
+});

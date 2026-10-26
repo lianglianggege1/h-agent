@@ -12,6 +12,11 @@
 .thread { min-width: 0; }
 .thread [data-copilotkit] { min-width: 0; }
 
+/* The process header already indicates activity while thinking or using tools. */
+.thread [data-testid="copilot-message-list"]:has(:global(.agui-progress-dot)) [data-testid="copilot-loading-cursor"] {
+  display: none;
+}
+
 /* Scope typography to SDK messages so cards and composer controls keep their sizing. */
 .thread [class~="cpk:prose"] {
   font-family: var(--font-sans);

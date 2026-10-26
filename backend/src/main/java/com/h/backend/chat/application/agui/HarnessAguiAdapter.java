@@ -20,6 +20,7 @@ final class HarnessAguiAdapter {
     private final AguiStreamContext context;
 
     HarnessAguiAdapter(String threadId, String runId) {
+        // Reasoning streams through the unified product activity, avoiding a second SDK panel.
         context = new AguiStreamContext(threadId, runId, AguiAdapterConfig.builder()
                 .emitToolCallArgs(false).enableReasoning(false)
                 .baseEventPropertiesEnricherEnabled(false).build());
@@ -38,6 +39,14 @@ final class HarnessAguiAdapter {
                 // The product commit/approval boundary owns run completion.
                 .filter(event -> !(event instanceof AguiEvent.RunStarted || event instanceof AguiEvent.RunFinished
                         || event instanceof AguiEvent.Raw || event instanceof AguiEvent.Custom))
-                .map(event -> SERIALIZER.deserialize(encoder.encodeToJson(event), Event.class)).toList();
+                .map(event -> {
+                    // AgentScope permits an empty tool result (e.g. denial or failure),
+                    // whereas the community SDK requires a non-null content string.
+                    if (event instanceof AguiEvent.ToolCallResult result) return (Event)
+                            new com.agui.community.core.event.ToolCallResultEvent(
+                                    result.messageId() == null ? "result-" + result.toolCallId() : result.messageId(),
+                                    result.toolCallId(), java.util.Objects.toString(result.content(), ""));
+                    return SERIALIZER.deserialize(encoder.encodeToJson(event), Event.class);
+                }).toList();
     }
 }

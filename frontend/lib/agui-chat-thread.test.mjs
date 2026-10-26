@@ -4,12 +4,13 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 import ts from "typescript";
 import { JSDOM } from "jsdom";
+import * as referenceImages from "./reference-images.ts";
 
 const require = createRequire(import.meta.url);
 
 // Render the product component with its real SDK input and connection lifecycle.
 // Only application data and the SDK's provider-bound hooks/view are replaced.
-test("idle order refresh keeps an unfinished message editable", async () => {
+test("idle order refresh keeps the draft editable and image references synchronized", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "http://localhost" });
   const saved = new Map();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document,
@@ -30,6 +31,14 @@ test("idle order refresh keeps an unfinished message editable", async () => {
   const { CopilotKitCore } = require("@copilotkit/core");
   const { HttpAgent } = require("@ag-ui/client");
   const { Subject } = require("rxjs");
+  const cardSource = readFileSync(new URL("../components/agui-cards.tsx", import.meta.url), "utf8");
+  const cardCode = ts.transpileModule(cardSource, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX,
+    module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
+  const cards = { exports: {} };
+  // The real resource card and context run here; unrelated business-card imports are unused.
+  new Function("require", "module", "exports", cardCode)((id) => id.startsWith("@/") ? {} : require(id), cards, cards.exports);
+  const image = { id: "image-1", type: "IMAGE", role: "OUTPUT", viewUrl: "/image", downloadUrl: "/download",
+    fileName: "image.png", mimeType: "image/png", fileSize: 23 };
   const agent = new HttpAgent({ url: "http://localhost/test", threadId: "order-thread" });
   const streams = [];
   let connects = 0;
@@ -52,7 +61,9 @@ test("idle order refresh keeps an unfinished message editable", async () => {
     return React.createElement(View, { inputValue: value, onInputChange: setValue });
   }
   Chat.View = function ChatView({ input: Input, inputValue, onInputChange, onSubmitMessage }) {
-    return React.createElement(Input, { value: inputValue, onChange: onInputChange, onSubmitMessage });
+    return React.createElement(React.Fragment, null,
+      React.createElement(cards.exports.ResourceCard, { content: { message: { resources: [image] } } }),
+      React.createElement(Input, { value: inputValue, onChange: onInputChange, onSubmitMessage }));
   };
   const stubs = {
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,
@@ -60,11 +71,11 @@ test("idle order refresh keeps an unfinished message editable", async () => {
     "@/lib/http": { apiFetch: async () => ({}) },
     "@/lib/chat-sessions": { getChatSessionMessages: async () => ({ messages: [], nextBeforeSeq: null, hasMore: false }) },
     "@/lib/resource-upload": {},
-    "@/components/agui-cards": { ResourceReferenceContext: React.createContext(null) },
+    "@/components/agui-cards": cards.exports,
     "@/lib/agui-messages": {},
     "./agui-chat-thread.module.css": { default: {} },
     "./chat-attachment-picker": {},
-    "@/lib/reference-images": {},
+    "@/lib/reference-images": referenceImages,
     "./order/order-card": { OrderReferenceContext: React.createContext(null) },
     "./order/order-picker": {},
   };
@@ -86,6 +97,16 @@ test("idle order refresh keeps an unfinished message editable", async () => {
       input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
     assert.equal(input.disabled, false);
+    const reference = dom.window.document.querySelector('button[aria-pressed]');
+    const download = dom.window.document.querySelector('a[download]');
+    assert.equal(download.textContent.trim(), "", "Download is an icon without a visible filename");
+    assert.ok(download.querySelector("svg"));
+    assert.equal(download.getAttribute("href"), "/download");
+    await React.act(async () => reference.click());
+    assert.equal(reference.textContent.trim(), "已引用");
+    assert.equal(reference.getAttribute("aria-pressed"), "true");
+    assert.match(dom.window.document.querySelector('[aria-label="待发送附件"]').textContent, /引用图片/);
+    assert.equal(dom.window.document.activeElement, input, "Selecting an image focuses the draft");
     await React.act(async () => {
       for (let tick = 0; tick < 3; tick++) {
         for (const { callback } of [...timers.values()]) callback();
@@ -97,6 +118,12 @@ test("idle order refresh keeps an unfinished message editable", async () => {
     assert.equal(input.value, "订单还没输入完");
     assert.equal(dom.window.document.activeElement, input);
     assert.equal(connects, 0, "idle polling must not reconnect the chat transport");
+    assert.equal(reference.getAttribute("aria-pressed"), "true", "Background updates preserve the image reference");
+    await React.act(async () => dom.window.document.querySelector('button[aria-label="移除 image.png"]').click());
+    assert.equal(reference.getAttribute("aria-pressed"), "false", "Removing the preview clears the source badge");
+    await React.act(async () => reference.click());
+    await React.act(async () => reference.click());
+    assert.equal(dom.window.document.querySelector('[aria-label="待发送附件"]'), null, "Clicking the selected source cancels the reference");
 
     // A real order publication still hydrates the SDK, and duplicate notifications
     // during that connection must not start another replay.

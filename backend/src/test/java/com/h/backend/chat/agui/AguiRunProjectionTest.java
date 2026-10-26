@@ -18,6 +18,32 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AguiRunProjectionTest {
     @Test
+    void streamsReasoningImmediatelyAndCollapsesOnlyOnActualAnswerContent() {
+        List<Event> events = new ArrayList<>();
+        AguiRunProjection projection = new AguiRunProjection("thread", "run", events::add);
+        projection.refreshProgress();
+        events.clear();
+        projection.accept(new ChatStreamEvent("reasoning", "先查"));
+        projection.accept(new ChatStreamEvent("reasoning", "资料"));
+        var deltas = events.stream().filter(com.agui.community.core.event.ActivityDeltaEvent.class::isInstance)
+                .map(com.agui.community.core.event.ActivityDeltaEvent.class::cast).toList();
+        assertEquals(2, deltas.size(), "Each reasoning callback must reach observers without a checkpoint");
+        assertTrue(deltas.getLast().patch().stream().anyMatch(patch -> "资料".equals(patch.value())));
+        projection.accept(new ChatStreamEvent("tool_start", "", null, Map.of("id", "search", "name", "web_search")));
+        projection.accept(new ChatStreamEvent("reasoning", "整理结果"));
+        projection.accept(new ChatStreamEvent("chunk", "回答"));
+        projection.accept(new ChatStreamEvent("tool_start", "", null, Map.of("id", "verify", "name", "web_search")));
+        projection.refreshProgress();
+        var progress = events.stream().filter(com.agui.community.core.event.ActivitySnapshotEvent.class::isInstance)
+                .map(com.agui.community.core.event.ActivitySnapshotEvent.class::cast).reduce((a, b) -> b).orElseThrow();
+        Map<?, ?> content = (Map<?, ?>) progress.content();
+        assertEquals(true, content.get("answerStarted"), "Later tools must not reopen the process");
+        var entries = (List<Map<String, Object>>) content.get("entries");
+        assertEquals(List.of("reasoning", "step", "reasoning", "step"), entries.stream().map(entry -> entry.get("type")).toList());
+        assertNotNull(content.get("processEndedAt"));
+    }
+
+    @Test
     void mapsLangchainCallbacksToStandardToolAndTextEvents() {
         List<Event> events = new ArrayList<>();
         AguiRunProjection projection = new AguiRunProjection("thread", "run", events::add);
@@ -61,5 +87,25 @@ class AguiRunProjectionTest {
         assertTrue(wire.contains("TOOL_CALL_START"));
         assertFalse(wire.contains("secret-value"));
         assertFalse(wire.contains("rawEvent"));
+    }
+
+    @Test
+    void toolArgumentsEndingDoesNotMeanExecutionSucceeded() {
+        List<Event> events = new ArrayList<>();
+        AguiRunProjection projection = new AguiRunProjection("thread", "run", events::add);
+        projection.accept(new ChatStreamEvent("agent_event", "", null, new ToolCallStartEvent("reply", "call", "web_search")));
+        projection.accept(new ChatStreamEvent("agent_event", "", null,
+                new io.agentscope.core.event.ToolCallEndEvent("reply", "call", "web_search")));
+        projection.refreshProgress();
+        Map<?, ?> pending = (Map<?, ?>) ((List<?>) ((Map<?, ?>) ((com.agui.community.core.event.ActivitySnapshotEvent)
+                events.getLast()).content()).get("steps")).getFirst();
+        assertEquals("running", pending.get("status"));
+        projection.accept(new ChatStreamEvent("agent_event", "", null,
+                new io.agentscope.core.event.ToolResultEndEvent("reply", "call", "web_search", io.agentscope.core.message.ToolResultState.ERROR)));
+        projection.refreshProgress();
+        Map<?, ?> failed = (Map<?, ?>) ((List<?>) ((Map<?, ?>) ((com.agui.community.core.event.ActivitySnapshotEvent)
+                events.getLast()).content()).get("steps")).getFirst();
+        assertEquals("failed", failed.get("status"));
+        assertEquals("RUNNING", projection.status(), "A tool failure alone does not fail the answer");
     }
 }

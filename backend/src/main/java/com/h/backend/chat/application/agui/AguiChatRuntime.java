@@ -334,6 +334,20 @@ public class AguiChatRuntime {
             if (live == null || !row.runId().equals(live.runId)) result.addAll(AguiRunProjection.activityEvents(read(row)));
         }
         if (live != null) result.addAll(live.projection.activityEvents());
+        Set<String> processTurns = new HashSet<>();
+        for (Event event : result) {
+            if (!(event instanceof ActivitySnapshotEvent card) || !AguiRunProjection.ACTIVITY_TYPE.equals(card.activityType())) continue;
+            Map<?, ?> content = (Map<?, ?>) card.content();
+            boolean hasReasoning = content.get("reasoning") instanceof String text && !text.isBlank();
+            if (content.get("entries") instanceof List<?> entries) hasReasoning |= entries.stream()
+                    .anyMatch(entry -> entry instanceof Map<?, ?> value && "reasoning".equals(value.get("type")));
+            if (hasReasoning && content.get("anchorMessageId") instanceof String anchor) {
+                processTurns.add(historyTurn(history, anchor));
+            }
+        }
+        extras.removeIf(event -> event instanceof ActivitySnapshotEvent card
+                && "h-agent.reasoning".equals(card.activityType())
+                && processTurns.contains(((Map<?, ?>) card.content()).get("turnAnchorMessageId")));
         result.addAll(extras);
         // Business records remain authoritative after a card action and refresh signed resource URLs.
         for (var anchored : proposals.listAnchoredForSession(userId, threadId)) {
@@ -354,6 +368,8 @@ public class AguiChatRuntime {
         ChatSessionMessageDto message = history.get(index);
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("text", Objects.toString(message.content(), ""));
+        String turn = historyTurn(history, message.id());
+        if (turn != null) content.put("turnAnchorMessageId", turn);
         int next = index + 1;
         // The previous UI attached reasoning to the final answer after intervening generated images.
         if ("REASONING".equals(message.messageType())) {
@@ -380,6 +396,15 @@ public class AguiChatRuntime {
 
     private static boolean historyText(ChatSessionMessageDto message) {
         return !"REASONING".equals(message.messageType()) && !"system".equals(message.role());
+    }
+
+    private static String historyTurn(List<ChatSessionMessageDto> history, String messageId) {
+        String turn = null;
+        for (ChatSessionMessageDto message : history) {
+            if ("user".equals(message.role())) turn = message.id();
+            if (message.id().equals(messageId)) return turn;
+        }
+        return messageId;
     }
 
     @SuppressWarnings("unchecked")

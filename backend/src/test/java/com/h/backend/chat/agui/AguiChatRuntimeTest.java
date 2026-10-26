@@ -157,6 +157,25 @@ class AguiChatRuntimeTest {
     }
 
     @Test
+    void reconnectUsesTheRunProcessInsteadOfDuplicatingPersistedReasoning() {
+        when(sessions.getSessionMessages(1L, "root", 100, null)).thenReturn(new ChatSessionMessagesPageDto("root", List.of(
+                new ChatSessionMessageDto("u1", "user", "USER", "question", null, List.of(), null),
+                new ChatSessionMessageDto("r1", "assistant", "REASONING", "thinking", null, List.of(), null),
+                new ChatSessionMessageDto("a1", "assistant", "AI", "answer", null, List.of(), null)), false, null));
+        rows.put("finished", new AguiRunSnapshotMapper.Snapshot("finished", "root", 1L, "hash", "COMPLETED", """
+                {"status":"COMPLETED","activities":[{"id":"progress-finished","activityType":"h-agent.progress",
+                "content":{"runId":"finished","status":"COMPLETED","anchorMessageId":"u1","anchorPlacement":"AFTER",
+                "steps":[],"entries":[{"id":"r","type":"reasoning","chunks":["thinking"]}]}}]}
+                """, null));
+        var input = new RunAgentInput("root", "observe", null, List.of(), List.of(), List.of(), Map.of("observe", true));
+        var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
+        var cards = events.stream().filter(com.agui.community.core.event.ActivitySnapshotEvent.class::isInstance)
+                .map(com.agui.community.core.event.ActivitySnapshotEvent.class::cast).toList();
+        assertEquals(1, cards.size(), "The existing process owns reasoning for this turn");
+        assertEquals("progress-finished", cards.getFirst().messageId());
+    }
+
+    @Test
     void pendingChildApprovalIsIdleAndCanBeStoppedAfterTheTransportHasClosed() {
         when(agentSessions.selectBySessionId("child")).thenReturn(session("child", "root", 1L));
         var child = new com.h.backend.chat.infrastructure.persistence.entity.HarnessSubagentEntity();
