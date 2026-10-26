@@ -114,12 +114,12 @@ class OrderDemoServiceTest {
     }
     @Test void agentCannotInventExternalFactsOrResetAndResetInvalidatesOldCommands() {
         Map<String,Object> now=service.query(1,"ORD-DEMO-001"); String gen=now.get("generation").toString();
-        assertThatThrownBy(()->service.execute(1,false,"ORD-DEMO-001","DELIVERED","bad",gen,0,"")).hasMessageContaining("演示入口");
+        assertThatThrownBy(()->service.execute(1,false,"ORD-DEMO-001","DELIVERED","bad",gen,0,"")).hasMessageContaining("操作人员");
         Map<String,Object> reset=service.execute(1,true,"","RESET","reset",gen,0,"");
         assertThat(reset.get("generation")).isNotEqualTo(gen);
         assertThat(store.json.valueToTree(service.execute(1,true,"","RESET","reset",gen,0,"")).toString())
                 .isEqualTo(store.json.valueToTree(reset).toString());
-        assertThatThrownBy(()->service.execute(1,true,"ORD-DEMO-001","PROCESS","old",gen,0,"")).hasMessageContaining("已重置");
+        assertThatThrownBy(()->service.execute(1,true,"ORD-DEMO-001","PROCESS","old",gen,0,"")).hasMessageContaining("已更新");
     }
     @Test void concurrentChatsCannotShipTwice() throws Exception {
         Map<String,Object> now=service.query(1,"ORD-DEMO-001"); String gen=now.get("generation").toString();

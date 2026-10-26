@@ -1,0 +1,1 @@
+ALTER TABLE service_notes ADD COLUMN status TEXT NOT NULL DEFAULT 'OPEN';

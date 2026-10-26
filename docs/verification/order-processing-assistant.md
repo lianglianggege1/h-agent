@@ -2,7 +2,7 @@
 
 ## 启动
 
-使用 Java 26。若 Maven 默认使用其他 JDK，先设置 `JAVA_HOME` 为 Java 26 安装目录。保留现有 PostgreSQL、Redis、模型与登录配置，按项目原有方式启动 backend 和 frontend。
+使用 Java 26。通过 `mvn -v` 确认 Maven 的实际 JDK；若默认使用其他版本，先设置 `JAVA_HOME` 为 Java 26 安装目录。保留现有 PostgreSQL、Redis、模型与登录配置，按项目原有方式启动 backend 和 frontend。
 
 另外启动 `other-agents`：
 
@@ -12,7 +12,9 @@ cd other-agents
 mvn spring-boot:run
 ```
 
-backend 和 other-agents 都支持从当前目录或上级目录加载 `.env`。两者配置同一个可用的 PostgreSQL 地址，使用 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。other-agents 在独立 `order_demo` schema 内管理模拟业务与迁移历史，不接管 backend 的 Flyway 历史。
+backend 和 other-agents 都支持从当前目录或上级目录加载 `.env`。两者配置同一个可用的 PostgreSQL 地址，使用 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。other-agents 的默认 Flyway 已启用，在 `other_agents` schema 中执行 `src/main/resources/db/migration/V<版本>__<说明>.sql`，使用 `other_agents.flyway_schema_history` 记录版本。后续通用功能的迁移脚本放在此目录，应用 SQL 使用 `other_agents.<表名>` 访问这些表。
+
+订单模块继续在独立 `order_demo` schema 内执行 `db/order-demo` 的迁移，保留原有 `order_demo.schema_history`。`orderDemoFlyway` Bean 设置 `defaultCandidate = false`，不会让 Spring Boot 的默认 Flyway 自动配置退让；需要直接注入订单迁移器时，使用 `@Qualifier("orderDemoFlyway")`。两套迁移均不接管 backend 的 `public.flyway_schema_history`，已有订单迁移脚本和历史无需移动或重置。
 
 订单 MCP 默认地址为 `http://localhost:8082/orders/mcp`。可通过 backend 的 `ORDER_MCP_URL` 修改。两个服务使用相同 `ORDER_MCP_TOKEN`；默认值只供本地演示，部署时设置独立服务凭证。
 
@@ -68,12 +70,12 @@ mvn -pl backend,other-agents -am test \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-真实 PostgreSQL 存储与任务租约测试仅连接独立测试数据库，其 URL 必须包含 `order_tests`。默认测试账户 `postgres`，测试口令 `order-tests-only`；不要指向业务数据库。测试分别使用 `order_demo` 和 `order_job_tests` schema。
+真实 PostgreSQL 存储与任务租约测试仅连接独立测试数据库，其 URL 必须包含 `order_tests`。默认测试账户 `postgres`，测试口令 `order-tests-only`；不要指向业务数据库。测试分别使用 `order_demo` 和 `order_job_tests` schema。`OrderFlywayConfigurationTest` 额外使用随机的服务 schema，验证两套 Flyway 同时初始化、默认 Bean 注入、新增 V2 迁移和重复启动，检查另一服务的迁移历史保持不变。
 
 ```sh
 ORDER_DEMO_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:15439/order_tests \
   mvn -pl backend,other-agents -am test \
-  -Dtest=JdbcOrderDemoStoreTest,OrderJobMapperTest \
+  -Dtest=OrderFlywayConfigurationTest,JdbcOrderDemoStoreTest,OrderJobMapperTest \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
 

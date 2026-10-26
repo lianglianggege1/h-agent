@@ -47,8 +47,11 @@ spring:
           min-idle: 5
         shutdown-timeout: 100ms
   flyway:
-    # OrderDemoPersistenceConfig owns an independent schema and migration history.
-    enabled: false
+    enabled: true
+    locations: classpath:db/migration
+    # Isolate this service from backend's public.flyway_schema_history in a shared database.
+    default-schema: other_agents
+    schemas: other_agents
   servlet:
     multipart:
       max-file-size: 10MB

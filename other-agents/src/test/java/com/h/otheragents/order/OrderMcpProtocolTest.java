@@ -35,7 +35,7 @@ class OrderMcpProtocolTest {
                 assertThat(json.readTree(call(other,"order_query",Map.of("orderId","ORD-DEMO-001")).resultText())
                         .path("orders").get(0).path("stage").asText()).isEqualTo("NEW");
                 var fakeEvent=new HashMap<>(command);fakeEvent.put("action","DELIVERED");fakeEvent.put("commandId","fake");fakeEvent.put("revision",1);
-                assertThatThrownBy(()->call(agent,"order_command",fakeEvent)).hasMessageContaining("演示入口");
+                assertThatThrownBy(()->call(agent,"order_command",fakeEvent)).hasMessageContaining("操作人员");
                 assertThat(call(operator,"order_command",fakeEvent).isError()).isFalse();
                 assertThatThrownBy(()->call(anonymous,"order_query",Map.of("orderId","ORD-DEMO-001"))).hasMessageContaining("可信订单业务身份");
             } finally {http.disposeNow();}

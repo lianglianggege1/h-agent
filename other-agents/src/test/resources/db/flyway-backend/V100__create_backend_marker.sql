@@ -1,0 +1,1 @@
+CREATE TABLE backend_marker (id BIGINT PRIMARY KEY);
