@@ -10,9 +10,19 @@ public record AgentDefinition(
         String summary,
         Object agentBean,
         AgentRuntimeType runtimeType,
-        boolean enabled
+        boolean enabled,
+        boolean harnessMemoryEnabled
 ) {
+    public AgentDefinition(String agentId, String displayName, String domain, List<String> tags,
+                           String summary, Object agentBean, AgentRuntimeType runtimeType, boolean enabled) {
+        this(agentId, displayName, domain, tags, summary, agentBean, runtimeType, enabled, false);
+    }
+
     public AgentDefinition {
         tags = List.copyOf(tags);
+    }
+
+    public boolean supportsHarnessMemory() {
+        return enabled && runtimeType == AgentRuntimeType.HARNESS_STREAMING && harnessMemoryEnabled;
     }
 }

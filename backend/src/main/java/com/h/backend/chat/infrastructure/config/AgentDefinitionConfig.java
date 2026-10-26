@@ -32,6 +32,7 @@ public class AgentDefinitionConfig {
                 "面向复杂目标的父 Agent，可动态委派协作 Agent 并汇总结果",
                 harnessAgent,
                 AgentRuntimeType.HARNESS_STREAMING,
+                true,
                 true
         );
     }

@@ -22,5 +22,6 @@ class HarnessAgentDefinitionTest {
         assertEquals(AgentRuntimeType.HARNESS_STREAMING, definition.runtimeType());
         assertSame(harnessAgent, definition.agentBean());
         assertTrue(definition.enabled());
+        assertTrue(definition.supportsHarnessMemory());
     }
 }

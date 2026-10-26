@@ -1,6 +1,9 @@
 package com.h.backend.chat.application;
 
 import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.backend.chat.domain.agent.AgentDefinition;
+import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.common.exception.BusinessException;
 import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
 import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException;
 import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException.Kind;
@@ -9,6 +12,7 @@ import io.agentscope.harness.agent.filesystem.remote.store.StoreItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +23,10 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
- * 当前认证用户唯一 Harness MEMORY.md 的读写门面：在 BaseStore seam 后隐藏
+ * 当前认证用户在指定 Agent 下的 MEMORY.md 读写门面：在 BaseStore seam 后隐藏
  * AgentScope namespace、value_json 编码与 CAS 细节，只暴露读取与按已观察 revision 保存。
  */
 @Service
@@ -47,23 +52,37 @@ public class HarnessMemoryDocumentManager {
 
     private final BaseStore store;
     private final Clock clock;
-    private String namespaceAgentId = ChatAgentIds.HARNESS;
+    private final Supplier<AgentRegistry> registry;
+    private final String namespaceAgentId;
+
+    public List<AgentDefinition> listAgents() {
+        return registry.get().listEnabled().stream().filter(AgentDefinition::supportsHarnessMemory).toList();
+    }
 
     public HarnessMemoryDocumentManager forAssistant(String agentId) {
-        if (!ChatAgentIds.isHarness(agentId)) throw new IllegalArgumentException("未知的持久化助手");
-        HarnessMemoryDocumentManager scoped = new HarnessMemoryDocumentManager(store, clock);
-        scoped.namespaceAgentId = agentId;
-        return scoped;
+        AgentDefinition definition = registry.get().requireEnabled(agentId);
+        if (!definition.supportsHarnessMemory()) {
+            throw new BusinessException(41003, "该 Agent 未启用长期记忆");
+        }
+        return new HarnessMemoryDocumentManager(store, clock, registry, agentId);
     }
 
     @Autowired
-    public HarnessMemoryDocumentManager(@Qualifier("harnessWorkspaceStore") BaseStore store) {
-        this(store, Clock.systemUTC());
+    public HarnessMemoryDocumentManager(@Qualifier("harnessWorkspaceStore") BaseStore store,
+                                        ObjectProvider<AgentRegistry> registry) {
+        // Agent 构建时也会依赖本门面，延迟解析注册表以避免启动依赖环。
+        this(store, Clock.systemUTC(), registry::getObject, ChatAgentIds.HARNESS);
     }
 
-    public HarnessMemoryDocumentManager(BaseStore store, Clock clock) {
+    public HarnessMemoryDocumentManager(BaseStore store, Clock clock, AgentRegistry registry) {
+        this(store, clock, () -> registry, ChatAgentIds.HARNESS);
+    }
+
+    private HarnessMemoryDocumentManager(BaseStore store, Clock clock, Supplier<AgentRegistry> registry, String agentId) {
         this.store = store;
         this.clock = clock;
+        this.registry = registry;
+        this.namespaceAgentId = agentId;
     }
 
     public HarnessMemoryDocument view(long userId) {

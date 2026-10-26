@@ -107,6 +107,6 @@ public class OrderHarnessConfig {
     public AgentDefinition orderAgentDefinition(@Qualifier("orderHarnessAgent") HarnessAgent agent) {
         return new AgentDefinition(ChatAgentIds.ORDER_PROCESSING, "订单处理助手", "订单运营",
                 List.of("订单", "履约", "售后"), "管理订单全流程，支持订单查询、工单跟进、履约与售后处理",
-                agent, AgentRuntimeType.HARNESS_STREAMING, true);
+                agent, AgentRuntimeType.HARNESS_STREAMING, true, true);
     }
 }

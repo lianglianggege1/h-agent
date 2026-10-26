@@ -7,6 +7,11 @@ export type HarnessMemoryDocument = {
   updatedAt: string | null;
 };
 
+export type HarnessMemoryAgent = {
+  agentId: string;
+  displayName: string;
+};
+
 export type MemorySection = {
   title: string;
   offset: number;
@@ -18,12 +23,20 @@ const HARNESS_MEMORY_PATH = "/api/me/memory";
 const REVISION_CONFLICT_CODE = 40920;
 const UNAUTHORIZED_CODE = 40100;
 
-export function getHarnessMemory() {
-  return apiFetch<HarnessMemoryDocument>(HARNESS_MEMORY_PATH);
+function memoryPath(agentId?: string) {
+  return agentId === undefined ? HARNESS_MEMORY_PATH : `${HARNESS_MEMORY_PATH}?${new URLSearchParams({ agentId })}`;
 }
 
-export function saveHarnessMemory(content: string, expectedRevision: number) {
-  return apiFetch<HarnessMemoryDocument>(HARNESS_MEMORY_PATH, {
+export function listHarnessMemoryAgents() {
+  return apiFetch<HarnessMemoryAgent[]>(`${HARNESS_MEMORY_PATH}/agents`, { cache: "no-store" });
+}
+
+export function getHarnessMemory(agentId?: string) {
+  return apiFetch<HarnessMemoryDocument>(memoryPath(agentId), { cache: "no-store" });
+}
+
+export function saveHarnessMemory(content: string, expectedRevision: number, agentId?: string) {
+  return apiFetch<HarnessMemoryDocument>(memoryPath(agentId), {
     method: "PUT",
     body: JSON.stringify({ content, expectedRevision }),
   });

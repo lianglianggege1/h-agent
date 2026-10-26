@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class OrderIsolationTest {
     @Test void orderMemoryIsSeparateFromSameUsersGenericHarnessAndOtherUsers(){
-        var store=new InMemoryStore();var generic=new HarnessMemoryDocumentManager(store,Clock.systemUTC());
+        var store=new InMemoryStore();var generic=new HarnessMemoryDocumentManager(store,Clock.systemUTC(),com.h.backend.chat.HarnessMemoryTestAgents.registry());
         var orders=generic.forAssistant(ChatAgentIds.ORDER_PROCESSING);
         generic.save(1,"通用偏好",0);orders.save(1,"订单偏好",0);orders.save(2,"另一个用户",0);
         assertEquals("通用偏好",generic.view(1).content());assertEquals("订单偏好",orders.view(1).content());

@@ -50,7 +50,7 @@ class HarnessMemoryDocumentManagerTest {
 
     private final InMemoryStore store = new InMemoryStore();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-08-31T06:00:00Z"));
-    private final HarnessMemoryDocumentManager manager = new HarnessMemoryDocumentManager(store, clock);
+    private final HarnessMemoryDocumentManager manager = new HarnessMemoryDocumentManager(store, clock, HarnessMemoryTestAgents.registry());
 
     @Test
     void viewReturnsDefaultTemplateWithoutPersistingAnything() {
@@ -117,7 +117,7 @@ class HarnessMemoryDocumentManagerTest {
     void viewReportsStoreFailureAsUnavailableWithoutLeakingCause() {
         InstrumentedStore broken = new InstrumentedStore();
         broken.failOnGet();
-        HarnessMemoryDocumentManager brokenManager = new HarnessMemoryDocumentManager(broken, clock);
+        HarnessMemoryDocumentManager brokenManager = new HarnessMemoryDocumentManager(broken, clock, HarnessMemoryTestAgents.registry());
 
         HarnessMemoryDocumentException exception = assertKind(
                 HarnessMemoryDocumentException.Kind.STORE_UNAVAILABLE, () -> brokenManager.view(USER_ID));
@@ -195,7 +195,7 @@ class HarnessMemoryDocumentManagerTest {
     @Test
     void saveDoesNotOverwriteWhenConcurrentWriterWinsCas() {
         InstrumentedStore racing = new InstrumentedStore();
-        HarnessMemoryDocumentManager racingManager = new HarnessMemoryDocumentManager(racing, clock);
+        HarnessMemoryDocumentManager racingManager = new HarnessMemoryDocumentManager(racing, clock, HarnessMemoryTestAgents.registry());
         racing.put(NAMESPACE, ITEM_KEY, Map.of(
                 "content", "服务端原始内容",
                 "encoding", "utf-8",
@@ -212,7 +212,7 @@ class HarnessMemoryDocumentManagerTest {
     void saveReportsStoreFailureAsUnavailable() {
         InstrumentedStore broken = new InstrumentedStore();
         broken.failOnPutIfVersion();
-        HarnessMemoryDocumentManager brokenManager = new HarnessMemoryDocumentManager(broken, clock);
+        HarnessMemoryDocumentManager brokenManager = new HarnessMemoryDocumentManager(broken, clock, HarnessMemoryTestAgents.registry());
 
         assertKind(HarnessMemoryDocumentException.Kind.STORE_UNAVAILABLE,
                 () -> brokenManager.save(USER_ID, "内容", 0L));

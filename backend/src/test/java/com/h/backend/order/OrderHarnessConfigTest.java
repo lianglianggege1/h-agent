@@ -28,9 +28,10 @@ class OrderHarnessConfigTest {
                 new HarnessSubagentLifecycleMiddleware((u,s,a,c)->{}),workspace.toString())){
             assertEquals(ChatAgentIds.ORDER_PROCESSING,root.getName());
             assertEquals(AgentRuntimeType.HARNESS_STREAMING,config.orderAgentDefinition(root).runtimeType());
+            assertTrue(config.orderAgentDefinition(root).supportsHarnessMemory());
             var context=RuntimeContext.builder().userId("11").sessionId("root-session").build();
             root.getWorkspaceManager().writeUtf8WorkspaceRelative(context,"MEMORY.md","订单偏好");
-            var manager=new com.h.backend.chat.application.HarnessMemoryDocumentManager(files,java.time.Clock.systemUTC());
+            var manager=new com.h.backend.chat.application.HarnessMemoryDocumentManager(files,java.time.Clock.systemUTC(),new AgentRegistry(java.util.List.of(config.orderAgentDefinition(root))));
             assertEquals("订单偏好",manager.forAssistant(ChatAgentIds.ORDER_PROCESSING).view(11).content());
             assertFalse(manager.view(11).exists());
             for(String name:new String[]{"order-audit","order-fulfillment","order-aftersales"}){

@@ -46,6 +46,7 @@ class MeHarnessMemoryControllerTest {
     @BeforeEach
     void setUp() {
         manager = mock(HarnessMemoryDocumentManager.class);
+        when(manager.forAssistant(anyString())).thenReturn(manager);
         mockMvc = MockMvcBuilders.standaloneSetup(new MeHarnessMemoryController(manager))
                 .setControllerAdvice(new HarnessMemoryDocumentExceptionAdvisor(), new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

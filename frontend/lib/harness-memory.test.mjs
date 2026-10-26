@@ -19,9 +19,36 @@ const {
   getHarnessMemory,
   isHarnessMemoryConflict,
   isHarnessMemoryUnauthorized,
+  listHarnessMemoryAgents,
   saveHarnessMemory,
   utf8ByteLength,
 } = await import("./harness-memory.ts");
+
+test("agent catalog and document requests preserve the selected agent", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path, init });
+    const data = path.endsWith("/agents")
+      ? [{ agentId: "order-processing-assistant", displayName: "订单处理助手" }]
+      : { content: "订单偏好", revision: 2, exists: true, updatedAt: null };
+    return new Response(JSON.stringify({ code: 0, message: "OK", data }), { status: 200 });
+  };
+  try {
+    assert.equal((await listHarnessMemoryAgents())[0].agentId, "order-processing-assistant");
+    await getHarnessMemory("order-processing-assistant");
+    await saveHarnessMemory("订单偏好", 1, "order-processing-assistant");
+    assert.deepEqual(calls.map(({ path }) => path), ["/api/me/memory/agents",
+      "/api/me/memory?agentId=order-processing-assistant", "/api/me/memory?agentId=order-processing-assistant"]);
+    assert.equal(calls[0].init.cache, "no-store");
+    assert.equal(calls[1].init.cache, "no-store");
+    assert.deepEqual(JSON.parse(calls[2].init.body), { content: "订单偏好", expectedRevision: 1 });
+    await getHarnessMemory("agent & one");
+    assert.equal(new URL(calls[3].path, "http://localhost").searchParams.get("agentId"), "agent & one");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("getHarnessMemory requests the single document endpoint", async () => {
   const originalFetch = globalThis.fetch;

@@ -10,6 +10,8 @@ import {
   getHarnessMemory,
   extractMemorySections,
   isHarnessMemoryConflict,
+  listHarnessMemoryAgents,
+  type HarnessMemoryAgent,
   saveHarnessMemory,
   utf8ByteLength,
 } from "@/lib/harness-memory";
@@ -47,8 +49,58 @@ function formatUpdatedAt(updatedAt: string | null): string {
 
 export default function MemoryPage() {
   const router = useRouter();
+  const [agents, setAgents] = useState<HarnessMemoryAgent[] | null>(null);
+  const [agentId, setAgentId] = useState("");
+  const [catalogError, setCatalogError] = useState(false);
+
+  const loadAgents = useCallback(async () => {
+    setCatalogError(false);
+    try {
+      const available = await listHarnessMemoryAgents();
+      setAgents(available);
+      setAgentId(available.find((agent) => agent.agentId === "harness-agent")?.agentId ?? available[0]?.agentId ?? "");
+    } catch {
+      setCatalogError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    getCurrentUser().then(() => void loadAgents()).catch(() => {
+      savePostLoginRedirect("/me/memory");
+      router.replace("/auth/login");
+    });
+  }, [loadAgents, router]);
+
+  if (agents !== null && agents.length > 0) {
+    return <MemoryEditor key={agentId} agents={agents} agentId={agentId} onAgentChange={setAgentId} />;
+  }
+
+  return (
+    <main className="workspace-page text-stone-900">
+      <section className="workspace-container workspace-memory-layout">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
+          <Link href="/me" className="text-xs font-semibold text-amber-700">返回我的</Link>
+          <h1 className="mt-2 text-2xl font-semibold">Agent 长期记忆</h1>
+        </header>
+        <div className="rounded-2xl border border-stone-200/80 bg-white p-5 text-sm text-stone-500 shadow-sm">
+          {catalogError ? (
+            <>
+              <p>加载 Agent 列表失败，请稍后重试。</p>
+              <button type="button" className="mt-3 rounded-xl bg-stone-900 px-4 py-2 font-semibold text-white" onClick={() => void loadAgents()}>重试</button>
+            </>
+          ) : agents === null ? "正在加载 Agent…" : "暂无已启用长期记忆的 Agent。"}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function MemoryEditor({ agents, agentId, onAgentChange }: {
+  agents: HarnessMemoryAgent[];
+  agentId: string;
+  onAgentChange: (agentId: string) => void;
+}) {
   const [state, setState] = useState<MemoryPageState>(initialMemoryPageState);
-  const [authenticated, setAuthenticated] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [reloadError, setReloadError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
@@ -60,28 +112,18 @@ export default function MemoryPage() {
   const saving = state.mode === "saving";
   const canSave = state.mode === "edit" && !overLimit && !state.revisionStale;
 
-  const load = useCallback(async () => {
-    setState(initialMemoryPageState());
-    try {
-      const document = await getHarnessMemory();
+  const load = useCallback(() => {
+    return getHarnessMemory(agentId).then((document) => {
       setState((previous) => memoryLoaded(previous, document));
       setReloadError("");
-    } catch {
+    }).catch(() => {
       setState((previous) => memoryLoadFailed(previous));
-    }
-  }, []);
+    });
+  }, [agentId]);
 
   useEffect(() => {
-    getCurrentUser()
-      .then(() => {
-        setAuthenticated(true);
-        return load();
-      })
-      .catch(() => {
-        savePostLoginRedirect("/me/memory");
-        router.replace("/auth/login");
-      });
-  }, [load, router]);
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (!dirty) {
@@ -112,7 +154,7 @@ export default function MemoryPage() {
     setState((previous) => beginSaving(previous));
     setSaveError("");
     try {
-      const document = await saveHarnessMemory(draft, expectedRevision);
+      const document = await saveHarnessMemory(draft, expectedRevision, agentId);
       setState((previous) => saveSucceeded(previous, document));
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), SAVED_FLASH_TIMEOUT_MS);
@@ -124,12 +166,12 @@ export default function MemoryPage() {
         setSaveError(error instanceof Error && error.message ? error.message : "保存失败，请稍后重试");
       }
     }
-  }, [overLimit, state]);
+  }, [agentId, overLimit, state]);
 
   const handleConflictReload = useCallback(async () => {
     setReloadError("");
     try {
-      const document = await getHarnessMemory();
+      const document = await getHarnessMemory(agentId);
       setState((previous) => {
         if (previous.mode === "conflict") {
           return conflictReloaded(previous, document);
@@ -139,7 +181,7 @@ export default function MemoryPage() {
     } catch {
       setReloadError("重新加载失败，请稍后重试");
     }
-  }, []);
+  }, [agentId]);
 
   function confirmLeave(): boolean {
     if (!dirty) {
@@ -173,10 +215,6 @@ export default function MemoryPage() {
     void handleSave();
   }
 
-  if (!authenticated) {
-    return <main className="workspace-page" />;
-  }
-
   const readSections = state.mode === "read" && state.document !== null
     ? extractMemorySections(state.document.content)
     : [];
@@ -200,8 +238,20 @@ export default function MemoryPage() {
           >
             返回我的
           </Link>
-          <h1 className="mt-2 text-2xl font-semibold">用户长期记忆</h1>
-          <p className="mt-1 text-sm text-stone-500">Harness Agent 跨会话共享的 MEMORY.md</p>
+          <h1 className="mt-2 text-2xl font-semibold">Agent 长期记忆</h1>
+          <p className="mt-1 text-sm text-stone-500">查看和编辑当前用户在各 Agent 下跨会话保留的记忆。</p>
+          <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="memory-agent">选择 Agent</label>
+          <select
+            id="memory-agent"
+            className="mt-2 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
+            value={agentId}
+            disabled={saving}
+            onChange={(event) => {
+              if (event.target.value !== agentId && confirmLeave()) onAgentChange(event.target.value);
+            }}
+          >
+            {agents.map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.displayName}</option>)}
+          </select>
           <p className="mt-3 text-xs text-stone-400">
             {state.document === null ? "" : formatUpdatedAt(state.document.updatedAt)}
           </p>
@@ -219,7 +269,10 @@ export default function MemoryPage() {
             <button
               className="mt-3 rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white"
               type="button"
-              onClick={() => void load()}
+              onClick={() => {
+                setState(initialMemoryPageState());
+                void load();
+              }}
             >
               重试
             </button>
