@@ -688,6 +688,53 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     @Transactional
+    public ChatSessionMessageDto updateImageMessage(
+            Long userId, String sessionId, Long messageId, String content,
+            ChatMessagePayload payload, List<ChatMessageResourceDto> resources) {
+        ChatSessionEntity session = requireOwnedMediaRoot(userId, sessionId);
+        ChatSessionMessageEntity message = chatSessionMessageMapper.selectForUpdate(messageId);
+        if (message == null || !session.getId().equals(message.getSessionRecordId())
+                || !sessionId.equals(message.getSessionId()) || !userId.equals(message.getUserId())
+                || !"IMAGE".equals(message.getMessageType())) {
+            throw new BusinessException(40404, "图片生成消息不存在");
+        }
+        var current = readImagePayload(message.getPayloadJson());
+        if (current != null && current.status() != null
+                && java.util.Set.of("READY", "FAILED", "SUBMISSION_UNKNOWN").contains(current.status())) {
+            if ("READY".equals(payload.getStatus())) {
+                throw new IllegalStateException("图片任务已结束，不能重复回填");
+            }
+            return toMessageDto(message, loadResourcesByMessageId(List.of(message)).getOrDefault(messageId, List.of()));
+        }
+        message.setContentText(content);
+        message.setPayloadJson(writePayload(payload));
+        chatSessionMessageMapper.updateById(message);
+        List<ChatMessageResourceDto> safeResources = resources == null ? List.of() : resources;
+        for (ChatMessageResourceDto resource : safeResources) {
+            ChatMessageResourceEntity row = new ChatMessageResourceEntity();
+            row.setId(resource.id());
+            row.setMessageId(messageId);
+            row.setUserId(userId);
+            row.setResourceType(requireResourceField(resource.type(), "type"));
+            row.setResourceRole(requireResourceField(resource.role(), "role"));
+            row.setStorageType(requireResourceField(resource.storageType(), "storageType"));
+            row.setStorageKey(resource.storageKey());
+            row.setViewUrl(resource.viewUrl());
+            row.setDownloadUrl(resource.downloadUrl());
+            row.setMimeType(resource.mimeType());
+            row.setFileName(resource.fileName());
+            row.setFileSize(resource.fileSize());
+            row.setWidth(resource.width());
+            row.setHeight(resource.height());
+            row.setMetadataJson(toMetadataJson(resource.metadata()));
+            row.setCreatedAt(LocalDateTime.now());
+            chatMessageResourceMapper.insert(row);
+        }
+        return toMessageDto(message, safeResources);
+    }
+
+    @Override
+    @Transactional
     public ChatSessionMessageDto appendGeneratedMediaMessage(Long userId, String sessionId, String content) {
         return appendResourceMessage(userId, sessionId, content, "VIDEO", List.of());
     }

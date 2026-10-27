@@ -88,6 +88,11 @@ public interface ChatSessionService {
             List<ChatMessageResourceDto> resources
     );
 
+    ChatSessionMessageDto updateImageMessage(
+            Long userId, String sessionId, Long messageId, String content,
+            ChatMessagePayload payload, List<ChatMessageResourceDto> resources
+    );
+
     ChatSessionMessageDto appendGeneratedMediaMessage(Long userId, String sessionId, String content);
 
     void updateGeneratedMediaMessage(

@@ -17,7 +17,7 @@ import static org.mockito.Mockito.when;
 class ImageGenerationToolTest {
 
     @Test
-    void shouldGenerateImageAndPublishImageEventForCurrentStream() {
+    void shouldSubmitImageAndPublishPendingMessageForCurrentStream() {
         ImageSubAgentService imageSubAgentService = mock(ImageSubAgentService.class);
         ChatStreamEventBridge bridge = new ChatStreamEventBridge();
         ImageGenerationTool tool = new ImageGenerationTool(imageSubAgentService, bridge);
@@ -46,7 +46,7 @@ class ImageGenerationToolTest {
                 () -> tool.generateImage("1:22:session-1", "一只白猫", null)
         );
 
-        assertEquals("图片已生成并发送到聊天中。", result);
+        assertEquals("图片生成任务已提交，完成后会自动显示在当前聊天中。", result);
         assertEquals(List.of(imageMessage), published);
         verify(imageSubAgentService).generateImage(new ImageSubAgentService.ImageSubAgentCommand(
                 1L,
@@ -88,7 +88,7 @@ class ImageGenerationToolTest {
                 () -> tool.generateImage(memoryId, "事故现场", null)
         );
 
-        assertEquals("图片已生成并发送到聊天中。", result);
+        assertEquals("图片生成任务已提交，完成后会自动显示在当前聊天中。", result);
         assertEquals(List.of(imageMessage), published);
         verify(imageSubAgentService).generateImage(new ImageSubAgentService.ImageSubAgentCommand(
                 1L,

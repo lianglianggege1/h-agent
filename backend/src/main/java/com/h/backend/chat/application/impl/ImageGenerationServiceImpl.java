@@ -73,6 +73,11 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
 
     @Override
     public ChatSessionMessageDto generateImage(ImageGenerationCommand command) {
+        return generateImage(command, null);
+    }
+
+    @Override
+    public ChatSessionMessageDto generateImage(ImageGenerationCommand command, Long pendingMessageId) {
         String prompt = command.prompt() == null ? "" : command.prompt().trim();
         if (prompt.isBlank()) {
             throw new IllegalArgumentException("图片提示词不能为空");
@@ -138,6 +143,10 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
                         ),
                         this::toResourceDto
                 ));
+            }
+            if (pendingMessageId != null) {
+                return chatSessionService.updateImageMessage(
+                        command.userId(), command.sessionId(), pendingMessageId, prompt, payload, resources);
             }
             return chatSessionService.appendImageMessage(
                     command.userId(),

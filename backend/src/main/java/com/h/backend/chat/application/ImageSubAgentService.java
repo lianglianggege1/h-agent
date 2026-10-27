@@ -4,6 +4,7 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 
 public interface ImageSubAgentService {
 
+    /** 提交持久化后台任务并返回待完成消息，不等待供应商生成图片。 */
     ChatSessionMessageDto generateImage(ImageSubAgentCommand command);
 
     record ImageSubAgentCommand(

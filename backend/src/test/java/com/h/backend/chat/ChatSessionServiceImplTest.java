@@ -939,6 +939,38 @@ class ChatSessionServiceImplTest {
         assertTrue(saved.get().getPayloadJson().contains("IN_PROGRESS"));
     }
 
+
+    @Test
+    void imageCompletionPreservesMessageIdentityAndRejectsDifferentSessionOrRepeatedResult() {
+        var roots = mock(ChatSessionMapper.class);
+        var messages = mock(ChatSessionMessageMapper.class);
+        var resources = mock(ChatMessageResourceMapper.class);
+        var root = new ChatSessionEntity();
+        root.setId(11L); root.setSessionId("root"); root.setUserId(1L);
+        when(roots.selectBySessionId("root")).thenReturn(root);
+        var row = new ChatSessionMessageEntity();
+        row.setId(501L); row.setSessionId("root"); row.setSessionRecordId(11L);
+        row.setUserId(1L); row.setMessageType("IMAGE"); row.setRoleCode("assistant");
+        row.setPayloadJson("{\"status\":\"IN_PROGRESS\"}");
+        when(messages.selectForUpdate(501L)).thenReturn(row);
+        var service = new ChatSessionServiceImpl(roots, messages, resources,
+                mock(ChatMemorySnapshotService.class), mock(SystemPromptService.class), new ObjectMapper(),
+                testAgentRegistry(), mock(AgentSessionMapper.class));
+        var ready = new ChatMessagePayload(); ready.setStatus("READY");
+        var result = service.updateImageMessage(1L, "root", 501L, "白猫", ready, List.of());
+        assertEquals("501", result.id());
+        assertEquals("READY", result.payload().status());
+        assertThrows(IllegalStateException.class,
+                () -> service.updateImageMessage(1L, "root", 501L, "白猫", ready, List.of()));
+        var unknown = new ChatMessagePayload(); unknown.setStatus("SUBMISSION_UNKNOWN");
+        assertEquals("READY", service.updateImageMessage(1L, "root", 501L, "超时", unknown, List.of()).payload().status());
+        row.setSessionId("another-child");
+        assertThrows(BusinessException.class,
+                () -> service.updateImageMessage(1L, "root", 501L, "白猫", ready, List.of()));
+        verify(messages, times(1)).updateById(row);
+        verify(messages, never()).insert(any(ChatSessionMessageEntity.class));
+    }
+
     private AgentRegistry testAgentRegistry() {
         return new AgentRegistry(List.of(
                 new AgentDefinition(

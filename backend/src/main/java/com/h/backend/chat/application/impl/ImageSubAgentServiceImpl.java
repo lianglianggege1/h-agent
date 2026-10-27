@@ -8,15 +8,15 @@ import org.springframework.stereotype.Service;
 @Service
 public class ImageSubAgentServiceImpl implements ImageSubAgentService {
 
-    private final ImageGenerationService imageGenerationService;
+    private final ImageGenerationTaskService imageGenerationTaskService;
 
-    public ImageSubAgentServiceImpl(ImageGenerationService imageGenerationService) {
-        this.imageGenerationService = imageGenerationService;
+    public ImageSubAgentServiceImpl(ImageGenerationTaskService imageGenerationTaskService) {
+        this.imageGenerationTaskService = imageGenerationTaskService;
     }
 
     @Override
     public ChatSessionMessageDto generateImage(ImageSubAgentCommand command) {
-        return imageGenerationService.generateImage(new ImageGenerationService.ImageGenerationCommand(
+        return imageGenerationTaskService.submit(new ImageGenerationService.ImageGenerationCommand(
                 command.userId(),
                 command.sessionId(),
                 command.promptId(),

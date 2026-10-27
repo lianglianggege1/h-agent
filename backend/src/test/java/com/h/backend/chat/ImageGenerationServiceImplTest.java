@@ -439,6 +439,32 @@ class ImageGenerationServiceImplTest {
         assertEquals(1024, command.height());
     }
 
+
+    @Test
+    void asynchronousResultUpdatesReservedImageMessageInsideAttachmentTransaction() {
+        var client = mock(MiniMaxImageClient.class);
+        var coordinator = mock(ResourceWriteCoordinator.class);
+        var transaction = mock(TransactionTemplate.class);
+        var sessions = mock(ChatSessionService.class);
+        var service = new ImageGenerationServiceImpl(client, coordinator, sessions, transaction,
+                new ImageGenerationProperties(null), mock(ReferenceImageResolver.class), new ChatResourceUrls(""),
+                new ResourceContentInspector(), new ResourceContentPolicy());
+        when(client.generate(any())).thenReturn(new MiniMaxImageGenerationResult(
+                "provider-1", "image/png", "image-01", PNG_SIGNATURE, 1024, 1024, "{}"));
+        when(transaction.execute(any())).thenAnswer(call ->
+                ((TransactionCallback<?>) call.getArgument(0)).doInTransaction(null));
+        when(coordinator.saveAndAttach(any(ResourceSaveCommand.class), any())).thenAnswer(call -> {
+            ResourceAttachment<ChatMessageResourceDto> attachment = call.getArgument(1);
+            return attachment.attach(new StoredResource("resource-1", "OBJECT_STORAGE", "key", "image/png", "cat.png", 12L, 1024, 1024));
+        });
+        var command = new ImageGenerationService.ImageGenerationCommand(1L, "session", null, "白猫", "TOOL");
+        service.generateImage(command, 501L);
+        verify(sessions).updateImageMessage(eq(1L), eq("session"), eq(501L), eq("白猫"),
+                argThat(payload -> "READY".equals(payload.getStatus())),
+                argThat(resources -> resources.size() == 1 && "resource-1".equals(resources.getFirst().id())));
+        verify(sessions, never()).appendImageMessage(any(), any(), any(), any(), any());
+    }
+
     @Test
     void generateImageRunsAllSavesAndAppendInsideSingleAttachmentTransaction() {
         MiniMaxImageClient miniMaxImageClient = mock(MiniMaxImageClient.class);

@@ -1,19 +1,12 @@
 package com.h.backend.chat.infrastructure.tools;
 
-import com.h.agent.observability.semantic.ArtifactReference;
-import com.h.agent.observability.semantic.ArtifactUse;
-import com.h.agent.observability.semantic.ToolArtifactCollector;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ImageSubAgentService;
-import com.h.backend.observability.BusinessArtifactReferenceMapper;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import org.springframework.stereotype.Component;
-
-import java.util.List;
 
 @Component
 public class ImageGenerationTool {
@@ -26,7 +19,7 @@ public class ImageGenerationTool {
         this.chatStreamEventBridge = chatStreamEventBridge;
     }
 
-    @Tool(value = "生成或修改静态图片，可选择传入参考图片并把图片发送到当前聊天中。用于重绘、换风格、换背景等静态编辑；不用于让图片动起来或生成视频。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
+    @Tool(value = "异步生成或修改静态图片，可选择传入参考图片。提交后立即返回，完成后自动显示在当前聊天中，可继续处理其他请求。用于重绘、换风格、换背景等静态编辑；不用于让图片动起来或生成视频。不要因等待结果而重复提交。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
     public String generateImage(@ToolMemoryId String memoryId, String prompt, String referenceResourceId) {
         ImageGenerationContext context = parseMemoryId(memoryId);
         ChatSessionMessageDto message = imageSubAgentService.generateImage(
@@ -41,16 +34,8 @@ public class ImageGenerationTool {
                         "GENERATE"
                 )
         );
-        // 同步生成图片已随 generateImage 提交（设计 §9.9）：只做已持有业务结果的纯映射。
-        List<ChatMessageResourceDto> resources =
-                message == null || message.resources() == null ? List.of() : message.resources();
-        for (ChatMessageResourceDto resource : resources) {
-            ArtifactReference reference = BusinessArtifactReferenceMapper.from(
-                    resource, ArtifactUse.TOOL_OUTPUT, null);
-            ToolArtifactCollector.record(reference);
-        }
         chatStreamEventBridge.publishImage(memoryId, message);
-        return "图片已生成并发送到聊天中。";
+        return "图片生成任务已提交，完成后会自动显示在当前聊天中。";
     }
 
     private ImageGenerationContext parseMemoryId(String memoryId) {

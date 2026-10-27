@@ -12,6 +12,9 @@ import java.util.List;
 @Mapper
 public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageEntity> {
 
+    @Select("SELECT * FROM chat_session_messages WHERE id = #{id} FOR UPDATE")
+    ChatSessionMessageEntity selectForUpdate(@Param("id") Long id);
+
     @Select("""
             INSERT INTO chat_session_messages(
                 session_record_id, session_id, user_id, sequence_no, message_type, role_code,
