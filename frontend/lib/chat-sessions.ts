@@ -2,7 +2,7 @@ import { apiFetch } from "./http";
 import type { HarnessSubagentSummary } from "./harness-subagent-types";
 import type { ApprovalMode } from "./harness-approval";
 
-export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO";
+export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO" | "AUDIO";
 
 export type ChatMessagePayload = {
   prompt: string | null;
@@ -142,6 +142,10 @@ export function getChatSessionMessages(sessionId: string, limit = 20, beforeSeq?
     search.set("beforeSeq", String(beforeSeq));
   }
   return apiFetch<ChatSessionMessagesPage>(`/api/chat/sessions/${sessionId}/messages?${search.toString()}`);
+}
+
+export function getChatSessionMessage(sessionId: string, messageId: string) {
+  return apiFetch<ChatSessionMessage>(`/api/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`);
 }
 
 export function listChatHistory(page = 0, size = 10) {

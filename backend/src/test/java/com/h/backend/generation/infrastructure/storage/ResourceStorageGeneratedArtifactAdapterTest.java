@@ -200,4 +200,29 @@ class ResourceStorageGeneratedArtifactAdapterTest {
         System.arraycopy(second, 0, merged, first.length, second.length);
         return merged;
     }
+
+    @Test
+    void audioUsesTheSameInspectedTransactionalStoragePath() throws Exception {
+        byte[] mp3 = new byte[]{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0};
+        StoredResource stored = new StoredResource("song", "OBJECT_STORAGE", "audio/song.mp3",
+                "audio/mpeg", "song.mp3", (long) mp3.length, null, null);
+        when(coordinator.saveAndAttach(any(ResourceSaveCommand.class), any())).thenAnswer(call -> {
+            ResourceAttachment<String> attachment = call.getArgument(1);
+            return attachment.attach(stored);
+        });
+        assertEquals("song", adapter.storeAudio("session", mp3, GeneratedArtifact::resourceId));
+        var captor = ArgumentCaptor.forClass(ResourceSaveCommand.class);
+        verify(coordinator).saveAndAttach(captor.capture(), any());
+        assertEquals("AUDIO", captor.getValue().resourceType());
+        assertEquals("audio/mpeg", captor.getValue().mimeType());
+        assertEquals("mp3", captor.getValue().extension());
+        assertArrayEquals(mp3, captor.getValue().openContentStream().readAllBytes());
+    }
+
+    @Test
+    void rejectsNonAudioProviderBytesBeforeStoringAnMp3() {
+        assertThrows(ResourceStorageException.class, () -> adapter.storeAudio("session",
+                "<html>provider error</html>".getBytes(StandardCharsets.UTF_8), artifact -> null));
+        verify(coordinator, never()).saveAndAttach(any(), any());
+    }
 }

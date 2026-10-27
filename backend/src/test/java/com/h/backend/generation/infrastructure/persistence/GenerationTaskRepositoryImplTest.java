@@ -20,6 +20,29 @@ import java.util.concurrent.atomic.AtomicReference;
 
 class GenerationTaskRepositoryImplTest {
     @Test
+    void restoresQueuedMusicAndOriginalLyricsAfterRestart() {
+        var mapper = mock(GenerationTaskMapper.class);
+        var row = new AtomicReference<GenerationTaskEntity>();
+        when(mapper.selectById("song")).thenAnswer(call -> row.get());
+        when(mapper.insert(any(GenerationTaskEntity.class))).thenAnswer(call -> {
+            row.set(call.getArgument(0));
+            return 1;
+        });
+        var repository = new GenerationTaskRepositoryImpl(mapper, new ObjectMapper());
+        var spec = new com.h.backend.generation.domain.model.MusicGenerationSpec("民谣", " 原文\n\n不改写 ", "标题");
+        var task = GenerationTask.create("song", 1L, "session", spec, Instant.now());
+        task.bindChatMessage(9L, Instant.now());
+        task.queueMusic(Instant.now());
+        repository.save(task);
+        var restored = repository.findById("song").orElseThrow();
+        assertEquals(spec, restored.spec());
+        assertEquals("QUEUED", restored.providerStatus());
+        assertEquals("music:song", restored.providerTaskId());
+        assertEquals(9L, restored.chatMessageId());
+        assertNotNull(restored.nextPollAt());
+    }
+
+    @Test
     void restoresEnhancedTextAndContinuationIntentWithoutDroppingOriginalMedia() {
         var mapper = mock(GenerationTaskMapper.class);
         var row = new AtomicReference<GenerationTaskEntity>();

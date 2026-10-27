@@ -3,11 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { CopilotChat, CopilotChatInput, useAgent, useCopilotKit, useRenderTool, type CopilotChatViewProps, type CopilotChatInputProps } from "@copilotkit/react-core/v2";
 import { apiFetch } from "@/lib/http";
-import { getChatSessionMessages, type ChatSessionMessage } from "@/lib/chat-sessions";
+import { getChatSessionMessage, getChatSessionMessages, type ChatSessionMessage } from "@/lib/chat-sessions";
 import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { ToolResult, ResourceReferenceContext } from "@/components/agui-cards";
 import { ReferencedUserMessage } from "@/components/agui-user-message";
-import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
+import { mergeMediaMessages, orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
 import styles from "./agui-chat-thread.module.css";
 import { ChatAttachmentPicker } from "./chat-attachment-picker";
 import { historyReferenceMedia, selectHistoryReference } from "@/lib/reference-images";
@@ -177,19 +177,32 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
     return () => { window.removeEventListener("order:changed", changed); };
   }, [orderAssistant, refresh]);
 
-  // Async media and other external deliveries still use the product database. Hydrate through
-  // the same SDK connection when idle, instead of maintaining a second SSE implementation.
+  // Refresh durable media messages without reconnecting the SDK or disabling the composer.
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      const pendingMedia = agent.messages.some((message) => message.role === "activity"
-        && message.activityType === "h-agent.resource"
-        && ["PENDING", "PROCESSING", "RUNNING", "PENDING_SUBMISSION", "IN_PROGRESS", "MATERIALIZING", "RETRY_WAIT"].includes(String((message.content.message as ChatSessionMessage | undefined)?.payload?.status)));
-      if (pendingMedia) void refresh();
-    }, 10_000);
+    let disposed = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (!isReady || agent.isRunning || inFlight) return;
+      const pending = agent.messages.flatMap((message) => {
+        if (message.role !== "activity" || message.activityType !== "h-agent.resource") return [];
+        const media = message.content.message as ChatSessionMessage | undefined;
+        return media && ["PENDING", "PROCESSING", "RUNNING", "PENDING_SUBMISSION", "IN_PROGRESS", "MATERIALIZING", "RETRY_WAIT"]
+          .includes(String(media.payload?.status)) ? [media.id] : [];
+      });
+      if (!pending.length) return;
+      inFlight = true;
+      try {
+        const snapshots = await Promise.allSettled([...new Set(pending)].map((id) => getChatSessionMessage(threadId, id)));
+        if (disposed || agent.isRunning) return;
+        const updates = snapshots.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        if (updates.length) agent.setMessages(mergeMediaMessages(agent.messages, updates));
+      } finally { inFlight = false; }
+    };
+    const timer = window.setInterval(() => { void poll(); }, 10_000);
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", visible);
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
-  }, [agent, refresh]);
+    return () => { disposed = true; clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
+  }, [agent, refresh, isReady, threadId]);
 
   return <section ref={threadElement} className={`${styles.thread} flex min-h-0 flex-1 flex-col`} aria-label="对话">
     <div className="flex shrink-0 items-center justify-between px-4 py-2 text-xs text-stone-500">

@@ -106,9 +106,15 @@ export const ResourceReferenceContext = createContext<{
 
 export function ResourceCard({ content }: { content: { message: ChatSessionMessage } }) {
   const references = useContext(ResourceReferenceContext);
+  const status = content.message.payload?.status;
+  const mediaStatusText: Record<string, string> = {
+    PENDING: "等待生成", PENDING_SUBMISSION: "等待生成", PROCESSING: "生成中", RUNNING: "生成中", IN_PROGRESS: "生成中",
+    MATERIALIZING: "正在保存", RETRY_WAIT: "等待恢复", SUCCEEDED: "已生成", FAILED: "生成失败",
+    SUBMISSION_UNKNOWN: "生成结果待确认", CANCELLED: "已取消",
+  };
   if (!content.message.resources?.length && content.message.payload?.status === "SUCCEEDED") return null;
   return <article className="agui-card space-y-3">
-    {content.message.payload?.status ? <p className="text-xs text-stone-500">生成状态：{content.message.payload.status}</p> : null}
+    {status ? <p className="text-xs text-stone-500">{mediaStatusText[status] ?? status}</p> : null}
     {content.message.resources?.map((resource) => {
       const selected = references?.selectedIds.has(resource.id) ?? false;
       return <div key={resource.id} className="space-y-2">

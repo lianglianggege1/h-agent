@@ -12,6 +12,15 @@ import java.time.*;
 import java.util.*;
 
 class VideoV2ServiceTest {
+    @Test
+    void musicCannotAppearInVideoQueriesOrProviderTaskFilters() {
+        var song = GenerationTask.create("song", 1L, "s", new MusicGenerationSpec(null, "原词", null), Instant.now());
+        song.queueMusic(Instant.now());
+        tasks.save(song);
+        assertThrows(IllegalArgumentException.class, () -> service.query(1L, "song"));
+        assertEquals(List.of(), service.list(1L, 20, null, null, null).get("items"));
+        assertEquals(List.of(), provider.listIds);
+    }
     final Instant now = Instant.now();
     final MemoryTasks tasks = new MemoryTasks();
     final FakeProvider provider = new FakeProvider();

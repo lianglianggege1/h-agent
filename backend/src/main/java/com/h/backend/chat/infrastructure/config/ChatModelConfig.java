@@ -81,6 +81,9 @@ public class ChatModelConfig {
     private com.h.backend.generation.interfaces.tool.VideoGenerationTool videoGenerationTool;
 
     @Resource
+    private com.h.backend.generation.interfaces.tool.MusicGenerationTool musicGenerationTool;
+
+    @Resource
     private ImageToVideoTool imageToVideoTool;
 
     @Resource
@@ -151,7 +154,7 @@ public class ChatModelConfig {
         // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
         // 在该路径不可用（当前工具集未使用）。
         toolProviders.add(staticToolsProvider(observability, List.of(
-                imageGenerationTool, videoGenerationTool,
+                imageGenerationTool, videoGenerationTool, musicGenerationTool,
                 filesystemTool, fileDeliveryTool, shellTool, webSearchTool,
                 langChain4jAutomationTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由

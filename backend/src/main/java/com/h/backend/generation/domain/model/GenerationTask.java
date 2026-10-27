@@ -7,7 +7,7 @@ public final class GenerationTask {
     private final String id;
     private final Long userId;
     private final String sessionId;
-    private final VideoGenerationSpec spec;
+    private final GenerationSpec spec;
     private final Instant createdAt;
 
     private long version;
@@ -24,7 +24,7 @@ public final class GenerationTask {
     private Instant updatedAt;
     private Instant completedAt;
 
-    private GenerationTask(String id, Long userId, String sessionId, VideoGenerationSpec spec, Instant now) {
+    private GenerationTask(String id, Long userId, String sessionId, GenerationSpec spec, Instant now) {
         this.id = requireText(id, "id");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
         this.sessionId = requireText(sessionId, "sessionId");
@@ -34,12 +34,12 @@ public final class GenerationTask {
         this.updatedAt = now;
     }
 
-    public static GenerationTask create(String id, Long userId, String sessionId, VideoGenerationSpec spec, Instant now) {
+    public static GenerationTask create(String id, Long userId, String sessionId, GenerationSpec spec, Instant now) {
         return new GenerationTask(id, userId, sessionId, spec, now);
     }
 
     public static GenerationTask rehydrate(
-            String id, Long userId, String sessionId, VideoGenerationSpec spec, GenerationStatus status,
+            String id, Long userId, String sessionId, GenerationSpec spec, GenerationStatus status,
             String providerTaskId, String providerStatus, String providerFileId, Long chatMessageId,
             GeneratedArtifact artifact, int retryCount, Instant nextPollAt, String failureMessage,
             Instant createdAt, Instant updatedAt, Instant completedAt
@@ -138,6 +138,43 @@ public final class GenerationTask {
     public void persisted(long version) { this.version = version; }
     public String resultText() { return resultText; }
 
+    public void queueMusic(Instant now) {
+        requireMusic();
+        markSubmitted("music:" + id, now, now);
+        providerStatus = "QUEUED";
+    }
+
+    /** Persist this claim before any paid request; an expired claim must never be replayed. */
+    public void startMusic(Instant deadline, Instant now) {
+        requireMusic();
+        requireStatus(GenerationStatus.IN_PROGRESS);
+        if (!"QUEUED".equals(providerStatus)) throw new IllegalStateException("歌曲任务已被领取");
+        providerStatus = "GENERATING";
+        updateNextPollAt(deadline, now);
+    }
+
+    public void recordMusicLyrics(String lyrics, Instant now) {
+        requireMusic();
+        requireStatus(GenerationStatus.IN_PROGRESS);
+        MusicGenerationSpec.requireLyrics(lyrics);
+        resultText = lyrics;
+        updatedAt = now;
+    }
+
+    public void musicResultUnknown(String message, Instant now) {
+        requireMusic();
+        ensureNotTerminal();
+        status = GenerationStatus.SUBMISSION_UNKNOWN;
+        failureMessage = message;
+        nextPollAt = null;
+        updatedAt = now;
+        completedAt = now;
+    }
+
+    private void requireMusic() {
+        if (!(spec instanceof MusicGenerationSpec)) throw new IllegalStateException("不是歌曲任务");
+    }
+
     private void updateNextPollAt(Instant nextPollAt, Instant now) {
         this.nextPollAt = Objects.requireNonNull(nextPollAt, "nextPollAt must not be null");
         this.updatedAt = now;
@@ -170,7 +207,7 @@ public final class GenerationTask {
     public String sessionId() { return sessionId; }
     public GenerationType generationType() { return spec.generationType(); }
     public String provider() { return "MINIMAX"; }
-    public VideoGenerationSpec spec() { return spec; }
+    public GenerationSpec spec() { return spec; }
     public GenerationStatus status() { return status; }
     public String providerTaskId() { return providerTaskId; }
     public String providerStatus() { return providerStatus; }

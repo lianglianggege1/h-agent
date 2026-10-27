@@ -3,6 +3,7 @@ package com.h.backend.chat.interfaces.web;
 import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.interfaces.dto.ChatSessionBootstrapDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessagesPageDto;
+import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionSummaryDto;
@@ -106,6 +107,14 @@ public class ChatSessionController {
             @PathVariable String sessionId
     ) {
         return ApiResponse.ok(harnessCollaborationService.listSubagents(principal.userId(), sessionId));
+    }
+
+    @GetMapping("/{sessionId}/messages/{messageId}")
+    public ApiResponse<ChatSessionMessageDto> message(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable String sessionId,
+            @PathVariable Long messageId) {
+        return ApiResponse.ok(chatSessionService.getOwnedMessage(principal.userId(), sessionId, messageId));
     }
 
     @GetMapping("/history")

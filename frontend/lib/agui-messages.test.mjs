@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { orderProductMessages, productHistoryMessages } from "./agui-messages.ts";
+import { mergeMediaMessages, orderProductMessages, productHistoryMessages } from "./agui-messages.ts";
+
+test("music completion fills the original message without duplicating cards or losing other turns", () => {
+  const pending = { ...historicalMessage("song", "AUDIO", "歌曲生成中"), payload: { status: "IN_PROGRESS" } };
+  const later = { id: "later", role: "assistant", content: "继续聊天的回复" };
+  const progress = { id: "progress", role: "activity", activityType: "h-agent.progress", content: {} };
+  // Live events can supply only the resource card before the next durable refresh.
+  const current = [...productHistoryMessages([pending]).filter((message) => message.role === "activity"), later, progress];
+  const complete = { ...pending, content: "歌曲已生成\n原文歌词", payload: { status: "SUCCEEDED" }, resources: [
+    { id: "mp3", type: "AUDIO", mimeType: "audio/mpeg", viewUrl: "/song/content", downloadUrl: "/song/download" },
+  ] };
+  const merged = mergeMediaMessages(current, [complete]);
+  assert.equal(merged.filter((message) => message.id === "song").length, 1);
+  assert.equal(merged.filter((message) => message.id === "resource-song").length, 1);
+  assert.equal(merged.find((message) => message.id === "resource-song").content.message.payload.status, "SUCCEEDED");
+  assert.equal(merged.find((message) => message.id === "later"), later);
+  assert.equal(merged.find((message) => message.id === "progress"), progress);
+  assert.deepEqual(orderProductMessages(merged).map((message) => message.id), ["song", "resource-song", "later", "progress"]);
+  assert.deepEqual(mergeMediaMessages(merged, [complete]), merged);
+  const restored = productHistoryMessages([complete]);
+  assert.equal(restored.find((message) => message.role === "activity").content.message.resources[0].mimeType, "audio/mpeg");
+});
 
 test("restored progress and proposal cards remain attached to their own turn", () => {
   const messages = [

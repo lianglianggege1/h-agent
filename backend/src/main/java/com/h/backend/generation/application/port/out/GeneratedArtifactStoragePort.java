@@ -6,6 +6,10 @@ import java.io.InputStream;
 
 public interface GeneratedArtifactStoragePort {
 
+    default <T> T storeAudio(String sessionId, byte[] mp3, GeneratedArtifactAttachment<T> attachment) {
+        throw new UnsupportedOperationException("Audio storage is not supported");
+    }
+
     /**
      * 保存生成对象并执行数据库挂接。
      *

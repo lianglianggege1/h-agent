@@ -714,8 +714,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 || !session.getId().equals(message.getSessionRecordId())
                 || message.getSessionId()!=null && !sessionId.equals(message.getSessionId())
                 || !userId.equals(message.getUserId())
-                || !"VIDEO".equals(message.getMessageType())) {
-            throw new BusinessException(40404, "视频生成消息不存在");
+                || !("VIDEO".equals(message.getMessageType()) || "AUDIO".equals(message.getMessageType()))) {
+            throw new BusinessException(40404, "媒体生成消息不存在");
         }
 
         if (status != null) {
@@ -1156,7 +1156,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 normalizeRole(row.getRoleCode()),
                 normalizedMessageType,
                 row.getContentText() == null ? "" : row.getContentText(),
-                ("IMAGE".equals(normalizedMessageType) || "VIDEO".equals(normalizedMessageType)) ? readImagePayload(row.getPayloadJson()) : null,
+                ("IMAGE".equals(normalizedMessageType) || "VIDEO".equals(normalizedMessageType)
+                        || "AUDIO".equals(normalizedMessageType)) ? readImagePayload(row.getPayloadJson()) : null,
                 resources,
                 row.getCreatedAt()
         );

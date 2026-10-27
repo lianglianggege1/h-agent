@@ -7,6 +7,7 @@ import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
 import com.h.backend.generation.domain.model.GenerationStatus;
 import com.h.backend.generation.domain.model.GenerationTask;
+import com.h.backend.generation.domain.model.MusicGenerationSpec;
 
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,10 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
 
     @Override
     public Long createPendingMessage(GenerationTask task) {
+        if (task.spec() instanceof MusicGenerationSpec) {
+            return Long.valueOf(chatSessionService.appendResourceMessage(
+                    task.userId(), task.sessionId(), "歌曲生成中，请继续聊天。", "AUDIO", List.of()).id());
+        }
         ChatSessionMessageDto message =
                 chatSessionService.appendGeneratedMediaMessage(
                         task.userId(),
@@ -41,7 +46,8 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
         if (task.chatMessageId() == null) {
             return;
         }
-        if (task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec) {
+        if (task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec
+                || task.spec() instanceof MusicGenerationSpec) {
             chatSessionService.updateGeneratedMediaMessage(
                     task.userId(),
                     task.sessionId(),
@@ -59,6 +65,17 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
     }
 
     private String content(GenerationTask task) {
+        if (task.spec() instanceof MusicGenerationSpec) {
+            return switch (task.status()) {
+                case PENDING_SUBMISSION, IN_PROGRESS -> "歌曲生成中，请继续聊天。";
+                case MATERIALIZING -> "歌曲已生成，正在保存音频。";
+                case SUCCEEDED -> "歌曲已生成，可试听或下载。\n\n" + (task.resultText() == null ? "" : task.resultText());
+                case FAILED -> "歌曲生成失败：" + task.failureMessage();
+                case SUBMISSION_UNKNOWN -> "歌曲生成结果待确认：" + task.failureMessage();
+                case CANCELLED -> "歌曲任务已取消。";
+                case RETRY_WAIT -> "歌曲任务等待恢复。";
+            };
+        }
         if (task.resultText() != null && task.status() == GenerationStatus.SUCCEEDED)
             return task.resultText();
         boolean enhancement =
@@ -84,7 +101,7 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
         return List.of(
                 new ChatMessageResourceDto(
                         artifact.resourceId(),
-                        "VIDEO",
+                        task.spec() instanceof MusicGenerationSpec ? "AUDIO" : "VIDEO",
                         "GENERATED",
                         chatResourceUrls.view(artifact.resourceId()),
                         chatResourceUrls.download(artifact.resourceId()),
