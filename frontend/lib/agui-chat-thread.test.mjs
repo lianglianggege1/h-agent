@@ -5,6 +5,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import { JSDOM } from "jsdom";
 import * as referenceImages from "./reference-images.ts";
+import * as aguiMessages from "./agui-messages.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -72,7 +73,8 @@ test("idle order refresh keeps the draft editable and image references synchroni
     "@/lib/chat-sessions": { getChatSessionMessages: async () => ({ messages: [], nextBeforeSeq: null, hasMore: false }) },
     "@/lib/resource-upload": {},
     "@/components/agui-cards": cards.exports,
-    "@/lib/agui-messages": {},
+    "@/components/agui-user-message": { ReferencedUserMessage: sdk.CopilotChatUserMessage },
+    "@/lib/agui-messages": aguiMessages,
     "./agui-chat-thread.module.css": { default: {} },
     "./chat-attachment-picker": {},
     "@/lib/reference-images": referenceImages,
@@ -140,6 +142,26 @@ test("idle order refresh keeps the draft editable and image references synchroni
     await React.act(async () => [...dom.window.document.querySelectorAll("button")]
       .find((button) => button.textContent === "恢复连接").click());
     assert.equal(connects, 2, "manual recovery remains available");
+    await React.act(async () => streams[1].complete());
+    let forwarded;
+    copilotkit.runAgent = async ({ forwardedProps }) => { forwarded = forwardedProps; };
+    await React.act(async () => reference.click());
+    await React.act(async () => input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    assert.deepEqual(forwarded.resources, [{ resourceId: "image-1", role: "REFERENCE", source: "HISTORY" }]);
+    const optimistic = aguiMessages.orderProductMessages(agent.messages);
+    assert.equal(optimistic.length, 1, "Sending renders one user message, without a separate reference card");
+    assert.deepEqual(optimistic[0].content.map((part) => part.type), ["text", "image"]);
+    assert.equal(optimistic[0].content[0].text, "订单还没输入完");
+    assert.equal(optimistic[0].content[1].source.value, "/image");
+    const savedMessage = { id: "saved-user", role: "user", messageType: "USER", content: "订单还没输入完",
+      resources: [{ ...image, id: "bound-reference", role: "REFERENCE" }], createdAt: "2026-10-26T00:00:00" };
+    await React.act(async () => agent.setMessages([
+      ...agent.messages.filter((message) => message.role === "activity"), ...aguiMessages.productHistoryMessages([savedMessage]),
+    ]));
+    const restored = aguiMessages.orderProductMessages(agent.messages);
+    assert.equal(restored.length, 1, "An authoritative snapshot hides the replaced optimistic reference card");
+    assert.equal(restored[0].id, "saved-user");
+    assert.equal(restored[0].content[1].source.value, "/image");
   } finally {
     await React.act(async () => { streams.forEach((stream) => stream.complete()); await agent.detachActiveRun(); root.unmount(); });
     dom.window.close();

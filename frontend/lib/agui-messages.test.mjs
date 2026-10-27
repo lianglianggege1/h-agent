@@ -105,3 +105,26 @@ test("a resource caption does not close a process before actual answer content",
   ]);
   assert.equal(projected.find((message) => message.id === "process").content.answerStarted, false);
 });
+
+test("sent reference images belong to their user message rather than a standalone resource card", () => {
+  const reference = { id: "ref", role: "REFERENCE", type: "IMAGE", mimeType: "image/png", fileName: "ref.png", viewUrl: "/ref" };
+  const history = productHistoryMessages([
+    historicalMessage("user", "USER", "以此图生成视频", [reference]),
+    historicalMessage("answer", "AI", "开始生成"),
+    historicalMessage("output", "IMAGE", "", [{ ...reference, id: "output-image", role: "OUTPUT" }]),
+  ]);
+  const wire = [...history.filter((message) => message.role !== "activity"), ...history.filter((message) => message.role === "activity")];
+  const rendered = orderProductMessages(wire);
+  assert.deepEqual(rendered.map((message) => message.id), ["user", "answer", "output", "resource-output"]);
+  assert.deepEqual(rendered[0].content.map((part) => part.type), ["text", "image"]);
+  assert.equal(rendered[0].content[0].text, "以此图生成视频");
+  assert.equal(rendered[0].content[1].source.value, "/ref");
+  assert.equal(wire[0].content, "以此图生成视频", "Display projection does not change the SDK request history");
+});
+
+test("sent video and audio references stay compact inside the user message", () => {
+  const resources = [{ id: "v", role: "REFERENCE", mimeType: "video/mp4", viewUrl: "/clip" }, { id: "a", role: "REFERENCE", mimeType: "audio/mpeg", viewUrl: "/audio" }];
+  const rendered = orderProductMessages(productHistoryMessages([historicalMessage("user", "USER", "参考这段视频和声音", resources)]));
+  assert.equal(rendered.length, 1);
+  assert.deepEqual(rendered[0].content.map((part) => part.type), ["text", "video", "audio"]);
+});

@@ -44,6 +44,18 @@ public class GenerationProperties {
     public static class MiniMax {
         private String baseUrl = "https://api.minimaxi.com";
         private String apiKey;
+        private String videoV2BaseUrl;
+        public String getVideoV2BaseUrl() { return videoV2BaseUrl != null && !videoV2BaseUrl.isBlank() ? videoV2BaseUrl : "https://api.minimaxi.com".equals(baseUrl) ? "https://api.minimax.cn" : baseUrl; }
+        public void setVideoV2BaseUrl(String value) { videoV2BaseUrl = value; }
+        private String defaultVideoModel = "MiniMax-H3";
+        private boolean regenerationTaskIdEnabled;
+        private String ffprobePath = "ffprobe";
+        public String getDefaultVideoModel() { return defaultVideoModel; }
+        public void setDefaultVideoModel(String value) { defaultVideoModel = value; }
+        public boolean isRegenerationTaskIdEnabled() { return regenerationTaskIdEnabled; }
+        public void setRegenerationTaskIdEnabled(boolean value) { regenerationTaskIdEnabled = value; }
+        public String getFfprobePath() { return ffprobePath; }
+        public void setFfprobePath(String value) { ffprobePath = value; }
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }

@@ -106,6 +106,7 @@ export const ResourceReferenceContext = createContext<{
 
 export function ResourceCard({ content }: { content: { message: ChatSessionMessage } }) {
   const references = useContext(ResourceReferenceContext);
+  if (!content.message.resources?.length && content.message.payload?.status === "SUCCEEDED") return null;
   return <article className="agui-card space-y-3">
     {content.message.payload?.status ? <p className="text-xs text-stone-500">生成状态：{content.message.payload.status}</p> : null}
     {content.message.resources?.map((resource) => {
@@ -121,10 +122,10 @@ export function ResourceCard({ content }: { content: { message: ChatSessionMessa
               <path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5" />
             </svg>
           </a>
-          {references && resource.mimeType.startsWith("image/") ? <button type="button"
+          {references && /^(image|video|audio)\//.test(resource.mimeType) ? <button type="button"
             aria-pressed={selected}
             aria-label={`${selected ? "取消引用" : "引用"} ${resource.fileName}`}
-            title={selected ? "取消引用" : "引用图片"}
+            title={selected ? "取消引用" : "引用素材"}
             onClick={() => references.toggle(resource)}
             className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 ${selected ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

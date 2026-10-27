@@ -24,6 +24,15 @@ class ResourceContentPolicyTest {
 
     private final ResourceContentPolicy policy = new ResourceContentPolicy();
 
+    @Test
+    void newH3MediaRequiresMatchingSignatureBeforePreview() {
+        for (String mime : new String[]{"image/heic", "image/heif", "video/quicktime"}) {
+            assertTrue(policy.dispositionFor(mime).inlineSafe());
+            assertFalse(policy.validateForSave(new ResourceContentInspector.InspectionResult(
+                    null, ResourceContentInspector.ContentCategory.UNKNOWN, false), mime).allowed());
+        }
+    }
+
     // ------------------------------------------------------------------
     // 读取侧：inline 白名单（计划不变量 16）
     // ------------------------------------------------------------------

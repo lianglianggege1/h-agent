@@ -98,4 +98,8 @@ public interface ChatSessionService {
             List<ChatMessageResourceDto> resources
     );
 
+    default void updateGeneratedMediaMessage(Long userId, String sessionId, Long messageId, String content,
+                                            List<ChatMessageResourceDto> resources, String status) {
+        updateGeneratedMediaMessage(userId, sessionId, messageId, content, resources);
+    }
 }

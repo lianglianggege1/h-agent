@@ -14,5 +14,13 @@ public interface GenerationTaskRepository {
 
     Optional<GenerationTask> findById(String taskId);
 
+    default List<GenerationTask> findByUser(Long userId, int limit) { return List.of(); }
+
+    default List<GenerationTask> findByUser(Long userId, int limit, int offset) {
+        if(offset!=0) throw new UnsupportedOperationException("Paging not implemented");
+        return findByUser(userId,limit);
+    }
+    default List<GenerationTask> findStaleSubmissions(Instant before, int limit) { return List.of(); }
+
     List<GenerationTask> findDue(Instant now, int limit);
 }

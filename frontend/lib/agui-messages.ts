@@ -1,5 +1,5 @@
 import type { ActivityMessage, Message } from "@ag-ui/core";
-import type { ChatSessionMessage } from "./chat-sessions";
+import type { ChatMessageResource, ChatSessionMessage } from "./chat-sessions";
 
 /** The same history projection used on reconnect, also needed when prepending older REST pages. */
 export function productHistoryMessages(history: ChatSessionMessage[], following: ChatSessionMessage[] = []): Message[] {
@@ -28,6 +28,36 @@ export function productHistoryMessages(history: ChatSessionMessage[], following:
       id: "resource-" + message.id, role: "activity", activityType: "h-agent.resource",
       content: { message, anchorMessageId: message.id, anchorPlacement: "AFTER" },
     }] : [text];
+  });
+}
+
+/** References are part of the sent user message; generated outputs keep their resource cards. */
+function attachUserReferences(messages: Message[]): Message[] {
+  const users = new Set(messages.filter((message) => message.role === "user").map((message) => message.id));
+  const references = new Map<string, Map<string, ChatMessageResource>>();
+  const cards = new Map<string, ActivityMessage | null>();
+  for (const message of messages) {
+    if (message.role !== "activity" || message.activityType !== "h-agent.resource") continue;
+    const source = message.content.message as ChatSessionMessage | undefined;
+    if (source?.role !== "user" || !users.has(source.id)) continue;
+    const images = source.resources?.filter((resource) => resource.role === "REFERENCE" && /^(image|video|audio)\//.test(resource.mimeType)) ?? [];
+    if (!images.length) continue;
+    const selected = references.get(source.id) ?? new Map<string, ChatMessageResource>();
+    images.forEach((image) => selected.set(image.id, image));
+    references.set(source.id, selected);
+    const remaining = source.resources?.filter((resource) => !selected.has(resource.id)) ?? [];
+    cards.set(message.id, remaining.length || source.payload ? {
+      ...message, content: { ...message.content, message: { ...source, resources: remaining } },
+    } : null);
+  }
+  return messages.flatMap((message): Message[] => {
+    if (cards.has(message.id)) return cards.get(message.id) ? [cards.get(message.id)!] : [];
+    if (message.role !== "user" || !references.has(message.id)) return [message];
+    const text = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+    return [{ ...message, content: [...text, ...[...references.get(message.id)!.values()].map((resource) => ({
+      type: (resource.mimeType.startsWith("video/") ? "video" : resource.mimeType.startsWith("audio/") ? "audio" : "image") as "image" | "video" | "audio", source: { type: "url" as const, value: resource.viewUrl, mimeType: resource.mimeType },
+      metadata: { hAgentReference: true, resourceId: resource.id, filename: resource.fileName },
+    }))] }];
   });
 }
 
@@ -109,7 +139,7 @@ function unifyProcessMessages(messages: Message[]): Message[] {
 
 /** SDK keeps activity identity/state; this product transform places cards beside their owning turn. */
 export function orderProductMessages(messages: Message[]): Message[] {
-  messages = unifyProcessMessages(messages);
+  messages = attachUserReferences(unifyProcessMessages(messages));
   const indexes = new Map(messages.map((message, index) => [message.id, index]));
   return messages.map((message, index) => {
     if (message.role !== "activity") return { message, position: index };

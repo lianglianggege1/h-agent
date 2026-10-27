@@ -10,6 +10,8 @@ public final class GenerationTask {
     private final VideoGenerationSpec spec;
     private final Instant createdAt;
 
+    private long version;
+    private String resultText;
     private GenerationStatus status;
     private String providerTaskId;
     private String providerStatus;
@@ -83,7 +85,7 @@ public final class GenerationTask {
         requireStatus(GenerationStatus.IN_PROGRESS, GenerationStatus.RETRY_WAIT);
         this.providerFileId = requireText(providerFileId, "providerFileId");
         this.status = GenerationStatus.MATERIALIZING;
-        this.nextPollAt = null;
+        this.nextPollAt = now.plus(java.time.Duration.ofMinutes(10));
         this.updatedAt = now;
     }
 
@@ -112,6 +114,29 @@ public final class GenerationTask {
         this.updatedAt = now;
         this.completedAt = now;
     }
+
+    public void recordEnhancedPrompt(String prompt, Instant now) {
+        ensureNotTerminal(); resultText = requireText(prompt,"enhancedPrompt"); status = GenerationStatus.IN_PROGRESS;
+        nextPollAt = now.plus(java.time.Duration.ofMinutes(10)); updatedAt = now;
+    }
+    public void completeText(String text, Instant now) {
+        ensureNotTerminal();
+        resultText = requireText(text, "resultText");
+        status = GenerationStatus.SUCCEEDED; nextPollAt = null; updatedAt = now; completedAt = now;
+    }
+    public void cancel(Instant now) {
+        ensureNotTerminal();
+        status = GenerationStatus.CANCELLED; nextPollAt = null; updatedAt = now; completedAt = now;
+    }
+    public void providerRecordDeleted(Instant now) { providerStatus = "DELETED"; updatedAt = now; }
+    public void submissionUnknown(String message, Instant now) {
+        requireStatus(GenerationStatus.PENDING_SUBMISSION);
+        status = GenerationStatus.SUBMISSION_UNKNOWN; failureMessage = message; nextPollAt = null; updatedAt = now; completedAt = now;
+    }
+    public long version() { return version; }
+    public void restoredDetails(String result, long version) { this.resultText = result; this.version = version; }
+    public void persisted(long version) { this.version = version; }
+    public String resultText() { return resultText; }
 
     private void updateNextPollAt(Instant nextPollAt, Instant now) {
         this.nextPollAt = Objects.requireNonNull(nextPollAt, "nextPollAt must not be null");

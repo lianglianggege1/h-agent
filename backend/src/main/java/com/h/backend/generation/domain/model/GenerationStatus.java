@@ -7,6 +7,8 @@ public enum GenerationStatus {
     IN_PROGRESS("IN_PROGRESS", "生成中"),
     MATERIALIZING("MATERIALIZING", "文件处理中"),
     RETRY_WAIT("RETRY_WAIT", "等待重试"),
+    CANCELLED("CANCELLED", "已取消"),
+    SUBMISSION_UNKNOWN("SUBMISSION_UNKNOWN", "提交结果待确认"),
     SUCCEEDED("SUCCEEDED", "生成完成"),
     FAILED("FAILED", "生成失败");
 
@@ -34,6 +36,6 @@ public enum GenerationStatus {
     }
 
     public boolean isTerminal() {
-        return this == SUCCEEDED || this == FAILED;
+        return this == SUCCEEDED || this == FAILED || this == CANCELLED || this == SUBMISSION_UNKNOWN;
     }
 }

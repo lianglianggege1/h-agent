@@ -77,6 +77,9 @@ public class ChatModelConfig {
     @Resource
     private TextToVideoTool textToVideoTool;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.h.backend.generation.interfaces.tool.VideoGenerationTool videoGenerationTool;
+
     @Resource
     private ImageToVideoTool imageToVideoTool;
 
@@ -148,7 +151,7 @@ public class ChatModelConfig {
         // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
         // 在该路径不可用（当前工具集未使用）。
         toolProviders.add(staticToolsProvider(observability, List.of(
-                imageGenerationTool, textToVideoTool, imageToVideoTool,
+                imageGenerationTool, videoGenerationTool,
                 filesystemTool, fileDeliveryTool, shellTool, webSearchTool,
                 langChain4jAutomationTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由

@@ -33,10 +33,12 @@ public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVid
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
     private final HttpClient downloadClient;
+    private final MiniMaxV2Client v2;
 
     public MiniMaxVideoClient(GenerationProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.v2 = new MiniMaxV2Client(properties, objectMapper);
         this.restClient = RestClient.builder().baseUrl(properties.getMinimax().getBaseUrl()).build();
         this.downloadClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     }
@@ -87,6 +89,18 @@ public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVid
 
     @Override
     public ProviderTaskStatus query(String providerTaskId) {
+        if (providerTaskId.startsWith("v2:")) {
+            JsonNode task = v2.query(providerTaskId.substring(3));
+            var status = switch (requiredText(task, "status")) {
+                case "queued" -> ProviderTaskStatus.Status.QUEUEING;
+                case "running" -> ProviderTaskStatus.Status.PROCESSING;
+                case "succeeded" -> ProviderTaskStatus.Status.SUCCESS;
+                case "failed" -> ProviderTaskStatus.Status.FAILED;
+                case "cancelled" -> ProviderTaskStatus.Status.CANCELLED;
+                default -> throw new ProviderTaskRejectedException(400, "未知V2任务状态");
+            };
+            return new ProviderTaskStatus(status, providerTaskId, text(task.path("error"), "message"), text(task.path("content"), "prompt"));
+        }
         JsonNode response = get("/v1/query/video_generation", "task_id", providerTaskId);
         requireProviderSuccess(response);
         String rawStatus = requiredText(response, "status");
@@ -103,6 +117,11 @@ public class MiniMaxVideoClient implements TextToVideoSubmissionPort, ImageToVid
 
     @Override
     public DownloadableFile retrieve(String providerFileId) {
+        if (providerFileId.startsWith("v2:")) {
+            JsonNode task = v2.query(providerFileId.substring(3));
+            String url = requiredText(task.path("content"), "url");
+            return new DownloadableFile(providerFileId, providerFileId.substring(3) + ".mp4", "video/mp4", 0, url);
+        }
         JsonNode response = get("/v1/files/retrieve", "file_id", providerFileId);
         requireProviderSuccess(response);
         JsonNode file = response.path("file");

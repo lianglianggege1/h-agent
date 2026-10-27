@@ -107,12 +107,15 @@ public final class ResourceContentInspector {
             }
             return null;
         }
-        // ISO BMFF（MP4 家族）：offset 4 处 "ftyp"；major brand "M4A " → audio/mp4，
-        // 其余 brand（isom/iso2/mp41/mp42/avc1/dash 等）按白名单用途归为 video/mp4。
+        // ISO BMFF：图片与 QuickTime 也使用 ftyp，必须先区分 major brand。
         if (h.length >= 8 && asciiAt(h, 4, "ftyp")) {
             if (h.length >= 12 && asciiAt(h, 8, "M4A ")) {
                 return "audio/mp4";
             }
+            if (asciiAt(h, 8, "heic") || asciiAt(h, 8, "heix")
+                    || asciiAt(h, 8, "hevc") || asciiAt(h, 8, "hevx")) return "image/heic";
+            if (asciiAt(h, 8, "mif1") || asciiAt(h, 8, "msf1")) return "image/heif";
+            if (asciiAt(h, 8, "qt  ")) return "video/quicktime";
             return "video/mp4";
         }
         // MP3: ID3v2 前缀优先
@@ -154,8 +157,8 @@ public final class ResourceContentInspector {
 
     private static ContentCategory categoryOf(String detectedType) {
         return switch (detectedType) {
-            case "image/jpeg", "image/png", "image/webp" -> ContentCategory.IMAGE;
-            case "video/mp4" -> ContentCategory.VIDEO;
+            case "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif" -> ContentCategory.IMAGE;
+            case "video/mp4", "video/quicktime" -> ContentCategory.VIDEO;
             default -> ContentCategory.AUDIO;
         };
     }

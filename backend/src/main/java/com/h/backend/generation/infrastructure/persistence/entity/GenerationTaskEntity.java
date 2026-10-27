@@ -11,6 +11,13 @@ import java.time.LocalDateTime;
 public class GenerationTaskEntity {
     @TableId(type = IdType.INPUT)
     private String id;
+    private String resultText;
+    private Long version;
+    public String getResultText() { return resultText; }
+    public void setResultText(String value) { resultText = value; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long value) { version = value; }
+
     @TableField("user_id")
     private Long userId;
     @TableField("session_id")

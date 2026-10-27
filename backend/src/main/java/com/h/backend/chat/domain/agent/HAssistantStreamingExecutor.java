@@ -91,11 +91,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         try {
             ChatExecutionCancellation.check(command.sink());
             String messageForLlm = command.userMessage();
-            String referenceResourceId = firstReferenceResourceId(command);
-            if (referenceResourceId != null) {
-                messageForLlm = command.userMessage()
-                        + "\n[系统：用户选择了一张参考图片（资源ID: " + referenceResourceId
-                        + "）。请根据用户目标选择工具：生成或修改静态图片时调用 generateImage；让图片中的主体或环境运动，或生成动画、运镜、视频时调用 image_to_video；仅分析或描述图片时不调用生成工具。调用图片或视频生成工具时，将该资源ID作为 referenceResourceId 传入。]";
+            if (command.resources() != null && !command.resources().isEmpty()) {
+                messageForLlm += "\n[系统：当前消息含用户素材。调用list_video_inputs获取当前用户素材ID和类型。静态图片生成/编辑使用generateImage；视频使用generate_video，不要调用旧版image_to_video。视频默认H3、6秒、768P；用户指定时长和画质必须遵从，不擅自换模型或降级。单图未指定用途时为首帧，多图为参考；首尾帧与音视频参考互斥，冲突时询问用户。仅描述素材不要生成视频。]";
             }
             // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把
             // Generation/Tool Span 挂到本次运行。后续轮次由流式回调中的观测作用域接管。

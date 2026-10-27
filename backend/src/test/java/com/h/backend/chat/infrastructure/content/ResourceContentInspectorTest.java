@@ -26,6 +26,18 @@ class ResourceContentInspectorTest {
 
     private final ResourceContentInspector inspector = new ResourceContentInspector();
 
+    @Test
+    void distinguishesH3HeifImagesAndQuicktimeFromMp4() throws IOException {
+        for (String[] format : new String[][]{{"heic", "image/heic"}, {"heix", "image/heic"},
+                {"mif1", "image/heif"}, {"msf1", "image/heif"}, {"qt  ", "video/quicktime"}}) {
+            var result = inspector.inspect(stream(mp4(format[0])), format[1]).result();
+            assertEquals(format[1], result.detectedType());
+            assertEquals(format[1].startsWith("image/") ? ResourceContentInspector.ContentCategory.IMAGE
+                    : ResourceContentInspector.ContentCategory.VIDEO, result.category());
+            assertTrue(result.matchesHint());
+        }
+    }
+
     // ------------------------------------------------------------------
     // 魔数识别（计划 §6.3：JPEG/PNG/WebP/MP4/MP3/M4A/WAV/WebM Audio）
     // ------------------------------------------------------------------

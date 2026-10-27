@@ -22,3 +22,16 @@ export function selectHistoryReference(current: UploadedResource[], resource: Ch
     mimeType: resource.mimeType, fileSize: resource.fileSize ?? 0,
   }];
 }
+
+/** All owned media already present in the current thread, including uploads and generated results. */
+export function historyReferenceMedia(messages: Message[]): ChatMessageResource[] {
+  const media = new Map<string, ChatMessageResource>();
+  for (const message of messages) {
+    if (message.role !== "activity" || message.activityType !== "h-agent.resource") continue;
+    const source = message.content.message as ChatSessionMessage | undefined;
+    for (const resource of source?.resources ?? []) {
+      if (/^(image|video|audio)\//.test(resource.mimeType)) media.set(resource.id, resource);
+    }
+  }
+  return [...media.values()];
+}

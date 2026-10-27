@@ -238,7 +238,10 @@ public class ChatResourceController {
         if ("image/jpeg".equalsIgnoreCase(mimeType)) return "jpg";
         if ("image/png".equalsIgnoreCase(mimeType)) return "png";
         if ("image/webp".equalsIgnoreCase(mimeType)) return "webp";
+        if ("image/heic".equalsIgnoreCase(mimeType)) return "heic";
+        if ("image/heif".equalsIgnoreCase(mimeType)) return "heif";
         if ("video/mp4".equalsIgnoreCase(mimeType)) return "mp4";
+        if ("video/quicktime".equalsIgnoreCase(mimeType)) return "mov";
         if ("audio/mpeg".equalsIgnoreCase(mimeType)) return "mp3";
         if ("audio/mp4".equalsIgnoreCase(mimeType)) return "m4a";
         if ("audio/wav".equalsIgnoreCase(mimeType)) return "wav";

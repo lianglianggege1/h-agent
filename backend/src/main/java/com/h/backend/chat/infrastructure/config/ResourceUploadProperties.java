@@ -13,13 +13,16 @@ public class ResourceUploadProperties {
             "image/jpeg",
             "image/png",
             "image/webp",
+            "image/heic",
+            "image/heif",
             "video/mp4",
+            "video/quicktime",
             "audio/mpeg",
             "audio/mp4",
             "audio/wav",
             "audio/webm"
     );
-    private long maxFileSize = 10_485_760L;
+    private long maxFileSize = 52_428_800L;
 
     public List<String> getAllowedMimeTypes() {
         return allowedMimeTypes;

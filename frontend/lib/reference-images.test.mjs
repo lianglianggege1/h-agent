@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { historyReferenceImages, selectHistoryReference } from "./reference-images.ts";
+import { historyReferenceImages, historyReferenceMedia, selectHistoryReference } from "./reference-images.ts";
 
 const image = { id: "image-1", type: "IMAGE", role: "OUTPUT", viewUrl: "/fresh-view", downloadUrl: "/download", fileName: "image.png", mimeType: "image/png", fileSize: 23 };
 const resourceMessage = (id, resources, messageType = "IMAGE") => ({
@@ -31,4 +31,13 @@ test("selecting history images preserves uploads and forwards the resource ident
     { resourceId: "image-1", role: "REFERENCE", source: "HISTORY" },
     { resourceId: "image-2", role: "REFERENCE", source: "HISTORY" },
   ]);
+});
+
+test("multimodal history references include owned images, videos and audio", () => {
+  const video = { ...image, id: "video", type: "VIDEO", mimeType: "video/mp4" };
+  const audio = { ...image, id: "audio", type: "AUDIO", mimeType: "audio/mpeg" };
+  const media = historyReferenceMedia([resourceMessage("image", [image]), resourceMessage("clip", [video], "VIDEO"), resourceMessage("uploaded-audio", [audio], "USER")]);
+  assert.deepEqual(media.map((item) => item.id), ["image-1", "video", "audio"]);
+  assert.equal(selectHistoryReference([], video)[0].role, "REFERENCE");
+  assert.equal(selectHistoryReference([], audio)[0].source, "HISTORY");
 });

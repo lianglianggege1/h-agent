@@ -634,16 +634,19 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         if (chatMessageResourceMapper == null) {
             throw new IllegalStateException("ChatMessageResourceMapper is required to append resource messages");
         }
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        ChatSessionEntity session = requireOwnedMediaRoot(userId, sessionId);
         if (!STATUS_ACTIVE.equals(session.getStatus())) {
             throw new BusinessException(40005, "会话已失效，请重新进入聊天页");
         }
 
-        int nextSequence = allocateMessageSequence(session);
+        boolean rootMessage = session.getSessionId().equals(sessionId);
+        Integer sequence = rootMessage ? allocateMessageSequence(session) : agentSessionMapper.nextMessageSequence(sessionId);
+        if(sequence==null)throw new IllegalStateException("无法分配子会话消息序号");
+        int nextSequence = sequence;
         LocalDateTime now = LocalDateTime.now();
         String normalizedMessageType = requireResourceField(messageType, "messageType").trim().toUpperCase();
         ChatSessionMessage message = buildMessage("assistant", normalizedMessageType, content, now, nextSequence);
-        Long messageId = persistMessage(session, message);
+        Long messageId = persistMessage(session, message, sessionId);
 
         List<ChatMessageResourceDto> safeResources = resources == null ? List.of() : resources;
         for (ChatMessageResourceDto resource : safeResources) {
@@ -667,7 +670,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             chatMessageResourceMapper.insert(row);
         }
 
-        session.setMessageCount(nextSequence);
+        if(rootMessage)session.setMessageCount(nextSequence);
         session.setLastActiveAt(now);
         session.setUpdatedAt(now);
         persistParentActivity(session, now, null);
@@ -698,15 +701,27 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             String content,
             List<ChatMessageResourceDto> resources
     ) {
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        updateGeneratedMediaMessage(userId, sessionId, messageId, content, resources, null);
+    }
+
+    @Override
+    @Transactional
+    public void updateGeneratedMediaMessage(Long userId, String sessionId, Long messageId, String content,
+                                            List<ChatMessageResourceDto> resources, String status) {
+        ChatSessionEntity session = requireOwnedMediaRoot(userId, sessionId);
         ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
         if (message == null
                 || !session.getId().equals(message.getSessionRecordId())
+                || message.getSessionId()!=null && !sessionId.equals(message.getSessionId())
                 || !userId.equals(message.getUserId())
                 || !"VIDEO".equals(message.getMessageType())) {
             throw new BusinessException(40404, "视频生成消息不存在");
         }
 
+        if (status != null) {
+            ChatMessagePayload payload = new ChatMessagePayload(); payload.setStatus(status);
+            message.setPayloadJson(writePayload(payload));
+        }
         message.setContentText(content);
         chatSessionMessageMapper.updateById(message);
         for (ChatMessageResourceDto resource : resources == null ? List.<ChatMessageResourceDto>of() : resources) {
@@ -811,6 +826,19 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         root.setCreatedAt(now);
         root.setUpdatedAt(now);
         agentSessionMapper.insert(root);
+    }
+
+    private ChatSessionEntity requireOwnedMediaRoot(Long userId,String sessionId) {
+        ChatSessionEntity root=chatSessionMapper.selectBySessionId(sessionId);
+        if(root!=null) { if(!userId.equals(root.getUserId()))throw new BusinessException(40404,"会话不存在");return root; }
+        java.util.Set<String> visited=new java.util.HashSet<>();String current=sessionId;
+        while(visited.add(current)) {
+            AgentSessionEntity agent=agentSessionMapper.selectBySessionId(current);
+            if(agent==null||!userId.equals(agent.getUserId()))break;
+            if(agent.getParentSessionId()==null)return requireOwnedSession(userId,agent.getSessionId());
+            current=agent.getParentSessionId();
+        }
+        throw new BusinessException(40404,"会话不存在");
     }
 
     private ChatSessionEntity requireOwnedSession(Long userId, String sessionId) {
@@ -1000,9 +1028,12 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private Long persistMessage(ChatSessionEntity session, ChatSessionMessage message) {
+        return persistMessage(session,message,session.getSessionId());
+    }
+    private Long persistMessage(ChatSessionEntity session, ChatSessionMessage message, String actualSessionId) {
         ChatSessionMessageEntity row = new ChatSessionMessageEntity();
         row.setSessionRecordId(session.getId());
-        row.setSessionId(session.getSessionId());
+        row.setSessionId(actualSessionId);
         row.setUserId(session.getUserId());
         row.setSequenceNo(message.getSequenceNo());
         row.setMessageType(message.getMessageType());
@@ -1125,7 +1156,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
                 normalizeRole(row.getRoleCode()),
                 normalizedMessageType,
                 row.getContentText() == null ? "" : row.getContentText(),
-                "IMAGE".equals(normalizedMessageType) ? readImagePayload(row.getPayloadJson()) : null,
+                ("IMAGE".equals(normalizedMessageType) || "VIDEO".equals(normalizedMessageType)) ? readImagePayload(row.getPayloadJson()) : null,
                 resources,
                 row.getCreatedAt()
         );

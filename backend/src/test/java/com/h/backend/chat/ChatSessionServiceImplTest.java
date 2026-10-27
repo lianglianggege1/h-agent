@@ -918,6 +918,27 @@ class ChatSessionServiceImplTest {
         assertEquals("ARCHIVED", currentSession.getStatus());
     }
 
+    @Test
+    void generatedVideoMessagesStayInTheOwnedChildSession() {
+        var roots=mock(ChatSessionMapper.class);var messages=mock(ChatSessionMessageMapper.class);
+        var agents=mock(AgentSessionMapper.class);var resources=mock(ChatMessageResourceMapper.class);
+        var root=new ChatSessionEntity();root.setId(11L);root.setSessionId("root");root.setUserId(1L);root.setStatus("ACTIVE");root.setMessageCount(5);
+        when(roots.selectBySessionId("root")).thenReturn(root);
+        var parent=new AgentSessionEntity();parent.setSessionId("root");parent.setUserId(1L);
+        var child=new AgentSessionEntity();child.setSessionId("child");child.setParentSessionId("root");child.setUserId(1L);
+        when(agents.selectBySessionId("child")).thenReturn(child);when(agents.selectBySessionId("root")).thenReturn(parent);
+        when(agents.nextMessageSequence("child")).thenReturn(3);
+        AtomicReference<ChatSessionMessageEntity> saved=new AtomicReference<>();
+        doAnswer(call->{ChatSessionMessageEntity row=call.getArgument(0);row.setId(101L);saved.set(row);return 1;}).when(messages).insert(any(ChatSessionMessageEntity.class));
+        var service=new ChatSessionServiceImpl(roots,messages,resources,mock(ChatMemorySnapshotService.class),mock(SystemPromptService.class),new ObjectMapper(),testAgentRegistry(),agents);
+        var result=service.appendGeneratedMediaMessage(1L,"child","正在生成视频");
+        assertEquals("101",result.id());assertEquals("child",saved.get().getSessionId());assertEquals(11L,saved.get().getSessionRecordId());
+        assertEquals(3,saved.get().getSequenceNo());assertEquals(5,root.getMessageCount());
+        when(messages.selectById(101L)).thenReturn(saved.get());
+        service.updateGeneratedMediaMessage(1L,"child",101L,"视频生成中",List.of(),"IN_PROGRESS");
+        assertTrue(saved.get().getPayloadJson().contains("IN_PROGRESS"));
+    }
+
     private AgentRegistry testAgentRegistry() {
         return new AgentRegistry(List.of(
                 new AgentDefinition(

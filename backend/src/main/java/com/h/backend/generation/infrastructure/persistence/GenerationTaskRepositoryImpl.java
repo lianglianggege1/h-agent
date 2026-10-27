@@ -1,16 +1,21 @@
 package com.h.backend.generation.infrastructure.persistence;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.h.backend.generation.application.port.out.GenerationTaskRepository;
 import com.h.backend.generation.domain.model.GeneratedArtifact;
 import com.h.backend.generation.domain.model.GenerationStatus;
 import com.h.backend.generation.domain.model.GenerationTask;
-import com.h.backend.generation.domain.model.TextToVideoSpec;
-import com.h.backend.generation.domain.model.ImageToVideoSpec;
-import com.h.backend.generation.domain.model.VideoGenerationSpec;
 import com.h.backend.generation.domain.model.GenerationType;
+import com.h.backend.generation.domain.model.ImageToVideoSpec;
+import com.h.backend.generation.domain.model.TextToVideoSpec;
+import com.h.backend.generation.domain.model.VideoGenerationSpec;
+import com.h.backend.generation.domain.model.VideoV2Spec;
 import com.h.backend.generation.infrastructure.persistence.entity.GenerationTaskEntity;
 import com.h.backend.generation.infrastructure.persistence.mapper.GenerationTaskMapper;
+
 import org.springframework.stereotype.Repository;
+
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
@@ -33,9 +38,20 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
     public void save(GenerationTask task) {
         GenerationTaskEntity entity = toEntity(task);
         if (mapper.selectById(task.id()) == null) {
+            entity.setVersion(0L);
             mapper.insert(entity);
+            task.persisted(0);
         } else {
-            mapper.updateById(entity);
+            entity.setVersion(task.version() + 1);
+            if (mapper.update(
+                            entity,
+                            new UpdateWrapper<GenerationTaskEntity>()
+                                    .eq("id", task.id())
+                                    .eq("version", task.version()))
+                    != 1)
+                throw new org.springframework.dao.ConcurrencyFailureException(
+                        "Generation task was updated concurrently");
+            task.persisted(entity.getVersion());
         }
     }
 
@@ -50,10 +66,45 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
         return mapper.selectDue(toLocalDateTime(now), limit).stream().map(this::toDomain).toList();
     }
 
+    @Override
+    public List<GenerationTask> findByUser(Long userId, int limit) {
+        return findByUser(userId, limit, 0);
+    }
+
+    @Override
+    public List<GenerationTask> findStaleSubmissions(Instant before, int limit) {
+        return mapper
+                .selectList(
+                        new QueryWrapper<GenerationTaskEntity>()
+                                .eq("status", "PENDING_SUBMISSION")
+                                .lt("updated_at", toLocalDateTime(before))
+                                .last("LIMIT " + Math.clamp(limit, 1, 100)))
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<GenerationTask> findByUser(Long userId, int limit, int offset) {
+        if (offset < 0) throw new IllegalArgumentException("Invalid page offset");
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("任务列表数量必须为1至100");
+        return mapper
+                .selectList(
+                        new QueryWrapper<GenerationTaskEntity>()
+                                .eq("user_id", userId)
+                                .orderByDesc("created_at")
+                                .last("LIMIT " + limit + " OFFSET " + offset))
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     private GenerationTaskEntity toEntity(GenerationTask task) {
         try {
             GenerationTaskEntity entity = new GenerationTaskEntity();
             entity.setId(task.id());
+            entity.setResultText(task.resultText());
+            entity.setVersion(task.version());
             entity.setUserId(task.userId());
             entity.setSessionId(task.sessionId());
             entity.setGenerationType(task.generationType().name());
@@ -87,29 +138,53 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
     private GenerationTask toDomain(GenerationTaskEntity entity) {
         try {
             VideoGenerationSpec spec = readSpec(entity);
-            GeneratedArtifact artifact = entity.getArtifactId() == null ? null : new GeneratedArtifact(
-                    entity.getArtifactId(), entity.getArtifactStorageType(), entity.getArtifactStorageKey(),
-                    entity.getArtifactMimeType(), entity.getArtifactFileName(), entity.getArtifactSize()
-            );
-            return GenerationTask.rehydrate(
-                    entity.getId(), entity.getUserId(), entity.getSessionId(), spec,
-                    GenerationStatus.fromName(entity.getStatus()), entity.getProviderTaskId(), entity.getProviderStatus(),
-                    entity.getProviderFileId(), entity.getChatMessageId(), artifact,
-                    entity.getRetryCount() == null ? 0 : entity.getRetryCount(), toInstant(entity.getNextPollAt()),
-                    entity.getFailureMessage(), toInstant(entity.getCreatedAt()), toInstant(entity.getUpdatedAt()),
-                    toInstant(entity.getCompletedAt())
-            );
+            GeneratedArtifact artifact =
+                    entity.getArtifactId() == null
+                            ? null
+                            : new GeneratedArtifact(
+                                    entity.getArtifactId(),
+                                    entity.getArtifactStorageType(),
+                                    entity.getArtifactStorageKey(),
+                                    entity.getArtifactMimeType(),
+                                    entity.getArtifactFileName(),
+                                    entity.getArtifactSize());
+            GenerationTask restored =
+                    GenerationTask.rehydrate(
+                            entity.getId(),
+                            entity.getUserId(),
+                            entity.getSessionId(),
+                            spec,
+                            GenerationStatus.fromName(entity.getStatus()),
+                            entity.getProviderTaskId(),
+                            entity.getProviderStatus(),
+                            entity.getProviderFileId(),
+                            entity.getChatMessageId(),
+                            artifact,
+                            entity.getRetryCount() == null ? 0 : entity.getRetryCount(),
+                            toInstant(entity.getNextPollAt()),
+                            entity.getFailureMessage(),
+                            toInstant(entity.getCreatedAt()),
+                            toInstant(entity.getUpdatedAt()),
+                            toInstant(entity.getCompletedAt()));
+            restored.restoredDetails(
+                    entity.getResultText(), entity.getVersion() == null ? 0 : entity.getVersion());
+            return restored;
         } catch (Exception exception) {
-            throw new IllegalStateException("Failed to restore generation task " + entity.getId(), exception);
+            throw new IllegalStateException(
+                    "Failed to restore generation task " + entity.getId(), exception);
         }
     }
 
     private VideoGenerationSpec readSpec(GenerationTaskEntity entity) throws Exception {
         GenerationType type = GenerationType.valueOf(entity.getGenerationType());
         return switch (type) {
-            case TEXT_TO_VIDEO -> objectMapper.readValue(entity.getSpecJson(), TextToVideoSpec.class);
-            case IMAGE_TO_VIDEO -> objectMapper.readValue(entity.getSpecJson(), ImageToVideoSpec.class);
-            default -> throw new IllegalStateException("Unsupported video generation type: " + type);
+            case VIDEO_V2 -> objectMapper.readValue(entity.getSpecJson(), VideoV2Spec.class);
+            case TEXT_TO_VIDEO ->
+                    objectMapper.readValue(entity.getSpecJson(), TextToVideoSpec.class);
+            case IMAGE_TO_VIDEO ->
+                    objectMapper.readValue(entity.getSpecJson(), ImageToVideoSpec.class);
+            default ->
+                    throw new IllegalStateException("Unsupported video generation type: " + type);
         };
     }
 

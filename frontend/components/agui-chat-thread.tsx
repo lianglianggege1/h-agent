@@ -6,10 +6,11 @@ import { apiFetch } from "@/lib/http";
 import { getChatSessionMessages, type ChatSessionMessage } from "@/lib/chat-sessions";
 import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload";
 import { ToolResult, ResourceReferenceContext } from "@/components/agui-cards";
+import { ReferencedUserMessage } from "@/components/agui-user-message";
 import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
 import styles from "./agui-chat-thread.module.css";
 import { ChatAttachmentPicker } from "./chat-attachment-picker";
-import { historyReferenceImages, selectHistoryReference } from "@/lib/reference-images";
+import { historyReferenceMedia, selectHistoryReference } from "@/lib/reference-images";
 import { OrderReferenceContext } from "./order/order-card";
 import { OrderPicker } from "./order/order-picker";
 import type { OrderReference } from "@/lib/orders";
@@ -52,8 +53,8 @@ function ThreadInput(props: CopilotChatInputProps) {
     </div> : null}
     {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[1000px] flex-wrap gap-2 px-4" aria-label="待发送附件">
       {actions.attachments.map((item) => <span key={item.resourceId} title={item.fileName} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
-        {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : null}
-        <span>{item.role === "REFERENCE" ? "引用图片" : item.fileName}</span>
+        {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : item.mimeType.startsWith("video/") ? <video src={item.viewUrl} muted preload="metadata" className="h-10 w-10 rounded-lg object-cover" /> : item.mimeType.startsWith("audio/") ? <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-lg bg-stone-100">♫</span> : null}
+        <span>{item.role === "REFERENCE" ? (item.mimeType.startsWith("video/") ? "引用视频" : item.mimeType.startsWith("audio/") ? "引用音频" : "引用图片") : item.fileName}</span>
         <button aria-label={"移除 " + item.fileName} onClick={() => actions.removeFile(item.resourceId)}>×</button>
       </span>)}
       {actions.uploading ? <span className="text-xs text-stone-500">上传中…</span> : null}
@@ -68,7 +69,7 @@ const ProductInput = Object.assign(ThreadInput, CopilotChatInput);
 function ThreadView(props: CopilotChatViewProps) {
   const actions = useContext(Actions);
   return <CopilotChat.View {...props}
-    messageView={{ transformMessages: orderProductMessages }}
+    messageView={{ transformMessages: orderProductMessages, userMessage: ReferencedUserMessage }}
     onSubmitMessage={(value) => {
       if (!actions || actions.disabled) return;
       actions.submit(value);
@@ -123,7 +124,12 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
     if (!isReady || agent.isRunning || uploading || waiting || !text.trim()) return;
     setError("");
     const resources = attachments.map(({ resourceId, role, source }) => ({ resourceId, role, source }));
-    agent.addMessage({ id: crypto.randomUUID(), role: "user", content: text.trim() + (orderReference ? `\n\n关联订单：${orderReference.id}${orderReference.ticketId ? `；关联工单：${orderReference.ticketId}` : ""}` : "") });
+    const message: ChatSessionMessage = {
+      id: crypto.randomUUID(), role: "user", messageType: "USER", createdAt: new Date().toISOString(),
+      content: text.trim() + (orderReference ? `\n\n关联订单：${orderReference.id}${orderReference.ticketId ? `；关联工单：${orderReference.ticketId}` : ""}` : ""),
+      resources: attachments.map(({ resourceId, ...resource }) => ({ ...resource, id: resourceId, width: null, height: null })),
+    };
+    agent.addMessages(productHistoryMessages([message]));
     setOrderReference(null);
     setAttachments([]);
     try { await copilotkit.runAgent({ agent, forwardedProps: { resources } }); }
@@ -177,7 +183,7 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
     const timer = window.setInterval(() => {
       const pendingMedia = agent.messages.some((message) => message.role === "activity"
         && message.activityType === "h-agent.resource"
-        && ["PENDING", "PROCESSING", "RUNNING"].includes(String((message.content.message as ChatSessionMessage | undefined)?.payload?.status)));
+        && ["PENDING", "PROCESSING", "RUNNING", "PENDING_SUBMISSION", "IN_PROGRESS", "MATERIALIZING", "RETRY_WAIT"].includes(String((message.content.message as ChatSessionMessage | undefined)?.payload?.status)));
       if (pendingMedia) void refresh();
     }, 10_000);
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
@@ -197,11 +203,11 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
       event.target.value = "";
       if (!files.length) return;
       setUploading(true); setError("");
-      void Promise.all(files.map((file) => uploadChatResource(file))).then((uploaded) => setAttachments((current) => [...current, ...uploaded]))
+      void Promise.all(files.map((file) => uploadChatResource(file, /^(image|video|audio)\//.test(file.type) ? "REFERENCE" : "ATTACHMENT"))).then((uploaded) => setAttachments((current) => [...current, ...uploaded]))
         .catch((failure) => setError(failure instanceof Error ? failure.message : "上传失败"))
         .finally(() => setUploading(false));
     }} />
-    {pickerOpen ? <ChatAttachmentPicker images={historyReferenceImages(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
+    {pickerOpen ? <ChatAttachmentPicker resources={historyReferenceMedia(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
       onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
       onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
       onClose={() => setPickerOpen(false)} /> : null}
