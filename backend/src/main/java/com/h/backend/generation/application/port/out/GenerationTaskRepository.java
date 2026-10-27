@@ -20,10 +20,6 @@ public interface GenerationTaskRepository {
         if(offset!=0) throw new UnsupportedOperationException("Paging not implemented");
         return findByUser(userId,limit);
     }
-    default List<GenerationTask> findVideosByUser(Long userId, int limit, int offset) {
-        return findByUser(userId, limit, offset).stream()
-                .filter(task -> task.spec() instanceof com.h.backend.generation.domain.model.VideoGenerationSpec).toList();
-    }
     default List<GenerationTask> findStaleSubmissions(Instant before, int limit) { return List.of(); }
 
     List<GenerationTask> findDue(Instant now, int limit);

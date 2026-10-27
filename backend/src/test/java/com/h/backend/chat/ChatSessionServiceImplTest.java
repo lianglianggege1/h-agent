@@ -51,37 +51,6 @@ import static org.mockito.Mockito.when;
 class ChatSessionServiceImplTest {
 
     @Test
-    void ownedAudioMessageKeepsItsDurableStatusWhenReloaded() {
-        var sessions = mock(ChatSessionMapper.class);
-        var messages = mock(ChatSessionMessageMapper.class);
-        var resources = mock(ChatMessageResourceMapper.class);
-        var service = new ChatSessionServiceImpl(sessions, messages, resources,
-                mock(ChatMemorySnapshotService.class), mock(SystemPromptService.class),
-                new ObjectMapper(), testAgentRegistry(), mock(AgentSessionMapper.class));
-        var session = new ChatSessionEntity();
-        session.setId(11L);
-        session.setUserId(1L);
-        session.setSessionId("session");
-        session.setAgentId("standard-chat");
-        session.setStatus("ACTIVE");
-        when(sessions.selectBySessionId("session")).thenReturn(session);
-        var message = new ChatSessionMessageEntity();
-        message.setId(9L);
-        message.setSessionRecordId(11L);
-        message.setSessionId("session");
-        message.setUserId(1L);
-        message.setRoleCode("assistant");
-        message.setMessageType("AUDIO");
-        message.setPayloadJson("{\"status\":\"IN_PROGRESS\"}");
-        when(messages.selectById(9L)).thenReturn(message);
-        when(resources.selectByMessageIds(List.of(9L))).thenReturn(List.of());
-        assertEquals("IN_PROGRESS", service.getOwnedMessage(1L, "session", 9L).payload().status());
-        service.updateGeneratedMediaMessage(1L, "session", 9L, "歌曲生成失败：余额不足", List.of(), "FAILED");
-        assertEquals("FAILED", service.getOwnedMessage(1L, "session", 9L).payload().status());
-        assertThrows(BusinessException.class, () -> service.getOwnedMessage(2L, "session", 9L));
-    }
-
-    @Test
     void createHarnessSessionPersistsAndReturnsSelectedApprovalMode() {
         ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
         AgentSessionMapper agentSessionMapper = mock(AgentSessionMapper.class);

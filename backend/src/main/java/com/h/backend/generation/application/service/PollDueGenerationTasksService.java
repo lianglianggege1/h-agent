@@ -31,7 +31,6 @@ public class PollDueGenerationTasksService implements PollDueGenerationTasksUseC
     private final GenerationProperties properties;
     private final Clock clock;
     @Autowired private VideoV2Service videoV2Service;
-    @Autowired private MusicGenerationService musicGenerationService;
 
     @Autowired
     public PollDueGenerationTasksService(
@@ -104,10 +103,6 @@ public class PollDueGenerationTasksService implements PollDueGenerationTasksUseC
 
     @Transactional
     void processOne(GenerationTask task, Instant now) {
-        if (task.spec() instanceof com.h.backend.generation.domain.model.MusicGenerationSpec) {
-            musicGenerationService.dispatch(task, now);
-            return;
-        }
         try {
             if (task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec
                     && task.resultText() == null

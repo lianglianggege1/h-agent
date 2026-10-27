@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 
 // Render the product component with its real SDK input and connection lifecycle.
 // Only application data and the SDK's provider-bound hooks/view are replaced.
-test("background song completion keeps the draft editable and image references synchronized", async () => {
+test("idle order refresh keeps the draft editable and image references synchronized", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "http://localhost" });
   const saved = new Map();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document,
@@ -64,22 +64,13 @@ test("background song completion keeps the draft editable and image references s
   Chat.View = function ChatView({ input: Input, inputValue, onInputChange, onSubmitMessage }) {
     return React.createElement(React.Fragment, null,
       React.createElement(cards.exports.ResourceCard, { content: { message: { resources: [image] } } }),
-      React.createElement(React.Fragment, null, agent.messages.filter((message) => message.role === "activity" && message.activityType === "h-agent.resource")
-        .map((message) => React.createElement(cards.exports.ResourceCard, { key: message.id, content: message.content }))),
       React.createElement(Input, { value: inputValue, onChange: onInputChange, onSubmitMessage }));
   };
-  let mediaReads = 0;
-  const completedSong = { id: "song", role: "assistant", messageType: "AUDIO", content: "歌曲已生成", payload: { status: "SUCCEEDED" },
-    resources: [{ id: "mp3", type: "AUDIO", role: "GENERATED", mimeType: "audio/mpeg", fileName: "song.mp3", viewUrl: "/song.mp3", downloadUrl: "/song-download" }],
-    createdAt: "2026-10-27T00:00:00" };
   const stubs = {
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,
       useCopilotKit: () => ({ copilotkit }), useRenderTool: () => {} },
     "@/lib/http": { apiFetch: async () => ({}) },
-    "@/lib/chat-sessions": {
-      getChatSessionMessages: async () => ({ messages: [], nextBeforeSeq: null, hasMore: false }),
-      getChatSessionMessage: async () => { mediaReads++; return completedSong; },
-    },
+    "@/lib/chat-sessions": { getChatSessionMessages: async () => ({ messages: [], nextBeforeSeq: null, hasMore: false }) },
     "@/lib/resource-upload": {},
     "@/components/agui-cards": cards.exports,
     "@/components/agui-user-message": { ReferencedUserMessage: sdk.CopilotChatUserMessage },
@@ -91,7 +82,7 @@ test("background song completion keeps the draft editable and image references s
     "./order/order-picker": {},
   };
   const source = readFileSync(new URL("../components/agui-chat-thread.tsx", import.meta.url), "utf8");
-  const compiled = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
+  const compiled = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX,
     module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
   const product = { exports: {} };
   new Function("require", "module", "exports", compiled)((id) => stubs[id] ?? require(id), product, product.exports);
@@ -130,27 +121,6 @@ test("background song completion keeps the draft editable and image references s
     assert.equal(dom.window.document.activeElement, input);
     assert.equal(connects, 0, "idle polling must not reconnect the chat transport");
     assert.equal(reference.getAttribute("aria-pressed"), "true", "Background updates preserve the image reference");
-
-    await React.act(async () => agent.setMessages(aguiMessages.productHistoryMessages([
-      { ...completedSong, content: "歌曲生成中", resources: [], payload: { status: "IN_PROGRESS" } },
-    ])));
-    await React.act(async () => {
-      for (let tick = 0; tick < 3; tick++) {
-        for (const { callback } of [...timers.values()]) callback();
-        await Promise.resolve();
-      }
-    });
-    assert.equal(mediaReads, 1, "Polling stops when the song has completed");
-    assert.equal(connects, 0, "Song completion must not reconnect the SDK");
-    assert.equal(input.disabled, false);
-    assert.equal(dom.window.document.querySelector("textarea"), input);
-    assert.equal(input.value, "订单还没输入完");
-    assert.equal(dom.window.document.activeElement, input);
-    assert.equal(dom.window.document.querySelector("audio").getAttribute("src"), "/song.mp3");
-    assert.ok(dom.window.document.querySelector("audio").hasAttribute("controls"));
-    assert.equal(dom.window.document.querySelector('a[download="song.mp3"]').getAttribute("href"), "/song-download");
-    await React.act(async () => agent.setMessages([]));
-
     await React.act(async () => dom.window.document.querySelector('button[aria-label="移除 image.png"]').click());
     assert.equal(reference.getAttribute("aria-pressed"), "false", "Removing the preview clears the source badge");
     await React.act(async () => reference.click());

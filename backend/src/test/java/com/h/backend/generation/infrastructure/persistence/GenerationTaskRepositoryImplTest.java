@@ -20,26 +20,32 @@ import java.util.concurrent.atomic.AtomicReference;
 
 class GenerationTaskRepositoryImplTest {
     @Test
-    void restoresQueuedMusicAndOriginalLyricsAfterRestart() {
+    void ignoresRetiredTaskTypesWithoutDeletingHistoricalRecords() {
         var mapper = mock(GenerationTaskMapper.class);
-        var row = new AtomicReference<GenerationTaskEntity>();
-        when(mapper.selectById("song")).thenAnswer(call -> row.get());
-        when(mapper.insert(any(GenerationTaskEntity.class))).thenAnswer(call -> {
-            row.set(call.getArgument(0));
-            return 1;
-        });
-        var repository = new GenerationTaskRepositoryImpl(mapper, new ObjectMapper());
-        var spec = new com.h.backend.generation.domain.model.MusicGenerationSpec("民谣", " 原文\n\n不改写 ", "标题");
-        var task = GenerationTask.create("song", 1L, "session", spec, Instant.now());
-        task.bindChatMessage(9L, Instant.now());
-        task.queueMusic(Instant.now());
-        repository.save(task);
-        var restored = repository.findById("song").orElseThrow();
-        assertEquals(spec, restored.spec());
-        assertEquals("QUEUED", restored.providerStatus());
-        assertEquals("music:song", restored.providerTaskId());
-        assertEquals(9L, restored.chatMessageId());
-        assertNotNull(restored.nextPollAt());
+        var retired = new GenerationTaskEntity();
+        retired.setId("retired-task");
+        retired.setGenerationType("RETIRED_MEDIA_TYPE");
+        retired.setSpecJson("{\"legacy\":true}");
+        var json = new ObjectMapper();
+        var active = new GenerationTaskEntity();
+        active.setId("active-video");
+        active.setUserId(1L);
+        active.setSessionId("session");
+        active.setGenerationType("VIDEO_V2");
+        active.setStatus("IN_PROGRESS");
+        active.setSpecJson(json.writeValueAsString(VideoV2Spec.defaults(
+                "generation", "test", null, null, null, null, List.of())));
+        when(mapper.selectById("retired-task")).thenReturn(retired);
+        when(mapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of(retired, active));
+        when(mapper.selectDue(any(), anyInt())).thenReturn(List.of(retired, active));
+        var repository = new GenerationTaskRepositoryImpl(mapper, json);
+
+        assertTrue(repository.findById("retired-task").isEmpty());
+        assertEquals(List.of("active-video"), repository.findByUser(1L, 20).stream().map(GenerationTask::id).toList());
+        assertEquals(List.of("active-video"), repository.findDue(Instant.now(), 20).stream().map(GenerationTask::id).toList());
+        assertEquals(List.of("active-video"), repository.findStaleSubmissions(Instant.now(), 20).stream().map(GenerationTask::id).toList());
+        verify(mapper, never()).deleteById(any(java.io.Serializable.class));
     }
 
     @Test

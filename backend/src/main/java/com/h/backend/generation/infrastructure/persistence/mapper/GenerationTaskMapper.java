@@ -14,6 +14,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTaskEntity> {
     @Select("""
             SELECT * FROM generation_tasks
             WHERE status IN ('IN_PROGRESS', 'RETRY_WAIT', 'MATERIALIZING')
+              AND generation_type IN ('VIDEO_V2', 'TEXT_TO_VIDEO', 'IMAGE_TO_VIDEO')
               AND next_poll_at <= #{now}
             ORDER BY next_poll_at ASC
             LIMIT #{limit}

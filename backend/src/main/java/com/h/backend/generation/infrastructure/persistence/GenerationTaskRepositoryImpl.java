@@ -9,8 +9,7 @@ import com.h.backend.generation.domain.model.GenerationTask;
 import com.h.backend.generation.domain.model.GenerationType;
 import com.h.backend.generation.domain.model.ImageToVideoSpec;
 import com.h.backend.generation.domain.model.TextToVideoSpec;
-import com.h.backend.generation.domain.model.GenerationSpec;
-import com.h.backend.generation.domain.model.MusicGenerationSpec;
+import com.h.backend.generation.domain.model.VideoGenerationSpec;
 import com.h.backend.generation.domain.model.VideoV2Spec;
 import com.h.backend.generation.infrastructure.persistence.entity.GenerationTaskEntity;
 import com.h.backend.generation.infrastructure.persistence.mapper.GenerationTaskMapper;
@@ -27,6 +26,8 @@ import java.util.Optional;
 
 @Repository
 public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
+    private static final List<String> SUPPORTED_TYPES =
+            List.of("VIDEO_V2", "TEXT_TO_VIDEO", "IMAGE_TO_VIDEO");
     private final GenerationTaskMapper mapper;
     private final ObjectMapper objectMapper;
 
@@ -59,12 +60,13 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
     @Override
     public Optional<GenerationTask> findById(String taskId) {
         GenerationTaskEntity entity = mapper.selectById(taskId);
-        return entity == null ? Optional.empty() : Optional.of(toDomain(entity));
+        return entity == null || !isSupported(entity) ? Optional.empty() : Optional.of(toDomain(entity));
     }
 
     @Override
     public List<GenerationTask> findDue(Instant now, int limit) {
-        return mapper.selectDue(toLocalDateTime(now), limit).stream().map(this::toDomain).toList();
+        return mapper.selectDue(toLocalDateTime(now), limit).stream()
+                .filter(this::isSupported).map(this::toDomain).toList();
     }
 
     @Override
@@ -77,37 +79,36 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
         return mapper
                 .selectList(
                         new QueryWrapper<GenerationTaskEntity>()
+                                .in("generation_type", SUPPORTED_TYPES)
                                 .eq("status", "PENDING_SUBMISSION")
                                 .lt("updated_at", toLocalDateTime(before))
                                 .last("LIMIT " + Math.clamp(limit, 1, 100)))
                 .stream()
+                .filter(this::isSupported)
                 .map(this::toDomain)
                 .toList();
     }
 
     @Override
     public List<GenerationTask> findByUser(Long userId, int limit, int offset) {
-        return findByUser(userId, limit, offset, false);
-    }
-
-    @Override
-    public List<GenerationTask> findVideosByUser(Long userId, int limit, int offset) {
-        return findByUser(userId, limit, offset, true);
-    }
-
-    private List<GenerationTask> findByUser(Long userId, int limit, int offset, boolean videoOnly) {
         if (offset < 0) throw new IllegalArgumentException("Invalid page offset");
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("任务列表数量必须为1至100");
         return mapper
                 .selectList(
                         new QueryWrapper<GenerationTaskEntity>()
+                                .in("generation_type", SUPPORTED_TYPES)
                                 .eq("user_id", userId)
-                                .ne(videoOnly, "generation_type", GenerationType.TEXT_TO_AUDIO.name())
                                 .orderByDesc("created_at")
                                 .last("LIMIT " + limit + " OFFSET " + offset))
                 .stream()
+                .filter(this::isSupported)
                 .map(this::toDomain)
                 .toList();
+    }
+
+    private boolean isSupported(GenerationTaskEntity entity) {
+        // Historical tasks from retired capabilities must not break active video operations.
+        return entity.getGenerationType() != null && SUPPORTED_TYPES.contains(entity.getGenerationType());
     }
 
     private GenerationTaskEntity toEntity(GenerationTask task) {
@@ -148,7 +149,7 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
 
     private GenerationTask toDomain(GenerationTaskEntity entity) {
         try {
-            GenerationSpec spec = readSpec(entity);
+            VideoGenerationSpec spec = readSpec(entity);
             GeneratedArtifact artifact =
                     entity.getArtifactId() == null
                             ? null
@@ -186,15 +187,16 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
         }
     }
 
-    private GenerationSpec readSpec(GenerationTaskEntity entity) throws Exception {
+    private VideoGenerationSpec readSpec(GenerationTaskEntity entity) throws Exception {
         GenerationType type = GenerationType.valueOf(entity.getGenerationType());
         return switch (type) {
-            case TEXT_TO_AUDIO -> objectMapper.readValue(entity.getSpecJson(), MusicGenerationSpec.class);
             case VIDEO_V2 -> objectMapper.readValue(entity.getSpecJson(), VideoV2Spec.class);
             case TEXT_TO_VIDEO ->
                     objectMapper.readValue(entity.getSpecJson(), TextToVideoSpec.class);
             case IMAGE_TO_VIDEO ->
                     objectMapper.readValue(entity.getSpecJson(), ImageToVideoSpec.class);
+            default ->
+                    throw new IllegalStateException("Unsupported video generation type: " + type);
         };
     }
 

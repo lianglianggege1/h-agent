@@ -146,7 +146,7 @@ public class VideoV2Service {
 
     public GenerationTask owned(Long user, String id) {
         return tasks.findById(id)
-                .filter(task -> task.userId().equals(user) && task.spec() instanceof VideoGenerationSpec)
+                .filter(task -> task.userId().equals(user))
                 .orElseThrow(() -> new IllegalArgumentException("视频任务不存在"));
     }
 
@@ -176,7 +176,7 @@ public class VideoV2Service {
         int selectedPage = page == null ? 1 : page;
         if (selectedPage < 1 || selectedPage > 100000) throw new IllegalArgumentException("页码超出范围");
         if (size < 1 || size > 100) throw new IllegalArgumentException("列表数量必须为1至100");
-        var owned = tasks.findVideosByUser(user, size, (selectedPage - 1) * size);
+        var owned = tasks.findByUser(user, size, (selectedPage - 1) * size);
         var recent =
                 owned.stream()
                         .filter(

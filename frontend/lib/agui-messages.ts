@@ -1,23 +1,6 @@
 import type { ActivityMessage, Message } from "@ag-ui/core";
 import type { ChatMessageResource, ChatSessionMessage } from "./chat-sessions";
 
-/** Replace only media deliveries so polling cannot reset a draft or an SDK run. */
-export function mergeMediaMessages(current: Message[], updates: ChatSessionMessage[]): Message[] {
-  const replacements = new Map(productHistoryMessages(updates).map((message) => [message.id, message]));
-  const result = current.map((message) => {
-    const updated = replacements.get(message.id);
-    replacements.delete(message.id);
-    return updated ?? message;
-  });
-  for (const message of replacements.values()) {
-    // A live tool event can deliver the resource card before its persisted text exists in SDK state.
-    const resourceIndex = result.findIndex((item) => item.id === "resource-" + message.id);
-    if (resourceIndex >= 0) result.splice(resourceIndex, 0, message);
-    else result.push(message);
-  }
-  return result;
-}
-
 /** The same history projection used on reconnect, also needed when prepending older REST pages. */
 export function productHistoryMessages(history: ChatSessionMessage[], following: ChatSessionMessage[] = []): Message[] {
   const context = [...history, ...following];

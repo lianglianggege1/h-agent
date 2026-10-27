@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ByteArrayInputStream;
 
 /**
  * 生成对象存储 Adapter（新计划任务 3）：写入统一经过
@@ -63,37 +62,27 @@ public class ResourceStorageGeneratedArtifactAdapter implements GeneratedArtifac
             InputStream inputStream,
             GeneratedArtifactAttachment<T> attachment
     ) {
-        return storeMedia("VIDEO", file.mimeType(), extension(file.fileName()), inputStream, attachment);
-    }
-
-    @Override
-    public <T> T storeAudio(String sessionId, byte[] mp3, GeneratedArtifactAttachment<T> attachment) {
-        return storeMedia("AUDIO", "audio/mpeg", "mp3", new ByteArrayInputStream(mp3), attachment);
-    }
-
-    private <T> T storeMedia(String type, String mimeType, String extension, InputStream inputStream,
-                             GeneratedArtifactAttachment<T> attachment) {
         ResourceContentInspector.Inspection inspection;
         try {
-            inspection = contentInspector.inspect(inputStream, mimeType);
+            inspection = contentInspector.inspect(inputStream, file.mimeType());
         } catch (IOException exception) {
             throw new ResourceStorageException(
-                    ResourceStorageErrorKind.IO_ERROR, "生成媒体读取失败", exception);
+                    ResourceStorageErrorKind.IO_ERROR, "生成视频读取失败", exception);
         }
         ResourceContentPolicy.SaveDecision decision =
-                contentPolicy.validateForSave(inspection.result(), mimeType);
+                contentPolicy.validateForSave(inspection.result(), file.mimeType());
         if (!decision.allowed()) {
             closeQuietly(inspection.replayStream());
             throw new ResourceStorageException(
-                    ResourceStorageErrorKind.IO_ERROR, "生成媒体未通过内容校验，已拒绝保存");
+                    ResourceStorageErrorKind.IO_ERROR, "生成视频未通过内容校验，已拒绝保存");
         }
         // unknown-size 流式命令：declaredSize=null，实际大小由存储层计数确定。
         return writeCoordinator.saveAndAttach(
                 ResourceSaveCommand.fromStream(
-                        type,
+                        "VIDEO",
                         inspection.replayStream(),
-                        mimeType,
-                        extension,
+                        file.mimeType(),
+                        extension(file.fileName()),
                         properties.getDownload().getMaxFileSize()
                 ),
                 stored -> attachment.attach(toArtifact(stored))
