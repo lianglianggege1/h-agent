@@ -971,6 +971,37 @@ class ChatSessionServiceImplTest {
         verify(messages, never()).insert(any(ChatSessionMessageEntity.class));
     }
 
+    @Test
+    void singleMessageRefreshAuthorizesTheOwnedRootAndExactChildSession() {
+        var roots = mock(ChatSessionMapper.class);
+        var messages = mock(ChatSessionMessageMapper.class);
+        var agents = mock(AgentSessionMapper.class);
+        var resources = mock(ChatMessageResourceMapper.class);
+        var root = new ChatSessionEntity();
+        root.setId(11L); root.setSessionId("root"); root.setUserId(1L);
+        when(roots.selectBySessionId("root")).thenReturn(root);
+        var rootAgent = new AgentSessionEntity();
+        rootAgent.setSessionId("root"); rootAgent.setUserId(1L);
+        when(agents.selectBySessionId("root")).thenReturn(rootAgent);
+        var child = new AgentSessionEntity();
+        child.setSessionId("child"); child.setParentSessionId("root"); child.setUserId(1L);
+        when(agents.selectBySessionId("child")).thenReturn(child);
+        var row = new ChatSessionMessageEntity();
+        row.setId(501L); row.setSessionId("child"); row.setSessionRecordId(11L); row.setUserId(1L);
+        row.setMessageType("IMAGE"); row.setRoleCode("assistant"); row.setPayloadJson("{\"status\":\"READY\"}");
+        when(messages.selectById(501L)).thenReturn(row);
+        var service = new ChatSessionServiceImpl(roots, messages, resources,
+                mock(ChatMemorySnapshotService.class), mock(SystemPromptService.class), new ObjectMapper(),
+                testAgentRegistry(), agents);
+        assertEquals("READY", service.getOwnedMessage(1L, "child", 501L).payload().status());
+        assertEquals("501", service.getOwnedMessage(1L, "root", 501L).id());
+        assertThrows(BusinessException.class, () -> service.getOwnedMessage(2L, "root", 501L));
+        row.setSessionId("sibling");
+        assertThrows(BusinessException.class, () -> service.getOwnedMessage(1L, "child", 501L));
+        row.setSessionRecordId(22L);
+        assertThrows(BusinessException.class, () -> service.getOwnedMessage(1L, "root", 501L));
+    }
+
     private AgentRegistry testAgentRegistry() {
         return new AgentRegistry(List.of(
                 new AgentDefinition(

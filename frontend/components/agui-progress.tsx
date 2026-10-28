@@ -6,6 +6,7 @@ import { z } from "zod";
 export const progressSchema = z.object({
   runId: z.string(), status: z.string(), reasoning: z.string().default(""),
   answerStarted: z.boolean().default(false), startedAt: z.number().optional(), processEndedAt: z.number().optional(),
+  elapsedBeforeMs: z.number().nonnegative().optional(),
   entries: z.array(z.object({
     id: z.string(), type: z.enum(["reasoning", "step"]), chunks: z.array(z.string()).optional(), stepId: z.string().optional(),
   })).default([]),
@@ -43,8 +44,8 @@ export function ProgressCard({ content }: { content: ProgressContent }) {
   const hasReasoning = Boolean(content.reasoning) || entries.some((entry) => entry.type === "reasoning");
   const current = steps.findLast((step) => running(step.status));
   const toolCount = steps.filter((step) => step.kind === "tool" || step.id.startsWith("tool-")).length;
-  const seconds = content.startedAt === undefined ? null
-    : Math.max(0, Math.round(((content.processEndedAt ?? now) - content.startedAt) / 1000));
+  const seconds = content.startedAt === undefined || !active && content.processEndedAt === undefined ? null
+    : Math.round(((content.elapsedBeforeMs ?? 0) + Math.max(0, (content.processEndedAt ?? now) - content.startedAt)) / 1000);
   const duration = seconds === null ? "" : `${seconds} 秒`;
   let title = statusLabels[content.status];
   if (!title) {

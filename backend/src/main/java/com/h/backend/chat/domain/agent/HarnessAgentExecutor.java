@@ -612,6 +612,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 if (!emittedParentText.get()) {
                     emit(new ChatStreamEvent("chunk", reply));
                 }
+                reply = com.h.backend.chat.application.agui.ChatTurnOperation.completeAnswer(command.sink(), reply);
                 String reasoning = parentReasoning.toString();
                 if (command.gatewaySubagentId() == null && !reasoning.isBlank()) {
                     chatSessionService.appendReasoningMessage(

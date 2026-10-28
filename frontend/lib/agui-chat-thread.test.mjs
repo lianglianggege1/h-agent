@@ -6,6 +6,7 @@ import ts from "typescript";
 import { JSDOM } from "jsdom";
 import * as referenceImages from "./reference-images.ts";
 import * as aguiMessages from "./agui-messages.ts";
+import * as mediaUpdates from "./agui-media-updates.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -66,15 +67,25 @@ test("idle order refresh keeps the draft editable and image references synchroni
       React.createElement(cards.exports.ResourceCard, { content: { message: { resources: [image] } } }),
       React.createElement(Input, { value: inputValue, onChange: onInputChange, onSubmitMessage }));
   };
+  let messageReads = 0;
+  let mediaResult;
+  let historyReads = 0;
+  let writes = 0;
+  agent.subscribe({ onMessagesChanged: () => { writes++; } });
   const stubs = {
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,
       useCopilotKit: () => ({ copilotkit }), useRenderTool: () => {} },
     "@/lib/http": { apiFetch: async () => ({}) },
-    "@/lib/chat-sessions": { getChatSessionMessages: async () => ({ messages: [], nextBeforeSeq: null, hasMore: false }) },
+    "@/lib/chat-sessions": {
+      getChatSessionMessages: async () => { historyReads++; return { messages: [], nextBeforeSeq: null, hasMore: false }; },
+      getChatSessionMessage: async () => { messageReads++; return mediaResult; },
+    },
     "@/lib/resource-upload": {},
     "@/components/agui-cards": cards.exports,
-    "@/components/agui-user-message": { ReferencedUserMessage: sdk.CopilotChatUserMessage },
+    "@/components/agui-user-message": { ReferencedUserMessage: sdk.CopilotChatUserMessage,
+      UserMessageEditContext: React.createContext(null) },
     "@/lib/agui-messages": aguiMessages,
+    "@/lib/agui-media-updates": mediaUpdates,
     "./agui-chat-thread.module.css": { default: {} },
     "./chat-attachment-picker": {},
     "@/lib/reference-images": referenceImages,
@@ -127,22 +138,64 @@ test("idle order refresh keeps the draft editable and image references synchroni
     await React.act(async () => reference.click());
     assert.equal(dom.window.document.querySelector('[aria-label="待发送附件"]'), null, "Clicking the selected source cancels the reference");
 
-    // A real order publication still hydrates the SDK, and duplicate notifications
-    // during that connection must not start another replay.
-    await React.act(async () => dom.window.dispatchEvent(new dom.window.Event("order:changed")));
-    assert.equal(connects, 1);
-    assert.equal(changes, 1);
-    await React.act(async () => dom.window.dispatchEvent(new dom.window.Event("order:changed")));
-    assert.equal(connects, 1);
-    await React.act(async () => streams[0].complete());
+    // Reproduce an async image waiting in the current chat while the user is composing.
+    const pendingImage = { id: "pending-image", role: "assistant", messageType: "IMAGE", content: "图片生成中",
+      payload: { status: "PENDING" }, resources: [], createdAt: "2026-10-27T00:00:00" };
+    input.setSelectionRange(2, 4);
+    input.dispatchEvent(new dom.window.CompositionEvent("compositionstart", { data: "正在输入", bubbles: true }));
+    mediaResult = pendingImage;
+    await React.act(async () => agent.addMessages(aguiMessages.productHistoryMessages([pendingImage])));
+    const writesBeforePoll = writes;
+    const changesBeforePoll = changes;
+    await React.act(async () => {
+      for (const { callback } of [...timers.values()]) callback();
+      await Promise.resolve();
+    });
+    assert.equal(connects, 0, "pending image polling must update its card without reconnecting the chat");
+    assert.equal(input.disabled, false, "pending image polling must not interrupt typing or composition");
+    assert.equal(messageReads, 1, "only the pending media message is requested");
+    assert.equal(writes, writesBeforePoll, "an unchanged result must not notify or rerender SDK messages");
+    assert.equal(changes, changesBeforePoll, "polling must not refresh the session metadata");
+    assert.equal(input.value, "订单还没输入完");
+    assert.equal(dom.window.document.activeElement, input);
+    assert.equal(dom.window.document.querySelector("textarea"), input);
+    mediaResult = { ...pendingImage, content: "白猫", payload: { status: "READY" }, resources: [image] };
+    await React.act(async () => {
+      for (const { callback } of [...timers.values()]) callback();
+      await Promise.resolve();
+    });
+    assert.equal(agent.messages.find((message) => message.id === "resource-pending-image").content.message.payload.status, "READY");
+    assert.equal(agent.isRunning, false);
     assert.equal(input.disabled, false);
     assert.equal(input.value, "订单还没输入完");
+    assert.equal(input.selectionStart, 2);
+    assert.equal(input.selectionEnd, 4);
     assert.equal(dom.window.document.querySelector("textarea"), input);
+    input.dispatchEvent(new dom.window.CompositionEvent("compositionend", { data: "正在输入", bubbles: true }));
+    assert.equal(timers.size, 0, "terminal image state removes the polling timer");
+    const readsAfterCompletion = messageReads;
+    await React.act(async () => {
+      for (const { callback } of [...timers.values()]) callback();
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    });
+    assert.equal(messageReads, readsAfterCompletion, "completed chats do not poll or refresh on visibility changes");
+    assert.equal(connects, 0);
+    assert.equal(historyReads, 1, "media polling never reloads the whole history");
+    await React.act(async () => agent.setMessages([]));
+
+    // An order publication checks for new messages without replaying a run or disabling the input.
+    const writesBeforeOrder = writes;
+    await React.act(async () => dom.window.dispatchEvent(new dom.window.Event("order:changed")));
+    assert.equal(connects, 0);
+    assert.equal(writes, writesBeforeOrder);
+    assert.equal(changes, changesBeforePoll);
+    assert.equal(input.disabled, false);
+    assert.equal(input.value, "订单还没输入完");
 
     await React.act(async () => [...dom.window.document.querySelectorAll("button")]
       .find((button) => button.textContent === "恢复连接").click());
-    assert.equal(connects, 2, "manual recovery remains available");
-    await React.act(async () => streams[1].complete());
+    assert.equal(connects, 1, "manual recovery remains available");
+    await React.act(async () => streams[0].complete());
     let forwarded;
     copilotkit.runAgent = async ({ forwardedProps }) => { forwarded = forwardedProps; };
     await React.act(async () => reference.click());

@@ -10,6 +10,28 @@
 }
 
 .thread { min-width: 0; }
+.threadToolbar { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 0 20px; min-height: 32px; color: #8a8d94; font-size: 12px; }
+.threadMenu { position: relative; z-index: 30; }
+.threadMenu summary { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; list-style: none; cursor: pointer; }
+.threadMenu summary::-webkit-details-marker { display: none; }
+.threadMenu summary:hover, .threadMenu[open] summary { color: #343840; background: #f1f2f4; }
+.threadMenu summary:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+.menuItems { position: absolute; top: 32px; right: 0; display: flex; flex-direction: column; width: 132px; padding: 4px; border: 1px solid #e9eaee; border-radius: 10px; background: #fff; box-shadow: 0 6px 20px #17203312; }
+.menuItems button { padding: 8px 10px; border-radius: 6px; color: #595e68; text-align: left; cursor: pointer; }
+.menuItems button:hover { background: #f4f5f7; }
+.menuItems button:disabled { opacity: .4; cursor: default; }
+.thread .primaryButton { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; min-width: 34px; padding: 0; border: 0; border-radius: 50%; background: #3964fe; color: white; box-shadow: none; cursor: pointer; transition: background 100ms, opacity 100ms; }
+.thread .primaryButton:hover:not(:disabled) { background: #3158e5; }
+.thread .primaryButton:disabled { opacity: .4; cursor: default; }
+.thread .primaryButton:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
+.addButton { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: #f2f3f5; color: #555c68; cursor: pointer; }
+.addButton:hover:not(:disabled) { background: #e7e9ee; }
+.addButton:disabled { opacity: .4; cursor: default; }
+.spinner { transform-origin: center; animation: spin 800ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .thread .primaryButton { transition: none; } }
+.thread [data-testid="copilot-chat-input"] { border: 1px solid #e5e7ec; border-radius: 24px; box-shadow: 0 2px 8px #1f293705; background: #fafbfc; }
+.thread [data-testid="copilot-chat-input"]:focus-within { border-color: #c5cfe7; box-shadow: 0 2px 10px #1f293708; }
 .thread [data-copilotkit] { min-width: 0; }
 
 /* The process header already indicates activity while thinking or using tools. */

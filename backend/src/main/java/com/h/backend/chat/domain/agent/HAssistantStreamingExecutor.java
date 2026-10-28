@@ -92,6 +92,9 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             ChatExecutionCancellation.check(command.sink());
             String messageForLlm = command.userMessage();
             if (command.resources() != null && !command.resources().isEmpty()) {
+                messageForLlm += "\n[系统：本消息引用的素材 resourceId："
+                        + command.resources().stream().map(ChatMessageResourceUseDto::resourceId)
+                        .collect(java.util.stream.Collectors.joining("、")) + "。]";
                 messageForLlm += "\n[系统：当前消息含用户素材。调用list_video_inputs获取当前用户素材ID和类型。静态图片生成/编辑使用generateImage；视频使用generate_video，不要调用旧版image_to_video。视频默认H3、6秒、768P；用户指定时长和画质必须遵从，不擅自换模型或降级。单图未指定用途时为首帧，多图为参考；首尾帧与音视频参考互斥，冲突时询问用户。仅描述素材不要生成视频。]";
             }
             // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把

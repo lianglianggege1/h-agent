@@ -91,11 +91,27 @@ function unifyProcessMessages(messages: Message[]): Message[] {
   const toolIds = new Set<string>();
   for (const [key, sources] of groups) {
     // Snapshot replay order is normally chronological; timestamps also cover a late reconnect.
-    const ordered = [...sources].sort((a, b) => Number(a.content.startedAt ?? 0) - Number(b.content.startedAt ?? 0));
+    const chronological = [...sources].sort((a, b) => Number(a.content.startedAt ?? 0) - Number(b.content.startedAt ?? 0));
+    let start = 0;
+    for (let index = 1; index < chronological.length; index++) {
+      const previous = chronological[index - 1].content;
+      const continuation = ["RESUMED", "WAITING_APPROVAL", "PAUSED"].includes(String(previous.status))
+        || previous.status === "FAILED" && previous.continuable === true;
+      // Editing preserves the user message ID, but starts a new answer and process.
+      // Completed legacy runs also delimit replacements when replayed without the explicit marker.
+      if (chronological[index].content.replacesPrevious === true || !continuation) start = index;
+    }
+    const ordered = chronological.slice(start);
     const first = ordered[0];
     const last = ordered.at(-1)!;
     const steps = new Map<string, ProcessStep>();
     const entries: ProcessEntry[] = [];
+    for (const source of chronological) {
+      if (source.id !== first.id) hidden.add(source.id);
+      for (const step of (source.content.steps ?? []) as ProcessStep[]) {
+        if (step.id.startsWith("tool-")) toolIds.add(step.id.slice(5));
+      }
+    }
     for (const source of ordered) {
       const sourceSteps = (source.content.steps ?? []) as ProcessStep[];
       for (const step of sourceSteps) {
@@ -108,17 +124,22 @@ function unifyProcessMessages(messages: Message[]): Message[] {
         ...sourceSteps.map((step) => ({ id: step.id, type: "step" as const, stepId: step.id })),
       ];
       entries.push(...timeline.map((entry) => ({ ...entry, id: `${source.id}/${entry.id}` })));
-      if (source.id !== first.id) hidden.add(source.id);
     }
     const legacy = messages.filter((message): message is ActivityMessage => message.role === "activity"
       && message.activityType === "h-agent.reasoning" && owner(message) === key);
     // Old snapshots can have tools without reasoning. Keep the persisted reasoning as a fallback.
-    if (!entries.some((entry) => entry.type === "reasoning") && legacy.length) {
+    if (start === 0 && first.content.replacesPrevious !== true
+      && !entries.some((entry) => entry.type === "reasoning") && legacy.length) {
       entries.unshift(...legacy.map((message) => ({ id: message.id, type: "reasoning" as const, chunks: [String(message.content.text ?? "")] })));
     }
     legacy.forEach((message) => hidden.add(message.id));
+    const elapsedBeforeMs = ordered.slice(0, -1).reduce((elapsed, source) => {
+      const { startedAt, processEndedAt } = source.content;
+      return elapsed + Number(source.content.elapsedBeforeMs ?? 0)
+        + (typeof startedAt === "number" && typeof processEndedAt === "number" ? Math.max(0, processEndedAt - startedAt) : 0);
+    }, Number(last.content.elapsedBeforeMs ?? 0));
     replacements.set(first.id, { ...first, content: {
-      ...last.content, runId: first.content.runId ?? first.id, startedAt: first.content.startedAt,
+      ...last.content, runId: first.content.runId ?? first.id, startedAt: last.content.startedAt, elapsedBeforeMs,
       anchorMessageId: first.content.anchorMessageId, anchorPlacement: first.content.anchorPlacement,
       answerStarted: ordered.some((source) => source.content.answerStarted === true)
         || (ordered.every((source) => typeof source.content.answerStarted !== "boolean") && answered.has(key)),

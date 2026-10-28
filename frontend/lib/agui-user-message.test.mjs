@@ -61,3 +61,29 @@ test("mixed video and audio references stay inside compact links below the sent 
     assert.equal(refs.querySelectorAll("a[target='_blank']").length, 2);
   } finally { dom.window.close(); }
 });
+
+test("only the latest user message exposes editing, and running disables it", () => {
+  function render(id, disabled) {
+    return new JSDOM(renderToStaticMarkup(React.createElement(CopilotKit, {
+      agents__unsafe_dev_only: { default: new HttpAgent({ url: "http://localhost/fixture" }) }, enableInspector: false,
+    }, React.createElement(component.exports.UserMessageEditContext.Provider, {
+      value: { latestId: "latest", disabled, save: async () => {} },
+    }, React.createElement(component.exports.ReferencedUserMessage, {
+      message: { id, role: "user", content: "原文字" },
+    })))));
+  }
+  for (const [id, disabled, exists] of [["older", false, false], ["latest", false, true], ["latest", true, true]]) {
+    const dom = render(id, disabled);
+    try {
+      const button = dom.window.document.querySelector('button[aria-label="编辑消息"]');
+      assert.equal(Boolean(button), exists);
+      if (button) {
+        assert.equal(button.disabled, disabled);
+        assert.equal(button.textContent.trim(), "");
+        assert.ok(button.querySelector("svg"));
+        assert.ok(button.closest('[data-testid="copilot-user-toolbar"]')
+          .querySelector('[data-testid="copilot-user-copy-button"]'), "Edit and copy share one action row");
+      }
+    } finally { dom.window.close(); }
+  }
+});

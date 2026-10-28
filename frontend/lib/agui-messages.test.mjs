@@ -92,6 +92,30 @@ test("a turn has one process across live tools, history recovery and approval co
   assert.deepEqual(process.entries.filter((entry) => entry.type === "reasoning").flatMap((entry) => entry.chunks), ["thinking", "confirmed"]);
   assert.equal(new Set(process.entries.map((entry) => entry.id)).size, 3, "Block identities remain distinct across runs");
   assert.equal(before.content.status, "RESUMED", "SDK state must not be mutated by a view transform");
+  assert.equal(process.startedAt, 5000, "The running timer belongs to the latest execution");
+  assert.equal(process.elapsedBeforeMs, 2000, "The approval wait is excluded from accumulated thinking");
+});
+
+test("an explicit edit resets paused or resumed process history and reader state", () => {
+  for (const status of ["PAUSED", "RESUMED", "FAILED"]) {
+    const old = { id: "old", role: "activity", activityType: "h-agent.progress", content: {
+      runId: "old", status, continuable: true, anchorMessageId: "u", startedAt: 1000, processEndedAt: 5000,
+      entries: [{ id: "old-reason", type: "reasoning", chunks: ["旧的思考"] }],
+      steps: [{ id: "tool-old", name: "search", status: "completed" }],
+    } };
+    const fresh = { id: "fresh", role: "activity", activityType: "h-agent.progress", content: {
+      runId: "fresh", status: "RUNNING", replacesPrevious: true, anchorMessageId: "u", startedAt: 70000,
+      answerStarted: false, entries: [], steps: [],
+    } };
+    const output = orderProductMessages([{ id: "u", role: "user", content: "已修改" }, old, fresh]);
+    assert.deepEqual(output.map((message) => message.id), ["u", "fresh"]);
+    assert.equal(output[1].content.runId, "fresh");
+    assert.equal(output[1].content.startedAt, 70000);
+    assert.equal(output[1].content.elapsedBeforeMs, 0);
+    assert.equal(output[1].content.answerStarted, false);
+    assert.deepEqual(output[1].content.entries, []);
+    assert.equal(old.content.status, status);
+  }
 });
 
 test("a resource caption does not close a process before actual answer content", () => {

@@ -76,6 +76,14 @@ public class AguiChatController {
 
     public record StopRequest(String runId) { }
 
+    @PostMapping("/threads/{threadId}/pause")
+    public ApiResponse<Void> pause(@AuthenticationPrincipal AuthUserPrincipal principal,
+                                  @PathVariable String threadId,
+                                  @RequestBody(required = false) StopRequest request) {
+        runtime.pause(principal.userId(), threadId, request == null ? null : request.runId());
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/threads/{threadId}/stop")
     public ApiResponse<Void> stop(@AuthenticationPrincipal AuthUserPrincipal principal,
                                  @PathVariable String threadId,

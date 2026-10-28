@@ -71,6 +71,35 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ChatServiceImplTest {
+    @Test
+    void editedTurnReusesThePersistedUserMessageWithoutAppendingAnotherUser() {
+        var assistant = mock(HAssistant.class);
+        var prompts = mock(SystemPromptService.class);
+        var sessions = mock(ChatSessionService.class);
+        var runs = mock(AgentRunService.class);
+        var observations = mock(AgentObservability.class);
+        var service = createChatService(assistant, prompts, sessions, runs, observations);
+        var turns = mock(com.h.backend.chat.application.agui.ChatTurnService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "chatTurns", turns);
+        var operation = new com.h.backend.chat.application.agui.ChatTurnOperation("edit", 121L, null, "run", "", null);
+        when(prompts.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(turns.prepare(eq(1L), eq("session-edit"), eq("1:22:session-edit"), any(), eq(operation), eq("改正文字")))
+                .thenReturn("改正文字");
+        when(sessions.getOwnedMessage(1L, "session-edit", 121L)).thenReturn(
+                new ChatSessionMessageDto("121", "user", "USER", "改正文字", null, List.of(), null));
+        when(runs.createRun("session-edit", 1L, 22L, 121L, "standard-chat", null))
+                .thenReturn(new AgentRunService.AgentRunHandle(88L));
+        when(observations.start(any())).thenReturn(mock(AgentExecutionObservation.class));
+        when(assistant.streamChat(eq("1:22:session-edit"), eq("改正文字"), any()))
+                .thenReturn(new FakeTokenStream().emitText("新回复"));
+        service.streamChat(1L, 2L, "standard-chat", "session-edit", "改正文字", List.of())
+                .contextWrite(context -> context.put(com.h.backend.chat.application.agui.ChatTurnOperation.class, operation))
+                .collectList().block();
+        verify(sessions, never()).appendUserMessage(any(), any(), any(), any());
+        verify(runs).createRun("session-edit", 1L, 22L, 121L, "standard-chat", null);
+        verify(sessions).appendAssistantMessage(1L, "session-edit", "新回复");
+    }
+
 
     @Test
     void shouldEmitErrorAndSkipAssistantWhenConcurrencyGuardRejects() {

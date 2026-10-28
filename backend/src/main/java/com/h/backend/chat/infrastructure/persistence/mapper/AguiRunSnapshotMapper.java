@@ -33,15 +33,22 @@ public interface AguiRunSnapshotMapper {
 
     @Update("""
             UPDATE chat_interaction_runs SET status = 'CANCEL_REQUESTED'
-            WHERE user_id = #{userId} AND session_id = #{sessionId} AND status = 'RUNNING'
+            WHERE user_id = #{userId} AND session_id = #{sessionId} AND status IN ('RUNNING', 'PAUSE_REQUESTED')
               AND (CAST(#{runId} AS VARCHAR) IS NULL OR run_id = #{runId})
             """)
     int requestStop(@Param("userId") Long userId, @Param("sessionId") String sessionId, @Param("runId") String runId);
 
     @Update("""
+            UPDATE chat_interaction_runs SET status = 'PAUSE_REQUESTED'
+            WHERE user_id = #{userId} AND session_id = #{sessionId} AND status = 'RUNNING'
+              AND (CAST(#{runId} AS VARCHAR) IS NULL OR run_id = #{runId})
+            """)
+    int requestPause(@Param("userId") Long userId, @Param("sessionId") String sessionId, @Param("runId") String runId);
+
+    @Update("""
             UPDATE chat_interaction_runs SET status = 'INTERRUPTED', updated_at = NOW()
             WHERE run_id = #{runId} AND user_id = #{userId}
-              AND status IN ('RUNNING', 'CANCEL_REQUESTED') AND updated_at < NOW() - INTERVAL '60 seconds'
+              AND status IN ('RUNNING', 'CANCEL_REQUESTED', 'PAUSE_REQUESTED') AND updated_at < NOW() - INTERVAL '60 seconds'
             """)
     int interruptStale(@Param("userId") Long userId, @Param("runId") String runId);
 }

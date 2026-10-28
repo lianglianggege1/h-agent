@@ -25,3 +25,30 @@
 
 .play { position: absolute; inset: 0; display: grid; place-items: center; color: white; text-shadow: 0 1px 4px #0008; }
 .audio { display: grid; place-items: center; width: 100%; height: 100%; background: #f3f4f6; color: #777c88; font-size: 24px; }
+
+.message { min-width: 0; }
+.actions { display: flex; align-items: center; justify-content: flex-end; min-height: 28px; gap: 4px; margin-top: 4px; }
+.actions > div { gap: 4px; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: #8a8d94; cursor: pointer; transition: color 100ms, background 100ms; }
+.iconButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.iconButton:hover:not(:disabled) { background: #f0f1f3; color: #30343b; }
+.iconButton:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+.iconButton:disabled { opacity: .35; cursor: default; }
+.editor { box-sizing: border-box; width: min(100%, 520px); padding: 12px 14px 8px; border: 1px solid #e2e4e9; border-radius: 16px; background: #f6f7f9; }
+.editor:focus-within { border-color: #b9c7ed; box-shadow: 0 0 0 2px #4f6ee608; }
+.editor textarea { display: block; box-sizing: border-box; width: 100%; min-height: 28px; max-height: 200px; margin: 0; padding: 0; resize: none; border: 0; outline: none; background: transparent; color: #25262b; font: inherit; font-size: 14px; line-height: 24px; overflow-y: auto; }
+.editorFooter { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.shortcut { color: #92969f; font-size: 11px; line-height: 20px; }
+.editorActions { display: flex; gap: 4px; margin-left: auto; }
+.confirm { color: #3964fe; }
+.confirm:hover:not(:disabled) { background: #e9eeff; color: #3159e5; }
+@media (hover: hover) {
+  .message:not([data-latest]) .actions { opacity: 0; transition: opacity 100ms; }
+  .message:hover .actions, .message:focus-within .actions { opacity: 1; }
+}
+@media (max-width: 480px) {
+  .shortcut { display: none; }
+  .editor { width: 100%; }
+  .iconButton { width: 32px; height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .iconButton, .actions { transition: none; } }

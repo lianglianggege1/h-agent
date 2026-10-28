@@ -12,6 +12,9 @@ import java.util.List;
 @Mapper
 public interface ChatSessionMapper extends BaseMapper<ChatSessionEntity> {
 
+    @Update("UPDATE chat_sessions SET last_user_message = #{text}, last_active_at = NOW(), updated_at = NOW() WHERE id = #{id}")
+    int reviseLastUser(@Param("id") Long id, @Param("text") String text);
+
     @Select("""
             SELECT id, user_id, session_id, prompt_id, agent_id, title, last_user_message, message_count,
                    status, last_active_at, created_at, updated_at

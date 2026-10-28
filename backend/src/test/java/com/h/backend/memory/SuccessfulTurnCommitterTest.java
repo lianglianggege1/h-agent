@@ -37,6 +37,19 @@ class SuccessfulTurnCommitterTest {
             chatSessionService, agentRunService, memoryRuntime, policyCatalog);
 
     @Test
+    void continuationCommitsThePrefixAndSuffixAsOneAnswer() {
+        var command = command(standardAgent(), 11L);
+        when(command.sink().contextView()).thenReturn(reactor.util.context.Context.of(
+                com.h.backend.chat.application.agui.ChatTurnOperation.class,
+                new com.h.backend.chat.application.agui.ChatTurnOperation("continue", 11L, "old", "new", "前半段", "answer")));
+        when(chatSessionService.appendAssistantMessage(7L, "session-actual", "前半段后半段")).thenReturn(22L);
+        when(chatSessionService.getOwnedMessage(7L, "session-actual", 22L)).thenReturn(assistantMessage());
+        committer.commit(command, "后半段");
+        verify(chatSessionService).appendAssistantMessage(7L, "session-actual", "前半段后半段");
+        verify(agentRunService).completeRun(99L, 22L);
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void commitPersistsAssistantMessageCompletesRunAndStagesCapture() {
         AgentDefinition standardAgent = standardAgent();

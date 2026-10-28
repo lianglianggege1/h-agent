@@ -6,11 +6,24 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectProvider;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
 @Mapper
 public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageEntity> {
+
+    @Select("SELECT * FROM chat_session_messages WHERE session_id = #{sessionId} AND role_code = 'user' AND superseded_at IS NULL ORDER BY sequence_no DESC LIMIT 1")
+    ChatSessionMessageEntity selectLatestUser(@Param("sessionId") String sessionId);
+
+    @Select("SELECT * FROM chat_session_messages WHERE session_id = #{sessionId} AND superseded_at IS NULL ORDER BY sequence_no ASC")
+    List<ChatSessionMessageEntity> selectVisibleHistory(@Param("sessionId") String sessionId);
+
+    @Update("UPDATE chat_session_messages SET content_text = #{text}, payload_json = jsonb_set(payload_json::jsonb, '{content}', to_jsonb(CAST(#{text} AS text)))::text WHERE id = #{id}")
+    int reviseUser(@Param("id") Long id, @Param("text") String text);
+
+    @Update("UPDATE chat_session_messages SET superseded_at = NOW() WHERE session_id = #{sessionId} AND sequence_no > #{sequence} AND superseded_at IS NULL")
+    int supersedeAfter(@Param("sessionId") String sessionId, @Param("sequence") int sequence);
 
     @Select("SELECT * FROM chat_session_messages WHERE id = #{id} FOR UPDATE")
     ChatSessionMessageEntity selectForUpdate(@Param("id") Long id);
@@ -36,7 +49,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
             SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                    content_text, payload_json, created_at
             FROM chat_session_messages
-            WHERE session_record_id = #{sessionRecordId}
+            WHERE superseded_at IS NULL AND session_record_id = #{sessionRecordId}
               AND session_id = #{sessionId}
             ORDER BY sequence_no ASC
             """)
@@ -64,7 +77,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
             SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                    content_text, payload_json, created_at
             FROM chat_session_messages
-            WHERE session_record_id = #{sessionRecordId}
+            WHERE superseded_at IS NULL AND session_record_id = #{sessionRecordId}
               AND session_id = #{sessionId}
             ORDER BY sequence_no DESC
             LIMIT #{limit}
@@ -79,7 +92,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
             SELECT EXISTS (
                 SELECT 1
                 FROM chat_session_messages
-                WHERE session_id = #{sessionId}
+                WHERE superseded_at IS NULL AND session_id = #{sessionId}
                   AND role_code = 'assistant'
             )
             """)
@@ -88,7 +101,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
     @Select("""
             SELECT id
             FROM chat_session_messages
-            WHERE session_id = #{sessionId}
+            WHERE superseded_at IS NULL AND session_id = #{sessionId}
               AND role_code = 'assistant'
             ORDER BY sequence_no DESC
             LIMIT 1
@@ -99,7 +112,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
             SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                    content_text, payload_json, created_at
             FROM chat_session_messages
-            WHERE session_id = #{sessionId}
+            WHERE superseded_at IS NULL AND session_id = #{sessionId}
             ORDER BY sequence_no DESC
             LIMIT 1
             """)
@@ -112,7 +125,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
                     SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                            content_text, payload_json, created_at
                     FROM chat_session_messages
-                    WHERE session_record_id = #{sessionRecordId}
+                    WHERE superseded_at IS NULL AND session_record_id = #{sessionRecordId}
                       AND session_id = #{sessionId}
                     """);
             appendCursor(sql, beforeSeq);
@@ -124,7 +137,7 @@ public interface ChatSessionMessageMapper extends BaseMapper<ChatSessionMessageE
                     SELECT id, session_record_id, session_id, user_id, sequence_no, message_type, role_code,
                            content_text, payload_json, created_at
                     FROM chat_session_messages
-                    WHERE session_id = #{sessionId}
+                    WHERE superseded_at IS NULL AND session_id = #{sessionId}
                     """);
             appendCursor(sql, beforeSeq);
             return sql.toString();

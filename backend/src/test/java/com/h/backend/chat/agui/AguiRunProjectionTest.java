@@ -18,6 +18,33 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AguiRunProjectionTest {
     @Test
+    void continuationPausedBeforeAnyTextStillStartsAnAnswerMessage() {
+        List<Event> events = new ArrayList<>();
+        var projection = new AguiRunProjection("thread", "new-run", events::add);
+        projection.continueAnswer("answer", "");
+        projection.accept(new ChatStreamEvent("chunk", "第一段"));
+        assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.TextMessageStartEvent start
+                && "answer".equals(start.messageId())));
+    }
+
+    @Test
+    void continuationAppendsToTheExistingAnswerAndClosesItsStream() {
+        List<Event> events = new ArrayList<>();
+        var projection = new AguiRunProjection("thread", "new-run", events::add);
+        projection.continueAnswer("old-answer", "前半段", "已执行的工具结果");
+        projection.accept(new ChatStreamEvent("chunk", "后半段"));
+        assertEquals(1, projection.partialMessages().size());
+        assertEquals("old-answer", projection.partialMessages().getFirst().id());
+        assertEquals("前半段后半段", ((com.agui.community.core.message.AssistantMessage)
+                projection.partialMessages().getFirst()).content());
+        assertEquals("已执行的工具结果", projection.snapshot().get("continuationContext"));
+        projection.closeMessages();
+        assertEquals(0, events.stream().filter(com.agui.community.core.event.TextMessageStartEvent.class::isInstance).count());
+        assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.TextMessageEndEvent end
+                && "old-answer".equals(end.messageId())));
+    }
+
+    @Test
     void streamsReasoningImmediatelyAndCollapsesOnlyOnActualAnswerContent() {
         List<Event> events = new ArrayList<>();
         AguiRunProjection projection = new AguiRunProjection("thread", "run", events::add);

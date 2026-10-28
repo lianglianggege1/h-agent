@@ -36,6 +36,7 @@ public class SuccessfulTurnCommitter {
 
     @Transactional
     public ChatSessionMessageDto commit(ChatAgentExecutionCommand command, String assistantReply) {
+        assistantReply = com.h.backend.chat.application.agui.ChatTurnOperation.completeAnswer(command.sink(), assistantReply);
         Long assistantMessageId = chatSessionService.appendAssistantMessage(
                 command.userId(),
                 command.sessionId(),

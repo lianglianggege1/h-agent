@@ -68,6 +68,8 @@ public class ChatServiceImpl implements ChatService {
     private final Map<AgentRuntimeType, ChatAgentExecutor> executors;
     /** Skill 快照固定点；为 null 时本次部署未启用 Skill Runtime。 */
     private final SkillRuntimeService skillRuntimeService;
+    @Autowired(required = false)
+    private com.h.backend.chat.application.agui.ChatTurnService chatTurns;
 
     @Autowired
     public ChatServiceImpl(
@@ -252,8 +254,9 @@ public class ChatServiceImpl implements ChatService {
             String userMessage,
             List<ChatMessageResourceUseDto> resources
     ) {
-        return Flux.defer(() -> {
-            if (isStandardImageCommand(agentId, userMessage)) {
+        return Flux.deferContextual(context -> {
+            if (!context.hasKey(com.h.backend.chat.application.agui.ChatTurnOperation.class)
+                    && isStandardImageCommand(agentId, userMessage)) {
                 var imagePermit = concurrencyGuard.tryAcquire(sessionId, userId);
                 if (!imagePermit.acquired()) return Flux.just(new ChatStreamEvent("error", imagePermit.message()));
                 return Flux.create(sink -> {
@@ -374,7 +377,12 @@ public class ChatServiceImpl implements ChatService {
             }
 
             Long resolvedPromptId = standardChat ? systemPromptService.resolvePromptId(userId, promptId) : null;
-            if (standardChat && isImageCommand(userMessage)) {
+            var turnOperation = com.h.backend.chat.application.agui.ChatTurnOperation.from(sink);
+            if (turnOperation != null && chatTurns == null) throw new IllegalStateException("Chat turn mutations are unavailable");
+            String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
+            if (chatTurns != null) userMessage = chatTurns.prepare(userId, address.sessionId(), memoryId,
+                    agent, turnOperation, userMessage);
+            if (standardChat && turnOperation == null && isImageCommand(userMessage)) {
                 // 图片命令不会交给通用文本 executor；该分支在这里终止，故必须自行归还 permit。
                 emitImageCommandEvents(sink, userId, resolvedPromptId, address.rootSessionId(), userMessage, resources);
                 releasePermitOnce(permit, permitReleased);
@@ -383,7 +391,9 @@ public class ChatServiceImpl implements ChatService {
 
             Long userMessageId;
             var continuation=sink.contextView().<com.h.backend.order.OrderContinuation>getOrDefault(com.h.backend.order.OrderContinuation.class,null);
-            if(continuation!=null && !address.subagent() && ChatAgentIds.ORDER_PROCESSING.equals(agent.agentId())){
+            if (turnOperation != null) {
+                userMessageId = turnOperation.userMessageId();
+            } else if(continuation!=null && !address.subagent() && ChatAgentIds.ORDER_PROCESSING.equals(agent.agentId())){
                 var existing=chatSessionService.getOwnedMessage(userId,address.rootSessionId(),continuation.userMessageId());
                 if(existing==null || !"user".equals(existing.role()))throw new BusinessException(40300,"恢复请求的原消息无效");
                 userMessageId=continuation.userMessageId();
@@ -422,7 +432,6 @@ public class ChatServiceImpl implements ChatService {
             if (com.h.backend.chat.application.agui.ChatExecutionCancellation.from(sink) != null) {
                 emitIfActive(sink, new ChatStreamEvent("run_started", "", null, runHandle.id()));
             }
-            String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
             observation = observability.start(new AgentExecutionStart(
                     "agent.run",
                     address.rootSessionId(),

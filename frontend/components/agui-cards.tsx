@@ -17,7 +17,7 @@ import { OrderCard, type OrderCardContent } from "@/components/order/order-card"
 
 const statusLabels: Record<string, string> = {
   RUNNING: "执行中", WAITING_APPROVAL: "等待你的批准", COMPLETED: "已完成", FAILED: "执行失败",
-  CANCELLED: "已停止", INTERRUPTED: "执行中断", BLOCKED: "请求被拦截", AVAILABLE: "可对话",
+  CANCELLED: "已停止", PAUSED: "已暂停", PAUSE_REQUESTED: "正在暂停", INTERRUPTED: "执行中断", BLOCKED: "请求被拦截", AVAILABLE: "可对话",
   RESUMED: "已继续执行", waiting: "等待批准",
   running: "执行中", started: "执行中", start: "执行中", completed: "已完成", end: "已完成",
   failed: "失败", cancelled: "已停止", delta: "执行中",

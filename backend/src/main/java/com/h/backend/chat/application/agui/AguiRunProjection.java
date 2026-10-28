@@ -32,6 +32,9 @@ public final class AguiRunProjection {
     private Long businessRunId;
     private String anchorMessageId;
     private String anchorPlacement = "AFTER";
+    private String continuedAnswerId;
+    private String continuationContext = "";
+    private boolean replacesPrevious;
 
     public AguiRunProjection(String threadId, String runId, Consumer<Event> output) {
         this.threadId = threadId;
@@ -41,6 +44,19 @@ public final class AguiRunProjection {
 
     public String status() { return status; }
     public boolean terminal() { return !"RUNNING".equals(status); }
+    public boolean hasAnchor() { return anchorMessageId != null; }
+    public void replacePreviousAnswer() { replacesPrevious = true; }
+
+    public void continueAnswer(String id, String prefix) {
+        continueAnswer(id, prefix, "");
+    }
+
+    public void continueAnswer(String id, String prefix, String previousExecutionContext) {
+        continuedAnswerId = id;
+        continuationContext = previousExecutionContext;
+        text.put(id, new StringBuilder(prefix));
+        if (!prefix.isEmpty()) openText.add(id);
+    }
 
     public void accept(ChatStreamEvent event) {
         switch (event.type()) {
@@ -63,7 +79,7 @@ public final class AguiRunProjection {
             }
             case "chunk" -> {
                 if (!harness && event.content() != null && !event.content().isEmpty()) {
-                    String id = "answer-" + runId;
+                    String id = continuedAnswerId == null ? "answer-" + runId : continuedAnswerId;
                     if (!openText.contains(id)) publish(new TextMessageStartEvent(id, Role.ASSISTANT));
                     publish(new TextMessageContentEvent(id, event.content()));
                 }
@@ -127,6 +143,15 @@ public final class AguiRunProjection {
     }
 
     private void publish(Event event) {
+        if (continuedAnswerId != null) {
+            if (event instanceof TextMessageStartEvent) {
+                if (openText.contains(continuedAnswerId)) return;
+                event = new TextMessageStartEvent(continuedAnswerId, Role.ASSISTANT);
+            }
+            if (event instanceof TextMessageContentEvent content)
+                event = new TextMessageContentEvent(continuedAnswerId, content.delta());
+            if (event instanceof TextMessageEndEvent) return;
+        }
         if (event instanceof ToolCallResultEvent result) {
             orderResult(result.content());
             event = new ToolCallResultEvent(result.messageId(), result.toolCallId(),
@@ -244,6 +269,8 @@ public final class AguiRunProjection {
         progress.put("steps", steps.values().stream().map(Map::copyOf).toList());
         progress.put("entries", List.copyOf(entries));
         progress.put("answerStarted", answerStarted);
+        if (replacesPrevious) progress.put("replacesPrevious", true);
+        if (continuedAnswerId != null) progress.put("continuable", true);
         if (startedAt != null) progress.put("startedAt", startedAt);
         if (processEndedAt != null) progress.put("processEndedAt", processEndedAt);
         if (anchorMessageId != null) {
@@ -302,8 +329,11 @@ public final class AguiRunProjection {
 
     public void interrupted() { status = "INTERRUPTED"; }
 
+    public void pause() { stop(); status = "PAUSED"; }
+
     public void closeMessages() {
         if (harnessAdapter != null) harnessAdapter.finish().forEach(this::publish);
+        if (continuedAnswerId != null && openText.remove(continuedAnswerId)) output.accept(new TextMessageEndEvent(continuedAnswerId));
         for (String id : List.copyOf(openText)) publish(new TextMessageEndEvent(id));
     }
 
@@ -315,6 +345,8 @@ public final class AguiRunProjection {
     public Map<String, Object> snapshot() {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("runId", runId);
+        if (continuedAnswerId != null) snapshot.put("continuable", true);
+        if (!continuationContext.isEmpty()) snapshot.put("continuationContext", continuationContext);
         snapshot.put("threadId", threadId);
         snapshot.put("status", status);
         snapshot.put("activities", List.copyOf(activities.values()));
@@ -344,6 +376,7 @@ public final class AguiRunProjection {
                 startedAt = progress.get("startedAt") instanceof Number time ? time.longValue() : null;
                 processEndedAt = progress.get("processEndedAt") instanceof Number time ? time.longValue() : null;
                 answerStarted = Boolean.TRUE.equals(progress.get("answerStarted"));
+                replacesPrevious = Boolean.TRUE.equals(progress.get("replacesPrevious"));
                 for (Object entry : (List<?>) progress.getOrDefault("entries", List.of())) {
                     entries.add(new LinkedHashMap<>((Map<String, Object>) entry));
                 }

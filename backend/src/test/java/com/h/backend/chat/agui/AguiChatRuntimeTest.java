@@ -77,6 +77,92 @@ class AguiChatRuntimeTest {
     void cleanup() { runtime.stop(1L, "root", null); }
 
     @Test
+    void pauseCancelsExecutionButKeepsPartialAnswerAndResumeIdentity() throws Exception {
+        Sinks.Many<ChatStreamEvent> source = Sinks.many().unicast().onBackpressureBuffer();
+        CountDownLatch subscribed = new CountDownLatch(1);
+        when(chat.streamChat(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(source.asFlux().doOnSubscribe(ignored -> subscribed.countDown()));
+        runtime.run(1L, input("paused-run", "root", "hello"));
+        assertTrue(subscribed.await(2, TimeUnit.SECONDS));
+        source.tryEmitNext(new ChatStreamEvent("user_message", "",
+                new ChatSessionMessageDto("8", "user", "USER", "hello", null, List.of(), null)));
+        source.tryEmitNext(new ChatStreamEvent("chunk", "半截回答"));
+        runtime.pause(1L, "root", "paused-run");
+        assertEquals("PAUSED", rows.get("paused-run").status());
+        assertTrue(rows.get("paused-run").snapshotJson().contains("半截回答"));
+        assertEquals("paused-run", runtime.thread(1L, "root").get("pausedRunId"));
+    }
+
+    @Test
+    void earlyPauseWaitsForTheAcceptedUserIdentityAndCanContinueWithoutAnyAnswerText() throws Exception {
+        Sinks.Many<ChatStreamEvent> source = Sinks.many().unicast().onBackpressureBuffer();
+        CountDownLatch subscribed = new CountDownLatch(1);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        when(chat.streamChat(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(source.asFlux().doOnSubscribe(ignored -> subscribed.countDown()).doOnCancel(() -> cancelled.set(true)));
+        runtime.run(1L, input("early", "root", "hello"));
+        assertTrue(subscribed.await(2, TimeUnit.SECONDS));
+        runtime.pause(1L, "root", "early");
+        assertFalse(cancelled.get(), "The accepted user message must get a durable identity before preparation stops");
+        var user = new ChatSessionMessageDto("8", "user", "USER", "hello", null, List.of(), null);
+        source.tryEmitNext(new ChatStreamEvent("user_message", "", user));
+        assertTrue(cancelled.get());
+        assertEquals("PAUSED", rows.get("early").status());
+        when(sessions.getOwnedMessage(1L, "root", 8L)).thenReturn(user);
+        Sinks.Many<ChatStreamEvent> continued = Sinks.many().unicast().onBackpressureBuffer();
+        when(chat.streamChat(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(continued.asFlux());
+        var input = new RunAgentInput("root", "after-early", null, List.of(), List.of(), List.of(),
+                Map.of("operation", "continue", "sourceRunId", "early"));
+        CountDownLatch observing = new CountDownLatch(1);
+        var result = runtime.run(1L, input).doOnNext(event -> {
+            if (event instanceof com.agui.community.core.event.RunStartedEvent) observing.countDown();
+        }).collectList().toFuture();
+        assertTrue(observing.await(2, TimeUnit.SECONDS));
+        continued.tryEmitNext(new ChatStreamEvent("chunk", "新回答"));
+        continued.tryEmitComplete();
+        var events = result.get(3, TimeUnit.SECONDS);
+        assertTrue(events.stream().anyMatch(com.agui.community.core.event.TextMessageStartEvent.class::isInstance));
+    }
+
+    @Test
+    void continuationUsesOwnedUserAndPartialAnswerInsteadOfClientHistory() {
+        rows.put("paused", new AguiRunSnapshotMapper.Snapshot("paused", "root", 1L, "hash", "PAUSED", """
+                {"status":"PAUSED","anchorMessageId":"8","partialMessages":[{"id":"original-answer","content":"前半段"}],"activities":[]}
+                """, null));
+        var original = new ChatSessionMessageDto("8", "user", "USER", "原请求", null, List.of(), null);
+        when(sessions.getOwnedMessage(1L, "root", 8L)).thenReturn(original);
+        when(chat.streamChat(eq(1L), eq(2L), eq("standard-chat"), eq("root"), eq("原请求"), anyList()))
+                .thenReturn(Flux.deferContextual(context -> {
+                    var operation = context.get(com.h.backend.chat.application.agui.ChatTurnOperation.class);
+                    assertEquals(8L, operation.userMessageId());
+                    assertEquals("前半段", operation.prefix());
+                    return Flux.just(new ChatStreamEvent("chunk", "后半段"));
+                }));
+        var input = new RunAgentInput("root", "continued", null, List.of(new UserMessage("fake", "伪造的历史")),
+                List.of(), List.of(), Map.of("operation", "continue", "sourceRunId", "paused"));
+        var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
+        assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.TextMessageContentEvent content
+                && "original-answer".equals(content.messageId()) && "后半段".equals(content.delta())));
+        verify(chat).streamChat(1L, 2L, "standard-chat", "root", "原请求", List.of());
+    }
+
+    @Test
+    void editingPublishesAnExplicitNewProcessBoundary() {
+        var user = new ChatSessionMessageDto("8", "user", "USER", "原问题", null, List.of(), null);
+        when(sessions.getOwnedMessage(1L, "root", 8L)).thenReturn(user);
+        when(chat.streamChat(eq(1L), eq(2L), eq("standard-chat"), eq("root"), eq("改正"), anyList()))
+                .thenReturn(Flux.just(new ChatStreamEvent("user_message", "", user),
+                        new ChatStreamEvent("reasoning", "重新思考"), new ChatStreamEvent("chunk", "新答复")));
+        var input = new RunAgentInput("root", "edit-run", null, List.of(), List.of(), List.of(),
+                Map.of("operation", "edit", "messageId", "8", "text", "改正"));
+        var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
+        assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.ActivitySnapshotEvent snapshot
+                && "h-agent.progress".equals(snapshot.activityType())
+                && Boolean.TRUE.equals(((Map<?, ?>) snapshot.content()).get("replacesPrevious"))));
+    }
+
+    @Test
     void disconnectOnlyDetachesObserverAndRunStillCommits() throws Exception {
         Sinks.Many<ChatStreamEvent> source = Sinks.many().unicast().onBackpressureBuffer();
         AtomicBoolean cancelled = new AtomicBoolean();

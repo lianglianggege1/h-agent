@@ -134,6 +134,10 @@ export function getChatSession(sessionId: string) {
   return apiFetch<ChatSessionMeta>(`/api/chat/sessions/${sessionId}`);
 }
 
+export function getChatSessionMessage(sessionId: string, messageId: string) {
+  return apiFetch<ChatSessionMessage>(`/api/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`);
+}
+
 export function getChatSessionMessages(sessionId: string, limit = 20, beforeSeq?: number | null) {
   const search = new URLSearchParams({
     limit: String(limit),

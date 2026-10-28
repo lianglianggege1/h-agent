@@ -367,14 +367,15 @@ public class ChatSessionServiceImpl implements ChatSessionService {
 
     @Override
     public ChatSessionMessageDto getOwnedMessage(Long userId, String sessionId, Long messageId) {
-        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        ChatSessionEntity session = requireOwnedMediaRoot(userId, sessionId);
         ChatSessionMessageEntity message = chatSessionMessageMapper.selectById(messageId);
         if (message == null
                 || !session.getId().equals(message.getSessionRecordId())
-                || !userId.equals(message.getUserId())) {
+                || !userId.equals(message.getUserId())
+                || (!sessionId.equals(session.getSessionId()) && !sessionId.equals(message.getSessionId()))) {
             throw new BusinessException(40404, "消息不存在");
         }
-        // sessionId 是顶级页面授权边界；实际消息可属于该页面下任意 Agent Session。
+        // 根会话可读取本页面下的消息；子会话只能刷新自己的消息。
         Map<Long, List<ChatMessageResourceDto>> resourcesByMessageId = loadResourcesByMessageId(List.of(message));
         return toMessageDto(message, resourcesByMessageId.getOrDefault(messageId, List.of()));
     }
