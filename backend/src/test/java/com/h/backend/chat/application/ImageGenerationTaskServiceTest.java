@@ -17,6 +17,46 @@ import static org.mockito.Mockito.*;
 
 class ImageGenerationTaskServiceTest {
     @Test
+    void queuedImageKeepsSubmittingTraceAndRestoresWorkerAfterFailure() throws Exception {
+        var fixture = new Fixture();
+        var transaction = mock(TransactionTemplate.class);
+        when(transaction.execute(any())).thenAnswer(call ->
+                ((org.springframework.transaction.support.TransactionCallback<?>) call.getArgument(0)).doInTransaction(null));
+        when(fixture.sessions.appendResourceMessage(any(), any(), anyString(), eq("IMAGE"), anyList()))
+                .thenReturn(message("PENDING"));
+        var service = new ImageGenerationTaskService(fixture.tasks, fixture.sessions, fixture.generator,
+                transaction, fixture.json);
+        var observedTrace = new java.util.concurrent.atomic.AtomicReference<String>();
+        when(fixture.generator.generateImage(fixture.command, 501L)).thenAnswer(call -> {
+            observedTrace.set(org.slf4j.MDC.get("traceId"));
+            throw new IllegalStateException("provider failed");
+        });
+        try {
+            org.slf4j.MDC.put("traceId", "submitting-trace");
+            org.slf4j.MDC.put("spanId", "submitting-span");
+            service.submit(fixture.command);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+        var queued = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(fixture.tasks).enqueue(eq(501L), queued.capture());
+        when(fixture.tasks.claim()).thenReturn(new ImageGenerationTaskMapper.Task(501L, queued.getValue()));
+        try (var worker = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            worker.submit(() -> {
+                org.slf4j.MDC.put("traceId", "worker-trace");
+                try {
+                    service.processNext();
+                    assertEquals("worker-trace", org.slf4j.MDC.get("traceId"));
+                } finally {
+                    org.slf4j.MDC.clear();
+                }
+            }).get();
+        }
+        assertEquals("submitting-trace", observedTrace.get());
+        verify(fixture.tasks).finish(501L, "FAILED");
+    }
+
+    @Test
     void submissionReturnsPendingMessageWithoutCallingProviderForTextOrReferenceImage() {
         var sessions = mock(ChatSessionService.class);
         var generator = mock(ImageGenerationService.class);

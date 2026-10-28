@@ -11,8 +11,16 @@ import java.util.concurrent.Executors;
 public class ChatStreamAsyncConfig {
 
     @Bean(destroyMethod = "close")
+    @org.springframework.context.annotation.Primary
     public ExecutorService chatStreamExecutor() {
         var threads = Thread.ofVirtual().name("chat-stream-", 0).factory();
+        return Executors.newThreadPerTaskExecutor(task ->
+                threads.newThread(ExecutionLogContext.wrap(task)));
+    }
+
+    @Bean(destroyMethod = "close")
+    public ExecutorService chatToolExecutor() {
+        var threads = Thread.ofVirtual().name("chat-tool-", 0).factory();
         return Executors.newThreadPerTaskExecutor(task ->
                 threads.newThread(ExecutionLogContext.wrap(task)));
     }

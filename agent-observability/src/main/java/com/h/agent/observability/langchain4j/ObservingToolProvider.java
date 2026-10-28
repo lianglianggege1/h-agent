@@ -6,6 +6,7 @@ import com.h.agent.observability.HAttrs;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.agent.observability.lifecycle.ObservationContext;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.agent.observability.semantic.ArtifactReference;
 import com.h.agent.observability.semantic.ArtifactReferenceBlock;
 import com.h.agent.observability.semantic.SemanticBlock;
@@ -48,6 +49,7 @@ public final class ObservingToolProvider implements ToolProvider {
     @Override
     public ToolProviderResult provideTools(ToolProviderRequest request) {
         ObservationContext parent = observability.currentContext();
+        ExecutionContextSnapshot executionContext = ExecutionContextSnapshot.capture();
         ToolProviderResult result = delegate.provideTools(request);
         if (result == null) {
             return null;
@@ -56,7 +58,7 @@ public final class ObservingToolProvider implements ToolProvider {
         for (AiServiceTool tool : result.aiServiceTools()) {
             ToolSpecification specification = tool.toolSpecification();
             observed.add(tool.toBuilder()
-                    .toolExecutor(new ObservingToolExecutor(tool.toolExecutor(), specification, parent))
+                    .toolExecutor(new ObservingToolExecutor(tool.toolExecutor(), specification, parent, executionContext))
                     .build());
         }
         return observed.build();
@@ -72,17 +74,21 @@ public final class ObservingToolProvider implements ToolProvider {
         private final ToolExecutor delegate;
         private final ToolSpecification specification;
         private final ObservationContext parent;
+        private final ExecutionContextSnapshot executionContext;
 
-        ObservingToolExecutor(ToolExecutor delegate, ToolSpecification specification, ObservationContext parent) {
+        ObservingToolExecutor(ToolExecutor delegate, ToolSpecification specification, ObservationContext parent,
+                              ExecutionContextSnapshot executionContext) {
             this.delegate = delegate;
             this.specification = specification;
             this.parent = parent;
+            this.executionContext = executionContext;
         }
 
         @Override
         public String execute(ToolExecutionRequest request, Object memoryId) {
             AgentObservation observation = startTool(request);
-            try (var scope = observability.scope(observation.context())) {
+            try (var logging = executionContext.scope();
+                 var scope = observability.scope(observation.context())) {
                 String result = delegate.execute(request, memoryId);
                 observation.output(toolOutput(request, toolName(request), result, ToolArtifactCollector.drain()));
                 observation.succeed();
@@ -102,7 +108,8 @@ public final class ObservingToolProvider implements ToolProvider {
         public dev.langchain4j.service.tool.ToolExecutionResult executeWithContext(
                 ToolExecutionRequest request, dev.langchain4j.invocation.InvocationContext context) {
             AgentObservation observation = startTool(request);
-            try (var scope = observability.scope(observation.context())) {
+            try (var logging = executionContext.scope();
+                 var scope = observability.scope(observation.context())) {
                 dev.langchain4j.service.tool.ToolExecutionResult result =
                         delegate.executeWithContext(request, context);
                 observation.output(toolOutput(request, toolName(request),

@@ -6,6 +6,7 @@ import com.h.agent.observability.HAttrs;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.agent.observability.lifecycle.ObservationScope;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.agent.observability.semantic.SemanticContent;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -87,16 +88,19 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         private final StreamingChatResponseHandler delegate;
         private final AgentObservation observation;
+        private final ExecutionContextSnapshot executionContext;
         private final StringBuilder partialText = new StringBuilder();
 
         ObservingHandler(StreamingChatResponseHandler delegate, AgentObservation observation) {
             this.delegate = delegate;
             this.observation = observation;
+            this.executionContext = ExecutionContextSnapshot.capture();
         }
 
         @Override
         public void onPartialResponse(String partialResponse) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 if (partialText.length() < 256 * 1024) {
                     partialText.append(partialResponse == null ? "" : partialResponse);
                 }
@@ -106,7 +110,8 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         @Override
         public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 if (partialResponse != null && partialResponse.text() != null && partialText.length() < 256 * 1024) {
                     partialText.append(partialResponse.text());
                 }
@@ -116,49 +121,56 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         @Override
         public void onPartialThinking(PartialThinking partialThinking) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onPartialThinking(partialThinking);
             }
         }
 
         @Override
         public void onPartialThinking(PartialThinking partialThinking, PartialThinkingContext context) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onPartialThinking(partialThinking, context);
             }
         }
 
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onPartialToolCall(partialToolCall);
             }
         }
 
         @Override
         public void onPartialToolCall(PartialToolCall partialToolCall, PartialToolCallContext context) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onPartialToolCall(partialToolCall, context);
             }
         }
 
         @Override
         public void onCompleteToolCall(CompleteToolCall completeToolCall) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onCompleteToolCall(completeToolCall);
             }
         }
 
         @Override
         public void onUnmappedRawEvent(Object rawEvent) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 delegate.onUnmappedRawEvent(rawEvent);
             }
         }
 
         @Override
         public void onCompleteResponse(ChatResponse completeResponse) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 try {
                     recordCompletion(completeResponse);
                 } finally {
@@ -193,7 +205,8 @@ public final class ObservingStreamingChatModel implements StreamingChatModel {
 
         @Override
         public void onError(Throwable error) {
-            try (ObservationScope scope = observability.scope(observation.context())) {
+            try (ObservationScope logging = executionContext.scope();
+                 ObservationScope scope = observability.scope(observation.context())) {
                 try {
                     observation.fail(error);
                 } finally {

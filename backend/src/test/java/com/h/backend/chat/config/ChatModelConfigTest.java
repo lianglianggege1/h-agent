@@ -2,6 +2,7 @@ package com.h.backend.chat.infrastructure.config;
 
 import com.h.agent.observability.NoopAgentObservability;
 import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
+import com.h.backend.observability.langchain4j.ContextPropagatingHttpClientBuilder;
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -42,6 +43,8 @@ class ChatModelConfigTest {
         Object client = readField(model, "client");
         Object httpClient = readField(client, "httpClient");
         LoggingHttpClient loggingHttpClient = assertInstanceOf(LoggingHttpClient.class, httpClient);
+        assertEquals(ContextPropagatingHttpClientBuilder.class,
+                readField(loggingHttpClient, "delegateHttpClient").getClass().getEnclosingClass());
 
         assertTrue((Boolean) readField(loggingHttpClient, "logRequests"));
         assertTrue((Boolean) readField(loggingHttpClient, "logResponses"));

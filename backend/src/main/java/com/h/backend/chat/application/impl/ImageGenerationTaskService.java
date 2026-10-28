@@ -6,6 +6,7 @@ import com.h.backend.chat.application.ImageGenerationService.ImageGenerationComm
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.infrastructure.persistence.mapper.ImageGenerationTaskMapper;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.backend.shared.infrastructure.web.ExecutionLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ImageGenerationTaskService {
@@ -44,7 +46,7 @@ public class ImageGenerationTaskService {
             Long messageId = Long.valueOf(pending.id());
             var message = sessions.updateImageMessage(command.userId(), command.sessionId(), messageId,
                     "图片生成中，请继续聊天。", payload(command, "PENDING"), List.of());
-            tasks.enqueue(messageId, json.writeValueAsString(command));
+            tasks.enqueue(messageId, json.writeValueAsString(new QueuedCommand(command, ExecutionLogContext.captureCorrelation())));
             return message;
         });
     }
@@ -52,13 +54,20 @@ public class ImageGenerationTaskService {
     public boolean processNext() {
         var task = tasks.claim();
         if (task == null) return false;
-        var command = json.readValue(task.commandJson(), ImageGenerationCommand.class);
+        var queued = readCommand(task);
+        try (var scope = ExecutionLogContext.restoreCorrelation(queued.correlation())) {
+            process(task, queued.command());
+        }
+        return true;
+    }
+
+    private void process(ImageGenerationTaskMapper.Task task, ImageGenerationCommand command) {
         try {
             var message = sessions.updateImageMessage(command.userId(), command.sessionId(), task.messageId(),
                     "图片生成中，请继续聊天。", payload(command, "IN_PROGRESS"), List.of());
             if (!"IN_PROGRESS".equals(message.payload().status())) {
                 tasks.finish(task.messageId(), queueStatus(message));
-                return true;
+                return;
             }
             generator.generateImage(command, task.messageId());
             tasks.finish(task.messageId(), "SUCCEEDED");
@@ -70,18 +79,29 @@ public class ImageGenerationTaskService {
                 finishWithoutRetry(task, command, "FAILED", "图片生成失败，请稍后重新发起生成。");
             }
         }
-        return true;
     }
 
     public void recoverStale(long seconds) {
         for (var task : tasks.findStale(seconds)) {
             try {
-                var command = json.readValue(task.commandJson(), ImageGenerationCommand.class);
-                finishWithoutRetry(task, command, "SUBMISSION_UNKNOWN", UNKNOWN_MESSAGE);
+                var queued = readCommand(task);
+                try (var scope = ExecutionLogContext.restoreCorrelation(queued.correlation())) {
+                    finishWithoutRetry(task, queued.command(), "SUBMISSION_UNKNOWN", UNKNOWN_MESSAGE);
+                }
             } catch (RuntimeException exception) {
                 log.warn("Could not recover image task messageId={}", task.messageId(), exception);
             }
         }
+    }
+
+    private record QueuedCommand(ImageGenerationCommand command, Map<String, String> correlation) {}
+
+    private QueuedCommand readCommand(ImageGenerationTaskMapper.Task task) {
+        // Existing rows contain the command directly; they remain runnable after upgrading.
+        if (json.readTree(task.commandJson()).has("command")) {
+            return json.readValue(task.commandJson(), QueuedCommand.class);
+        }
+        return new QueuedCommand(json.readValue(task.commandJson(), ImageGenerationCommand.class), null);
     }
 
     private void finishWithoutRetry(ImageGenerationTaskMapper.Task task, ImageGenerationCommand command,

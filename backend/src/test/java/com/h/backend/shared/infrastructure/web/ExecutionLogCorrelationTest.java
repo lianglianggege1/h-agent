@@ -4,12 +4,19 @@ import com.h.agent.observability.AgentObservabilityConfig;
 import com.h.agent.observability.AgentObservabilityTesting;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
+import com.h.agent.observability.NoopAgentObservability;
+import com.h.agent.observability.langchain4j.ObservingToolProvider;
 import com.h.agent.observability.langchain4j.ObservingChatModel;
 import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
 import com.h.agent.observability.lifecycle.AgentExecutionStart;
 import com.h.backend.chat.infrastructure.config.ChatStreamAsyncConfig;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolProviderResult;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -27,6 +34,10 @@ import org.slf4j.MDC;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -38,10 +49,103 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExecutionLogCorrelationTest {
+    interface StreamingAssistant {
+        TokenStream chat(String message);
+    }
+
+    @Test
+    void disabledObservabilityKeepsRequestIdsThroughStreamingAndConcurrentTools() throws Exception {
+        var seen = new ConcurrentLinkedQueue<String>();
+        Runnable capture = () -> seen.add(logValue("traceId") + ":" + logValue("spanId"));
+        var done = new CompletableFuture<Void>();
+        var round = new AtomicInteger();
+        try (var worker = Executors.newSingleThreadExecutor();
+             var toolExecutor = new ChatStreamAsyncConfig().chatToolExecutor()) {
+            var tools = new ObservingToolProvider(request -> ToolProviderResult.builder()
+                    .add(ToolSpecification.builder().name("lookup").build(), (request1, memoryId) -> {
+                        capture.run();
+                        return "found";
+                    }).build(), NoopAgentObservability.getInstance(), "langchain4j");
+            var model = new ObservingStreamingChatModel(new StreamingChatModel() {
+                @Override
+                public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+                    capture.run();
+                    boolean first = round.getAndIncrement() == 0;
+                    worker.execute(() -> {
+                        if (first) {
+                            var requests = List.of(
+                                    ToolExecutionRequest.builder().id("one").name("lookup").arguments("{}").build(),
+                                    ToolExecutionRequest.builder().id("two").name("lookup").arguments("{}").build()
+                            );
+                            for (int i = 0; i < requests.size(); i++) {
+                                handler.onCompleteToolCall(new dev.langchain4j.model.chat.response.CompleteToolCall(i, requests.get(i)));
+                            }
+                            handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(requests)).build());
+                        } else {
+                            handler.onPartialResponse("reply");
+                            handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from("reply")).build());
+                        }
+                    });
+                }
+            }, NoopAgentObservability.getInstance(), "test");
+            var assistant = AiServices.builder(StreamingAssistant.class).streamingChatModel(model)
+                    .toolProvider(tools).executeToolsConcurrently(toolExecutor).build();
+            MDC.put("traceId", "request-trace");
+            MDC.put("spanId", "request-span");
+            try {
+                assistant.chat("hello").beforeToolExecution(tool -> capture.run())
+                        .onToolExecuted(tool -> capture.run()).onPartialResponse(text -> capture.run())
+                        .onCompleteResponse(response -> {
+                            capture.run();
+                            done.complete(null);
+                        }).onError(done::completeExceptionally).start();
+            } finally {
+                MDC.clear();
+            }
+            done.get(5, TimeUnit.SECONDS);
+            assertEquals(10, seen.size()); // Model calls, tool bodies/hooks, partial and completion callbacks.
+            assertTrue(seen.stream().allMatch("request-trace:request-span"::equals), seen.toString());
+            assertNull(worker.submit(() -> logValue("traceId")).get());
+        } finally {
+            MDC.clear();
+        }
+    }
+
     // The same injector Log4j uses when capturing an event before AsyncAppender queues it.
     private static String logValue(String key) {
         return ContextDataInjectorFactory.createInjector()
                 .injectContextData(List.of(), new SortedArrayStringMap()).getValue(key);
+    }
+
+    @Test
+    void persistedCorrelationKeepsUnsampledSpanAndExcludesUnrelatedMdc() throws Exception {
+        try (var worker = Executors.newSingleThreadExecutor();
+             var provider = SdkTracerProvider.builder().setSampler(Sampler.alwaysOff()).build()) {
+            var span = provider.get("test").spanBuilder("queued-work").startSpan();
+            Map<String, String> correlation;
+            try (var scope = span.makeCurrent()) {
+                MDC.put("unrelated", "do-not-persist");
+                correlation = ExecutionLogContext.captureCorrelation();
+            } finally {
+                MDC.clear();
+            }
+            assertFalse(correlation.containsKey("unrelated"));
+            worker.submit(() -> {
+                MDC.put("traceId", "worker");
+                try {
+                    try (var scope = ExecutionLogContext.restoreCorrelation(correlation)) {
+                        assertEquals(span.getSpanContext().getTraceId(), logValue("traceId"));
+                        assertEquals(span.getSpanContext().getSpanId(), logValue("spanId"));
+                        assertFalse(Span.current().getSpanContext().isSampled());
+                    }
+                    assertEquals("worker", logValue("traceId"));
+                    assertFalse(Span.current().getSpanContext().isValid());
+                } finally {
+                    MDC.clear();
+                }
+            }).get();
+            span.end();
+        }
     }
 
     @Test

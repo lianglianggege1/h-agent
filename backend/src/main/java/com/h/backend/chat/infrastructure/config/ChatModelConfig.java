@@ -4,6 +4,7 @@ import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.langchain4j.ObservingChatModel;
 import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
 import com.h.agent.observability.langchain4j.ObservingToolProvider;
+import com.h.backend.observability.langchain4j.ContextPropagatingHttpClientBuilder;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import com.h.backend.chat.application.SystemPromptService;
@@ -106,6 +107,7 @@ public class ChatModelConfig {
         }
         ChatModelEnvironment settings = environment.orElseThrow();
         StreamingChatModel delegate = AnthropicStreamingChatModel.builder()
+                .httpClientBuilder(new ContextPropagatingHttpClientBuilder())
                 .apiKey(settings.apiKey())
                 .baseUrl(settings.baseUrl())
                 .modelName(settings.modelName())
@@ -145,6 +147,8 @@ public class ChatModelConfig {
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentor standardChatContextAugmentor,
                                  ObjectProvider<McpToolProvider> mcpToolProvider,
+                                 @org.springframework.beans.factory.annotation.Qualifier("chatToolExecutor")
+                                 java.util.concurrent.ExecutorService chatToolExecutor,
                                  AgentObservability observability) {
         List<ToolProvider> toolProviders = new ArrayList<>();
         // 静态工具走 provider 接缝注册：观测装饰器在每次请求构建时捕获当前观测上下文，
@@ -186,7 +190,7 @@ public class ChatModelConfig {
                 })
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
-                .executeToolsConcurrently() // 并发调用工具
+                .executeToolsConcurrently(chatToolExecutor) // 同时传播工具前后回调的日志上下文
                 .toolProviders(toolProviders)
                 // 记忆模块提供者
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
