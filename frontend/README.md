@@ -19,7 +19,7 @@ npm run dev
 
 ```bash
 npm ci
-BACKEND_API_BASE_URL=http://127.0.0.1:8081 npm run package
+BACKEND_API_BASE_URL=http://127.0.0.1:8083 npm run package
 ```
 
 构建结果位于 `dist/`。该目录已经包含运行所需的 Node 模块、前端静态资源和启动文件，不需要携带源码或再次执行 `npm install`。
@@ -35,7 +35,7 @@ PORT=3000 node start
 
 可用环境变量：
 
-- `BACKEND_API_BASE_URL`：后端服务地址，默认 `http://localhost:8081`；这是构建变量，必须在执行打包命令时设置，因为 Next.js rewrites 会写入构建产物。
+- `BACKEND_API_BASE_URL`：后端服务地址，默认 `http://localhost:8083`；这是构建变量，必须在执行打包命令时设置，因为 Next.js rewrites 会写入构建产物。
 - `PORT`：Node Web 服务端口，默认 `3000`。
 - `HOSTNAME`：监听地址，默认 `0.0.0.0`。
 

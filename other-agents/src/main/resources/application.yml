@@ -1,5 +1,5 @@
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
   http2:
     enabled: false
 
@@ -74,3 +74,17 @@ chat:
     upload:
       allowed-mime-types: image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/mp4,audio/wav,audio/webm
       max-file-size: 10485760
+
+# Shared Nacos naming client. Registration is mandatory on normal web application startup.
+h-agent:
+  registry:
+    enabled: ${NACOS_ENABLED:true}
+    server-addr: ${NACOS_SERVER_ADDR:169.254.210.181:8848}
+    namespace: ${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    cluster: ${NACOS_CLUSTER:DEFAULT}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    ip: ${NACOS_IP:}
+    port: ${NACOS_PORT:0}
+    timeout-ms: ${NACOS_TIMEOUT_MS:5000}

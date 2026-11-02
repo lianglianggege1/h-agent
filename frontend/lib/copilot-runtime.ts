@@ -10,7 +10,7 @@ import {
 } from "@copilotkit/runtime/v2";
 import { from, switchMap } from "rxjs";
 
-const backend = process.env.BACKEND_API_BASE_URL ?? "http://localhost:8081";
+const backend = process.env.BACKEND_API_BASE_URL ?? "http://localhost:8083";
 
 type ThreadStatus = { activeRunId: string | null; executing?: boolean };
 

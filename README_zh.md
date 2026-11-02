@@ -27,7 +27,7 @@ flowchart LR
     U[浏览器] --> F[Next.js :3000]
     U --> N[Nginx :8089]
     N --> F
-    N --> B[Spring Boot :8081]
+    N --> B[Spring Boot :8083]
     F --> B
 
     B --> A[LangChain4j / AgentScope]
@@ -256,6 +256,12 @@ MINIO_USER_SKILLS_BUCKET=h-agent-skills
 
 不要提交 `.env` 或任何真实凭据。
 
+### Nacos 注册中心
+
+两个 Java 服务默认注册到 Nacos。请在根目录 `.env` 填写 `NACOS_USERNAME`、`NACOS_PASSWORD`；注册失败会中止启动。SDK 地址为 `169.254.210.181:8848`，gRPC 使用 `9848`，namespace 为 `bc2a5f7e-0ab7-452c-849c-13527706651f`。控制台保留 `8081`，backend 默认端口调整为 `8083`。
+
+详见 [Nacos 注册与发现接入说明](docs/runbooks/nacos-service-discovery.md)。现有 A2A 调用继续使用原来的配置地址，后续再统一重构。
+
 ### 2. 构建并启动后端
 
 在仓库根目录执行：
@@ -265,7 +271,7 @@ mvn -pl backend -am package -DskipTests
 java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
 ```
 
-启动时 Flyway 会自动执行数据库迁移。API 地址为 [http://localhost:8081](http://localhost:8081)，健康检查地址为 [http://localhost:8081/actuator/health](http://localhost:8081/actuator/health)。
+启动时 Flyway 会自动执行数据库迁移。API 地址为 [http://localhost:8083](http://localhost:8083)，健康检查地址为 [http://localhost:8083/actuator/health](http://localhost:8083/actuator/health)。
 
 ### 3. 启动前端
 
@@ -277,7 +283,7 @@ npm install
 npm run dev
 ```
 
-打开 [http://localhost:3000/](http://localhost:3000/)。Next.js 默认将 `/api/*` 转发到 `http://localhost:8081`，如后端地址不同可设置 `BACKEND_API_BASE_URL`。
+打开 [http://localhost:3000/](http://localhost:3000/)。Next.js 默认将 `/api/*` 转发到 `http://localhost:8083`，如后端地址不同可设置 `BACKEND_API_BASE_URL`。
 
 ### 4. 可选 Nginx 开发网关
 
@@ -447,6 +453,7 @@ java -jar other-agents/target/other-agents-0.0.1-SNAPSHOT.jar
 ```text
 h-agent/
 ├── frontend/             Next.js Web 应用
+├── service-registry/     Java 服务共享的 Nacos 注册与发现
 ├── backend/              主 Spring Boot API 与 Agent 运行时
 ├── agent-observability/  OpenTelemetry/Langfuse 共享模块
 ├── other-agents/         可选 A2A 与 MCP 服务
@@ -483,7 +490,7 @@ uv run ruff format --check .
 | 现象 | 检查项 |
 | --- | --- |
 | 后端未监听端口就退出 | 确认 `mvn -version` 使用 Java 26，并补全必需的 MinIO/Mem0 配置。 |
-| 前端出现 API/网络错误 | 确认后端监听 `8081`，并检查 `BACKEND_API_BASE_URL`。 |
+| 前端出现 API/网络错误 | 确认后端监听 `8083`，并检查 `BACKEND_API_BASE_URL`。 |
 | 上传失败 | 确认使用 MinIO API `9000` 端口、Bucket 已创建、应用账号 Policy 正确。 |
 | 长期记忆没有召回 | 检查 Mem0 配置、Agent 记忆策略，以及 outbox 是否存在待处理/死信记录。 |
 | Langfuse 没有 Trace | 检查三个必需字段、启动状态、采样率，并确认 Base URL 不是 H Agent 页面。 |

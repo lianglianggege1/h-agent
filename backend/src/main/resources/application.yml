@@ -1,7 +1,7 @@
 server:
   http2:
     enabled: true
-  port: 8081
+  port: ${SERVER_PORT:8083}
 
 spring:
   application:
@@ -336,3 +336,17 @@ automation:
     log-path: ${XXL_JOB_LOG_PATH:./logs/xxl-job}
     log-retention-days: ${XXL_JOB_LOG_RETENTION_DAYS:30}
     scheduler-zone-id: ${XXL_JOB_SCHEDULER_ZONE_ID:Asia/Shanghai}
+
+# Shared Nacos naming client. Registration is mandatory on normal web application startup.
+h-agent:
+  registry:
+    enabled: ${NACOS_ENABLED:true}
+    server-addr: ${NACOS_SERVER_ADDR:169.254.210.181:8848}
+    namespace: ${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    cluster: ${NACOS_CLUSTER:DEFAULT}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    ip: ${NACOS_IP:}
+    port: ${NACOS_PORT:0}
+    timeout-ms: ${NACOS_TIMEOUT_MS:5000}

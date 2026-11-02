@@ -247,6 +247,12 @@
 
         <dependency>
             <groupId>com.h</groupId>
+            <artifactId>service-registry</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.h</groupId>
             <artifactId>agent-observability</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
@@ -260,6 +266,15 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <h-agent.registry.enabled>false</h-agent.registry.enabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

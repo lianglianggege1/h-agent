@@ -12,6 +12,7 @@
 
     <modules>
         <module>agent-observability</module>
+        <module>service-registry</module>
         <module>backend</module>
         <module>other-agents</module>
     </modules>

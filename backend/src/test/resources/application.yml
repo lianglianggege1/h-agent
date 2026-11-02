@@ -1,7 +1,7 @@
 server:
   http2:
     enabled: true
-  port: 8081
+  port: 8083
 
 spring:
   application:
@@ -196,3 +196,8 @@ skill-platform:
   runtime:
     enabled: true
   system-skills: []
+
+# Tests do not publish application instances to the shared registry.
+h-agent:
+  registry:
+    enabled: false

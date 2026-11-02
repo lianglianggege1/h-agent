@@ -27,7 +27,7 @@ flowchart LR
     U[Browser] --> F[Next.js :3000]
     U --> N[Nginx :8089]
     N --> F
-    N --> B[Spring Boot :8081]
+    N --> B[Spring Boot :8083]
     F --> B
 
     B --> A[LangChain4j / AgentScope]
@@ -256,6 +256,12 @@ MINIO_USER_SKILLS_BUCKET=h-agent-skills
 
 Never commit `.env` or real credentials.
 
+### Nacos service registry
+
+Both Java services register with Nacos by default. Set `NACOS_USERNAME` and `NACOS_PASSWORD` in the root `.env`; registration failure aborts startup. The SDK connects to `169.254.210.181:8848` with gRPC on `9848`, using namespace `bc2a5f7e-0ab7-452c-849c-13527706651f`. The console remains on `8081`, while backend now defaults to `8083`.
+
+See [Nacos registration and discovery](docs/runbooks/nacos-service-discovery.md) for lifecycle, advertised addresses, configuration, and the shared discovery API. Existing A2A calls keep their configured addresses.
+
 ### 2. Build and run the backend
 
 From the repository root:
@@ -265,7 +271,7 @@ mvn -pl backend -am package -DskipTests
 java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
 ```
 
-Flyway applies database migrations on startup. The API listens on [http://localhost:8081](http://localhost:8081), and health is available at [http://localhost:8081/actuator/health](http://localhost:8081/actuator/health).
+Flyway applies database migrations on startup. The API listens on [http://localhost:8083](http://localhost:8083), and health is available at [http://localhost:8083/actuator/health](http://localhost:8083/actuator/health).
 
 ### 3. Run the frontend
 
@@ -277,7 +283,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000/](http://localhost:3000/). Next.js rewrites `/api/*` to `http://localhost:8081` by default; override it with `BACKEND_API_BASE_URL` if needed.
+Open [http://localhost:3000/](http://localhost:3000/). Next.js rewrites `/api/*` to `http://localhost:8083` by default; override it with `BACKEND_API_BASE_URL` if needed.
 
 ### 4. Optional Nginx gateway
 
@@ -447,6 +453,7 @@ The service listens on port `8082`. Enable the corresponding `agents.a2a.other-a
 ```text
 h-agent/
 ├── frontend/             Next.js web application
+├── service-registry/     Shared Nacos registration and discovery
 ├── backend/              Main Spring Boot API and agent runtime
 ├── agent-observability/  Shared OpenTelemetry/Langfuse module
 ├── other-agents/         Optional A2A and MCP service
@@ -483,7 +490,7 @@ uv run ruff format --check .
 | Symptom | Check |
 | --- | --- |
 | Backend fails before listening | Confirm `mvn -version` uses Java 26 and all required MinIO/Mem0 fields are present. |
-| Frontend shows API/network errors | Confirm the backend is on `8081` and `BACKEND_API_BASE_URL` is correct. |
+| Frontend shows API/network errors | Confirm the backend is on `8083` and `BACKEND_API_BASE_URL` is correct. |
 | Upload fails | Use MinIO API port `9000`, verify the bucket exists, and check the application account policy. |
 | No long-term recall | Verify Mem0 configuration, enabled agent policy, and pending/dead-letter outbox rows. |
 | No Langfuse traces | Check all three Langfuse fields, startup status, sampling, and that the base URL is not the H Agent UI. |
