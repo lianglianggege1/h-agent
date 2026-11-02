@@ -51,56 +51,100 @@ flowchart LR
 | Observability | OpenTelemetry, Langfuse, Micrometer, Prometheus |
 | Optional services | A2A and MCP; LiveKit voice worker (Huoshan ASR/TTS, Java Agent control plane) |
 
-## Product Tour
+## Workspace Tour
 
-The following pages were verified against the local application at `http://localhost:3000/`.
+This tour was checked against the local pages on 2026-11-02. The interface uses a shared sidebar: **Workspace (`工作区`)** pages at the top, **Resources (`资源`)** below, and **Personal settings (`个人设置`)** at the bottom. Collapse the sidebar on desktop or use **Open navigation (`打开导航`)** on narrow screens.
 
-### 1. Sign in
+| Group | Entry in the UI | Route | Purpose |
+| --- | --- | --- | --- |
+| Workspace | Chat (`聊天`) | `/chat` | Create sessions, resume conversations, inspect execution |
+| Workspace | Agents (`智能体`) | `/agents` | Search capabilities, inspect topology, start Q&A |
+| Workspace | Automations (`自动化任务`) | `/automations` | Schedule work in an existing session |
+| Workspace | Outbound tasks (`外呼任务`) | `/outbound` | Manage authorized test extensions and call progress |
+| Resources | Prompts (`提示词`) | `/me/system-prompts` | Edit private System Prompts and choose a default |
+| Resources | Knowledge (`知识库`) | `/me/knowledge` | Maintain a separate knowledge base for each prompt |
+| Resources | Skills (`技能`) | `/me/skills` | Create Skills and manage proposals and releases |
+| Resources | Long-term memory (`长期记忆`) | `/me/memory` | Read and edit Harness `MEMORY.md` |
+| Account | Personal settings (`个人设置`) | `/me` | View the account, access workspace settings, sign out |
 
-Open [http://localhost:3000/](http://localhost:3000/) and use the development account:
+### 1. Sign in and start a conversation
 
-```text
-Email:    test@test
-Password: 12345678
-```
+Open the [local chat workspace](http://localhost:3000/chat). If signed out, you are redirected to email login. The local demo account is `test@test` with password `12345678`; complete the slider verification when prompted. Use this account only for local development.
 
-> Development account only. Do not reuse these credentials outside the local environment.
+Select **New session (`新会话`)** in the sidebar or chat header. The welcome screen also offers **Start a new session (`开始新会话`)**.
 
-![H Agent sign-in](docs/images/demo-01-login.png)
-
-### 2. Start a conversation
-
-Open the left menu and select **New Session (`新会话`)**. A session is bound to the selected Agent and execution mode; choosing another Agent creates a separate session so that histories and runtime state do not become mixed.
-
-The new-session picker provides three entry points:
-
-| Entry | Runtime | Choose it when |
+| Entry | Runtime | How to start |
 | --- | --- | --- |
-| **General Assistant (`通用助手`)** | `STANDARD_STREAMING_CHAT` | You want open-ended conversation using a selected System Prompt, its knowledge base, and common tools. |
-| **Domain Agent (`领域 Agent`)** | `AGENTIC_SYNC` | The task fits a predefined specialist or workflow topology. Search by name/domain/tag and select a card. |
-| **Collaborative Agent (`协作 Agent`)** | `HARNESS_STREAMING` | The goal is complex enough to be decomposed and delegated dynamically to multiple collaborating Agents. |
+| **General Assistant (`通用助手`)** | `STANDARD_STREAMING_CHAT` | Select the card to create a session with the default prompt. |
+| **Collaborative Agent (`协作 Agent`)** | `HARNESS_STREAMING` | Choose an approval mode, then select **Start collaboration (`开始协作`)**. |
+| **Domain Agent (`领域 Agent`)** | `AGENTIC_SYNC` or the registered runtime | Search by name, domain, or description; filter by domain and select a card. |
 
-![New-session Agent type picker](docs/images/demo-02-session-types.png)
+![New-session picker](docs/images/demo-02-session-types.jpg)
 
-After the session is created:
+Each session is bound to its Agent and runtime. Use **Recent sessions (`最近会话`)** in the sidebar to resume a conversation, refresh the list, or load more history.
 
-1. For the General Assistant, choose a System Prompt at the top of the chat. Its linked knowledge base is used for retrieval.
-2. For a Domain Agent, open **Topology Details (`拓扑详情`)** to see its Sequence, Router, Parallel, Loop, Supervisor, AI, or Human nodes.
-3. For the Collaborative Agent, watch the collaborator cards under **Collaboration Progress (`协作进度`)**. Open a card to read that collaborator's transcript and send a follow-up after it stops running.
-4. Use the paperclip to attach supported resources, enter the request, and select **Send (`发送`)**.
+- General Assistant sessions show the System Prompt selector and **Knowledge (`知识库`)** / **Manage (`管理`)** links. Selecting another prompt creates a new session.
+- Use **＋** to add attachments and the up-arrow **Send message (`发送消息`)** button to submit. During generation, use **Pause answer (`暂停回答`)**, then **Continue answer (`继续回答`)** to resume.
+- Domain and collaborative sessions offer **Topology details (`拓扑详情`)**. When collaborators exist, progress cards appear in the header. Open a card to view its conversation in a right-hand panel; work continues after the panel is closed.
+- Tool execution and approval requests appear in the message stream. On **Your approval is required (`需要你的批准`)**, review the tool summary and select **Allow execution (`允许执行`)** or **Deny (`拒绝`)**.
 
-> **Voice status:** The station-call flow is implemented and disabled by default. It becomes available after LAN HTTPS/WSS, LiveKit, Worker and authorized Huoshan credentials are configured. This checkout has no voice credentials, so real-device audio acceptance has not yet been run.
+![Chat workspace](docs/images/demo-02-chat.jpg)
 
-#### Built-in Agent guide
+The General Assistant's **Voice (`语音`)** link opens a separate call page. Availability depends on LiveKit, the worker, and ASR/TTS configuration; see [realtime voice](realtime-voice/README.md).
 
-##### General Assistant — `standard-chat`
+### 2. Find an Agent and inspect its topology
+
+Select **Agents (`智能体`)** to open **Professional Q&A (`专业问答`)**. Search by Agent, domain, or capability and filter by domain. Cards show the runtime, summary, and tags. Select **Start Q&A (`开始问答`)** for chat or **View orchestration (`查看编排`)** for topology. The top-right **Manage (`管理`)** link opens Agent management.
+
+![Agent catalog](docs/images/demo-04-agents.jpg)
+
+Car-rental assistance, experts, story creation, banking, and evening planning use predefined workflows. Collaboration and order processing use Harness. The current catalog determines which registered Agents are available.
+
+### 3. Configure prompts and knowledge
+
+Select **Prompts (`提示词`)** in the sidebar to select or create a System Prompt, edit its name and instructions, save it, and optionally make it the default assistant.
+
+![Prompt management](docs/images/demo-03-system-prompts.jpg)
+
+Select **Knowledge (`知识库`)**, choose a prompt, and upload a file or enter text manually. Supported formats include `md`, `txt`, `doc`, `docx`, `xls`, and `xlsx`. Each prompt owns an independent knowledge base; retrieval follows the prompt selected for the conversation.
+
+![Knowledge management](docs/images/demo-03-knowledge.jpg)
+
+### 4. Manage Skills and long-term memory
+
+Select **Skills (`技能`)** to open **My Skills (`我的 Skill`)**. Create a Skill, then use its detail page to edit and validate a Proposal, publish an immutable release, and explicitly activate it. Release artifacts are stored in the configured MinIO Skill bucket.
+
+![Skill workspace](docs/images/demo-05-skills.jpg)
+
+Select **Long-term memory (`长期记忆`)**, choose an Agent, and read or edit its Harness `MEMORY.md`. Saved changes are available to subsequent tasks. LangChain4j Mem0 memory is managed separately through the API described below.
+
+### 5. Schedule automation tasks
+
+Select **Automations (`自动化任务`) → ＋ New task (`新建任务`)**. Choose an existing session, enter a name and instruction, and set a daily, weekday, weekly, or custom Cron schedule. Tasks inherit the session's context, tools, and permissions; results are delivered to that session.
+
+New tasks start paused. Check the schedule and time zone before enabling one. Task cards expose scheduler synchronization, run history, and manual execution. Chat-generated changes appear under **Pending proposals (`待确认提案`)** and only take effect after confirmation. Scheduled execution requires the XXL-JOB scheduler.
+
+![Automation tasks](docs/images/demo-09-automations.jpg)
+
+### 6. Manage test outbound calls
+
+Select **Outbound tasks (`外呼任务`)**. The page follows **Import authorized contacts → Create task → Tasks and progress**. Supply a test extension, name, and consent basis per row; select contacts and a phone Agent, enter the communication goal, and create a task. Creation does not dial; **Start (`启动`)** queues execution.
+
+Only configured test extensions are allowed, with one active call globally. Task details show call stages and provide stop and state-reconciliation controls. Actual calls require outbound infrastructure and phone Agent configuration.
+
+![Outbound contact import and task creation](docs/images/demo-10-outbound.jpg)
+
+<details>
+<summary>Built-in Agent examples, approval modes, and runtime HITL details</summary>
+
+#### General Assistant — `standard-chat`
 
 - **Best for:** everyday Q&A, summarization, writing, knowledge-base Q&A, and tasks that need a custom persona or instruction set.
 - **How it works:** streams the response token by token; combines the selected System Prompt, its private RAG knowledge base, Redis-backed conversation context, and enabled long-term memory.
 - **Special UI:** only this mode shows the System Prompt selector and direct **Knowledge Base** / **Manage** links.
 - **Example:** `Summarize our refund rules from the current knowledge base and list the supporting points.`
 
-##### Collaborative Agent — `harness-agent`
+#### Collaborative Agent — `harness-agent`
 
 - **Best for:** research-and-write work, multi-part analysis, planning, implementation tasks, or any goal whose independent parts can be delegated.
 - **How it works:** acts as the parent Agent, decomposes the goal, creates collaborating Agents, follows their live progress, and consolidates their results. It can use workspace files, Skills, plans, long-term `MEMORY.md`, and human approval.
@@ -117,27 +161,19 @@ Choose the approval mode when creating the collaborative session. The choice is 
 | **Do not ask** | Reject operations that would otherwise require approval. |
 | **Bypass** | Use the most permissive mode in a trusted development environment; explicit deny/ask rules and non-bypassable safety checks may still apply. |
 
-![Collaborative Agent approval-mode picker](docs/images/demo-02-hitl-approval.png)
+Choose the approval mode in the new-session picker shown above.
 
-###### Runtime HITL approval flow
+##### Runtime HITL approval flow
 
 Approval mode selection is only the policy setup. The actual Human-in-the-Loop flow happens later, when the Harness permission engine evaluates a proposed tool call as `ASK`:
 
-1. The Agent proposes one or more tool calls. The backend stores a sanitized approval request and changes the existing Agent Run from `RUNNING` to `WAITING_APPROVAL`.
-2. The current SSE response ends with `action_required`; this pauses the HTTP stream without treating the Agent Run as completed or failed.
-3. The chat timeline displays **Your approval is required (`需要你的批准`)**, including each tool name and a safe summary. Raw tool parameters remain hidden by the server.
-4. Choose **Allow execution (`允许执行`)** or **Deny (`拒绝`)**. The decision applies to the displayed approval episode.
-5. A new SSE request restores the saved Agent state and resumes the **same Agent Run**. The Agent receives either the real tool result or the denial result and continues its answer.
-6. If another operation requires approval, the same run may enter `WAITING_APPROVAL` again. Pending requests can be recovered after refresh or sign-in instead of being lost with the original HTTP connection.
+1. A tool call requiring confirmation pauses the run and displays **Your approval is required (`需要你的批准`)**, with the tool name and a safe summary.
+2. Select **Allow execution (`允许执行`)** or **Deny (`拒绝`)**, or choose **Stop task (`停止任务`)**. After approval or denial, the Agent continues the same run using that decision.
+3. Later operations may ask again. Pending requests can be recovered after a refresh or sign-in.
 
-This runtime HITL card applies to directly addressed Harness sessions, including a root collaborative session and a collaborator session opened by the user. A child event merely forwarded inside a parent's synchronous delegation is currently observable but is not turned into a separately actionable approval card.
+Approval cards apply to directly addressed Harness sessions, including the main conversation and a collaborator opened in the right-hand panel. A screenshot of a real runtime approval card remains pending; see [the screenshot checklist](docs/images/README.md).
 
-> **Screenshot placeholder — Runtime approval card**
-> Capture a real `需要你的批准` card as `docs/images/demo-02-hitl-runtime.png`. Triggering it requires an actual Harness tool request, so this repository does not fabricate one during documentation generation.
-
-<!-- ![Runtime HITL approval card](docs/images/demo-02-hitl-runtime.png) -->
-
-##### Expert Agent — `export-assistant`
+#### Expert Agent — `export-assistant`
 
 - **Best for:** questions clearly belonging to medical, legal, or technical domains.
 - **Topology:** `CategoryRouter` first classifies the request, then a conditional Router invokes exactly one of **Medical Expert**, **Legal Expert**, or **Technical Expert**.
@@ -145,7 +181,7 @@ This runtime HITL card applies to directly addressed Harness sessions, including
 - **Examples:** `Diagnose why a Java SSE connection closes after 60 seconds.` or `Explain the general legal risks in this contract clause.`
 - **Boundary:** medical and legal output is informational assistance, not a substitute for a qualified professional or emergency service. Requests outside the three registered categories may not produce a specialist answer.
 
-##### Car-rental Emergency Agent — `car-rental-assistant`
+#### Car-rental Emergency Agent — `car-rental-assistant`
 
 - **Best for:** rental-car breakdowns, towing, accidents, fire, medical emergencies, or police-related incidents.
 - **Topology:** extracts customer/vehicle data → pauses for missing information through a Human-in-the-Loop node → evaluates towing → detects emergency types → conditionally invokes fire, medical, and/or police specialists → combines everything into one customer-facing response.
@@ -153,60 +189,41 @@ This runtime HITL card applies to directly addressed Harness sessions, including
 - **Example:** `I am Li Ming, booking B-1024, driving a Toyota Camry near Beijing South Station. The engine is smoking after a collision and my passenger is injured. What should I do?`
 - **Boundary:** the workflow demonstrates assistance and simulated dispatch. In a real emergency, contact local emergency services first.
 
-##### Story Creation Agent — `story-chat-agent`
+#### Story Creation Agent — `story-chat-agent`
 
 - **Best for:** producing a short story for a specific topic, style, and audience.
 - **Topology:** extracts topic/style/audience → asks for missing fields → creates a draft → adapts it for the audience → repeatedly edits and scores the style, stopping at a score of at least `0.8` or after five review iterations.
 - **Memory:** the creative-writer leaf can recall enabled Mem0 context.
 - **Example:** `Write a three-sentence cyberpunk story about a lost delivery robot, in a warm humorous style, for children aged 8–10.`
 
-##### Bank Agent — `banker-agent`
+#### Bank Agent — `banker-agent`
 
 - **Best for:** demonstrating Supervisor routing and tool calls for USD deposit/withdrawal requests.
 - **Topology:** a bank Supervisor interprets the request, delegates to the deposit or withdrawal teller, invokes an in-process account tool, and summarizes the updated balance.
 - **Example:** `Create a demo account for Alice with USD 100, then withdraw USD 25 and show the balance.`
 - **Boundary:** this is an in-memory workflow demonstration, not a real banking system. It has no durable ledger, authentication, or financial controls, and process restarts can discard its demo account state.
 
-##### Evening Planner Agent — `evening-planner-agent`
+#### Evening Planner Agent — `evening-planner-agent`
 
 - **Best for:** quickly pairing dinner ideas with movies based on the user's mood.
 - **Topology:** runs **Dinner Planner** and **Evening Activity Planner** concurrently, obtains three meals and three movies, and pairs them into the final plan.
 - **Example:** `I feel tired and want a quiet, comforting evening. Recommend tonight's meal-and-movie combinations.`
 
-##### Optional A2A Story Agent — `a2a-story-assistant`
+#### Order Processing Assistant — `order-processing-assistant`
+
+- **Best for:** order queries, ticket follow-up, fulfillment, and after-sales tasks.
+- **Special UI:** runs on Harness. The **＋** menu offers **Select an order or ticket (`选择订单或工单`)** and **Images or files (`图片或文件`)**, so a business record can be attached as a reference.
+- **Example:** `Review pending orders and list the next steps and decisions that need my confirmation.`
+
+#### Optional A2A Story Agent — `a2a-story-assistant`
 
 - **Availability:** appears only when the `other-agents` A2A integration is enabled and reachable.
 - **How it differs:** the backend keeps the story-information gate and style scoring locally, while creative writing, audience editing, and style editing are executed by remote Agents through A2A. W3C trace context keeps the cross-service work in the same Langfuse trace.
 - **Example:** use the same topic/style/audience prompt as the local Story Creation Agent, then compare the topology and trace across both services.
 
-![H Agent chat workspace](docs/images/demo-02-chat.png)
+</details>
 
-### 3. Manage prompts and knowledge
-
-Open **My → SystemPrompt Management** to create or edit a private assistant prompt and set the default. Open **My → Knowledge Base Management** to upload `md`, `txt`, `doc`, `docx`, `xls`, or `xlsx` files, or enter text manually. Each System Prompt owns an independent knowledge base.
-
-![System Prompt management](docs/images/demo-03-system-prompts.png)
-
-![Knowledge-base management](docs/images/demo-03-knowledge.png)
-
-### 4. Use domain agents and collaboration
-
-Open **My → Domain Agent Management** to inspect registered agents, execution modes, and orchestration topology. Available local entries include standard chat, the Harness collaboration agent, specialist agents, and workflow examples. From an agent card, choose **View orchestration** or **Start Q&A**.
-
-![Domain Agent catalog](docs/images/demo-04-agents.png)
-
-The car-rental topology below also shows a separate workflow-level Human-in-the-Loop node: when required customer information is missing, the workflow routes to the orange `Human / askUser` node before it may continue.
-
-![Car-rental Agent Human-in-the-Loop topology](docs/images/demo-04-car-rental-hitl-topology.png)
-![Car-rental Agent Human-in-the-Loop topology2](docs/images/demo-04-car-rental-hitl-topology2.png)
-
-### 5. Manage Skills
-
-Open **My → My Skills**. Skill changes first enter a Proposal draft, are validated, published as immutable releases, and then explicitly activated. Releases are stored as artifacts in the configured MinIO Skill bucket.
-
-![Skill creation and version workspace](docs/images/demo-05-skills.png)
-
-See [the screenshot checklist](docs/images/README.md) for all recommended captures and filenames.
+See [the screenshot checklist](docs/images/README.md) for capture maintenance.
 
 ## Prerequisites
 
