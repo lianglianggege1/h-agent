@@ -7,7 +7,7 @@ export type UploadedResource = {
   downloadUrl: string;
   fileName: string;
   mimeType: string;
-  fileSize: number;
+  fileSize: number | null;
 };
 
 export function uploadChatResource(file: File, role: "ATTACHMENT" | "REFERENCE" = "ATTACHMENT"): Promise<UploadedResource> {

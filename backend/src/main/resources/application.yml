@@ -75,7 +75,7 @@ human-verification:
   subject-hmac-secret: ${CAPTCHA_SUBJECT_HMAC_SECRET:}
 
 typesafe:
-  enabled: ${TYPESAFE_ENABLED:false}
+  enabled: ${TYPESAFE_ENABLED:true}
   api-key: ${TYPESAFE_API_KEY:}
   base-url: ${TYPESAFE_BASE_URL:https://api.typesafe.ai}
   model-name: ${TYPESAFE_MODEL_NAME:jev-1.13.0}
@@ -84,7 +84,7 @@ typesafe:
   expert-activation-threshold: ${TYPESAFE_EXPERT_ACTIVATION_THRESHOLD:0.6}
 
 agent-observability:
-  enabled: ${AGENT_OBSERVABILITY_ENABLED:auto}
+  enabled: ${AGENT_OBSERVABILITY_ENABLED:false}
   service-name: backend
   langfuse:
     base-url: ${LANGFUSE_BASE_URL:}
@@ -195,7 +195,7 @@ agents:
       base-url: http://localhost:8082
   mcp:
     other-agents:
-      enabled: true
+      enabled: false
       url: http://localhost:8082/test1/mcp
       token: ${MCP_TEST1_TOKEN:dev-token-test1}
       tool-execution-timeout-seconds: 4
@@ -317,7 +317,7 @@ automation:
     polling-delay: ${AUTOMATION_DELIVERY_POLLING_DELAY:10s}
     max-attempts: ${AUTOMATION_DELIVERY_MAX_ATTEMPTS:8}
   xxl-job:
-    enabled: ${XXL_JOB_ENABLED:false}
+    enabled: ${XXL_JOB_ENABLED:true}
     base-url: ${XXL_JOB_ADMIN_URL:http://127.0.0.1:8080}
     username: ${XXL_JOB_ADMIN_USERNAME:}
     password: ${XXL_JOB_ADMIN_PASSWORD:}

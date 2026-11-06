@@ -137,6 +137,13 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 null, null, null, null, null);
     }
 
+    private String documentMessage(ChatAgentExecutionCommand command) {
+        if (command.resources() == null || command.resources().isEmpty()) return command.userMessage();
+        return command.userMessage() + "\n[本消息附件资源ID：" + command.resources().stream()
+                .map(com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto::resourceId)
+                .collect(java.util.stream.Collectors.joining("、")) + "。需要读取时使用list_document_inputs和parse_document。]";
+    }
+
     @Override
     public AgentRuntimeType runtimeType() {
         return AgentRuntimeType.HARNESS_STREAMING;
@@ -174,7 +181,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             reactor.core.publisher.Flux<AgentEvent> events = parentTurn
                     ? harnessRuntime.streamParent(
                             command.agent().agentBean(),
-                            command.userMessage(),
+                            documentMessage(command),
                             runtimeContext,
                             command.approvalMode()
                     )
@@ -189,7 +196,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentExecutionId(),
                                     command.subagentDefinitionBinding()
                             ),
-                            command.userMessage(),
+                            documentMessage(command),
                             carrier,
                             command.approvalMode()
                     );
@@ -607,7 +614,13 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 // AgentResult 是最终权威 Msg；delta 仅用于实时展示，不能作为持久化真相。
                 String reply = result == null ? "" : result.getTextContent();
                 if (reply == null || reply.isBlank()) {
-                    throw new IllegalStateException("AI 未返回有效内容");
+                    String reason = result == null ? "MISSING_RESULT" : String.valueOf(result.getGenerateReason());
+                    int toolCalls = result == null ? 0 : result.getContentBlocks(
+                            io.agentscope.core.message.ToolUseBlock.class).size();
+                    log.error("[HarnessExecutor] 最终正文缺失 runId={} resultPresent={} generateReason={} toolCalls={} textEmitted={}",
+                            command.runHandle().id(), result != null, reason, toolCalls, emittedParentText.get());
+                    throw new IllegalStateException("AI 未返回最终文字答复（原因：" + reason
+                            + "，未执行的工具调用数：" + toolCalls + "）");
                 }
                 if (!emittedParentText.get()) {
                     emit(new ChatStreamEvent("chunk", reply));

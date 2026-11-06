@@ -145,6 +145,12 @@ public class ChatMessageResourceEntity {
         this.fileName = fileName;
     }
 
+    @TableField("file_extension")
+    private String fileExtension;
+
+    public String getFileExtension() { return fileExtension; }
+    public void setFileExtension(String fileExtension) { this.fileExtension = fileExtension; }
+
     public Long getFileSize() {
         return fileSize;
     }

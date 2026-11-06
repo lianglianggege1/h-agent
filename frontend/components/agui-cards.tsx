@@ -15,6 +15,9 @@ import { ProgressCard, progressSchema, HistoricalReasoning } from "@/components/
 import { MarkdownContent } from "@/components/markdown-content";
 import { OrderCard, type OrderCardContent } from "@/components/order/order-card";
 
+import { DocumentTaskCard } from "@/components/document-panel";
+import type { DocumentTask } from "@/lib/documents";
+
 const statusLabels: Record<string, string> = {
   RUNNING: "执行中", WAITING_APPROVAL: "等待你的批准", COMPLETED: "已完成", FAILED: "执行失败",
   CANCELLED: "已停止", PAUSED: "已暂停", PAUSE_REQUESTED: "正在暂停", INTERRUPTED: "执行中断", BLOCKED: "请求被拦截", AVAILABLE: "可对话",
@@ -104,39 +107,168 @@ export const ResourceReferenceContext = createContext<{
   toggle: (resource: ChatMessageResource) => void;
 } | null>(null);
 
-export function ResourceCard({ content }: { content: { message: ChatSessionMessage } }) {
+/** Missing legacy metadata stays unknown; an actual empty file is displayed as 0 B. */
+function formatResourceSize(bytes: number | null): string | null {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return null;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index =
+    bytes === 0
+      ? 0
+      : Math.max(
+          0,
+          Math.min(
+            Math.floor(Math.log(bytes) / Math.log(1024)),
+            units.length - 1,
+          ),
+        );
+  const amount = (bytes / 1024 ** index).toLocaleString("zh-CN", {
+    maximumFractionDigits: 1,
+  });
+  return `${amount} ${units[index]}`;
+}
+
+export function ResourceCard({
+  content,
+}: {
+  content: { message: ChatSessionMessage };
+}) {
   const references = useContext(ResourceReferenceContext);
-  if (!content.message.resources?.length && content.message.payload?.status === "SUCCEEDED") return null;
-  return <article className="agui-card space-y-3">
-    {content.message.payload?.status ? <p className="text-xs text-stone-500">生成状态：{content.message.payload.status}</p> : null}
-    {content.message.resources?.map((resource) => {
-      const selected = references?.selectedIds.has(resource.id) ?? false;
-      return <div key={resource.id} className="space-y-2">
-        {resource.mimeType.startsWith("image/") ? <a href={resource.viewUrl} target="_blank" rel="noreferrer"><picture><img src={resource.viewUrl} alt={resource.fileName} className="max-h-96 rounded-xl object-contain" /></picture></a>
-          : resource.mimeType.startsWith("video/") ? <video src={resource.viewUrl} controls className="max-h-96 rounded-xl" />
-          : resource.mimeType.startsWith("audio/") ? <audio src={resource.viewUrl} controls className="w-full" /> : null}
-        <div className="flex items-center gap-1">
-          <a href={resource.downloadUrl} download={resource.fileName} aria-label={`下载 ${resource.fileName}`} title="下载"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5" />
-            </svg>
-          </a>
-          {references && /^(image|video|audio)\//.test(resource.mimeType) ? <button type="button"
-            aria-pressed={selected}
-            aria-label={`${selected ? "取消引用" : "引用"} ${resource.fileName}`}
-            title={selected ? "取消引用" : "引用素材"}
-            onClick={() => references.toggle(resource)}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 ${selected ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d={selected ? "m5 12 4 4 10-10" : "m9 5-5 5 5 5M4 10h9a7 7 0 0 1 7 7v2"} />
-            </svg>
-            {selected ? "已引用" : "引用"}
-          </button> : null}
-        </div>
-      </div>;
-    })}
-  </article>;
+  if (
+    !content.message.resources?.length &&
+    content.message.payload?.status === "SUCCEEDED"
+  )
+    return null;
+  return (
+    <article className="agui-card space-y-3">
+      {content.message.payload?.status ? (
+        <p className="text-xs text-stone-500">
+          生成状态：{content.message.payload.status}
+        </p>
+      ) : null}
+      {content.message.resources?.map((resource) => {
+        const selected = references?.selectedIds.has(resource.id) ?? false;
+        const isMedia = /^(image|video|audio)\//.test(resource.mimeType);
+        const extension = resource.fileName
+          .match(/\.([a-z0-9]{1,12})$/i)?.[1]
+          .toUpperCase();
+        const fileType =
+          resource.mimeType === "application/pdf"
+            ? "PDF"
+            : (extension ?? "文件");
+        const fileSize = formatResourceSize(resource.fileSize);
+        return (
+          <div key={resource.id} className="space-y-2">
+            {resource.mimeType.startsWith("image/") ? (
+              <a href={resource.viewUrl} target="_blank" rel="noreferrer">
+                <picture>
+                  <img
+                    src={resource.viewUrl}
+                    alt={resource.fileName}
+                    className="max-h-96 rounded-xl object-contain"
+                  />
+                </picture>
+              </a>
+            ) : resource.mimeType.startsWith("video/") ? (
+              <video
+                src={resource.viewUrl}
+                controls
+                className="max-h-96 rounded-xl"
+              />
+            ) : resource.mimeType.startsWith("audio/") ? (
+              <audio src={resource.viewUrl} controls className="w-full" />
+            ) : null}
+            <div className="flex items-center gap-3">
+              {!isMedia ? (
+                <>
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-500"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                      <path d="M14 2v6h6M8 13h8M8 17h5" />
+                    </svg>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="break-all text-sm font-medium text-stone-800"
+                      title={resource.fileName}
+                    >
+                      {resource.fileName || "未命名文件"}
+                    </p>
+                    <p className="mt-1 text-xs text-stone-500">
+                      {[fileType, fileSize].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                </>
+              ) : null}
+              <a
+                href={resource.downloadUrl}
+                download={resource.fileName}
+                aria-label={`下载 ${resource.fileName}`}
+                title={`下载 ${resource.fileName}`}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5" />
+                </svg>
+              </a>
+              {references ? (
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={`${selected ? "取消引用" : "引用"} ${resource.fileName}`}
+                  title={selected ? "取消引用" : "引用素材"}
+                  onClick={() => references.toggle(resource)}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 ${selected ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d={
+                        selected
+                          ? "m5 12 4 4 10-10"
+                          : "m9 5-5 5 5 5M4 10h9a7 7 0 0 1 7 7v2"
+                      }
+                    />
+                  </svg>
+                  {selected ? "已引用" : "引用"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </article>
+  );
 }
 
 function SubagentCard({ content }: { content: { subagent: HarnessSubagentSummary } }) {
@@ -145,6 +277,7 @@ function SubagentCard({ content }: { content: { subagent: HarnessSubagentSummary
 }
 
 export const activityRenderers = [
+  { activityType: "h-agent.document", content: z.object({ task: z.custom<DocumentTask>() }), render: DocumentTaskCard },
   { activityType: "h-agent.order", content: z.custom<OrderCardContent>(), render: OrderCard },
   { activityType: "h-agent.ticket", content: z.custom<OrderCardContent>(), render: OrderCard },
   { activityType: "h-agent.order-decision", content: z.custom<OrderCardContent>(), render: OrderCard },

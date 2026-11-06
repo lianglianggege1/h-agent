@@ -1106,6 +1106,27 @@ class HarnessAgentExecutorTest {
         );
     }
 
+    @Test
+    void toolOnlyMaxIterationResultReportsRealTerminationReasonInsteadOfEmptySuccess() {
+        HarnessAgent harnessAgent = mock(HarnessAgent.class);
+        ChatSessionService messages = mock(ChatSessionService.class);
+        AgentRunService runs = mock(AgentRunService.class);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        HarnessAgentExecutor executor = new HarnessAgentExecutor(messages, runs, new HarnessEventMapper());
+        Msg result = Msg.builder().role(MsgRole.ASSISTANT)
+                .content(new ToolUseBlock("call-pending", "parse_document", java.util.Map.of("taskId", "doc1")))
+                .build().withGenerateReason(io.agentscope.core.message.GenerateReason.MAX_ITERATIONS);
+        when(harnessAgent.streamEvents(eq("solve it"), any(RuntimeContext.class)))
+                .thenReturn(Flux.just(new AgentResultEvent(result), new AgentEndEvent("reply-parent")));
+        var terminalCount = new AtomicInteger();
+        var events = clientEvents(executor, definition(harnessAgent), observation, terminalCount)
+                .collectList().block(Duration.ofSeconds(2));
+        verify(runs).failRun(eq(55L), org.mockito.ArgumentMatchers.contains("MAX_ITERATIONS"));
+        verify(messages, never()).appendAssistantMessage(any(), any(), any());
+        assertEquals("error", events.getLast().type());
+        assertEquals(1, terminalCount.get());
+    }
+
     private Flux<ChatStreamEvent> clientEvents(
             HarnessAgentExecutor executor,
             AgentDefinition definition,

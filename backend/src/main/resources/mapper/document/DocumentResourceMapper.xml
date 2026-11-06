@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.h.backend.document.infrastructure.persistence.mapper.DocumentResourceMapper">
+ <select id="countOwnedReference" resultType="int">
+ SELECT COUNT(*) FROM chat_message_resources r JOIN chat_session_messages m ON m.id=r.message_id
+ WHERE r.user_id=#{user} AND m.user_id=#{user} AND m.session_id=#{session} AND m.superseded_at IS NULL AND r.storage_key=#{storageKey}
+ </select>
+ <select id="inputs" resultType="map">
+ SELECT r.id AS "resourceId",r.file_name AS "fileName",r.mime_type AS "mimeType",r.file_size AS "fileSize"
+ FROM chat_message_resources r JOIN chat_session_messages m ON m.id=r.message_id
+ WHERE r.user_id=#{user} AND m.user_id=#{user} AND m.session_id=#{session} AND m.superseded_at IS NULL
+ ORDER BY m.sequence_no DESC,r.created_at LIMIT 100
+ </select>
+</mapper>

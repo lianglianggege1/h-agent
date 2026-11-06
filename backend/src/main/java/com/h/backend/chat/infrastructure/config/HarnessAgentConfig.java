@@ -358,6 +358,7 @@ public class HarnessAgentConfig {
             AgentScopeObservationInstaller observationInstaller,
             AgentScopeAutomationTool automationTool,
             com.h.backend.generation.interfaces.tool.AgentScopeVideoTool videoTool,
+            com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         RemoteFilesystemSpec filesystem = subagentCatalogProperties.isEnabled()
@@ -373,6 +374,7 @@ public class HarnessAgentConfig {
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(automationTool);
         toolkit.registerTool(videoTool);
+        toolkit.registerTool(documentTool);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .agentId(ChatAgentIds.HARNESS)
@@ -395,7 +397,7 @@ public class HarnessAgentConfig {
                         创建请求结果不明时不重复提交，视频在后台完成后会自动显示。
                         当用户明确要求周期、定时、每天或每周自动执行任务时，使用 create_automation_task 创建，
                         不要只给出 Cron 文本或口头承诺。
-                        """)
+                        """ + "\n\n" + com.h.backend.document.domain.DocumentInstructions.SYSTEM)
                 .model(model)
                 .toolkit(toolkit)
                 .workspace(workspace)
@@ -556,7 +558,10 @@ public class HarnessAgentConfig {
                     if (effective.getThinkingBudget() != null && effective.getThinkingBudget() > 0) {
                         paramsBuilder.enabledThinking(effective.getThinkingBudget());
                     }
-                    if (tools != null && !tools.isEmpty()) {
+                    if (HarnessToolContinuationPolicy.endTurn(messages, tools)) {
+                        paramsBuilder.toolChoice(com.anthropic.models.messages.ToolChoice.ofNone(
+                                com.anthropic.models.messages.ToolChoiceNone.builder().build()));
+                    } else {
                         formatter.applyTools(paramsBuilder, tools);
                     }
 
@@ -586,7 +591,7 @@ public class HarnessAgentConfig {
 
             return ModelUtils.applyTimeoutAndRetry(
                             responseFlux, options, defaultOptions, modelName, "anthropic")
-                    .doOnError(e -> log.error("[HarnessLLM] 流式响应错误: {}", e.getMessage()));
+                    .doOnError(e -> log.error("[HarnessLLM] 流式响应错误: {}", e.getMessage(), e));
         }
 
         @Override

@@ -70,6 +70,8 @@ public class ChatServiceImpl implements ChatService {
     private final SkillRuntimeService skillRuntimeService;
     @Autowired(required = false)
     private com.h.backend.chat.application.agui.ChatTurnService chatTurns;
+    @Autowired(required = false)
+    private com.h.backend.document.infrastructure.persistence.DocumentRepository documentTasks;
 
     @Autowired
     public ChatServiceImpl(
@@ -380,7 +382,7 @@ public class ChatServiceImpl implements ChatService {
             var turnOperation = com.h.backend.chat.application.agui.ChatTurnOperation.from(sink);
             if (turnOperation != null && chatTurns == null) throw new IllegalStateException("Chat turn mutations are unavailable");
             String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
-            if (chatTurns != null) userMessage = chatTurns.prepare(userId, address.sessionId(), memoryId,
+            if (chatTurns != null && !sink.contextView().hasKey(com.h.backend.document.domain.DocumentContinuation.class)) userMessage = chatTurns.prepare(userId, address.sessionId(), memoryId,
                     agent, turnOperation, userMessage);
             if (standardChat && turnOperation == null && isImageCommand(userMessage)) {
                 // 图片命令不会交给通用文本 executor；该分支在这里终止，故必须自行归还 permit。
@@ -393,6 +395,12 @@ public class ChatServiceImpl implements ChatService {
             var continuation=sink.contextView().<com.h.backend.order.OrderContinuation>getOrDefault(com.h.backend.order.OrderContinuation.class,null);
             if (turnOperation != null) {
                 userMessageId = turnOperation.userMessageId();
+            } else if (sink.contextView().hasKey(com.h.backend.document.domain.DocumentContinuation.class)) {
+                var document = sink.contextView().get(com.h.backend.document.domain.DocumentContinuation.class);
+                var existing = chatSessionService.getOwnedMessage(userId, address.rootSessionId(), document.userMessageId());
+                if (existing == null || !"user".equals(existing.role()) || address.subagent())
+                    throw new BusinessException(40300, "文档恢复请求的原消息无效");
+                userMessageId = document.userMessageId();
             } else if(continuation!=null && !address.subagent() && ChatAgentIds.ORDER_PROCESSING.equals(agent.agentId())){
                 var existing=chatSessionService.getOwnedMessage(userId,address.rootSessionId(),continuation.userMessageId());
                 if(existing==null || !"user".equals(existing.role()))throw new BusinessException(40300,"恢复请求的原消息无效");
@@ -421,14 +429,24 @@ public class ChatServiceImpl implements ChatService {
             emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
             // run 和观测都归属实际执行会话，不能写成 rootSessionId，否则无法区分各子 Agent 的运行记录。
             // 固定顺序（设计 7.1）：先创建 trace_id 为空的 Run，再开始 Observation，最后尽力回写 trace ID。
-            runHandle = agentRunService.createRun(
-                    address.sessionId(),
-                    userId,
-                    resolvedPromptId,
-                    userMessageId,
-                    agent.agentId(),
-                    null
-            );
+            var documentContinuation = sink.contextView().<com.h.backend.document.domain.DocumentContinuation>getOrDefault(
+                    com.h.backend.document.domain.DocumentContinuation.class, null);
+            if (documentContinuation != null) {
+                if (documentTasks == null) throw new IllegalStateException("Document continuation unavailable");
+                var createdRun = new java.util.concurrent.atomic.AtomicReference<AgentRunService.AgentRunHandle>();
+                Long anchor = userMessageId;
+                documentTasks.change(userId, address.sessionId(), documentContinuation.taskId(), document -> {
+                    if (document.isContinuationCancelled() || !"RUNNING".equals(document.getResumeStatus())
+                            || document.getResumedRunId() != null || !anchor.equals(document.getAnchorMessageId()))
+                        throw new BusinessException(40901, "文档任务已恢复或取消");
+                    var created = agentRunService.createRun(address.sessionId(), userId, resolvedPromptId, anchor, agent.agentId(), null);
+                    document.setResumedRunId(created.id());
+                    createdRun.set(created);
+                });
+                runHandle = createdRun.get();
+            } else {
+                runHandle = agentRunService.createRun(address.sessionId(), userId, resolvedPromptId, userMessageId, agent.agentId(), null);
+            }
             if (com.h.backend.chat.application.agui.ChatExecutionCancellation.from(sink) != null) {
                 emitIfActive(sink, new ChatStreamEvent("run_started", "", null, runHandle.id()));
             }

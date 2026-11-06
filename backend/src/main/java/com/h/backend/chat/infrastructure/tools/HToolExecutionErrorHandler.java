@@ -5,11 +5,13 @@ import dev.langchain4j.service.tool.ToolErrorHandlerResult;
 import dev.langchain4j.service.tool.ToolExecutionErrorHandler;
 import org.springframework.stereotype.Component;
 
+@lombok.extern.slf4j.Slf4j
 @Component
 public class HToolExecutionErrorHandler implements ToolExecutionErrorHandler {
 
     @Override
     public ToolErrorHandlerResult handle(Throwable error, ToolErrorContext context) {
+        log.error("Tool execution failed", error);
         String errorMessage = error.getMessage();
         return ToolErrorHandlerResult.text(errorMessage);
     }

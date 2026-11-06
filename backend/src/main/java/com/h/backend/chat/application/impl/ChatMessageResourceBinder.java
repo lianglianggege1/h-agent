@@ -74,6 +74,7 @@ public class ChatMessageResourceBinder {
         copy.setDownloadUrl(original.getDownloadUrl());
         copy.setMimeType(original.getMimeType());
         copy.setFileName(original.getFileName());
+        copy.setFileExtension(original.getFileExtension());
         copy.setFileSize(original.getFileSize());
         copy.setWidth(original.getWidth());
         copy.setHeight(original.getHeight());

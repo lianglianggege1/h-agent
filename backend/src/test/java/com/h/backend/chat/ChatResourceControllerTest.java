@@ -503,13 +503,21 @@ class ChatResourceControllerTest {
     }
 
     @Test
-    void upload_disallowedMimeType_shouldThrow() {
-        AuthUserPrincipal principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
-        MockMultipartFile file = new MockMultipartFile("file", "doc.pdf", "application/pdf", new byte[100]);
-
-        BusinessException error = assertThrows(BusinessException.class, () -> controller.upload(principal, file, "ATTACHMENT"));
-        assertEquals(40000, error.getCode());
-        assertTrue(error.getMessage().contains("暂不支持该文件类型"));
+    void uploadDocumentsAndHtmlPreservesFilenameExtensionAndForcesDownload() throws IOException {
+        var principal = new AuthUserPrincipal(1L, "user@example.com", "USER");
+        when(writeCoordinator.saveAndAttach(any(ResourceSaveCommand.class), any())).thenAnswer(call -> {
+            ResourceSaveCommand command = call.getArgument(0);
+            ResourceAttachment<com.h.backend.chat.interfaces.dto.ResourceUploadResponse> attachment = call.getArgument(1);
+            return attachment.attach(new StoredResource("document", "OBJECT_STORAGE", "key", command.mimeType(), "unused", 100L, null, null));
+        });
+        var file = new MockMultipartFile("file", "报告.html", "text/html", "<html><script>alert(1)</script><body>报告</body></html>".getBytes(StandardCharsets.UTF_8));
+        var response = controller.upload(principal, file, "ATTACHMENT");
+        assertEquals("报告.html", response.getBody().fileName());
+        assertEquals("FILE", response.getBody().type());
+        assertFalse(contentPolicy.dispositionFor("text/html").inlineSafe());
+        var row = ArgumentCaptor.forClass(ChatMessageResourceEntity.class);
+        verify(chatMessageResourceMapper).insert(row.capture());
+        assertEquals("html", row.getValue().getFileExtension());
     }
 
     @Test

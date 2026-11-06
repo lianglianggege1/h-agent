@@ -45,6 +45,22 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             @Param("userId") Long userId
     );
 
+    @Select("""
+            SELECT id, session_id, user_id, prompt_id, user_message_id, assistant_message_id,
+                   status, model_name, langfuse_trace_id, approval_mode_snapshot, trace_parent,
+                   tool_count, tool_names_json, error_message, started_at, completed_at,
+                   created_at, updated_at
+            FROM agent_runs
+            WHERE user_id = #{userId} AND session_id = #{sessionId}
+              AND user_message_id = #{userMessageId}
+            ORDER BY id DESC
+            LIMIT 1
+            """)
+    AgentRunEntity selectLatestByUserMessage(
+            @Param("userId") Long userId,
+            @Param("sessionId") String sessionId,
+            @Param("userMessageId") Long userMessageId);
+
     @Update("""
             UPDATE agent_runs SET status = #{nextStatus}, updated_at = NOW()
             WHERE id = #{runId} AND status = #{expectedStatus}

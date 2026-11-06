@@ -58,6 +58,9 @@ public class ChatModelConfig {
     private SystemPromptService systemPromptService;
 
     @Resource
+    private com.h.backend.document.interfaces.tool.LangChain4jDocumentTool documentTool;
+
+    @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
 
     @Resource
@@ -117,7 +120,7 @@ public class ChatModelConfig {
                 .timeout(Duration.ofSeconds(120))
                 .logRequests(true)
                 .logResponses(true)
-                .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
+                .logger(new CompactHttpLogger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER)))
                 .build();
         return new ObservingStreamingChatModel(delegate, observability, "anthropic");
     }
@@ -138,7 +141,7 @@ public class ChatModelConfig {
                 .timeout(Duration.ofSeconds(120))
                 .logRequests(true)
                 .logResponses(true)
-                .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))
+                .logger(new CompactHttpLogger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER)))
                 .build();
         return new ObservingChatModel(delegate, observability, "anthropic");
     }
@@ -156,7 +159,7 @@ public class ChatModelConfig {
         // 在该路径不可用（当前工具集未使用）。
         toolProviders.add(staticToolsProvider(observability, List.of(
                 imageGenerationTool, videoGenerationTool,
-                filesystemTool, fileDeliveryTool, shellTool, webSearchTool,
+                filesystemTool, fileDeliveryTool, shellTool, webSearchTool, documentTool,
                 langChain4jAutomationTool)));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
@@ -181,7 +184,8 @@ public class ChatModelConfig {
                     Long userId = Long.valueOf(parts[0]);
                     Long promptId = Long.valueOf(parts[1]);
 
-                    String systemMessage = systemPromptService.getSystemPrompt(userId, promptId);
+                    String systemMessage = systemPromptService.getSystemPrompt(userId, promptId)
+                            + "\n\n" + com.h.backend.document.domain.DocumentInstructions.SYSTEM;
                     String skillsSection = skillRuntimeService.skillsSystemMessage(memoryId.toString());
                     if (skillsSection == null) {
                         return systemMessage;

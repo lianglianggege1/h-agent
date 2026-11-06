@@ -10,8 +10,11 @@ import { ReferencedUserMessage, UserMessageEditContext } from "@/components/agui
 import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
 import { mergeProductMessageUpdates, pendingMediaMessageIds } from "@/lib/agui-media-updates";
 import styles from "./agui-chat-thread.module.css";
+import { DocumentTaskSync } from "./document-panel";
+import { mergeDocumentTaskActivities } from "@/lib/document-activities";
+import type { DocumentTask } from "@/lib/documents";
 import { ChatAttachmentPicker } from "./chat-attachment-picker";
-import { historyReferenceMedia, selectHistoryReference } from "@/lib/reference-images";
+import { historyReferenceResources, selectHistoryReference } from "@/lib/reference-images";
 import { OrderReferenceContext } from "./order/order-card";
 import { OrderPicker } from "./order/order-picker";
 import type { OrderReference } from "@/lib/orders";
@@ -325,6 +328,19 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
     };
   }, [agent, isReady, threadId]);
 
+  const updateDocuments = useCallback(async (tasks: DocumentTask[]) => {
+    if (!tasks.length && !agent.messages.some(message => message.role === "activity" && message.activityType === "h-agent.document")) return;
+    if (agent.isRunning) {
+      const next = mergeDocumentTaskActivities(agent.messages, tasks);
+      if (next !== agent.messages) agent.setMessages(next);
+      return;
+    }
+    const page = await getChatSessionMessages(threadId, 100);
+    if (agent.isRunning) return;
+    const next = mergeDocumentTaskActivities(mergeProductMessageUpdates(agent.messages, page.messages), tasks);
+    if (next !== agent.messages) { agent.setMessages(next); onChangedRef.current?.(); }
+  }, [agent, threadId]);
+
   const latestUser = agent.messages.findLast((message) => message.role === "user");
   return <section ref={threadElement} className={`${styles.thread} flex min-h-0 flex-1 flex-col`} aria-label="对话">
     <div className={styles.threadToolbar}>
@@ -341,6 +357,7 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
       {retryEdit ? <button type="button" className="ml-3 underline" disabled={agent.isRunning || busy}
         onClick={() => void revise(retryEdit.messageId, retryEdit.text)}>重新回答</button> : null}
     </div> : null}
+    {!orderAssistant ? <DocumentTaskSync session={threadId} chatRunning={agent.isRunning} onUpdated={updateDocuments} /> : null}
     {waiting ? <p className="mx-4 mb-2 text-xs text-amber-800">等待批准，请在批准卡片中选择。</p> : null}
     <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => {
       const files = Array.from(event.target.files ?? []);
@@ -351,18 +368,18 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
         .catch((failure) => setError(failure instanceof Error ? failure.message : "上传失败"))
         .finally(() => setUploading(false));
     }} />
-    {pickerOpen ? <ChatAttachmentPicker resources={historyReferenceMedia(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
+    {pickerOpen ? <ChatAttachmentPicker resources={historyReferenceResources(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
       onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
       onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
       onClose={() => setPickerOpen(false)} /> : null}
     {orderPickerOpen ? <OrderPicker threadId={threadId} onClose={() => setOrderPickerOpen(false)} onReference={setOrderReference} /> : null}
     <OrderReferenceContext.Provider value={setOrderReference}>
     <ResourceReferenceContext.Provider value={{
-      selectedIds: new Set(attachments.filter((item) => item.role === "REFERENCE").map((item) => item.resourceId)),
+      selectedIds: new Set(attachments.map((item) => item.resourceId)),
       toggle: (resource) => {
-        setAttachments((current) => current.some((item) => item.resourceId === resource.id && item.role === "REFERENCE")
+        setAttachments((current) => current.some((item) => item.resourceId === resource.id)
           ? current.filter((item) => item.resourceId !== resource.id) : selectHistoryReference(current, resource));
-        if (!attachments.some((item) => item.resourceId === resource.id && item.role === "REFERENCE")) {
+        if (!attachments.some((item) => item.resourceId === resource.id)) {
           threadElement.current?.querySelector("textarea")?.focus();
         }
       },

@@ -5,10 +5,12 @@ import dev.langchain4j.service.tool.ToolErrorContext;
 import dev.langchain4j.service.tool.ToolErrorHandlerResult;
 import org.springframework.stereotype.Component;
 
+@lombok.extern.slf4j.Slf4j
 @Component
 public class HToolArgumentsErrorHandler implements ToolArgumentsErrorHandler {
     @Override
     public ToolErrorHandlerResult handle(Throwable error, ToolErrorContext context) {
+        log.error("Tool arguments invalid", error);
         String errorMessage = error.getMessage();
         return ToolErrorHandlerResult.text(errorMessage);
     }

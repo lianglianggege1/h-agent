@@ -2,7 +2,7 @@ import { apiFetch } from "./http";
 import type { HarnessSubagentSummary } from "./harness-subagent-types";
 import type { ApprovalMode } from "./harness-approval";
 
-export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO";
+export type ChatSessionMessageType = "USER" | "AI" | "SYSTEM" | "REASONING" | "IMAGE" | "VIDEO" | "FILE";
 
 export type ChatMessagePayload = {
   prompt: string | null;

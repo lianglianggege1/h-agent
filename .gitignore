@@ -71,3 +71,6 @@ build/
 .tmp/
 .agents/
 teach-toolkit/
+# Local credentials; commit examples only
+.env
+**/.env

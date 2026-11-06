@@ -132,6 +132,13 @@ public class AgentRunServiceImpl implements AgentRunService {
         return toSummary(entity);
     }
 
+    @Override
+    public AgentRunSummary findByUserMessage(Long userId, String sessionId, Long userMessageId) {
+        AgentRunEntity entity =
+                agentRunMapper.selectLatestByUserMessage(userId, sessionId, userMessageId);
+        return entity == null ? null : toSummary(entity);
+    }
+
     private AgentRunSummary toSummary(AgentRunEntity entity) {
         return new AgentRunSummary(
                 entity.getId(),

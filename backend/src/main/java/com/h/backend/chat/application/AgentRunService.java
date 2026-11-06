@@ -42,6 +42,12 @@ public interface AgentRunService {
 
     AgentRunSummary getById(Long runId);
 
+    /** Finds the latest Agent Run for a persisted user message, if one exists. */
+    default AgentRunSummary findByUserMessage(
+            Long userId, String sessionId, Long userMessageId) {
+        return null;
+    }
+
     record AgentRunHandle(Long id) {
     }
 }

@@ -70,22 +70,12 @@ public class ChatResourceController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "role", required = false, defaultValue = "ATTACHMENT") String role
     ) throws IOException {
-        String mimeType = file.getContentType();
-        if (mimeType == null || !uploadProperties.getAllowedMimeTypes().contains(mimeType)) {
-            throw new BusinessException(40000, "暂不支持该文件类型: " + mimeType);
-        }
+        String declaredMimeType = ResourceContentInspector.normalizeMimeType(file.getContentType());
         if (file.getSize() > uploadProperties.getMaxFileSize()) {
             long maxMb = uploadProperties.getMaxFileSize() / 1_048_576;
             throw new BusinessException(40000, "文件大小不能超过 " + maxMb + "MB");
         }
-
-        String resourceType = mimeType.startsWith("image/") ? "IMAGE"
-                : mimeType.startsWith("video/") ? "VIDEO"
-                : mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
         String resourceRole = normalizeRole(role);
-
-        String extension = extensionForMimeType(mimeType);
-        String originalName = safeFileName(file.getOriginalFilename(), extension);
 
         // 内容安全（新计划 §6.3 / §10 任务 4）：用户上传属于不可信输入，
         // 保存前必须通过签名校验；Inspector 只读有上限的文件头，
@@ -96,7 +86,7 @@ public class ChatResourceController {
         ResourceContentInspector.Inspection inspection;
         InputStream contentStream = file.getInputStream();
         try {
-            inspection = contentInspector.inspect(contentStream, mimeType);
+            inspection = contentInspector.inspect(contentStream, declaredMimeType);
         } catch (IOException exception) {
             try {
                 contentStream.close();
@@ -105,8 +95,16 @@ public class ChatResourceController {
             }
             throw exception;
         }
+        String detectedMimeType = inspection.result().detectedType();
+        String mimeType = (declaredMimeType == null || "application/octet-stream".equals(declaredMimeType))
+                ? (detectedMimeType == null ? "application/octet-stream" : detectedMimeType) : declaredMimeType;
+        String resourceType = mimeType.startsWith("image/") && !"image/svg+xml".equals(mimeType) ? "IMAGE"
+                : mimeType.startsWith("video/") ? "VIDEO" : mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+        String originalName = safeFileName(file.getOriginalFilename(), extensionForMimeType(mimeType));
+        String suffix = originalName.contains(".") ? originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(java.util.Locale.ROOT) : "";
+        String extension = suffix.matches("[a-z0-9]{1,16}") ? suffix : extensionForMimeType(mimeType);
         ResourceContentPolicy.SaveDecision decision =
-                contentPolicy.validateForSave(inspection.result(), mimeType);
+                contentPolicy.validateAttachmentForSave(inspection.result(), mimeType);
         if (!decision.allowed()) {
             inspection.replayStream().close();
             throw new BusinessException(40000, decision.reason());
@@ -136,6 +134,7 @@ public class ChatResourceController {
                     row.setDownloadUrl(chatResourceUrls.download(stored.id()));
                     row.setMimeType(stored.mimeType());
                     row.setFileName(originalName);
+                    row.setFileExtension(extension);
                     row.setFileSize(stored.fileSize());
                     row.setWidth(stored.width());
                     row.setHeight(stored.height());

@@ -45,7 +45,9 @@ class ResourceContentArchitectureTest {
      * 图片生成、异步生成 provider 代理下载四条写入路径。
      */
     private static final Class<?>[] SAVE_VALIDATION_GATEKEEPERS = {
+            ResourceContentPolicy.class,
             ChatResourceController.class,
+            com.h.backend.document.application.DocumentWorkflow.class,
             FileDeliveryTool.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,
@@ -54,6 +56,7 @@ class ResourceContentArchitectureTest {
     /** Inspector 合法依赖者：四条校验路径 + 策略组件（消费检测结果类型）。 */
     private static final Class<?>[] INSPECTOR_DEPENDENTS = {
             ChatResourceController.class,
+            com.h.backend.document.application.DocumentWorkflow.class,
             FileDeliveryTool.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,

@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.h.backend.automation.infrastructure.persistence.mapper",
         "com.h.backend.skill.infrastructure.persistence.mapper",
         "com.h.backend.memory.infrastructure.persistence.mapper",
+        "com.h.backend.document.infrastructure.persistence.mapper",
         "com.h.backend.order"
 })
 @SpringBootApplication

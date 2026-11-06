@@ -304,6 +304,54 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void imageReadingPromptMustRouteToDocumentTools() {
+        HAssistant hAssistant = mock(HAssistant.class);
+        SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        ChatSessionService chatSessionService = mock(ChatSessionService.class);
+        AgentRunService agentRunService = mock(AgentRunService.class);
+        AgentObservability observability = mock(AgentObservability.class);
+        FakeTokenStream tokenStream = new FakeTokenStream().emitText("hello");
+        RecordingDirectExecutorService executor = new RecordingDirectExecutorService();
+        RecordingPermit permit = new RecordingPermit();
+        ChatServiceImpl chatService = createChatService(
+                hAssistant,
+                systemPromptService,
+                chatSessionService,
+                agentRunService,
+                observability,
+                executor,
+                (sessionId, userId) -> permit
+        );
+
+        when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(chatSessionService.appendUserMessage(eq(1L), eq("session-submit"), eq("hello"), any())).thenReturn(101L);
+        when(chatSessionService.appendAssistantMessage(1L, "session-submit", "hello")).thenReturn(202L);
+        AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
+        when(observability.start(any())).thenReturn(observation);
+        when(observation.traceId()).thenReturn("trace-submit");
+        when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", null))
+                .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        var prompt = new AtomicReference<String>();
+        when(hAssistant.streamChat(any(), any(), any())).thenAnswer(call -> {
+            prompt.set(call.getArgument(1)); return tokenStream;
+        });
+
+        List<ChatStreamEvent> events = chatService.streamChat(1L, 2L, null, "session-submit", "hello", List.of(new ChatMessageResourceUseDto("image-resource", "REFERENCE", "UPLOAD")))
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamEvent("chunk", "hello"),
+                new ChatStreamEvent("done", "")
+        ), eventsAfterUserMessage(events));
+        assertTrue(prompt.get().contains("parse_document"));
+        assertTrue(!prompt.get().contains("调用list_video_inputs"));
+        assertEquals(1, executor.submittedCount());
+        assertTrue(permit.released());
+        verify(agentRunService).updateTraceId(55L, "trace-submit");
+    }
+
+    @Test
     void shouldEmitUserMessageEventAfterAppendingUserMessage() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);

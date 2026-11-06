@@ -41,6 +41,7 @@ test("idle order refresh keeps the draft editable and image references synchroni
   new Function("require", "module", "exports", cardCode)((id) => id.startsWith("@/") ? {} : require(id), cards, cards.exports);
   const image = { id: "image-1", type: "IMAGE", role: "OUTPUT", viewUrl: "/image", downloadUrl: "/download",
     fileName: "image.png", mimeType: "image/png", fileSize: 23 };
+  let shownResource = image;
   const agent = new HttpAgent({ url: "http://localhost/test", threadId: "order-thread" });
   const streams = [];
   let connects = 0;
@@ -64,7 +65,7 @@ test("idle order refresh keeps the draft editable and image references synchroni
   }
   Chat.View = function ChatView({ input: Input, inputValue, onInputChange, onSubmitMessage }) {
     return React.createElement(React.Fragment, null,
-      React.createElement(cards.exports.ResourceCard, { content: { message: { resources: [image] } } }),
+      React.createElement(cards.exports.ResourceCard, { content: { message: { resources: [shownResource] } } }),
       React.createElement(Input, { value: inputValue, onChange: onInputChange, onSubmitMessage }));
   };
   let messageReads = 0;
@@ -73,6 +74,8 @@ test("idle order refresh keeps the draft editable and image references synchroni
   let writes = 0;
   agent.subscribe({ onMessagesChanged: () => { writes++; } });
   const stubs = {
+    "./document-panel": { DocumentTaskSync: () => null },
+    "@/lib/document-activities": { mergeDocumentTaskActivities: (messages) => messages },
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,
       useCopilotKit: () => ({ copilotkit }), useRenderTool: () => {} },
     "@/lib/http": { apiFetch: async () => ({}) },
@@ -215,6 +218,29 @@ test("idle order refresh keeps the draft editable and image references synchroni
     assert.equal(restored.length, 1, "An authoritative snapshot hides the replaced optimistic reference card");
     assert.equal(restored[0].id, "saved-user");
     assert.equal(restored[0].content[1].source.value, "/image");
+    // Documents use the same reference controls, but travel as file attachments, not image inputs.
+    const pdf = { ...image, id: "pdf-1", type: "FILE", role: "ATTACHMENT", fileName: "资料.pdf", mimeType: "application/pdf" };
+    shownResource = pdf;
+    await React.act(async () => agent.setMessages(aguiMessages.productHistoryMessages([
+      { id: "pdf-user", role: "user", messageType: "USER", content: "读取资料", resources: [pdf] },
+    ])));
+    const documentReference = dom.window.document.querySelector('button[aria-label="引用 资料.pdf"]');
+    assert.ok(documentReference, "Document cards expose the same reference action as media");
+    await React.act(async () => documentReference.click());
+    assert.equal(documentReference.getAttribute("aria-pressed"), "true");
+    assert.match(dom.window.document.querySelector('[aria-label="待发送附件"]').textContent, /资料\.pdf/);
+    assert.doesNotMatch(dom.window.document.querySelector('[aria-label="待发送附件"]').textContent, /引用图片/);
+    await React.act(async () => documentReference.click());
+    assert.equal(dom.window.document.querySelector('[aria-label="待发送附件"]'), null);
+    await React.act(async () => documentReference.click());
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(input, "继续处理这份 PDF");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    assert.deepEqual(forwarded.resources, [{ resourceId: "pdf-1", role: "ATTACHMENT", source: "HISTORY" }]);
+    const sent = aguiMessages.orderProductMessages(agent.messages);
+    assert.equal(sent.at(-1).content.message.resources[0].fileName, "资料.pdf");
   } finally {
     await React.act(async () => { streams.forEach((stream) => stream.complete()); await agent.detachActiveRun(); root.unmount(); });
     dom.window.close();

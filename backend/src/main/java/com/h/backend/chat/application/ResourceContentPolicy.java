@@ -124,6 +124,17 @@ public final class ResourceContentPolicy {
         return SaveDecision.allow();
     }
 
+    /** User document attachments may contain active source text, always served as downloads. */
+    public SaveDecision validateAttachmentForSave(ResourceContentInspector.InspectionResult inspection, String declaredMimeType) {
+        String normalized = ResourceContentInspector.normalizeMimeType(declaredMimeType);
+        if (inspection.category() == ResourceContentInspector.ContentCategory.ACTIVE_CONTENT
+                && normalized != null && MIME_TYPE_PATTERN.matcher(normalized).matches()
+                && !INLINE_PREVIEWABLE_MIME_TYPES.contains(normalized)) {
+            return SaveDecision.allow();
+        }
+        return validateForSave(inspection, declaredMimeType);
+    }
+
     /**
      * MP4 容器家族互认（审查修复）：Inspector 检测层只认 ftyp major brand
      * "M4A "，合法 m4a（isom/iso2/mp42 等 brand）被检测为 video/mp4；

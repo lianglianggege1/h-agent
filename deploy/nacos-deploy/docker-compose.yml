@@ -1,0 +1,26 @@
+name: nacos
+
+services:
+  nacos:
+    # 直连 Docker Hub 超时，走 daocloud 镜像源（与 xxljob/mem0 同源）；
+    # 该源 nacos 只同步了 latest：实测镜像 label 版本为 v3.2.4（2026-08-27 构建）
+    image: docker.m.daocloud.io/nacos/nacos-server:latest
+    container_name: nacos
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MODE: standalone        # 单机 + 内置 Derby，不依赖外部 MySQL
+      TZ: Asia/Shanghai
+      PREFER_HOST_MODE: ip
+    ports:
+      - "0.0.0.0:8848:8848"                        # 服务端 HTTP API（配置中心/注册中心）
+      - "0.0.0.0:9848:9848"                        # 客户端 gRPC 长连接（= 8848+1000，2.x+ 客户端必需）
+      - "0.0.0.0:${NACOS_CONSOLE_HOST_PORT}:8080"  # 控制台（3.x 起独立端口，不再挂在 8848）
+    volumes:
+      - nacos-data:/home/nacos/data                # Derby 数据，删容器不丢
+      - nacos-logs:/home/nacos/logs
+    mem_limit: ${NACOS_MEM_LIMIT}
+
+volumes:
+  nacos-data:
+  nacos-logs:

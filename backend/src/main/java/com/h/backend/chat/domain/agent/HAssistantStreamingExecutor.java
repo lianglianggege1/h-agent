@@ -3,30 +3,34 @@ package com.h.backend.chat.domain.agent;
 import com.h.agent.observability.lifecycle.ObservationScope;
 import com.h.agent.observability.semantic.SemanticContent;
 import com.h.agent.observability.semantic.SemanticMessage;
+import com.h.backend.chat.application.AgentRunService;
+import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.ChatStreamEventBridge;
+import com.h.backend.chat.application.agui.ChatExecutionCancellation;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
-import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.memory.application.SuccessfulTurnCommitter;
 import com.h.backend.memory.domain.MemoryInvocationContext;
+
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
 import dev.langchain4j.model.ModelDisabledException;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.service.tool.ToolExecution;
+
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Component;
+
 import reactor.core.publisher.FluxSink;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import com.h.backend.chat.application.agui.ChatExecutionCancellation;
-import dev.langchain4j.model.chat.response.StreamingHandle;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -43,8 +47,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             ChatSessionService chatSessionService,
             AgentRunService agentRunService,
             ChatStreamEventBridge chatStreamEventBridge,
-            SuccessfulTurnCommitter successfulTurnCommitter
-    ) {
+            SuccessfulTurnCommitter successfulTurnCommitter) {
         this.hAssistant = hAssistant;
         this.chatSessionService = chatSessionService;
         this.agentRunService = agentRunService;
@@ -65,95 +68,165 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         AtomicBoolean terminal = new AtomicBoolean();
         AtomicReference<StreamingHandle> streamingHandle = new AtomicReference<>();
         ChatExecutionCancellation cancellation = ChatExecutionCancellation.from(command.sink());
-        Consumer<ChatSessionMessageDto> resourcePublisher = message -> {
-            resourceEmitted.set(true);
-            String eventType = "IMAGE".equalsIgnoreCase(message.messageType()) ? "image" : "resource";
-            emitIfActive(command.sink(), new ChatStreamEvent(eventType, "", message));
-        };
+        Consumer<ChatSessionMessageDto> resourcePublisher =
+                message -> {
+                    resourceEmitted.set(true);
+                    String eventType =
+                            "IMAGE".equalsIgnoreCase(message.messageType()) ? "image" : "resource";
+                    emitIfActive(command.sink(), new ChatStreamEvent(eventType, "", message));
+                };
         chatStreamEventBridge.registerPublisher(command.memoryId(), resourcePublisher);
-        if (cancellation != null) cancellation.onCancel(() -> {
-            if (!terminal.compareAndSet(false, true)) return;
-            StreamingHandle handle = streamingHandle.get();
-            if (handle != null) handle.cancel();
-            chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
-            try {
-                agentRunService.failRun(command.runHandle().id(), "用户已停止任务");
-                command.observation().cancel("用户已停止任务");
-            } finally { command.onTerminal().run(); }
-        });
-        Consumer<dev.langchain4j.model.chat.response.PartialThinking> thinkingHandler = thinking -> {
-            if (terminal.get()) return;
-            String text = thinking == null ? "" : thinking.text();
-            if (text == null || text.isBlank()) return;
-            reasoningBuilder.append(text);
-            emitIfActive(command.sink(), new ChatStreamEvent("reasoning", text));
-        };
+        if (cancellation != null)
+            cancellation.onCancel(
+                    () -> {
+                        if (!terminal.compareAndSet(false, true)) return;
+                        StreamingHandle handle = streamingHandle.get();
+                        if (handle != null) handle.cancel();
+                        chatStreamEventBridge.unregisterPublisher(
+                                command.memoryId(), resourcePublisher);
+                        try {
+                            agentRunService.failRun(command.runHandle().id(), "用户已停止任务");
+                            command.observation().cancel("用户已停止任务");
+                        } finally {
+                            command.onTerminal().run();
+                        }
+                    });
+        Consumer<dev.langchain4j.model.chat.response.PartialThinking> thinkingHandler =
+                thinking -> {
+                    if (terminal.get()) return;
+                    String text = thinking == null ? "" : thinking.text();
+                    if (text == null || text.isBlank()) return;
+                    reasoningBuilder.append(text);
+                    emitIfActive(command.sink(), new ChatStreamEvent("reasoning", text));
+                };
         try {
             ChatExecutionCancellation.check(command.sink());
             String messageForLlm = command.userMessage();
             if (command.resources() != null && !command.resources().isEmpty()) {
-                messageForLlm += "\n[系统：本消息引用的素材 resourceId："
-                        + command.resources().stream().map(ChatMessageResourceUseDto::resourceId)
-                        .collect(java.util.stream.Collectors.joining("、")) + "。]";
-                messageForLlm += "\n[系统：当前消息含用户素材。调用list_video_inputs获取当前用户素材ID和类型。静态图片生成/编辑使用generateImage；视频使用generate_video，不要调用旧版image_to_video。视频默认H3、6秒、768P；用户指定时长和画质必须遵从，不擅自换模型或降级。单图未指定用途时为首帧，多图为参考；首尾帧与音视频参考互斥，冲突时询问用户。仅描述素材不要生成视频。]";
+                messageForLlm +=
+                        "\n[系统：本消息引用的素材 resourceId："
+                                + command.resources().stream()
+                                        .map(ChatMessageResourceUseDto::resourceId)
+                                        .collect(java.util.stream.Collectors.joining("、"))
+                                + "。]";
+                messageForLlm +=
+                        "\n"
+                            + "[附件处理：本消息包含用户附件。识别图片文字、读取文档或查询图中文字时，调用list_document_inputs取得准确资源ID，再调用parse_document。附件本身不表示生成意图；只有用户明确要求生成或编辑视频、图片时才调用对应生成工具（图片编辑用generateImage）。完整复制工具返回的资源ID。]";
             }
             // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把
             // Generation/Tool Span 挂到本次运行。后续轮次由流式回调中的观测作用域接管。
             try (ObservationScope ignored = command.observation().scope()) {
-                dev.langchain4j.service.TokenStream stream = hAssistant.streamChat(
-                                command.memoryId(),
-                                messageForLlm,
-                                memoryInvocationContext(command).toInvocationParameters()
-                        )
-                        .onToolExecuted(toolExecution -> {
-                            if (terminal.get()) return;
-                            recordToolUsage(command.runHandle().id(), toolExecution);
-                            if (cancellation != null) emitIfActive(command.sink(), new ChatStreamEvent("tool_result", "", null,
-                                    Map.of("id", toolExecution.request().id(), "name", toolExecution.request().name(),
-                                            "result", java.util.Objects.toString(toolExecution.result(), ""),
-                                            "failed", toolExecution.hasFailed())));
-                        })
-                        .onCompleteResponse(ignoredResponse -> {
-                            if (!terminal.compareAndSet(false, true)) return;
-                            try {
-                                logCompletedStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
-                                completeSuccessfulStream(command, reasoningBuilder, replyBuilder, resourceEmitted);
-                            } finally {
-                                chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
-                                command.onTerminal().run();
-                            }
-                        })
-                        .onError(error -> {
-                            if (!terminal.compareAndSet(false, true)) return;
-                            try {
-                                emitFailureEvent(command.sink(), command, error);
-                            } finally {
-                                chatStreamEventBridge.unregisterPublisher(command.memoryId(), resourcePublisher);
-                                command.onTerminal().run();
-                            }
-                        });
+                dev.langchain4j.service.TokenStream stream =
+                        hAssistant
+                                .streamChat(
+                                        command.memoryId(),
+                                        messageForLlm,
+                                        memoryInvocationContext(command).toInvocationParameters())
+                                .onToolExecuted(
+                                        toolExecution -> {
+                                            if (terminal.get()) return;
+                                            recordToolUsage(
+                                                    command.runHandle().id(), toolExecution);
+                                            if (cancellation != null)
+                                                emitIfActive(
+                                                        command.sink(),
+                                                        new ChatStreamEvent(
+                                                                "tool_result",
+                                                                "",
+                                                                null,
+                                                                Map.of(
+                                                                        "id",
+                                                                        toolExecution
+                                                                                .request()
+                                                                                .id(),
+                                                                        "name",
+                                                                        toolExecution
+                                                                                .request()
+                                                                                .name(),
+                                                                        "result",
+                                                                        java.util.Objects.toString(
+                                                                                toolExecution
+                                                                                        .result(),
+                                                                                ""),
+                                                                        "failed",
+                                                                        toolExecution
+                                                                                .hasFailed())));
+                                        })
+                                .onCompleteResponse(
+                                        ignoredResponse -> {
+                                            if (!terminal.compareAndSet(false, true)) return;
+                                            try {
+                                                logCompletedStream(
+                                                        command,
+                                                        reasoningBuilder,
+                                                        replyBuilder,
+                                                        resourceEmitted);
+                                                completeSuccessfulStream(
+                                                        command,
+                                                        reasoningBuilder,
+                                                        replyBuilder,
+                                                        resourceEmitted);
+                                            } finally {
+                                                chatStreamEventBridge.unregisterPublisher(
+                                                        command.memoryId(), resourcePublisher);
+                                                command.onTerminal().run();
+                                            }
+                                        })
+                                .onError(
+                                        error -> {
+                                            if (!terminal.compareAndSet(false, true)) return;
+                                            try {
+                                                emitFailureEvent(command.sink(), command, error);
+                                            } finally {
+                                                chatStreamEventBridge.unregisterPublisher(
+                                                        command.memoryId(), resourcePublisher);
+                                                command.onTerminal().run();
+                                            }
+                                        });
                 if (cancellation == null) {
                     stream.onPartialThinking(thinkingHandler);
-                    stream.onPartialResponse(chunk -> {
-                        replyBuilder.append(chunk);
-                        emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
-                    });
+                    stream.onPartialResponse(
+                            chunk -> {
+                                replyBuilder.append(chunk);
+                                emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
+                            });
                 } else {
-                    stream.onPartialThinkingWithContext((thinking, context) -> {
-                        streamingHandle.set(context.streamingHandle());
-                        if (terminal.get()) { context.streamingHandle().cancel(); return; }
-                        thinkingHandler.accept(thinking);
-                    });
-                    stream.onPartialResponseWithContext((response, context) -> {
-                        streamingHandle.set(context.streamingHandle());
-                        if (terminal.get()) { context.streamingHandle().cancel(); return; }
-                        replyBuilder.append(response.text());
-                        emitIfActive(command.sink(), new ChatStreamEvent("chunk", response.text()));
-                    }).beforeToolExecution(before -> {
-                        ChatExecutionCancellation.check(command.sink());
-                        emitIfActive(command.sink(), new ChatStreamEvent("tool_start", "", null,
-                                Map.of("id", before.request().id(), "name", before.request().name())));
-                    });
+                    stream.onPartialThinkingWithContext(
+                            (thinking, context) -> {
+                                streamingHandle.set(context.streamingHandle());
+                                if (terminal.get()) {
+                                    context.streamingHandle().cancel();
+                                    return;
+                                }
+                                thinkingHandler.accept(thinking);
+                            });
+                    stream.onPartialResponseWithContext(
+                                    (response, context) -> {
+                                        streamingHandle.set(context.streamingHandle());
+                                        if (terminal.get()) {
+                                            context.streamingHandle().cancel();
+                                            return;
+                                        }
+                                        replyBuilder.append(response.text());
+                                        emitIfActive(
+                                                command.sink(),
+                                                new ChatStreamEvent("chunk", response.text()));
+                                    })
+                            .beforeToolExecution(
+                                    before -> {
+                                        ChatExecutionCancellation.check(command.sink());
+                                        emitIfActive(
+                                                command.sink(),
+                                                new ChatStreamEvent(
+                                                        "tool_start",
+                                                        "",
+                                                        null,
+                                                        Map.of(
+                                                                "id",
+                                                                before.request().id(),
+                                                                "name",
+                                                                before.request().name())));
+                                    });
                 }
                 ChatExecutionCancellation.check(command.sink());
                 stream.start();
@@ -173,16 +246,14 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             ChatAgentExecutionCommand command,
             StringBuilder reasoningBuilder,
             StringBuilder replyBuilder,
-            AtomicBoolean imageEmitted
-    ) {
+            AtomicBoolean imageEmitted) {
         log.info(
                 "Chat stream completed memoryId={} runId={} imageEmitted={} reasoning={} reply={}",
                 command.memoryId(),
                 command.runHandle().id(),
                 imageEmitted.get(),
                 reasoningBuilder,
-                replyBuilder
-        );
+                replyBuilder);
     }
 
     private String firstReferenceResourceId(ChatAgentExecutionCommand command) {
@@ -190,8 +261,10 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
             return null;
         }
         return command.resources().stream()
-                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role())
-                        || "ATTACHMENT".equalsIgnoreCase(resource.role()))
+                .filter(
+                        resource ->
+                                "REFERENCE".equalsIgnoreCase(resource.role())
+                                        || "ATTACHMENT".equalsIgnoreCase(resource.role()))
                 .map(ChatMessageResourceUseDto::resourceId)
                 .findFirst()
                 .orElse(null);
@@ -204,16 +277,14 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 command.rootSessionId(),
                 command.runHandle().id(),
                 command.sessionId(),
-                command.resolvedPromptId()
-        );
+                command.resolvedPromptId());
     }
 
     private void completeSuccessfulStream(
             ChatAgentExecutionCommand command,
             StringBuilder reasoningBuilder,
             StringBuilder replyBuilder,
-            AtomicBoolean imageEmitted
-    ) {
+            AtomicBoolean imageEmitted) {
         String reply = replyBuilder.toString();
         if (reply.isBlank()) {
             if (imageEmitted.get()) {
@@ -230,7 +301,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         }
         String reasoning = reasoningBuilder.toString();
         if (!reasoning.isBlank()) {
-            chatSessionService.appendReasoningMessage(command.userId(), command.sessionId(), reasoning);
+            chatSessionService.appendReasoningMessage(
+                    command.userId(), command.sessionId(), reasoning);
         }
         // assistant message、run success 与 memory capture outbox 同一事务提交
         ChatSessionMessageDto assistantMessage = successfulTurnCommitter.commit(command, reply);
@@ -243,10 +315,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
     }
 
     private void emitFailureEvent(
-            FluxSink<ChatStreamEvent> sink,
-            ChatAgentExecutionCommand command,
-            Throwable error
-    ) {
+            FluxSink<ChatStreamEvent> sink, ChatAgentExecutionCommand command, Throwable error) {
         log.error("Error streaming chat", error);
         if (error instanceof ModelDisabledException) {
             agentRunService.failRun(command.runHandle().id(), "AI 服务未配置 OPENAI_API_KEY");
@@ -256,7 +325,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         }
         if (error instanceof InputGuardrailException || error instanceof OutputGuardrailException) {
             String cleanMessage = cleanGuardrailMessage(error.getMessage());
-            chatSessionService.appendBlockedMessage(command.userId(), command.sessionId(), cleanMessage);
+            chatSessionService.appendBlockedMessage(
+                    command.userId(), command.sessionId(), cleanMessage);
             agentRunService.failRun(command.runHandle().id(), cleanMessage);
             command.observation().fail(error);
             emitAndCompleteIfActive(sink, new ChatStreamEvent("blocked", cleanMessage));
@@ -264,8 +334,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
         }
         agentRunService.failRun(
                 command.runHandle().id(),
-                error.getMessage() == null ? "AI 服务调用失败" : error.getMessage()
-        );
+                error.getMessage() == null ? "AI 服务调用失败" : error.getMessage());
         command.observation().fail(error);
         emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "AI 服务调用失败"));
     }

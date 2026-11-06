@@ -50,7 +50,7 @@ class ChatModelConfigTest {
         assertTrue((Boolean) readField(loggingHttpClient, "logResponses"));
         assertEquals(
                 "dev.langchain4j.http.client.log.HttpRequestLogger",
-                readField(readField(loggingHttpClient, "log"), "name")
+                assertInstanceOf(CompactHttpLogger.class, readField(loggingHttpClient, "log")).getName()
         );
     }
 

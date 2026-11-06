@@ -16,7 +16,7 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
             <script>
             SELECT id, message_id, user_id, resource_type, resource_role,
                    storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height,
+                   view_url, download_url, mime_type, file_name, file_extension, file_size, width, height,
                    metadata_json, created_at
             FROM chat_message_resources
             WHERE message_id IN
@@ -31,7 +31,7 @@ public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourc
     @Select("""
             SELECT id, message_id, user_id, resource_type, resource_role,
                    storage_type, storage_key,
-                   view_url, download_url, mime_type, file_name, file_size, width, height,
+                   view_url, download_url, mime_type, file_name, file_extension, file_size, width, height,
                    metadata_json, created_at
             FROM chat_message_resources
             WHERE id = #{id}

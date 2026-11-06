@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.h.backend.document.infrastructure.persistence.mapper.DocumentTaskMapper">
+ <insert id="insertIdempotent">
+ INSERT INTO chat_document_tasks(id,user_id,session_id,resource_id,request_key,status,state_json)
+ VALUES (#{row.id},#{row.userId},#{row.sessionId},#{row.resourceId},#{row.requestKey},#{row.status},#{row.stateJson})
+ ON CONFLICT(user_id,session_id,request_key) DO NOTHING
+ </insert>
+ <select id="lockOwned" resultType="com.h.backend.document.infrastructure.persistence.entity.DocumentTaskEntity">
+ SELECT * FROM chat_document_tasks WHERE user_id=#{user} AND session_id=#{session} AND id=#{id} FOR UPDATE
+ </select>
+ <!-- 租约领取与返回在同一 SQL 内完成，多个实例之间不会重复领取。 -->
+ <select id="claim" affectData="true" flushCache="true" resultType="com.h.backend.document.infrastructure.persistence.entity.DocumentTaskEntity">
+ UPDATE chat_document_tasks SET lease_until=NOW()+INTERVAL '12 minutes'
+ WHERE id IN (SELECT id FROM chat_document_tasks
+ WHERE (status IN ('PARSING','QUEUED','OCR_RUNNING','VERIFYING','GENERATING')
+ OR status IN ('RECOGNIZED','GOOD','LOW','UNSUPPORTED','FAILED','VERIFIED','CONFIRMED') AND state_json::jsonb->>'resumeStatus' IN ('QUEUED','RUNNING'))
+ AND (lease_until IS NULL OR lease_until &lt; NOW())
+ ORDER BY CASE WHEN status IN ('PARSING','QUEUED','OCR_RUNNING','VERIFYING','GENERATING') THEN 0 ELSE 1 END,created_at
+ FOR UPDATE SKIP LOCKED LIMIT 1)
+ RETURNING *
+ </select>
+ <select id="activeAnchor" resultType="java.lang.Long">
+ SELECT user_message_id FROM agent_runs WHERE user_id=#{user} AND session_id=#{session} AND status='RUNNING' ORDER BY id DESC LIMIT 1
+ </select>
+ <select id="runStatus" resultType="java.lang.String">SELECT status FROM agent_runs WHERE id=#{runId}</select>
+ <!-- 服务恢复后的自动续跑同时更新行状态与内部快照，取消的任务不恢复。 -->
+ <update id="requeueUnavailable">
+ UPDATE chat_document_tasks
+ SET status='QUEUED', state_json=jsonb_set(jsonb_set(state_json::jsonb,'{status}','"QUEUED"'::jsonb),'{detail}','""'::jsonb)::text,
+     revision=revision+1, lease_until=NULL, updated_at=NOW()
+ WHERE status IN ('CLOUD_UNAVAILABLE','NEEDS_EXTERNAL_CONSENT')
+   AND COALESCE(state_json::jsonb->>'continuationCancelled','false')='false'
+ </update>
+</mapper>
