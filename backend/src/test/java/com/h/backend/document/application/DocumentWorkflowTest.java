@@ -199,6 +199,17 @@ class DocumentWorkflowTest {
     }
 
     @Test
+    void completedGenerationExplicitlyReportsThatTheFileWasDelivered() {
+        task.setKind("GENERATE");
+        task.setStatus("COMPLETED");
+        task.setOutputResourceId("delivered-resource");
+        var response = json.readTree(workflow.toolView(task, 0));
+        assertTrue(response.path("deliveredToChat").asBoolean());
+        assertEquals("delivered-resource", response.path("outputResourceId").asText());
+        assertTrue(response.path("nextStep").asText().contains("不要再调用发送工具"));
+    }
+
+    @Test
     void recognizedTextCanBeUsedForDocumentGenerationWithoutReview() {
         task.setStatus("RECOGNIZED");
         when(repository.insert(any())).thenAnswer(call -> call.getArgument(0));

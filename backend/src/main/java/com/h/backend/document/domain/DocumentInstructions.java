@@ -19,5 +19,6 @@ public final class DocumentInstructions {
             DOCX/PDF/MD三种格式，未指定时改写用docx，导出打印用pdf。原文改写必须传全部依赖的sourceTaskIds。
             复杂版式、批注、修订记录可能丢失，生成前说明。保留原文需要的标题、列表和可提取表格。
             文件会在质量检查后自动交付，生成中的任务不要重复提交。超时或超限时告知用户并提供缩小范围的选择。
+            generate_document的COMPLETED状态表示文件已发送到聊天；只需简短告知用户完成。不得为再次发送而调用send_file_to_chat、查找会话目录或复制重建同一文件。
             """;
 }

@@ -62,6 +62,28 @@ class FileDeliveryToolTest {
     }
 
     @Test
+    void doesNotSendACopyOfADocumentAlreadyDeliveredInTheSameTurn() {
+        var files = new AssistantFileStorage(tempDir.resolve("files"), 1024 * 1024);
+        files.write("1:22:session-1", "/报告.md", "a rewritten copy");
+        var writes = mock(ResourceWriteCoordinator.class);
+        var tool = newTool(files, writes, mock(ChatSessionService.class), new ChatStreamEventBridge());
+        var documents = mock(com.h.backend.document.infrastructure.persistence.DocumentRepository.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(tool, "documentTasks", documents);
+        when(documents.activeAnchor(1L, "session-1")).thenReturn(42L);
+        var task = new com.h.backend.document.domain.DocumentTask();
+        task.setAnchorMessageId(42L);
+        task.setKind("GENERATE");
+        task.setStatus("COMPLETED");
+        task.setFileName("报告.md");
+        task.setOutputResourceId("generated-document");
+        when(documents.list(1L, "session-1")).thenReturn(List.of(task));
+
+        assertTrue(tool.sendFileToChat("1:22:session-1", "/报告.md", "", "", "")
+                .contains("generated-document"));
+        verify(writes, never()).saveAndAttach(any(ResourceSaveCommand.class), any());
+    }
+
+    @Test
     void shouldSendSessionFileToCurrentChatStream() {
         AssistantFileStorage assistantFileStorage = new AssistantFileStorage(tempDir.resolve("assistant-files"), 1024 * 1024);
         ResourceWriteCoordinator writeCoordinator = mock(ResourceWriteCoordinator.class);

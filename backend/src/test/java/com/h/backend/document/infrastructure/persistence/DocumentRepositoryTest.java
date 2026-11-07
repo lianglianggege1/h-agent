@@ -136,6 +136,24 @@ class DocumentRepositoryTest {
     }
 
     @Test
+    void deferredContinuationDoesNotStarveLaterTasks() {
+        var first = task();
+        first.setStatus("RECOGNIZED");
+        first.setResumeStatus("QUEUED");
+        repository.insert(first);
+        var second = task();
+        second.setRequestKey("later");
+        second.setStatus("RECOGNIZED");
+        second.setResumeStatus("QUEUED");
+        repository.insert(second);
+
+        assertEquals(first.getId(), repository.claim().getFirst().getId());
+        repository.release(first.getId());
+        assertEquals(second.getId(), repository.claim().getFirst().getId(),
+                "a deferred or busy conversation must not block every later continuation");
+    }
+
+    @Test
     void concurrentInsertAndClaimOnlyCreateAndLeaseOnce() throws Exception {
         try (var executor = Executors.newFixedThreadPool(8)) {
             var futures = new ArrayList<Future<DocumentTask>>();

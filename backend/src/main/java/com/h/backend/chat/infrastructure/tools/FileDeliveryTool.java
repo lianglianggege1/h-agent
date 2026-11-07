@@ -35,6 +35,9 @@ import java.util.Locale;
 @Component
 public class FileDeliveryTool {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.h.backend.document.infrastructure.persistence.DocumentRepository documentTasks;
+
     private final AssistantFileStorage fileStorage;
     private final ResourceWriteCoordinator writeCoordinator;
     private final ChatSessionService chatSessionService;
@@ -61,7 +64,7 @@ public class FileDeliveryTool {
         this.contentPolicy = contentPolicy;
     }
 
-    @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
+    @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。generate_document生成的文档已自动发送，不要复制或重复发送。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
     public String sendFileToChat(
             @ToolMemoryId String memoryId,
             @P("当前会话内的文件路径，例如 /report.pptx 或 /audio/demo.mp3") String path,
@@ -76,6 +79,30 @@ public class FileDeliveryTool {
 
         FileDeliveryContext context = parseMemoryId(memoryId);
         String resolvedFileName = safeDisplayName(displayName, file.fileName());
+        // generate_document already commits its file message. A model may create a
+        // slightly different copy and try to send it again; scope reuse to this turn.
+        try {
+            if (documentTasks != null) {
+                Long anchor = documentTasks.activeAnchor(context.userId(), context.sessionId());
+                if (anchor != null) {
+                    var delivered = documentTasks.list(context.userId(), context.sessionId()).stream()
+                            .filter(task -> "GENERATE".equals(task.getKind())
+                                    && "COMPLETED".equals(task.getStatus())
+                                    && anchor.equals(task.getAnchorMessageId())
+                                    && resolvedFileName.equals(task.getFileName())
+                                    && task.getOutputResourceId() != null)
+                            .findFirst();
+                    if (delivered.isPresent()) {
+                        closeQuietly(file.stream());
+                        return "该文档已自动发送到聊天中，请复用已有文件，不要再次复制或发送。resourceId="
+                                + delivered.get().getOutputResourceId();
+                    }
+                }
+            }
+        } catch (RuntimeException failure) {
+            closeQuietly(file.stream());
+            throw failure;
+        }
         String resolvedMimeType = resolveMimeType(mimeType, file.mimeType(), resolvedFileName);
         String extension = extensionFromFileName(resolvedFileName);
         String resourceType = resourceTypeFor(resolvedMimeType);

@@ -28,6 +28,7 @@ export type DocumentTask = {
   qualityReviewed?: boolean;
   sourceTaskIds?: string[];
   resumeStatus: string;
+  outputResourceId?: string | null;
   continuationCancelled: boolean;
   startPage: number;
   endPage: number;

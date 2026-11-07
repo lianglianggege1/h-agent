@@ -215,7 +215,17 @@ public class DocumentJob {
         }
         if (runs.hasOpenRun(task.getSessionId())) return;
         var meta = sessions.getSessionDetail(task.getUserId(), task.getSessionId());
-        if (meta.archived()) return;
+        if (meta.archived()) {
+            repository.change(
+                    task.getUserId(), task.getSessionId(), task.getId(),
+                    current -> {
+                        current.setResumeStatus("CANCELLED");
+                        current.setContinuationCancelled(true);
+                    });
+            log.info("Document continuation cancelled for archived session traceId={} taskId={} sessionId={}",
+                    task.getTraceId(), task.getId(), task.getSessionId());
+            return;
+        }
         String prompt =
                 "继续完成原用户请求：\n"
                         + task.getOriginalRequest()
@@ -246,6 +256,8 @@ public class DocumentJob {
                         .doOnNext(tick -> cancellation.cancel())
                         .next();
         try {
+            log.info("Document continuation started traceId={} taskId={} sessionId={}",
+                    task.getTraceId(), task.getId(), task.getSessionId());
             var events =
                     chats.getObject()
                             .streamChat(
@@ -270,7 +282,7 @@ public class DocumentJob {
                             .takeUntilOther(cancelled)
                             .collectList()
                             .block(Duration.ofMinutes(10));
-            repository.change(
+            var settled = repository.change(
                     task.getUserId(),
                     task.getSessionId(),
                     task.getId(),
@@ -291,6 +303,17 @@ public class DocumentJob {
                                                 : "NEEDS_RESUME"
                                         : "DONE");
                     });
+            if ("NEEDS_RESUME".equals(settled.getResumeStatus())
+                    || "QUEUED".equals(settled.getResumeStatus())) {
+                log.error("Document continuation returned an error traceId={} taskId={} runId={} resumeStatus={} errors={}",
+                        task.getTraceId(), task.getId(), settled.getResumedRunId(), settled.getResumeStatus(),
+                        events == null ? "empty stream" : events.stream()
+                                .filter(e -> "error".equals(e.type()) || "blocked".equals(e.type()))
+                                .map(e -> e.type() + ": " + e.content()).toList());
+            } else {
+                log.info("Document continuation settled traceId={} taskId={} runId={} resumeStatus={}",
+                        task.getTraceId(), task.getId(), settled.getResumedRunId(), settled.getResumeStatus());
+            }
         } catch (RuntimeException failure) {
             log.error("Document resume failed traceId={} taskId={} runId={}",
                     task.getTraceId(), task.getId(), task.getResumedRunId(), failure);

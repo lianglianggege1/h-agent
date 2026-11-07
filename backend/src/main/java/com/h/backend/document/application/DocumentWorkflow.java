@@ -852,6 +852,12 @@ public class DocumentWorkflow {
     /** 构造 Agent 工具结果；未放行状态只含诊断及流程提示。 */
     public String toolView(DocumentTask task, Integer offset) {
         var result = summary(task);
+        if ("GENERATE".equals(task.getKind()) && "COMPLETED".equals(task.getStatus())
+                && task.getOutputResourceId() != null) {
+            result.put("deliveredToChat", true);
+            result.put("nextStep", "文件已经保存并发送到当前聊天。直接告知用户完成，不要再调用发送工具、查找会话文件或复制重建文件。");
+            return json.writeValueAsString(result);
+        }
         if ("REVIEW".equals(task.getKind())) {
             result.put("reviewResults", task.getPages().stream().flatMap(page -> page.getBlocks().stream())
                     .map(block -> Map.of("blockId", block.getId(), "verdict", block.getVerdict(),

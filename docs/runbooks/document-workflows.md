@@ -60,6 +60,8 @@ mvn -pl backend -am -DargLine=-Djava.awt.headless=true \
 
 任务通过数据库锁、版本和租约协调。处理重启后复用持久化的云端文件及作业 ID。资源、聊天消息与生成任务完成状态在同一事务内提交。崩溃的对话续跑展示人工继续入口，以复用已有工具任务。
 
+归档会话的待续跑任务以 CANCELLED 结束，保留已识别内容。领取按最近调度时间轮转，释放租约时更新时间，避免繁忙会话或历史任务反复占据队首。排查 RECOGNIZED + QUEUED 且没有新 Agent Run 的任务时，同时检查队首任务与所属会话状态。续跑开始、结束、归档取消均记录 INFO，错误事件记录 ERROR，抛出的异常附完整堆栈。
+
 ## 分层、配置来源与日志定位
 
 Controller 位于 `document/interfaces/web`，只接收认证用户并调用 `document/application`。业务服务组合领域状态和基础设施适配器。普通数据库操作由 MyBatis-Plus Entity / BaseMapper 承担，幂等插入、行锁与任务领取使用 `mapper/document/*.xml`。生产文档代码不使用 JdbcTemplate。

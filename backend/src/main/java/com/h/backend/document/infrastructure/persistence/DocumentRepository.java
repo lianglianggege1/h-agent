@@ -122,7 +122,10 @@ public class DocumentRepository {
                 null,
                 new LambdaUpdateWrapper<DocumentTaskEntity>()
                         .eq(DocumentTaskEntity::getId, id)
-                        .set(DocumentTaskEntity::getLeaseUntil, null));
+                        .set(DocumentTaskEntity::getLeaseUntil, null)
+                        // Rotate deferred tasks behind other eligible work, including when
+                        // their conversation currently has an open Agent Run.
+                        .set(DocumentTaskEntity::getUpdatedAt, OffsetDateTime.now()));
     }
 
     public int requeueUnavailable() {

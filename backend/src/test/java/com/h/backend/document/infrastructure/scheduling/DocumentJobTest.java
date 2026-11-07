@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import com.h.backend.chat.application.*;
 import com.h.backend.document.application.DocumentWorkflow;
 import com.h.backend.document.domain.DocumentTask;
+import com.h.backend.document.domain.DocumentContinuation;
 import com.h.backend.document.infrastructure.persistence.DocumentRepository;
 
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,59 @@ class DocumentJobTest {
                             return task;
                         });
         return task;
+    }
+
+    @Test
+    void recognizedTaskStartsANewReplyAfterTheProvisionalAcknowledgment() {
+        var task = task(null);
+        task.setStatus("RECOGNIZED");
+        task.setResumeStatus("QUEUED");
+        task.setAnchorMessageId(871L);
+        var acknowledged = java.time.LocalDateTime.of(2026, 11, 7, 13, 36, 49);
+        task.setRecognizedAtMillis(acknowledged.plusSeconds(10)
+                .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+        when(runs.findByUserMessage(1L, "chat", 871L)).thenReturn(
+                new com.h.backend.chat.domain.model.AgentRunSummary(
+                        257L, "SUCCEEDED", 873L, 2, "[]", null, acknowledged));
+        when(sessions.getSessionDetail(1L, "chat")).thenReturn(
+                new com.h.backend.chat.interfaces.dto.ChatSessionMetaDto(
+                        "chat", "active", null, null, null, null, null, null,
+                        0, null, null, false));
+        var chat = mock(ChatService.class);
+        when(chats.getObject()).thenReturn(chat);
+        var reply = new com.h.backend.chat.interfaces.dto.ChatSessionMessageDto(
+                "874", "assistant", "AI", "识别正文", null, java.util.List.of(), null);
+        when(chat.streamChat(eq(1L), isNull(), isNull(), eq("chat"), anyString(), anyList()))
+                .thenReturn(reactor.core.publisher.Flux.deferContextual(context -> {
+                    var continuation = context.get(DocumentContinuation.class);
+                    assertEquals(871L, continuation.userMessageId());
+                    assertEquals("doc", continuation.taskId());
+                    task.setResumedRunId(258L);
+                    return reactor.core.publisher.Flux.just(
+                            new com.h.backend.chat.interfaces.dto.ChatStreamEvent("done", "", reply));
+                }));
+        try (var job = newJob()) {
+            job.resume(task);
+        }
+        assertEquals("DONE", task.getResumeStatus());
+        assertEquals(258L, task.getResumedRunId());
+        verify(chat).streamChat(eq(1L), isNull(), isNull(), eq("chat"), anyString(), anyList());
+    }
+
+    @Test
+    void archivedConversationSettlesContinuationInsteadOfBlockingTheQueue() {
+        var task = task(null);
+        task.setResumeStatus("QUEUED");
+        when(sessions.getSessionDetail(1L, "chat"))
+                .thenReturn(new com.h.backend.chat.interfaces.dto.ChatSessionMetaDto(
+                        "chat", "archived", null, null, null, null, null, null,
+                        0, null, null, true));
+        try (var job = newJob()) {
+            job.resume(task);
+        }
+        assertEquals("CANCELLED", task.getResumeStatus());
+        assertTrue(task.isContinuationCancelled());
+        verifyNoInteractions(chats);
     }
 
     @Test
