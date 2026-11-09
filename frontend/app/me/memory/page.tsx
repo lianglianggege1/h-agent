@@ -80,7 +80,7 @@ export default function MemoryPage() {
       <section className="workspace-container workspace-memory-layout">
         <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
           <Link href="/me" className="text-xs font-semibold text-amber-700">返回我的</Link>
-          <h1 className="mt-2 text-2xl font-semibold">Agent 长期记忆</h1>
+          <h1 className="mt-2 text-2xl font-semibold">Agent 记忆文件</h1>
         </header>
         <div className="rounded-2xl border border-stone-200/80 bg-white p-5 text-sm text-stone-500 shadow-sm">
           {catalogError ? (
@@ -238,8 +238,12 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
           >
             返回我的
           </Link>
-          <h1 className="mt-2 text-2xl font-semibold">Agent 长期记忆</h1>
-          <p className="mt-1 text-sm text-stone-500">查看和编辑当前用户在各 Agent 下跨会话保留的记忆。</p>
+          <h1 className="mt-2 text-2xl font-semibold">Agent 记忆文件</h1>
+          <p className="mt-1 text-sm text-stone-500">
+            {agentId === "harness-agent"
+              ? "这些历史记忆文件可由助手按需查阅。编辑文件不会直接修改助手通过记忆工具保存的内容。"
+              : "查看和编辑当前用户在此 Agent 下跨会话保留的记忆文件。"}
+          </p>
           <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="memory-agent">选择 Agent</label>
           <select
             id="memory-agent"

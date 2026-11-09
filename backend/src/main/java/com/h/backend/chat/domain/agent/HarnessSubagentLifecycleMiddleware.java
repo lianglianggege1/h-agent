@@ -288,7 +288,7 @@ public final class HarnessSubagentLifecycleMiddleware implements MiddlewareBase 
                 listener.onCompleted(userId, sessionId, assignment, reasoning, content);
     }
 
-    static String executionIdFrom(RuntimeContext context) {
+    public static String executionIdFrom(RuntimeContext context) {
         return context == null ? null : context.get(EXECUTION_ID_ATTRIBUTE);
     }
 

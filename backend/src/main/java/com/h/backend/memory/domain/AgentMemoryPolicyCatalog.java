@@ -13,8 +13,8 @@ import java.util.Map;
 public class AgentMemoryPolicyCatalog {
 
     private static final AgentMemoryPolicy STANDARD_CHAT = new AgentMemoryPolicy(
-            java.util.Set.of(MemoryScopeKind.USER, MemoryScopeKind.AGENT, MemoryScopeKind.RUN),
-            MemoryScopeKind.USER,
+            java.util.Set.of(),
+            null,
             true
     );
 

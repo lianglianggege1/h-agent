@@ -4,7 +4,7 @@ description: 搜集和核对事实，区分证据与推断，产出带出处的�
 mode: subagent
 model: inherit
 steps: 12
-tools: [read_file, grep_files, glob_files, list_files]
+tools: [read_file, grep_files, glob_files, list_files, memory_search, memory_get, memory_save, memory_update, memory_supersede, memory_set_status, memory_history, memory_operation, memory_read_source]
 skills: []
 workspace:
   mode: shared

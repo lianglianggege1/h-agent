@@ -79,6 +79,24 @@ public class Mem0HttpGateway implements Mem0Gateway {
     }
 
     @Override
+    public List<Mem0Models.Mem0Memory> searchFiltered(String userId, String query, int topK, Map<String,Object> filters) {
+        Map<String,Object> owned = new LinkedHashMap<>(filters);
+        owned.put("user_id", userId);
+        return readMemoryArray(post(SEARCH_PATH, Map.of("filters", owned, "query", query, "top_k", topK)));
+    }
+
+    @Override
+    public List<Mem0Models.Mem0Memory> findByOperationKey(String userId, String key, String text) {
+        Map<String,Object> body = new LinkedHashMap<>();
+        body.put("filters", Map.of("user_id", userId, "operation_key", key));
+        body.put("query", text);
+        body.put("top_k", 2);
+        return readMemoryArray(post(SEARCH_PATH, body)).stream()
+                .filter(m -> m.metadata() != null && key.equals(m.metadata().get("operation_key")))
+                .toList();
+    }
+
+    @Override
     public Mem0Models.Mem0AddResult add(Mem0Models.Mem0AddCommand command) {
         Map<String, Object> body = new LinkedHashMap<>();
         List<Map<String, String>> messages = new ArrayList<>();
@@ -148,7 +166,7 @@ public class Mem0HttpGateway implements Mem0Gateway {
             for (JsonNode node : results) {
                 entries.add(new Mem0Models.Mem0HistoryEntry(
                         textOf(node.get("id")),
-                        textOf(node.get("memory")),
+                        textOf(node.hasNonNull("memory") ? node.get("memory") : node.get("new_memory")),
                         scope.scopeKind(),
                         instantOf(node.get("created_at"))
                 ));

@@ -37,6 +37,12 @@ public class LongTermMemoryRecordEntity {
     @TableField("operation_state")
     private String operationState;
 
+    @TableField("memory_status")
+    private String memoryStatus;
+
+    @TableField("pending_operation")
+    private String pendingOperation;
+
     private String source;
 
     @TableField("source_execution_id")

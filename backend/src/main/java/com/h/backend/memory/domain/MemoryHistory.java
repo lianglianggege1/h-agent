@@ -3,7 +3,7 @@ package com.h.backend.memory.domain;
 import java.time.Instant;
 import java.util.List;
 
-/** 单条记忆的远程演化历史；由 Mem0 提供，本地不保存副本。 */
+/** 单条记忆的演化历史；工具记忆使用本地不可变修订，旧记忆可读取远端历史。 */
 public record MemoryHistory(
         Long localId,
         String remoteMemoryId,

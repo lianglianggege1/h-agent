@@ -15,11 +15,11 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
 
     @Select("""
             SELECT id, remote_memory_id, owner_user_id, scope_kind, logical_agent_id, memory_run_id,
-                   version, operation_state, source, source_execution_id, remote_hash,
+                   version, operation_state, memory_status, pending_operation, source, source_execution_id, remote_hash,
                    remote_updated_at, created_at, updated_at, deleted_at
             FROM long_term_memory_records
             WHERE owner_user_id = #{userId}
-              AND deleted_at IS NULL
+              AND deleted_at IS NULL AND memory_status = 'ACTIVE' AND pending_operation IS NULL
               AND (#{scopeKind} IS NULL OR scope_kind = #{scopeKind})
               AND (#{logicalAgentId} IS NULL OR logical_agent_id = #{logicalAgentId})
               AND (#{cursorId} IS NULL OR id < #{cursorId})
@@ -35,7 +35,7 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
 
     @Select("""
             SELECT id, remote_memory_id, owner_user_id, scope_kind, logical_agent_id, memory_run_id,
-                   version, operation_state, source, source_execution_id, remote_hash,
+                   version, operation_state, memory_status, pending_operation, source, source_execution_id, remote_hash,
                    remote_updated_at, created_at, updated_at, deleted_at
             FROM long_term_memory_records
             WHERE id = #{localId} AND owner_user_id = #{userId} AND deleted_at IS NULL
@@ -44,7 +44,7 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
 
     @Select("""
             SELECT id, remote_memory_id, owner_user_id, scope_kind, logical_agent_id, memory_run_id,
-                   version, operation_state, source, source_execution_id, remote_hash,
+                   version, operation_state, memory_status, pending_operation, source, source_execution_id, remote_hash,
                    remote_updated_at, created_at, updated_at, deleted_at
             FROM long_term_memory_records
             WHERE remote_memory_id = #{remoteMemoryId} AND owner_user_id = #{userId}
@@ -55,7 +55,7 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
     @Select("""
             SELECT COUNT(*)
             FROM long_term_memory_records
-            WHERE owner_user_id = #{userId} AND deleted_at IS NULL
+            WHERE owner_user_id = #{userId} AND deleted_at IS NULL AND memory_status = 'ACTIVE' AND pending_operation IS NULL
             """)
     long countOwned(@Param("userId") Long userId);
 
@@ -68,6 +68,7 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
             WHERE id = #{localId}
               AND owner_user_id = #{userId}
               AND version = #{expectedVersion}
+              AND pending_operation IS NULL
               AND deleted_at IS NULL
             """)
     int casUpdateContent(@Param("localId") Long localId,
@@ -85,6 +86,7 @@ public interface LongTermMemoryRecordMapper extends BaseMapper<LongTermMemoryRec
             WHERE id = #{localId}
               AND owner_user_id = #{userId}
               AND version = #{expectedVersion}
+              AND pending_operation IS NULL
               AND deleted_at IS NULL
             """)
     int casMarkDeleted(@Param("localId") Long localId,

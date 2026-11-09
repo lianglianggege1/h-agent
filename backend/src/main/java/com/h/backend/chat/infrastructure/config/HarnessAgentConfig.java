@@ -214,6 +214,15 @@ public class HarnessAgentConfig {
 
     @Bean("harnessCompactionConfig")
     public CompactionConfig harnessCompactionConfig() {
+        return compactionConfig(true);
+    }
+
+    @Bean("directedMemoryCompactionConfig")
+    public CompactionConfig directedMemoryCompactionConfig() {
+        return compactionConfig(false);
+    }
+
+    private CompactionConfig compactionConfig(boolean flushMemories) {
         return CompactionConfig.builder()
                 .summaryPrompt(DEFAULT_SUMMARY_PROMPT)
                 // 消息数或模型窗口减去预留 token，任一阈值先到即压缩。
@@ -226,7 +235,7 @@ public class HarnessAgentConfig {
                 .keepTokensMax(8_000)
                 .keepTokensRatio(0.25)
                 // 摘要替换旧上下文前，先提取长期记忆并保存会话原始日志。
-                .flushBeforeCompact(true)
+                .flushBeforeCompact(flushMemories)
                 .offloadBeforeCompact(true)
                 // 在正式摘要前先廉价裁剪旧工具调用中的超大字符串参数。
                 .truncateArgs(CompactionConfig.TruncateArgsConfig.builder()
@@ -347,7 +356,7 @@ public class HarnessAgentConfig {
     public HarnessAgent harnessAgent(
             @Qualifier("harnessModel") Model model,
             @Qualifier("harnessDistributedStore") DistributedStore distributedStore,
-            @Qualifier("harnessCompactionConfig") CompactionConfig compactionConfig,
+            @Qualifier("directedMemoryCompactionConfig") CompactionConfig compactionConfig,
             @Qualifier("harnessMemoryConfig") MemoryConfig memoryConfig,
             @Qualifier("harnessToolResultEvictionConfig") ToolResultEvictionConfig toolResultEvictionConfig,
             ParentAssignmentSystemPromptMiddleware assignmentMiddleware,
@@ -357,6 +366,7 @@ public class HarnessAgentConfig {
             ObjectProvider<SubagentRuntimeFactory> subagentRuntimeFactory,
             AgentScopeObservationInstaller observationInstaller,
             AgentScopeAutomationTool automationTool,
+            com.h.backend.memory.infrastructure.agentscope.MemoryTools memoryTools,
             com.h.backend.generation.interfaces.tool.AgentScopeVideoTool videoTool,
             com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
@@ -375,6 +385,7 @@ public class HarnessAgentConfig {
         toolkit.registerTool(automationTool);
         toolkit.registerTool(videoTool);
         toolkit.registerTool(documentTool);
+        memoryTools.register(toolkit);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .agentId(ChatAgentIds.HARNESS)
@@ -406,6 +417,9 @@ public class HarnessAgentConfig {
                 .filesystem(filesystem)
                 .compaction(compactionConfig)
                 .memory(memoryConfig)
+                .disableMemoryTools()
+                .disableMemoryHooks()
+                .middleware(new com.h.backend.memory.infrastructure.agentscope.ConversationLogMiddleware())
                 .toolResultEviction(toolResultEvictionConfig)
                 // 子 Agent 会继承显式 middleware：把持久化委托合并进 provider 的真实 SYSTEM。
                 .middleware(assignmentMiddleware)

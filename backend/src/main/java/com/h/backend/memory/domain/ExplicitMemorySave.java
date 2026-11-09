@@ -22,10 +22,10 @@ public record ExplicitMemorySave(
         if (text == null || text.isBlank()) {
             throw new IllegalArgumentException("text is required");
         }
-        if (scope != MemoryScopeKind.USER && isBlank(logicalAgentId)) {
+        if ((scope == MemoryScopeKind.AGENT || scope == MemoryScopeKind.RUN) && isBlank(logicalAgentId)) {
             throw new IllegalArgumentException("logicalAgentId is required for " + scope + " scope");
         }
-        if (scope == MemoryScopeKind.RUN && isBlank(memoryRunId)) {
+        if ((scope == MemoryScopeKind.RUN || scope == MemoryScopeKind.SESSION) && isBlank(memoryRunId)) {
             throw new IllegalArgumentException("memoryRunId is required for RUN scope");
         }
     }

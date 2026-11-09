@@ -65,6 +65,16 @@ public class AgentScopeApprovalAdapter {
             builder.addDenyRule("order_operate",new PermissionRule("order_operate",null,
                     io.agentscope.core.permission.PermissionBehavior.DENY,"read-only-mode"));
         }
+        // User-scoped memory maintenance is autonomous; Explore still denies mutations.
+        for (var tool : com.h.backend.memory.application.MemoryToolContract.definitions()) {
+            if (mode == ApprovalMode.EXPLORE && !tool.readOnly()) {
+                builder.addDenyRule(tool.name(), new PermissionRule(tool.name(), null,
+                        io.agentscope.core.permission.PermissionBehavior.DENY, "read-only-mode"));
+            } else {
+                builder.addAllowRule(tool.name(), new PermissionRule(tool.name(), null,
+                        io.agentscope.core.permission.PermissionBehavior.ALLOW, "owned-memory-policy"));
+            }
+        }
         builder.addWorkingDirectory(
                 actualWorkspace,
                 new AdditionalWorkingDirectory(actualWorkspace, "projectSettings")

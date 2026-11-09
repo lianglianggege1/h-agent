@@ -24,11 +24,12 @@ class SubagentCapabilityPolicyTest {
     }
 
     @Test
-    void omittedToolsResolveToPlatformDefaultReadOnlySet() {
+    void omittedToolsResolveToFileAndMemoryCapabilities() {
         var effective = policy.effective(compiled(CapabilityDeclaration.OMITTED), null);
 
         assertThat(effective.tools()).containsExactly(
-                "read_file", "grep_files", "glob_files", "list_files");
+                "read_file", "grep_files", "glob_files", "list_files",
+                "memory_search", "memory_get", "memory_save", "memory_update", "memory_supersede", "memory_set_status", "memory_history", "memory_operation", "memory_read_source");
         assertThat(effective.skills()).isEmpty();
     }
 
@@ -87,6 +88,7 @@ class SubagentCapabilityPolicyTest {
         var tools = policy.allowedTools();
 
         assertThat(tools).containsExactlyInAnyOrder(
-                "read_file", "grep_files", "glob_files", "list_files", "write_file", "edit_file");
+                "read_file", "grep_files", "glob_files", "list_files", "write_file", "edit_file",
+                "memory_search", "memory_get", "memory_save", "memory_update", "memory_supersede", "memory_set_status", "memory_history", "memory_operation", "memory_read_source");
     }
 }

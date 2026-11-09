@@ -54,7 +54,8 @@ class ClasspathBuiltinDefinitionAdapterTest {
                 .isEqualTo(SubagentWorkspaceMode.SHARED);
         assertThat(researcher.compiled().displayName()).isEqualTo("资料研究员");
         assertThat(researcher.compiled().tools().names())
-                .containsExactly("read_file", "grep_files", "glob_files", "list_files");
+                .containsExactly("read_file", "grep_files", "glob_files", "list_files",
+                "memory_search", "memory_get", "memory_save", "memory_update", "memory_supersede", "memory_set_status", "memory_history", "memory_operation", "memory_read_source");
         assertThat(researcher.markdown()).contains("---");
     }
 
