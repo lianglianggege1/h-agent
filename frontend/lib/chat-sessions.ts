@@ -155,3 +155,7 @@ export function listChatHistory(page = 0, size = 10) {
   });
   return apiFetch<ChatSessionSummary[]>(`/api/chat/sessions/history?${search.toString()}`);
 }
+
+export function deleteChatSession(sessionId: string) {
+  return apiFetch<void>(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+}

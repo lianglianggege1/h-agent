@@ -48,6 +48,8 @@ public interface ChatSessionService {
 
     List<ChatSessionSummaryDto> listHistory(Long userId, int page, int size);
 
+    void deleteSession(Long userId, String sessionId);
+
     void archiveExpiredSessions();
 
     void assertActiveSession(Long userId, String sessionId, Long promptId, String agentId);

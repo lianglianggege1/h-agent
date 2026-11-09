@@ -52,4 +52,14 @@ public interface AgentSessionMapper extends BaseMapper<AgentSessionEntity> {
             DELETE FROM agent_runs r USING tree t WHERE r.session_id = t.session_id
             """)
     int deleteRunsInSessionTree(@Param("sessionId") String sessionId);
+
+    @Delete("""
+            WITH RECURSIVE tree AS (
+                SELECT session_id FROM agent_sessions WHERE session_id = #{sessionId}
+                UNION ALL
+                SELECT s.session_id FROM agent_sessions s JOIN tree t ON s.parent_session_id = t.session_id
+            )
+            DELETE FROM agent_sessions a USING tree t WHERE a.session_id = t.session_id
+            """)
+    int deleteSessionTree(@Param("sessionId") String sessionId);
 }

@@ -6,11 +6,18 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Delete;
 
 import java.util.List;
 
 @Mapper
 public interface ChatMessageResourceMapper extends BaseMapper<ChatMessageResourceEntity> {
+
+    @Delete("""
+            DELETE FROM chat_message_resources WHERE message_id IN
+            (SELECT id FROM chat_session_messages WHERE session_record_id = #{sessionRecordId})
+            """)
+    int deleteBySessionRecordId(@Param("sessionRecordId") Long sessionRecordId);
 
     @Select("""
             <script>

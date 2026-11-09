@@ -390,6 +390,30 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     @Override
+    @Transactional
+    public void deleteSession(Long userId, String sessionId) {
+        ChatSessionEntity session = requireOwnedSession(userId, sessionId);
+        List<String> treeSessionIds = new ArrayList<>();
+        collectSessionTreeIds(sessionId, treeSessionIds);
+        for (String treeSessionId : treeSessionIds) {
+            chatMemorySnapshotService.evict(treeSessionId);
+            chatMemorySnapshotService.deleteSnapshot(treeSessionId);
+        }
+        chatMessageResourceMapper.deleteBySessionRecordId(session.getId());
+        chatSessionMessageMapper.delete(new QueryWrapper<ChatSessionMessageEntity>().eq("session_record_id", session.getId()));
+        agentSessionMapper.deleteRunsInSessionTree(sessionId);
+        agentSessionMapper.deleteSessionTree(sessionId);
+        chatSessionMapper.deleteById(session.getId());
+    }
+
+    private void collectSessionTreeIds(String sessionId, List<String> result) {
+        result.add(sessionId);
+        for (AgentSessionEntity child : agentSessionMapper.selectChildren(sessionId)) {
+            collectSessionTreeIds(child.getSessionId(), result);
+        }
+    }
+
+    @Override
     @Scheduled(fixedDelay = 300000) // 定时查看如果有超过24小时无用户消息则归档 此处是否可以优化为redis过期通知
     @Transactional
     public void archiveExpiredSessions() {

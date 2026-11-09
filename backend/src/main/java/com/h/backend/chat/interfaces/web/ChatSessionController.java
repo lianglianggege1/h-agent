@@ -17,6 +17,7 @@ import com.h.backend.common.api.ApiResponse;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -125,5 +126,14 @@ public class ChatSessionController {
             @RequestParam(defaultValue = "10") int size
     ) {
         return ApiResponse.ok(chatSessionService.listHistory(principal.userId(), page, size));
+    }
+
+    @DeleteMapping("/{sessionId}")
+    public ApiResponse<Void> delete(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable String sessionId
+    ) {
+        chatSessionService.deleteSession(principal.userId(), sessionId);
+        return ApiResponse.ok(null);
     }
 }

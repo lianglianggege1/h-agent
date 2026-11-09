@@ -12,7 +12,7 @@ import { savePostLoginRedirect } from "@/lib/session";
 import { listSystemPrompts, type SystemPrompt } from "@/lib/system-prompts";
 import { listAgents, type AgentSummary } from "@/lib/agents";
 import {
-  activateHistorySession, bootstrapChatSession, createChatSession, getChatSession,
+  activateHistorySession, bootstrapChatSession, createChatSession, deleteChatSession, getChatSession,
   listChatHistory, resolveChatSession, type ChatSessionOpen, type ChatSessionSummary,
 } from "@/lib/chat-sessions";
 import { getHarnessSubagents } from "@/lib/harness-subagent-api";
@@ -45,6 +45,9 @@ function ChatWorkspace() {
   const [domain, setDomain] = useState("全部");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("DEFAULT");
   const [creating, setCreating] = useState(false);
+  const [sessionMenu, setSessionMenu] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ChatSessionSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [children, setChildren] = useState<HarnessSubagentSummary[]>([]);
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
   const currentSession = useRef<ChatSessionOpen | null>(null);
@@ -165,6 +168,22 @@ function ChatWorkspace() {
     finally { setCreating(false); }
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      const id = deleteTarget.sessionId;
+      await deleteChatSession(id);
+      setHistory((items) => items.filter((item) => item.sessionId !== id));
+      setDeleteTarget(null); setSessionMenu(null);
+      if (id === sessionId) {
+        currentSession.current = null; setOpen(null); setChildren([]); setSelectedChild(null);
+        router.replace("/chat", { scroll: false });
+      }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "删除会话失败"); }
+    finally { setDeleting(false); }
+  }
+
   const selected = children.find((child) => child.sessionId === selectedChild);
   const directChildren = children.filter((child) => child.parentSessionId === sessionId);
   const domains = ["全部", ...new Set(catalog.filter((agent) => agent.agentId !== standardId && agent.agentId !== harnessId).map((agent) => agent.domain))];
@@ -180,9 +199,13 @@ function ChatWorkspace() {
         <div className="chat-history-list">
           {historyBusy && !history.length ? <p className="chat-history-empty">加载会话记录…</p> : null}
           {!historyBusy && !history.length ? <p className="chat-history-empty">开始一段新对话，记录会保存在这里。</p> : null}
-          {history.map((item) => <button key={item.sessionId} data-close-navigation disabled={creating} onClick={() => void activate(item.sessionId)} aria-current={item.sessionId === sessionId ? "true" : undefined} className="chat-history-item">
-            <p>{item.title}</p><span>{item.agentDisplayName} · {item.lastUserMessage || "暂无消息"}</span>
-          </button>)}
+          {history.map((item) => <div key={item.sessionId} className="chat-history-row">
+            <button data-close-navigation disabled={creating} onClick={() => void activate(item.sessionId)} aria-current={item.sessionId === sessionId ? "true" : undefined} className="chat-history-item">
+              <p>{item.title}</p><span>{item.agentDisplayName} · {item.lastUserMessage || "暂无消息"}</span>
+            </button>
+            <button className="chat-history-menu-trigger" aria-label={`会话 ${item.title} 的更多操作`} aria-expanded={sessionMenu === item.sessionId} onClick={() => setSessionMenu(sessionMenu === item.sessionId ? null : item.sessionId)}>···</button>
+            {sessionMenu === item.sessionId ? <div className="chat-history-menu"><button onClick={() => { setDeleteTarget(item); setSessionMenu(null); }}>♧ 永久删除</button></div> : null}
+          </div>)}
           {moreHistory ? <button disabled={historyBusy} className="chat-history-more" onClick={() => void loadHistory(false)}>{historyBusy ? "加载中…" : "加载更多会话"}</button> : null}
         </div>
       </div>
@@ -209,6 +232,14 @@ function ChatWorkspace() {
       </div> : null}
     </header>
     {error ? <div role="alert" className="mx-4 mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+    {deleteTarget ? <div className="fixed inset-0 z-[60] grid place-items-center bg-stone-950/35 p-4">
+      <button className="absolute inset-0" aria-label="取消删除" onClick={() => deleting ? null : setDeleteTarget(null)} />
+      <section role="alertdialog" aria-modal="true" aria-labelledby="delete-chat-title" className="relative w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+        <h2 id="delete-chat-title" className="text-base font-semibold">永久删除会话？</h2>
+        <p className="mt-2 text-sm leading-6 text-stone-600">“{deleteTarget.title}”及其消息、附件和相关会话数据将被永久删除，无法恢复。</p>
+        <div className="mt-5 flex justify-end gap-2"><button className="agui-button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button><button className="agui-button border-red-600 bg-red-600 text-white" disabled={deleting} onClick={() => void confirmDelete()}>{deleting ? "删除中…" : "永久删除"}</button></div>
+      </section>
+    </div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
       : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn} orderAssistant={open?.session.agentId === orderId} /></div>
       : <div className="grid flex-1 place-items-center p-6"><div className="text-center"><div className="chat-welcome-logo">H</div><h1 className="mt-5 text-2xl font-semibold tracking-tight">今天想完成什么？</h1><p className="mt-3 text-sm text-stone-500">从一个问题开始，让想法成为行动。</p><button className="agui-button agui-button-primary mt-6" onClick={() => setPickerOpen(true)}>开始新会话</button></div></div>}
