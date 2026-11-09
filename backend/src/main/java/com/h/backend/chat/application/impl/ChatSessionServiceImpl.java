@@ -402,8 +402,9 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         chatMessageResourceMapper.deleteBySessionRecordId(session.getId());
         chatSessionMessageMapper.delete(new QueryWrapper<ChatSessionMessageEntity>().eq("session_record_id", session.getId()));
         agentSessionMapper.deleteRunsInSessionTree(sessionId);
-        agentSessionMapper.deleteSessionTree(sessionId);
+        // chat_sessions 引用 agent_sessions，必须先删除引用方，再删除会话树。
         chatSessionMapper.deleteById(session.getId());
+        agentSessionMapper.deleteSessionTree(sessionId);
     }
 
     private void collectSessionTreeIds(String sessionId, List<String> result) {

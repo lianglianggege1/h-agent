@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
@@ -35,6 +36,40 @@ class ChatSessionMapperPersistenceTest {
     private UserMapper userMapper;
     @Autowired
     private ChatSessionMessageMapper messages;
+
+    @Autowired
+    private com.h.backend.chat.application.ChatSessionService sessionService;
+
+    @Test
+    void permanentDeletionRemovesChatBeforeAgentSessionForeignKeyTarget() {
+        var user = new UserEntity();
+        user.setEmail("delete_" + UUID.randomUUID() + "@example.com"); user.setPasswordHash("hash");
+        user.setStatus((short) 1); user.setCreatedAt(LocalDateTime.now()); user.setUpdatedAt(LocalDateTime.now());
+        userMapper.insert(user);
+        String sessionId = "delete-" + UUID.randomUUID();
+        var agent = new AgentSessionEntity();
+        agent.setSessionId(sessionId); agent.setUserId(user.getId()); agent.setAgentId("standard-chat");
+        agent.setMessageCount(1); agent.setCreatedAt(LocalDateTime.now()); agent.setUpdatedAt(LocalDateTime.now());
+        agentSessionMapper.insert(agent);
+        var session = new ChatSessionEntity();
+        session.setSessionId(sessionId); session.setUserId(user.getId()); session.setAgentId("standard-chat");
+        session.setTitle("删除测试"); session.setStatus("ACTIVE"); session.setMessageCount(1);
+        session.setCreatedAt(LocalDateTime.now()); session.setUpdatedAt(LocalDateTime.now()); session.setLastActiveAt(LocalDateTime.now());
+        chatSessionMapper.insert(session);
+        var question = message(session, 1, "user", "待删除消息");
+        messages.insert(question);
+        var child = new AgentSessionEntity();
+        child.setSessionId(sessionId + "-child"); child.setParentSessionId(sessionId); child.setUserId(user.getId());
+        child.setAgentId("standard-chat"); child.setDisplayOrder(0); child.setMessageCount(0);
+        child.setCreatedAt(LocalDateTime.now()); child.setUpdatedAt(LocalDateTime.now()); agentSessionMapper.insert(child);
+
+        sessionService.deleteSession(user.getId(), sessionId);
+
+        assertNull(chatSessionMapper.selectBySessionId(sessionId));
+        assertNull(agentSessionMapper.selectBySessionId(sessionId));
+        assertNull(agentSessionMapper.selectBySessionId(child.getSessionId()));
+        assertNull(messages.selectById(question.getId()));
+    }
 
     @Test
     void revisedTextIsPersistedAndOldRepliesDisappearWithoutDeletingReferencedRows() {

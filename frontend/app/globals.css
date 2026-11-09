@@ -130,6 +130,8 @@ button:disabled { cursor: not-allowed; }
 .chat-history-menu { position: absolute; z-index: 20; right: 0; top: 34px; min-width: 150px; padding: 5px; border: 1px solid #e5e7eb; border-radius: 10px; background: white; box-shadow: 0 8px 24px #17192320; }
 .chat-history-menu button { width: 100%; padding: 9px 10px; border-radius: 6px; text-align: left; color: #dc4545; font-size: 12px; }
 .chat-history-menu button:hover { background: #fff1f1; }
+.chat-delete-confirm { border-color: #dc2626; background: #dc2626; color: white; }
+.chat-delete-confirm:hover { border-color: #b91c1c; background: #b91c1c; }
 .chat-history-more { display: block; margin: 10px auto; font-size: 11px; color: #898e9c; }
 .chat-history-empty { padding: 16px 10px; font-size: 11px; color: #969ba7; line-height: 1.8; }
 .chat-welcome-logo { display: grid; width: 52px; height: 52px; margin: auto; place-items: center; border-radius: 16px; background: #292b35; color: white; font-size: 27px; font-weight: 650; }

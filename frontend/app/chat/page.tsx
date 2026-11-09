@@ -204,7 +204,7 @@ function ChatWorkspace() {
               <p>{item.title}</p><span>{item.agentDisplayName} · {item.lastUserMessage || "暂无消息"}</span>
             </button>
             <button className="chat-history-menu-trigger" aria-label={`会话 ${item.title} 的更多操作`} aria-expanded={sessionMenu === item.sessionId} onClick={() => setSessionMenu(sessionMenu === item.sessionId ? null : item.sessionId)}>···</button>
-            {sessionMenu === item.sessionId ? <div className="chat-history-menu"><button onClick={() => { setDeleteTarget(item); setSessionMenu(null); }}>♧ 永久删除</button></div> : null}
+            {sessionMenu === item.sessionId ? <div className="chat-history-menu"><button onClick={() => { setDeleteTarget(item); setSessionMenu(null); }}>永久删除</button></div> : null}
           </div>)}
           {moreHistory ? <button disabled={historyBusy} className="chat-history-more" onClick={() => void loadHistory(false)}>{historyBusy ? "加载中…" : "加载更多会话"}</button> : null}
         </div>
@@ -237,7 +237,7 @@ function ChatWorkspace() {
       <section role="alertdialog" aria-modal="true" aria-labelledby="delete-chat-title" className="relative w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
         <h2 id="delete-chat-title" className="text-base font-semibold">永久删除会话？</h2>
         <p className="mt-2 text-sm leading-6 text-stone-600">“{deleteTarget.title}”及其消息、附件和相关会话数据将被永久删除，无法恢复。</p>
-        <div className="mt-5 flex justify-end gap-2"><button className="agui-button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button><button className="agui-button border-red-600 bg-red-600 text-white" disabled={deleting} onClick={() => void confirmDelete()}>{deleting ? "删除中…" : "永久删除"}</button></div>
+        <div className="mt-5 flex justify-end gap-2"><button className="agui-button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button><button className="agui-button chat-delete-confirm" disabled={deleting} onClick={() => void confirmDelete()}>{deleting ? "删除中…" : "永久删除"}</button></div>
       </section>
     </div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
