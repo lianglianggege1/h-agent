@@ -241,7 +241,7 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
           <h1 className="mt-2 text-2xl font-semibold">Agent 记忆文件</h1>
           <p className="mt-1 text-sm text-stone-500">
             {agentId === "harness-agent"
-              ? "这些历史记忆文件可由助手按需查阅。编辑文件不会直接修改助手通过记忆工具保存的内容。"
+              ? "Harness 会读取并维护这里的 MEMORY.md，也会整理每日记忆流水。保存后用于后续任务；Mem0 记忆由独立工具管理。"
               : "查看和编辑当前用户在此 Agent 下跨会话保留的记忆文件。"}
           </p>
           <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="memory-agent">选择 Agent</label>

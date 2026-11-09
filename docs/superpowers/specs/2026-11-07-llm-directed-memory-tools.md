@@ -3,11 +3,17 @@
 日期：2026-11-07  
 状态：重新设计；产品原则已确认，本文定义实现方案。代码已接入；验证记录见文末。
 
+## 当前调整（2026-11-09）
+
+按用户最新要求，在主目录 main 上恢复 Harness 原生 MEMORY.md、每日记忆流水、会话日志及其读取、提取和整合流程。此前只关闭了流程，没有删除这些文件。
+
+Mem0 保持由模型自主调用，不替代 Harness 原生记忆。Harness 原生工具保留 memory_* / session_*，Mem0 暴露为 mem0_*（内部仍复用同一模块）；HAssistant 工具名称不变。原生 SDK hooks 负责父 Harness 的日志，避免再由项目 middleware 重复落盘。
+
 ## 1. 目标与已确定原则
 
 当前主模型自主判断何时回忆、记住什么、如何修正以及何时遗忘。Mem0 通过工具被访问。
 
-- 不自动召回、不预检索、不注入记忆正文，不用后台 LLM 补记。
+- Mem0 不自动召回、不预检索、不注入正文，不用后台 LLM 补记；Harness 原生文档记忆流程独立保留。
 - 只有当前执行中的模型（包括协作 Agent）显式调用写入工具才创建或改变正式记忆。系统重试已提交的操作不构成新的记忆决策。
 - 写入内容由主模型定稿，Mem0 使用 `infer=false`。不存在第二次提取或自主合并。
 - 只按价值保存。关键背景、决定、纠正、重要经历、原因、最终进展和未完成事项都可能值得记住；不要求每轮或会话结束必存。
@@ -16,7 +22,7 @@
 - 用户、稳定 Agent、根会话三种范围；同根会话协作者共享会话记忆，可主动检索当前用户的历史会话。
 - 来源可追溯到已持久化的产品聊天消息。第一期不提供完整工具执行日志的原文检索。
 - 首期覆盖普通 HAssistant、普通 Harness 及其协作路径。领域 Agent、电话专用路径保持现有策略。
-- 既有 Mem0 记录继续可查；旧 MEMORY.md、每日账本成为按需读取的历史来源，不自动迁移。
+- 既有 Mem0 记录继续可查；Harness 继续读取并维护 MEMORY.md 和每日记忆流水，不自动导入 Mem0。
 
 ## 2. 架构：一个记忆模块，两个框架 Adapter
 
@@ -42,11 +48,13 @@ HAssistant / LangChain4j       Harness / AgentScope
 
 ## 3. 模型看到什么
 
-系统提示提供工具用途、可选范围、保存价值的准则；不提供实际记忆正文，也不命令模型每次先查或结束必存。
+Mem0 工具说明提供用途、可选范围、保存价值的准则，不注入 Mem0 正文，也不要求每轮先查或结束必存。Harness 的原生文档记忆由 SDK 按原流程注入和维护。
 
 记忆是历史证据，可能过时，不是新的系统指令。模型判断其与当前任务是否相关，并在需要时查看来源。
 
 ### 3.1 工具接口
+
+下表列出模块规范名称；HAssistant 直接使用这些名称。Harness 的对应 Mem0 工具将 memory_ 前缀替换为 mem0_，为原生 SDK 保留 memory_* 和 session_* 名称。
 
 | 工具 | 输入重点 | 行为 |
 | --- | --- | --- |
@@ -167,14 +175,14 @@ Mem0 与 PostgreSQL 无跨库事务，因此不能承诺 exactly-once。远端�
 
 ### Harness
 
-- 注册项目工具，替换内置记忆工具，避免同名工具同时存在。
-- 关闭 memory hooks、自动 MEMORY.md 注入、周期整理及压缩前 memory flush。
-- 保留当前工作上下文、压缩摘要及会话原始日志。日志写入独立于记忆提取，不因关闭 hooks 消失。
+- 注册 mem0_* 项目工具，与原生 memory_* / session_* 共存，避免重名覆盖。
+- 保留原生 memory hooks、MEMORY.md 注入、每日流水提取、周期整理及压缩前 memory flush。
+- 保留工作上下文、压缩摘要和会话日志；父 Harness 由原生 hooks 记录日志，不再重复安装项目日志 middleware。
 - 协作 Agent 继承工具能力，绑定自己的实际会话/执行身份和同一个 rootSessionId。
-- 旧 Markdown 通过 LEGACY 来源主动检索；不作为系统提示注入。
-- 原页面保留历史文件查看能力并明确说明其历史来源身份；不将其修改误报为 Mem0 写入。
+- MEMORY.md 按原生方式参与后续任务；LEGACY 参数保留为项目工具对 Markdown 的兼容读取入口。
+- 原页面继续查看和编辑有效的 Harness 记忆文件，并说明其与 Mem0 独立。
 
-关闭内置 memory tools 同时会移除 SDK session_search/session_history；新项目工具负责本期已承诺的产品聊天来源回查。电话专用路径不注册新工具。
+原生 session_search/session_list/session_history 保留；项目工具继续提供带业务鉴权的产品聊天原文回查。电话专用路径不注册新工具。
 
 ## 9. 实施顺序与验收
 
@@ -183,18 +191,18 @@ Mem0 与 PostgreSQL 无跨库事务，因此不能承诺 exactly-once。远端�
 1. 增加工具数据契约、可信执行身份、SESSION 语义、生命周期和修订/操作存储。
 2. 在共享模块完成带归属检查的搜索、显式写入、冲突处理、历史/来源读取和 LEGACY 读取。
 3. 增加两个 Adapter，接入 HAssistant 与 Harness（含协作身份），将日志 offload 从记忆维护中解耦。
-4. 模块和 Adapter 就绪后，再关闭这两个入口原有自动召回/写入；同步调整说明及历史来源入口。
+4. HAssistant 的 Mem0 自动召回和捕获保持停用；Harness 原生记忆流程启用，Mem0 工具保持自主调用。
 5. 验证普通聊天无隐式记忆调用、显式工具的读写/历史/删除恢复、协作共享、历史会话过滤、跨用户隔离以及超时重试行为。
 
 关键验收：
 
-- 模型不调用工具时，零记忆检索、零记忆写入，包括压缩与回合结束阶段。
+- 模型不调用 Mem0 工具时，零 Mem0 检索和写入；Harness 原生文档记忆在其原有 hooks 中独立运行。
 - 相同 rootSession 的父子 Agent 能读到共同 SESSION 记忆；不同 rootSession 默认互不可见，模型明确检索历史时可访问当前用户历史。
 - 用户归属校验覆盖搜索、按 ID、历史、恢复及来源读取。
 - 成功写入在回答失败后仍可读取；结果不明不会报告成功或重复写入。
 - 更新、取代、删除保留可核实的修订；默认搜索只返回有效状态。
 - 没有匹配结果、依赖故障和扫描预算耗尽是不同的返回情况。
-- 产品原文可以按需回查；旧文件没有被自动注入、改写或迁移。
+- 产品原文和原生会话日志均可回查；Harness 文档记忆照常维护，不被自动复制到 Mem0。
 
 ## 实现补充
 
@@ -218,3 +226,9 @@ JAVA_HOME=/path/to/jdk26 AGENT_MEMORY_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:
   mvn -pl backend -am -Dtest=AgentMemoryToolsTest,MemoryToolAdaptersTest,MemorySourcesTest,Mem0MemoryFilterContractTest,ConversationLogMiddlewareTest \
   -Dsurefire.failIfNoSpecifiedTests=false test
 ```
+
+### 2026-11-09 恢复说明
+
+恢复普通 Harness 的原生记忆工具、memory hooks 和压缩前 memory flush；保留 HAssistant 的纯工具 Mem0 行为。新增共存测试验证原生 memory_*/session_* 与 mem0_* 同时注册、参数各自独立，无重名覆盖。
+
+本次恢复验证：Java 26 编译通过；8 个相关后端测试类共 54 项测试通过，前端记忆页面相关 30 项测试及页面 ESLint 通过。修改位于主目录 `/Users/huajiang/Desktop/AI/h-agent` 的 main 分支；主工作区原有 25 个未提交文件的内容保持不变。

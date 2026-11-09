@@ -45,11 +45,11 @@ class MemoryToolAdaptersTest {
         new MemoryTools(module,resolver).register(toolkit);
         verifyNoInteractions(module);
         assertEquals(MemoryToolContract.definitions().size(),toolkit.getToolNames().size());
-        var tool=toolkit.getTool("memory_search");
+        var tool=toolkit.getTool("mem0_search");
         assertTrue(tool.isReadOnly());
-        assertFalse(toolkit.getTool("memory_save").isReadOnly());
+        assertFalse(toolkit.getTool("mem0_save").isReadOnly());
         tool.callAsync(ToolCallParam.builder().runtimeContext(runtime)
-                .toolUseBlock(ToolUseBlock.builder().id("actual-call").name("memory_search").input(Map.of("query","past decision")).build())
+                .toolUseBlock(ToolUseBlock.builder().id("actual-call").name("mem0_search").input(Map.of("query","past decision")).build())
                 .input(Map.of("query","past decision")).build()).block();
         verify(module).execute(ctx,"actual-call","memory_search",Map.of("query","past decision"));
         assertFalse(tool.getParameters().toString().contains("userId"));

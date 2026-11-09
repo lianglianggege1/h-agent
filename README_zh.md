@@ -116,7 +116,7 @@ flowchart LR
 
 ![新版技能工作区](docs/images/demo-05-skills.jpg)
 
-点击侧栏 **长期记忆**，选择 Agent 后查看或编辑其 Harness `MEMORY.md`，普通 Harness 将这些文件作为可主动查阅的历史来源；编辑文件不会直接修改 Mem0 正式记忆。其他 Agent 仍沿用其既有文档记忆策略。Mem0 记忆通过下文 API 单独管理。
+点击侧栏 **长期记忆**，选择 Agent 后查看或编辑其 Harness `MEMORY.md`，普通 Harness 会读取并维护这些文件，同时提取每日记忆流水并定期整合；编辑 MEMORY.md 后用于后续任务。Mem0 记忆由独立工具管理。其他 Agent 仍沿用其既有文档记忆策略。Mem0 记忆通过下文 API 单独管理。
 
 ### 5. 设置自动化任务
 
@@ -147,7 +147,7 @@ flowchart LR
 #### 协作 Agent — `harness-agent`
 
 - **适合：** 调研并撰写报告、多维度分析、规划、实现任务，或任何可以拆成多个相对独立部分的复杂目标。
-- **工作方式：** 作为父 Agent 理解目标、拆分工作、创建协作 Agent、跟踪执行进度，最后汇总多个结果；运行时可以使用工作区文件、Skills、计划、主动记忆工具和人工批准；旧 `MEMORY.md` 作为按需查询的历史来源。
+- **工作方式：** 作为父 Agent 理解目标、拆分工作、创建协作 Agent、跟踪执行进度，最后汇总多个结果；运行时可以使用工作区文件、Skills、计划、原生 `MEMORY.md`、每日记忆流水、会话日志、Mem0 工具和人工批准。
 - **页面表现：** 每位协作者都会显示运行中、已完成或失败等状态；子 Agent 的详细过程与父 Agent 主回答分开呈现，最终结论回到主会话。
 - **示例提问：** `对比三个 Java Agent 框架，把架构、生态和可观测性分别交给不同协作 Agent 调研，最后给出推荐表格。`
 
@@ -331,11 +331,11 @@ MEM0_OPENAPI_SHA256=<固定 OpenAPI 契约的 SHA-256>
 
 ### 运行机制
 
-- 普通 `standard-chat` 与 `harness-agent` 通过统一的记忆工具读写 Mem0：完全由当前模型决定检索、保存、修订、取代、软删除或恢复，不进行自动召回、回合后提取或压缩前记忆提取。
+- 普通 `standard-chat` 与 `harness-agent` 通过共享模块读写 Mem0，完全由当前模型决定检索、保存、修订、取代、软删除或恢复。Mem0 不自动召回或提取。Harness 原生 `MEMORY.md` 的读取、每日流水提取、定期整合及压缩前记忆提取同时保留。
 - 新工具支持 USER、AGENT、SESSION；SESSION 由同一根会话及其协作者共享。模型可以明确搜索其他历史会话，也可以按来源引用回查已持久化的产品聊天原文。
 - 工具提交的正文以 `infer=false` 原样保存，成功即生效。修订历史保存在本地；软删除与已取代记忆默认不进入检索，显式查询历史仍可访问。
 - 工具写入结果不明时返回 PENDING，可用 `memory_operation` 查询；后台只对账已经发起的操作，不自行决定写入内容。
-- Harness 的旧 MEMORY.md 和每日账本可以通过 `memory_search(source=LEGACY)` 主动查阅，不自动迁移。
+- Harness 原生工具保留 `memory_search` / `memory_get` / `memory_save` 和 `session_*`；Mem0 工具在 Harness 中使用 `mem0_*` 名称（例如 `mem0_search`、`mem0_save`、`mem0_operation`），避免覆盖。HAssistant 仍使用 `memory_*`。两套记忆不强制双写，不自动导入。
 - 参与长期记忆的领域 Agent 会按已注册策略召回三层记忆，并把成功对话整理到 RUN 层。
 - 领域 Agent 的既有自动写入仍先与消息一起进入 PostgreSQL outbox，再由 Worker 异步提交到 Mem0。
 - 召回采用 fail-open：Mem0 故障不应阻止 Agent 返回回答。

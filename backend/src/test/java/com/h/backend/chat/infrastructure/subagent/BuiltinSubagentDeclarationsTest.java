@@ -44,7 +44,7 @@ class BuiltinSubagentDeclarationsTest {
         // SDK 语义：非空 tools 表示 allowlist 过滤继承工具。
         assertThat(researcher.getTools())
                 .containsExactly("read_file", "grep_files", "glob_files", "list_files",
-                "memory_search", "memory_get", "memory_save", "memory_update", "memory_supersede", "memory_set_status", "memory_history", "memory_operation", "memory_read_source");
+                "mem0_search", "mem0_get", "mem0_save", "mem0_update", "mem0_supersede", "mem0_set_status", "mem0_history", "mem0_operation", "mem0_read_source");
     }
 
     @Test

@@ -32,10 +32,9 @@ class ConversationLogMiddlewareTest {
             assertEquals(1,Files.readString(file).lines().filter(line->line.contains("source conversation")).count());
         }
     }
-    @Test void onlyOrdinaryHarnessDisablesCompactionMemoryFlush() {
+    @Test void nativeHarnessKeepsCompactionMemoryFlushAndLoggingEnabled() {
         var config=new HarnessAgentConfig();
-        assertFalse(config.directedMemoryCompactionConfig().isFlushBeforeCompact());
-        assertTrue(config.directedMemoryCompactionConfig().isOffloadBeforeCompact());
+        assertTrue(config.harnessCompactionConfig().isOffloadBeforeCompact());
         assertTrue(config.harnessCompactionConfig().isFlushBeforeCompact());
     }
 }

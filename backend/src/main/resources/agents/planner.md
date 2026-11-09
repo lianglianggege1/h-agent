@@ -4,7 +4,7 @@ description: 拆解目标、识别依赖、风险和验收标准，产出可执�
 mode: subagent
 model: inherit
 steps: 10
-tools: [read_file, grep_files, glob_files, list_files, memory_search, memory_get, memory_save, memory_update, memory_supersede, memory_set_status, memory_history, memory_operation, memory_read_source]
+tools: [read_file, grep_files, glob_files, list_files, mem0_search, mem0_get, mem0_save, mem0_update, mem0_supersede, mem0_set_status, mem0_history, mem0_operation, mem0_read_source]
 skills: []
 workspace:
   mode: shared

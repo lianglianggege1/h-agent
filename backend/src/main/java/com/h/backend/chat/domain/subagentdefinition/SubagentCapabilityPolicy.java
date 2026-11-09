@@ -29,7 +29,7 @@ public final class SubagentCapabilityPolicy {
     public static final List<String> DEFAULT_TOOLS =
             java.util.stream.Stream.concat(
                     java.util.stream.Stream.of("read_file", "grep_files", "glob_files", "list_files"),
-                    com.h.backend.memory.application.MemoryToolContract.definitions().stream().map(com.h.backend.memory.application.MemoryToolContract.Definition::name))
+                    com.h.backend.memory.application.MemoryToolContract.harnessDefinitions().stream().map(com.h.backend.memory.application.MemoryToolContract.Definition::name))
                     .toList();
 
     /** 用户可显式申请的写工具。 */

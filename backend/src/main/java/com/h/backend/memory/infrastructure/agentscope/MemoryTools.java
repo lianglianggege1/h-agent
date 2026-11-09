@@ -17,8 +17,8 @@ public class MemoryTools {
     public MemoryTools(AgentMemory memory,MemoryExecutionContextResolver contexts) {this.memory=memory;this.contexts=contexts;}
     public void register(Toolkit toolkit) {
         for(var definition:MemoryToolContract.definitions()) toolkit.registerAgentTool(new AgentTool() {
-            public String getName() {return definition.name();}
-            public String getDescription() {return definition.description();}
+            public String getName() {return MemoryToolContract.harnessName(definition.name());}
+            public String getDescription() {return "Mem0：" + definition.description();}
             public Map<String,Object> getParameters() {return definition.schema();}
             public boolean isReadOnly() {return definition.readOnly();}
             public Mono<ToolResultBlock> callAsync(ToolCallParam call) {

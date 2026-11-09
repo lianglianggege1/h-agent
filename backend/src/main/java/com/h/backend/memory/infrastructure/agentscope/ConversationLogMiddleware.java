@@ -1,6 +1,5 @@
 package com.h.backend.memory.infrastructure.agentscope;
 
-import com.h.backend.memory.application.MemoryToolContract;
 import io.agentscope.core.agent.*;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.middleware.AgentInput;
@@ -18,9 +17,7 @@ import java.util.function.Function;
 public final class ConversationLogMiddleware implements HarnessRuntimeMiddleware {
     private static final Logger log=LoggerFactory.getLogger(ConversationLogMiddleware.class);
     @Override public Mono<String> onSystemPrompt(Agent agent,RuntimeContext ctx,String prompt) {
-        boolean hasTools = agent instanceof io.agentscope.core.ReActAgent react
-                && react.getToolkit().getTool("memory_search") != null;
-        return Mono.just(hasTools ? prompt+"\n\n"+MemoryToolContract.INSTRUCTIONS : prompt);
+        return new Mem0InstructionsMiddleware().onSystemPrompt(agent, ctx, prompt);
     }
     @Override public Flux<AgentEvent> onAgent(Agent agent,RuntimeContext ctx,AgentInput input,Function<AgentInput,Flux<AgentEvent>> next) {
         return next.apply(input)

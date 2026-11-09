@@ -16,6 +16,25 @@ public final class MemoryToolContract {
             旧 MEMORY.md 和每日账本可通过 source=LEGACY 主动查询，不会自动注入。
             写入返回 PENDING 表示尚未确认；使用 memory_operation 查询结果，不要重复提交同一件事。
             """;
+    /** Harness keeps SDK memory_* names; Mem0 uses an explicit separate namespace. */
+    public static String harnessName(String canonical) {
+        if (!canonical.startsWith("memory_")) throw new IllegalArgumentException("Invalid memory tool name");
+        return "mem0_" + canonical.substring("memory_".length());
+    }
+    public static List<Definition> harnessDefinitions() {
+        return definitions().stream().map(d -> new Definition(harnessName(d.name()),
+                "Mem0：" + d.description(), d.schema(), d.readOnly())).toList();
+    }
+    public static String harnessInstructions() {
+        return """
+                ## Harness 原生记忆与 Mem0
+                Harness 的 memory_search、memory_get、memory_save 操作原生 MEMORY.md 和记忆流水；
+                原生回合提取、定期整合与会话日志继续由 Harness 管理。
+                mem0_* 是独立的 Mem0 记忆工具。根据任务需要选择，不要求把同一内容同时写入两套记忆。
+                以下自主读写规则仅针对 Mem0 工具：
+                """ + INSTRUCTIONS.replace("memory_operation", "mem0_operation")
+                .replace("旧 MEMORY.md 和每日账本可通过 source=LEGACY 主动查询，不会自动注入。", "Mem0 不自动导入 Harness 的 MEMORY.md 或每日记忆流水。");
+    }
     public record Definition(String name, String description, Map<String,Object> schema, boolean readOnly) {}
     private static Map<String,Object> string(String description) {
         return Map.of("type", "string", "description", description);

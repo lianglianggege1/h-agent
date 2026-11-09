@@ -116,7 +116,7 @@ Select **Skills (`技能`)** to open **My Skills (`我的 Skill`)**. Create a Sk
 
 ![Skill workspace](docs/images/demo-05-skills.jpg)
 
-Select **Long-term memory (`长期记忆`)**, choose an Agent, and read or edit its Harness `MEMORY.md`. Ordinary Harness uses these files as explicitly readable historical sources; editing a file does not directly change formal Mem0 memories. Other Agents retain their document-memory policies. Mem0 memories are managed through the API below.
+Select **Long-term memory (`长期记忆`)**, choose an Agent, and read or edit its Harness `MEMORY.md`. Ordinary Harness reads and maintains MEMORY.md, extracts daily memory ledgers, and consolidates them periodically. Saved file edits apply to subsequent tasks; Mem0 memories are managed independently. Other Agents retain their document-memory policies. Mem0 memories are managed through the API below.
 
 ### 5. Schedule automation tasks
 
@@ -147,7 +147,7 @@ Only configured test extensions are allowed, with one active call globally. Task
 #### Collaborative Agent — `harness-agent`
 
 - **Best for:** research-and-write work, multi-part analysis, planning, implementation tasks, or any goal whose independent parts can be delegated.
-- **How it works:** acts as the parent Agent, decomposes the goal, creates collaborating Agents, follows their live progress, and consolidates their results. It can use workspace files, Skills, plans, model-directed memory tools, and human approval. Legacy `MEMORY.md` remains an explicitly searchable historical source.
+- **How it works:** acts as the parent Agent, decomposes the goal, creates collaborating Agents, follows their live progress, and consolidates their results. It can use workspace files, Skills, plans, native MEMORY.md and daily ledgers, session logs, model-directed Mem0 tools, and human approval.
 - **What you see:** each collaborator appears with a running/completed/failed state. Its detailed transcript is kept separate from the parent answer, while the final result is returned in the main conversation.
 - **Example:** `Compare three Java Agent frameworks. Delegate architecture, ecosystem, and observability research separately, then produce a recommendation table.`
 
@@ -331,10 +331,10 @@ When `memory.long-term.enabled=true`, all four fields are required and missing v
 
 ### Runtime behavior
 
-- Ordinary `standard-chat` and `harness-agent` use shared memory tools. The current model decides when to search, save, revise, supersede, soft-delete, and restore; there is no automatic recall or turn-end/compaction memory extraction.
+- Ordinary `standard-chat` and `harness-agent` share the model-directed Mem0 module. Mem0 has no automatic recall or extraction. Harness additionally retains native MEMORY.md loading, daily-ledger extraction, consolidation, and compaction memory flush.
 - New tools support USER, stable AGENT, and shared root SESSION scopes. Models may explicitly search historical sessions and read owned persisted product-message sources.
 - Text is saved unchanged with `infer=false`. Revisions are retained locally; inactive memories are excluded from ordinary searches. PENDING writes can be inspected with `memory_operation` and reconciled without blindly repeating creates.
-- Harness MEMORY.md and daily ledgers are legacy sources available only through explicit `source=LEGACY` search; they are not bulk-imported.
+- Harness keeps native `memory_search` / `memory_get` / `memory_save` and `session_*` tools. Its Mem0 tools use `mem0_*` names to avoid collisions; HAssistant retains `memory_*`. Neither memory system is automatically imported into the other.
 - Participating domain agents recall all three scopes and capture successful turns into RUN scope according to their registered memory policy.
 - Existing domain-agent capture is written to a PostgreSQL outbox first, then delivered asynchronously to Mem0 with retries.
 - Recall is fail-open: a Mem0 outage should not prevent an agent response.
