@@ -1,6 +1,5 @@
 package com.h.backend.memory.infrastructure.config;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
 import com.h.backend.memory.application.LongTermMemoryRuntime;
 import com.h.backend.memory.application.NoopLongTermMemoryRuntime;
 import com.h.backend.memory.application.UserMemoryCatalog;
@@ -8,14 +7,11 @@ import com.h.backend.memory.application.DisabledUserMemoryCatalog;
 import com.h.backend.memory.domain.AgentMemoryPolicyCatalog;
 import com.h.backend.memory.infrastructure.LongTermMemoryRuntimeImpl;
 import com.h.backend.memory.infrastructure.UserMemoryCatalogImpl;
-import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentor;
-import com.h.backend.memory.infrastructure.langchain4j.ConversationContextAugmentorFactory;
 import com.h.backend.memory.infrastructure.mem0.Mem0Gateway;
 import com.h.backend.memory.infrastructure.mem0.Mem0HttpGateway;
 import com.h.backend.memory.infrastructure.persistence.mapper.LongTermMemoryRecordMapper;
 import com.h.backend.memory.infrastructure.persistence.mapper.MemoryCaptureOutboxMapper;
 import com.h.backend.memory.infrastructure.persistence.mapper.MemoryOperationMapper;
-import dev.langchain4j.rag.RetrievalAugmentor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -63,18 +59,6 @@ public class LongTermMemoryConfig {
     @ConditionalOnProperty(prefix = "memory.long-term", name = "enabled", havingValue = "false", matchIfMissing = true)
     public UserMemoryCatalog disabledUserMemoryCatalog() {
         return new DisabledUserMemoryCatalog();
-    }
-
-    /** standard-chat 装配：暂时关闭知识库 RAG，保留长期记忆召回。 */
-    @Bean
-    public ConversationContextAugmentor standardChatContextAugmentor(
-            LongTermMemoryRuntime longTermMemoryRuntime,
-            AgentMemoryPolicyCatalog policyCatalog,
-            RetrievalAugmentor knowledgeRetrievalAugmentor) {
-        var factory = new ConversationContextAugmentorFactory(longTermMemoryRuntime, policyCatalog);
-        // 知识库 RAG 耗时较长，暂时停用；恢复时启用下面这行并移除 memoryOnly 返回。
-        // return factory.withKnowledge(ChatAgentIds.STANDARD_CHAT, knowledgeRetrievalAugmentor);
-        return factory.memoryOnly(ChatAgentIds.STANDARD_CHAT);
     }
 
     /** enabled=true 且 URL/API key/contract 不完整时启动 fail-fast。 */

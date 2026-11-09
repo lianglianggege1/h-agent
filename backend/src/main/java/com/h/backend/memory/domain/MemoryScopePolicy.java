@@ -29,9 +29,9 @@ public final class MemoryScopePolicy {
             throw new IllegalArgumentException("userId and scope kind are required");
         }
         String mem0UserId = USER_ID_PREFIX + userId;
-        String mem0AgentId = kind == MemoryScopeKind.USER ? null
+        String mem0AgentId = (kind == MemoryScopeKind.USER || kind == MemoryScopeKind.SESSION) ? null
                 : AGENT_ID_PREFIX + logicalAgentId;
-        String mem0RunId = kind == MemoryScopeKind.RUN
+        String mem0RunId = (kind == MemoryScopeKind.RUN || kind == MemoryScopeKind.SESSION)
                 ? RUN_ID_PREFIX + memoryRunId
                 : null;
         return new MemoryOwnerScope(mem0UserId, mem0AgentId, mem0RunId, kind);

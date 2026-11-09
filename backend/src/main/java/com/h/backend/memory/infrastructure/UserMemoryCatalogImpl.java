@@ -52,6 +52,11 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
     private static final int SEARCH_CANDIDATES = 60;
     private static final String CURSOR_PREFIX = "v1:";
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.h.backend.memory.application.AgentMemory> directedMemory;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<AgentMemoryStore> revisionStore;
+
     private final Mem0Gateway mem0Gateway;
     private final LongTermMemoryRecordMapper recordMapper;
     private final MemoryOperationMapper operationMapper;
@@ -102,7 +107,8 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
             // 本地 owner/state 索引过滤：远程有序结果中不属于本地活跃记录的直接丢弃
             LongTermMemoryRecordEntity record =
                     recordMapper.selectByRemoteMemoryId(candidate.id(), query.userId());
-            if (record == null || record.getDeletedAt() != null) {
+            if (record == null || record.getDeletedAt() != null || record.getPendingOperation() != null
+                    || (record.getMemoryStatus() != null && !"ACTIVE".equals(record.getMemoryStatus()))) {
                 continue;
             }
             items.add(toView(record, candidate.text()));
@@ -113,7 +119,8 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
     @Override
     public MemoryView get(OwnedMemoryId id) {
         LongTermMemoryRecordEntity record = requireOwnedRecord(id);
-        return toView(record, fetchText(record));
+        if (record.getPendingOperation() != null) throw new IllegalStateException("Memory mutation pending");
+        return toView(record, record.getMemoryStatus() == null || "ACTIVE".equals(record.getMemoryStatus()) ? fetchText(record) : null);
     }
 
     @Override
@@ -151,6 +158,8 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
     public MemoryMutationResult update(ExplicitMemoryUpdate command) {
         LongTermMemoryRecordEntity record = requireOwnedRecord(
                 new OwnedMemoryId(command.userId(), command.localId()));
+        if (directedMemory != null && directedMemory.getIfAvailable() != null)
+            return directedMutation(record, command.expectedVersion(), command.text(), false);
         requireVersion(record, command.expectedVersion());
         MemoryScopePolicy.MemoryOwnerScope scope = ownerScopeOf(record);
         MemoryOperationEntity operation = beginOperation(
@@ -183,6 +192,8 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
     public MemoryMutationResult delete(ExplicitMemoryDelete command) {
         LongTermMemoryRecordEntity record = requireOwnedRecord(
                 new OwnedMemoryId(command.userId(), command.localId()));
+        if (directedMemory != null && directedMemory.getIfAvailable() != null)
+            return directedMutation(record, command.expectedVersion(), null, true);
         requireVersion(record, command.expectedVersion());
         MemoryScopePolicy.MemoryOwnerScope scope = ownerScopeOf(record);
         MemoryOperationEntity operation = beginOperation(
@@ -218,12 +229,39 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
     @Override
     public MemoryHistory history(OwnedMemoryId id) {
         LongTermMemoryRecordEntity record = requireOwnedRecord(id);
+        if ("agent_tool".equals(record.getSource()) && revisionStore != null) {
+            return new MemoryHistory(record.getId(), record.getRemoteMemoryId(),
+                    revisionStore.getObject().catalogHistory(id.userId(), id.localId()));
+        }
         List<MemoryHistory.Entry> entries = mem0Gateway
                 .history(record.getRemoteMemoryId(), ownerScopeOf(record))
                 .stream()
                 .map(entry -> new MemoryHistory.Entry(entry.text(), entry.createdAt()))
                 .toList();
         return new MemoryHistory(record.getId(), record.getRemoteMemoryId(), entries);
+    }
+
+    private com.h.backend.memory.application.AgentMemoryContext catalogContext(LongTermMemoryRecordEntity record) {
+        String session = record.getMemoryRunId() == null ? "catalog" : record.getMemoryRunId();
+        return new com.h.backend.memory.application.AgentMemoryContext(record.getOwnerUserId(), session, session,
+                record.getLogicalAgentId(), "user_catalog", null, "catalog");
+    }
+
+    private MemoryMutationResult directedMutation(LongTermMemoryRecordEntity record, int version, String text, boolean delete) {
+        Map<String,Object> args = new LinkedHashMap<>();
+        args.put("memoryId", record.getId()); args.put("expectedVersion", version);
+        args.put(delete ? "status" : "text", delete ? "DELETED" : text);
+        String raw = directedMemory.getObject().execute(catalogContext(record), java.util.UUID.randomUUID().toString(),
+                delete ? "memory_set_status" : "memory_update", args);
+        var result = new tools.jackson.databind.ObjectMapper().readTree(raw);
+        String state = result.path("status").asString();
+        if ("CONFLICT".equals(state)) throw new MemoryVersionConflictException(record.getId(), version, record.getVersion());
+        if ("PENDING".equals(state)) return new MemoryMutationResult(record.getId(), record.getRemoteMemoryId(),
+                record.getVersion(), MemoryMutationResult.STATE_RECONCILING, "操作结果待确认：" + result.path("operationRef").asString());
+        if (!"OK".equals(state)) throw new IllegalStateException("Memory mutation unavailable: " + state);
+        LongTermMemoryRecordEntity updated = recordMapper.selectOwnedById(record.getId(), record.getOwnerUserId());
+        return new MemoryMutationResult(updated.getId(), updated.getRemoteMemoryId(), updated.getVersion(),
+                MemoryMutationResult.STATE_SUCCEEDED, null);
     }
 
     // -------------------------------------------------------
@@ -269,7 +307,7 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
                 record.getLogicalAgentId(),
                 record.getMemoryRunId(),
                 record.getVersion() == null ? 0 : record.getVersion(),
-                record.getOperationState(),
+                record.getMemoryStatus() == null ? record.getOperationState() : record.getMemoryStatus(),
                 text,
                 record.getRemoteUpdatedAt() == null
                         ? null
@@ -286,9 +324,9 @@ public class UserMemoryCatalogImpl implements UserMemoryCatalog {
         record.setRemoteMemoryId(remoteMemoryId);
         record.setOwnerUserId(command.userId());
         record.setScopeKind(command.scope().name());
-        record.setLogicalAgentId(command.scope() == MemoryScopeKind.USER
+        record.setLogicalAgentId((command.scope() == MemoryScopeKind.USER || command.scope() == MemoryScopeKind.SESSION)
                 ? null : command.logicalAgentId());
-        record.setMemoryRunId(command.scope() == MemoryScopeKind.RUN
+        record.setMemoryRunId((command.scope() == MemoryScopeKind.RUN || command.scope() == MemoryScopeKind.SESSION)
                 ? command.memoryRunId() : null);
         record.setVersion(1);
         record.setOperationState("ACTIVE");

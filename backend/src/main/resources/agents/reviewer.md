@@ -4,7 +4,7 @@ description: 审查代码中的正确性、安全性和可维护性问题
 mode: subagent
 model: inherit
 steps: 8
-tools: [read_file, grep_files, glob_files, list_files]
+tools: [read_file, grep_files, glob_files, list_files, memory_search, memory_get, memory_save, memory_update, memory_supersede, memory_set_status, memory_history, memory_operation, memory_read_source]
 skills: []
 workspace:
   mode: shared

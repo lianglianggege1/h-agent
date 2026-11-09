@@ -15,6 +15,16 @@ public interface Mem0Gateway {
     /** 用户级宽搜索（管理页语义搜索）：仅按 mem0 user_id 过滤，不做 scope 过滤。 */
     List<Mem0Models.Mem0Memory> searchByUser(String mem0UserId, String query, int topK);
 
+    /** Filters are constructed by the application module, never passed through from the model. */
+    default List<Mem0Models.Mem0Memory> searchFiltered(String userId, String query, int topK,
+                                                      java.util.Map<String,Object> filters) {
+        return searchByUser(userId, query, topK);
+    }
+
+    default List<Mem0Models.Mem0Memory> findByOperationKey(String userId, String key, String text) {
+        throw new UnsupportedOperationException("Exact operation lookup is unavailable");
+    }
+
     Mem0Models.Mem0AddResult add(Mem0Models.Mem0AddCommand command);
 
     Mem0Models.Mem0Memory get(String remoteMemoryId, MemoryScopePolicy.MemoryOwnerScope scope);

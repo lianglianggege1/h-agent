@@ -169,7 +169,9 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
                 // 类型化观测阶段载体（设计 7.3 / 12.4）：观测 middleware 与 SDK 子 Agent
                 // 派生上下文据此挂到本轮 trace，并在响应提交后切换 Maintenance。
-                .put(ExecutionObservationCarrier.class, carrier);
+                .put(ExecutionObservationCarrier.class, carrier)
+                .put(com.h.backend.memory.application.AgentMemoryContext.class,
+                        com.h.backend.memory.application.AgentMemoryContext.from(command));
         if (snapshot != null) {
             contextBuilder.put(SubagentTurnSnapshot.class, snapshot);
         }
@@ -221,6 +223,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 .sessionId(command.sessionId())
                 .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
                 .put(ExecutionObservationCarrier.class, carrier)
+                .put(com.h.backend.memory.application.AgentMemoryContext.class,
+                        com.h.backend.memory.application.AgentMemoryContext.from(command))
                 .build();
         Execution execution = new Execution(command, null, carrier);
         command.sink().onCancel(() -> execution.cancel("客户端已断开"));

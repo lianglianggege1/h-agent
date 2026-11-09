@@ -43,6 +43,9 @@ public class LongTermMemoryRuntimeImpl implements LongTermMemoryRuntime {
     private static final int FAILURE_THRESHOLD = 5;
     private static final long OPEN_WINDOW_MILLIS = 60_000;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.h.backend.memory.infrastructure.persistence.mapper.LongTermMemoryRecordMapper> records;
+
     private final Mem0Gateway mem0Gateway;
     private final LongTermMemoryProperties properties;
     private final MemoryCaptureOutboxMapper outboxMapper;
@@ -143,6 +146,11 @@ public class LongTermMemoryRuntimeImpl implements LongTermMemoryRuntime {
                     if (memory == null || memory.text() == null || memory.text().isBlank()) {
                         continue;
                     }
+                    if (records != null && records.getIfAvailable() != null) {
+                        var owned = records.getObject().selectByRemoteMemoryId(memory.id(), context.userId());
+                        if (owned == null || owned.getDeletedAt() != null || owned.getPendingOperation() != null
+                                || (owned.getMemoryStatus() != null && !"ACTIVE".equals(owned.getMemoryStatus()))) continue;
+                    }
                     mapped.add(new MemoryRecallResult.MemoryItem(
                             memory.id(), memory.text(), entry.getKey(),
                             memory.score() == null ? 0.0 : memory.score(),
@@ -220,7 +228,7 @@ public class LongTermMemoryRuntimeImpl implements LongTermMemoryRuntime {
 
     private static int scopeWeight(MemoryScopeKind kind) {
         return switch (kind) {
-            case RUN -> 3;
+            case RUN, SESSION -> 3;
             case AGENT -> 2;
             case USER -> 1;
         };

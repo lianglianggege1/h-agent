@@ -116,7 +116,7 @@ Select **Skills (`技能`)** to open **My Skills (`我的 Skill`)**. Create a Sk
 
 ![Skill workspace](docs/images/demo-05-skills.jpg)
 
-Select **Long-term memory (`长期记忆`)**, choose an Agent, and read or edit its Harness `MEMORY.md`. Saved changes are available to subsequent tasks. LangChain4j Mem0 memory is managed separately through the API described below.
+Select **Long-term memory (`长期记忆`)**, choose an Agent, and read or edit its Harness `MEMORY.md`. Ordinary Harness uses these files as explicitly readable historical sources; editing a file does not directly change formal Mem0 memories. Other Agents retain their document-memory policies. Mem0 memories are managed through the API below.
 
 ### 5. Schedule automation tasks
 
@@ -147,7 +147,7 @@ Only configured test extensions are allowed, with one active call globally. Task
 #### Collaborative Agent — `harness-agent`
 
 - **Best for:** research-and-write work, multi-part analysis, planning, implementation tasks, or any goal whose independent parts can be delegated.
-- **How it works:** acts as the parent Agent, decomposes the goal, creates collaborating Agents, follows their live progress, and consolidates their results. It can use workspace files, Skills, plans, long-term `MEMORY.md`, and human approval.
+- **How it works:** acts as the parent Agent, decomposes the goal, creates collaborating Agents, follows their live progress, and consolidates their results. It can use workspace files, Skills, plans, model-directed memory tools, and human approval. Legacy `MEMORY.md` remains an explicitly searchable historical source.
 - **What you see:** each collaborator appears with a running/completed/failed state. Its detailed transcript is kept separate from the parent answer, while the final result is returned in the main conversation.
 - **Example:** `Compare three Java Agent frameworks. Delegate architecture, ecosystem, and observability research separately, then produce a recommendation table.`
 
@@ -331,9 +331,12 @@ When `memory.long-term.enabled=true`, all four fields are required and missing v
 
 ### Runtime behavior
 
-- `standard-chat` recalls USER, AGENT, and RUN scopes and automatically captures successful turns into USER scope.
+- Ordinary `standard-chat` and `harness-agent` use shared memory tools. The current model decides when to search, save, revise, supersede, soft-delete, and restore; there is no automatic recall or turn-end/compaction memory extraction.
+- New tools support USER, stable AGENT, and shared root SESSION scopes. Models may explicitly search historical sessions and read owned persisted product-message sources.
+- Text is saved unchanged with `infer=false`. Revisions are retained locally; inactive memories are excluded from ordinary searches. PENDING writes can be inspected with `memory_operation` and reconciled without blindly repeating creates.
+- Harness MEMORY.md and daily ledgers are legacy sources available only through explicit `source=LEGACY` search; they are not bulk-imported.
 - Participating domain agents recall all three scopes and capture successful turns into RUN scope according to their registered memory policy.
-- Capture is written to a PostgreSQL outbox first, then delivered asynchronously to Mem0 with retries.
+- Existing domain-agent capture is written to a PostgreSQL outbox first, then delivered asynchronously to Mem0 with retries.
 - Recall is fail-open: a Mem0 outage should not prevent an agent response.
 - User identity and scope IDs are derived on the server; clients never submit raw Mem0 owner IDs.
 
@@ -341,7 +344,8 @@ When `memory.long-term.enabled=true`, all four fields are required and missing v
 | --- | --- | --- |
 | `USER` | Shared across agents and sessions for the authenticated user | `text`, `scope` |
 | `AGENT` | Shared for one stable logical agent | plus `agentId` |
-| `RUN` | Limited to one agent and logical task | plus `agentId`, `runId` |
+| `RUN` | Legacy stable agent + root session scope | plus `agentId`, `runId` |
+| `SESSION` | Shared by a root session and its collaborating Agents | plus `runId` (root session ID) |
 
 ### Manage Mem0 memories through H Agent
 
@@ -517,7 +521,8 @@ uv run ruff format --check .
 
 - [Chinese README](README_zh.md)
 - [MinIO resource-storage runbook](docs/runbooks/minio-resource-storage.md)
-- [Mem0 long-term-memory design](docs/superpowers/specs/2026-08-27-langchain4j-mem0-long-term-memory-design.md)
+- [LLM-directed memory tools design](docs/superpowers/specs/2026-11-07-llm-directed-memory-tools.md)
+- [Existing domain-agent Mem0 design](docs/superpowers/specs/2026-08-27-langchain4j-mem0-long-term-memory-design.md)
 - [Unified Langfuse trace design](docs/superpowers/specs/2026-08-26-unified-agent-langfuse-trace-design.md)
 - [Realtime voice guide](realtime-voice/README.md)
 - [Domain language](CONTEXT.md)

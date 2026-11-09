@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>语义（不沿用 SDK “空列表表示继承全部”）：</p>
  * <ul>
- *   <li>字段省略：使用平台安全默认集合（tools 为四个只读文件工具，skills 为空）；</li>
+ *   <li>字段省略：使用平台安全默认集合（tools 为只读文件工具与记忆工具，skills 为空）；</li>
  *   <li>显式空数组：明确为无能力；</li>
  *   <li>显式列表：取 声明集合 ∩ 平台允许集合 ∩ 父 DENY。</li>
  * </ul>
@@ -25,9 +25,12 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class SubagentCapabilityPolicy {
 
-    /** 省略 tools 时的安全默认集合：只读文件工具。 */
+    /** 省略 tools 时的默认集合：只读文件工具与用户范围内的自主记忆工具。 */
     public static final List<String> DEFAULT_TOOLS =
-            List.of("read_file", "grep_files", "glob_files", "list_files");
+            java.util.stream.Stream.concat(
+                    java.util.stream.Stream.of("read_file", "grep_files", "glob_files", "list_files"),
+                    com.h.backend.memory.application.MemoryToolContract.definitions().stream().map(com.h.backend.memory.application.MemoryToolContract.Definition::name))
+                    .toList();
 
     /** 用户可显式申请的写工具。 */
     public static final List<String> REQUESTABLE_TOOLS =
