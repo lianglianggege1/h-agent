@@ -11,7 +11,7 @@ H Agent 是一个全栈 AI Agent 工作台，提供流式聊天、领域 Agent�
 ## 核心能力
 
 - 流式对话、历史会话、Markdown 渲染和附件上传。
-- 私有 SystemPrompt，以及与每个 SystemPrompt 独立绑定的 RAG 知识库。
+- 私有 SystemPrompt，以及与 Prompt 无关、由 Agent 主动查询和沉淀的用户级知识库。
 - 领域 Agent 目录、编排拓扑和内置专家/工作流 Agent。
 - Harness 动态协作 Agent、进度事件、人工批准、工作区文件和 Skills。
 - Redis 短期对话上下文，以及面向已启用 LangChain4j Agent 的 Mem0 长期记忆。
@@ -62,7 +62,7 @@ flowchart LR
 | 工作区 | 自动化任务 | `/automations` | 按计划在指定会话中执行任务 |
 | 工作区 | 外呼任务 | `/outbound` | 管理授权测试分机、外呼任务与通话进度 |
 | 资源 | 提示词 | `/me/system-prompts` | 编辑私有 SystemPrompt、设置默认助手 |
-| 资源 | 知识库 | `/me/knowledge` | 为不同 SystemPrompt 维护独立知识库 |
+| 资源 | 知识库 | `/me/knowledge` | 维护当前用户的资料和 Agent 沉淀知识 |
 | 资源 | 技能 | `/me/skills` | 创建 Skill、管理提案与发布版本 |
 | 资源 | 长期记忆 | `/me/memory` | 查看和编辑 Harness 的 `MEMORY.md` |
 | 账号 | 个人设置 | `/me` | 查看账号、访问工作区设置、退出登录 |
@@ -106,7 +106,9 @@ flowchart LR
 
 ![新版提示词管理](docs/images/demo-03-system-prompts.jpg)
 
-点击侧栏 **知识库**，先选对应提示词，再上传文件或手动录入文本。支持 `md`、`txt`、`doc`、`docx`、`xls`、`xlsx`；每个 SystemPrompt 的知识库独立，聊天检索跟随会话选用的提示词。
+点击侧栏 **知识库**，直接上传文件或手动录入文本。支持 `md`、`txt`、`doc`、`docx`、`xls`、`xlsx`；所有文档只属于当前用户，不依赖 Prompt。HAssistant、普通 Harness 和有权限的协作者可主动浏览目录、检索和展开片段，不在每轮请求前自动查询。
+
+Agent 可以通过 `knowledge_save` 将可复用资料、方法和经验整理为独立条目，或通过 `knowledge_update` 更新当前用户下由 Agent 沉淀的条目；工具保留版本和来源，不允许模型改写用户上传、手工录入的资料，也不提供模型删除工具。`knowledge_history` / `knowledge_read` 可查看历史；写入结果不明时用 `knowledge_operation` 查询。来源信息始终可用，回答是否展示引用由模型决定。
 
 ![新版知识库管理](docs/images/demo-03-knowledge.jpg)
 
@@ -140,7 +142,7 @@ flowchart LR
 #### 通用助手 — `standard-chat`
 
 - **适合：** 日常问答、总结、写作、知识库问答，以及需要自定义角色或回复规则的任务。
-- **工作方式：** 逐 Token 流式返回回答；使用当前 SystemPrompt 与 Redis 会话上下文，并在需要时自主调用长期记忆工具。
+- **工作方式：** 逐 Token 流式返回回答；使用当前 SystemPrompt 与 Redis 会话上下文，并在需要时自主调用长期记忆和知识库工具。
 - **页面特点：** 只有通用助手显示 SystemPrompt 选择器，以及直接进入 **知识库** 和 **管理** 的链接。
 - **示例提问：** `根据当前知识库总结退款规则，并列出支持结论的要点。`
 

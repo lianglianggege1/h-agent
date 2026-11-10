@@ -2,6 +2,8 @@
 
 import { CopilotChatUserMessage, type CopilotChatUserMessageProps } from "@copilotkit/react-core/v2";
 import { createContext, useContext, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
+import { useFilePreview } from "./file-preview";
+import type { PreviewResource } from "@/lib/file-preview";
 import styles from "./agui-user-message.module.css";
 
 export const UserMessageEditContext = createContext<{
@@ -14,6 +16,7 @@ function UserMessageToolbar(props: HTMLAttributes<HTMLDivElement>) {
 
 function ReferenceUserMessageView(props: CopilotChatUserMessageProps) {
   const actions = useContext(UserMessageEditContext);
+  const preview = useFilePreview();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const editor = useRef<HTMLTextAreaElement>(null);
@@ -23,7 +26,7 @@ function ReferenceUserMessageView(props: CopilotChatUserMessageProps) {
     : props.message.content.filter((part) => part.type === "text").map((part) => part.text).join("");
   const references = Array.isArray(props.message.content) ? props.message.content.flatMap((part, index) =>
     (part.type === "image" || part.type === "video" || part.type === "audio") && part.source.type === "url" && part.metadata?.hAgentReference === true
-      ? [{ id: String(part.metadata.resourceId ?? index), url: part.source.value, kind: part.type }] : []) : [];
+      ? [{ id: String(part.metadata.resourceId ?? index), url: part.source.value, kind: part.type, resource: part.metadata.resource as PreviewResource | undefined, group: part.metadata.previewResources as PreviewResource[] | undefined }] : []) : [];
   useLayoutEffect(() => {
     if (!editing || !editor.current) return;
     const node = editor.current;
@@ -80,6 +83,12 @@ function ReferenceUserMessageView(props: CopilotChatUserMessageProps) {
       </form> : messageRenderer}
       {references.length ? <div className={styles.references} aria-label="此消息引用的素材">
         {references.map((reference, index) => <a key={reference.id} href={reference.url} target="_blank" rel="noreferrer"
+          onClick={(event) => {
+            if (!preview) return;
+            event.preventDefault();
+            const items = references.map((ref, i) => ref.resource ?? { id: ref.id, fileName: `引用素材 ${i + 1}`, mimeType: `${ref.kind}/*`, viewUrl: ref.url, downloadUrl: ref.url, fileSize: null });
+            preview.open(reference.group?.length ? reference.group : items, reference.id);
+          }}
           className={styles.thumbnail} aria-label={`查看引用${reference.kind === "video" ? "视频" : reference.kind === "audio" ? "音频" : "图片"} ${index + 1}`} title="查看引用素材">
           {reference.kind === "image" ? <picture><img src={reference.url} alt={`引用图片 ${index + 1}`} /></picture>
             : reference.kind === "video" ? <><video src={reference.url} muted preload="metadata" /><span className={styles.play} aria-hidden="true">▶</span></>

@@ -38,13 +38,22 @@ class KnowledgeDocumentControllerTest {
     @Test
     void manualShouldDelegateToIngestService() {
         var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
-        Mockito.when(ingestService.ingestManual(1L, 2L, "标题", "内容")).thenReturn(7L);
+        Mockito.when(ingestService.ingestManual(1L, "标题", "内容")).thenReturn(7L);
 
-        var req = new com.h.backend.knowledge.interfaces.dto.ManualInputRequest(2L, "标题", "内容");
+        var req = new com.h.backend.knowledge.interfaces.dto.ManualInputRequest( "标题", "内容");
         var resp = controller.manual(principal, req);
 
         assertEquals(0, resp.code());
         assertNotNull(resp.data());
         assertEquals(7L, resp.data());
     }
+    @Test
+    void unsupportedReparsePreservesExistingDocumentsAndVectors() {
+        var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
+        Mockito.when(documentService.requireOwned(1L, 5L)).thenReturn(new com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity());
+        assertEquals(40005, controller.reparse(principal, 5L).code());
+        Mockito.verifyNoInteractions(ingestService);
+        Mockito.verify(documentService, Mockito.never()).delete(Mockito.anyLong());
+    }
+
 }

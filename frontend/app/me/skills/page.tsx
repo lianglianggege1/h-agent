@@ -30,9 +30,9 @@ function formatDate(value: string | null) {
 
 function validationStatusClassName(status: string | null) {
   if (!status) return "border-stone-200 bg-white text-stone-500";
-  if (status === "VALID") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "VALID") return "border-stone-200 bg-stone-50 text-stone-600";
   if (status === "INVALID") return "border-red-200 bg-red-50 text-red-600";
-  return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-stone-200 bg-stone-50 text-stone-600";
 }
 
 function validationStatusLabel(status: string | null) {
@@ -106,43 +106,35 @@ export default function SkillsPage() {
   }
 
   if (!authenticated) {
-    return <main className="workspace-page" />;
+    return <main className="workspace-page resource-page" />;
   }
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container space-y-4">
-        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
-          <Link className="text-sm text-amber-700" href="/me">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
+          <Link className="text-sm text-stone-600" href="/me">
             返回我的
           </Link>
-          <p className="mt-4 text-xs uppercase tracking-[0.28em] text-amber-700">Skills</p>
-          <h1 className="mt-2 text-2xl font-semibold">我的 Skill</h1>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold">我的 Skill</h1>
+            <button className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white" type="button"
+              aria-expanded={createOpen} onClick={() => { setMessage(""); setError(""); setCreateOpen((current) => !current); }}>
+              {createOpen ? "收起创建表单" : "新建 Skill"}
+            </button>
+          </div>
           <p className="mt-2 text-sm leading-6 text-stone-500">
             每个改动先进入草稿（Proposal），校验通过后发布为不可变版本，再手动设为生效。
           </p>
         </header>
 
         {message ? (
-          <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p>
+          <p className="rounded-2xl bg-stone-50 px-4 py-3 text-sm text-stone-600">{message}</p>
         ) : null}
         {error ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
-        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
-          <button
-            className="w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800"
-            type="button"
-            onClick={() => {
-              setMessage("");
-              setError("");
-              setCreateOpen((current) => !current);
-            }}
-          >
-            {createOpen ? "收起创建表单" : "新建 Skill"}
-          </button>
-
-          {createOpen ? (
-            <form className="workspace-form-grid mt-4" onSubmit={handleCreate}>
+        {createOpen ? <section className="rounded-2xl border border-stone-200/80 bg-white p-4">
+            <form className="workspace-form-grid" onSubmit={handleCreate}>
               <div>
                 <label className="block text-sm font-semibold text-stone-700" htmlFor="skill-key">
                   标识（skillKey）
@@ -152,7 +144,7 @@ export default function SkillsPage() {
                 </p>
                 <input
                   id="skill-key"
-                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                   value={skillKey}
                   onChange={(event) => setSkillKey(event.target.value)}
                   maxLength={63}
@@ -166,7 +158,7 @@ export default function SkillsPage() {
                 </label>
                 <input
                   id="skill-display-name"
-                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   maxLength={60}
@@ -180,7 +172,7 @@ export default function SkillsPage() {
                 </label>
                 <input
                   id="skill-description"
-                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   maxLength={200}
@@ -193,7 +185,7 @@ export default function SkillsPage() {
                 </label>
                 <textarea
                   id="skill-md"
-                  className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-stone-200 bg-white px-4 py-3 font-mono text-xs leading-5 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-stone-200 bg-white px-4 py-3 font-mono text-xs leading-5 outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                   value={skillMd}
                   onChange={(event) => setSkillMd(event.target.value)}
                   required
@@ -207,13 +199,11 @@ export default function SkillsPage() {
                 {creating ? "创建中" : "创建并打开草稿"}
               </button>
             </form>
-          ) : null}
-        </section>
+        </section> : null}
 
-        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
+        <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.2em] text-amber-700">User Skills</p>
               <h2 className="mt-1 text-lg font-semibold">我的 Skill（{skills.length}）</h2>
             </div>
             {loading ? <p className="shrink-0 text-sm text-stone-500">加载中...</p> : null}
@@ -227,11 +217,11 @@ export default function SkillsPage() {
 
           <div className="workspace-card-grid mt-4">
             {skills.map((skill) => (
-              <article key={skill.id} className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
+              <article key={skill.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="break-words text-sm font-semibold text-stone-800">
-                      <Link className="hover:text-amber-700" href={`/me/skills/${skill.id}`}>
+                      <Link className="hover:text-stone-600" href={`/me/skills/${skill.id}`}>
                         {skill.displayName}
                       </Link>
                     </h3>

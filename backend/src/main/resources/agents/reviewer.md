@@ -4,7 +4,7 @@ description: 审查代码中的正确性、安全性和可维护性问题
 mode: subagent
 model: inherit
 steps: 8
-tools: [read_file, grep_files, glob_files, list_files, mem0_search, mem0_get, mem0_save, mem0_update, mem0_supersede, mem0_set_status, mem0_history, mem0_operation, mem0_read_source]
+tools: [read_file, grep_files, glob_files, list_files, mem0_search, mem0_get, mem0_save, mem0_update, mem0_supersede, mem0_set_status, mem0_history, mem0_operation, mem0_read_source, knowledge_list, knowledge_search, knowledge_read, knowledge_save, knowledge_update, knowledge_history, knowledge_operation]
 skills: []
 workspace:
   mode: shared

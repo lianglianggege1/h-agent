@@ -242,7 +242,7 @@ function ChatWorkspace() {
     </div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
       : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn} orderAssistant={open?.session.agentId === orderId} /></div>
-      : <div className="grid flex-1 place-items-center p-6"><div className="text-center"><div className="chat-welcome-logo">H</div><h1 className="mt-5 text-2xl font-semibold tracking-tight">今天想完成什么？</h1><p className="mt-3 text-sm text-stone-500">从一个问题开始，让想法成为行动。</p><button className="agui-button agui-button-primary mt-6" onClick={() => setPickerOpen(true)}>开始新会话</button></div></div>}
+      : <div className="chat-welcome"><div className="chat-welcome-copy"><p className="chat-welcome-kicker">H—AGENT&nbsp;&nbsp; / &nbsp;&nbsp;工作台</p><h1>把手头的事<br /><span>往前推进。</span></h1><p className="chat-welcome-description">从一个具体任务开始。选个助手，接着聊。</p><button className="chat-welcome-action" onClick={() => setPickerOpen(true)}>新建会话 <span aria-hidden="true">↗</span></button></div><div className="chat-welcome-aside" aria-hidden="true"><span className="chat-welcome-index">01</span><span className="chat-welcome-rule" /><span className="chat-welcome-note">提问<br />整理<br />交付</span></div></div>}
 
     {selected && sessionId ? <div className="fixed inset-0 z-30 flex justify-end bg-stone-950/25">
       <button className="absolute inset-0" aria-label="关闭子 Agent 对话" onClick={() => setSelectedChild(null)} />

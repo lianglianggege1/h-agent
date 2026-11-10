@@ -41,7 +41,7 @@ class EmbeddingConfigTest {
             }
         };
         ContentRetriever emptyRetriever = query -> List.of();
-        RetrievalAugmentor augmentor = config.knowledgeRetrievalAugmentor(routingModel, emptyRetriever);
+        RetrievalAugmentor augmentor = config.knowledgeRetrievalAugmentor(emptyRetriever);
 
         UserMessage message = UserMessage.from("搜不到资料的问题");
         Metadata metadata = Metadata.from(message, "1:2:test-session", List.of());
@@ -64,7 +64,7 @@ class EmbeddingConfigTest {
             }
         };
         ContentRetriever hitRetriever = query -> List.of(Content.from("命中内容"));
-        RetrievalAugmentor augmentor = config.knowledgeRetrievalAugmentor(routingModel, hitRetriever);
+        RetrievalAugmentor augmentor = config.knowledgeRetrievalAugmentor(hitRetriever);
 
         UserMessage message = UserMessage.from("能命中资料的问题");
         Metadata metadata = Metadata.from(message, "1:2:test-session", List.of());
@@ -77,7 +77,7 @@ class EmbeddingConfigTest {
     }
 
     @Test
-    void contentRetrieverShouldFailClosedWhenPromptScopeIsMissing() {
+    void contentRetrieverShouldFailClosedWhenUserIsMissing() {
         CapturingEmbeddingStore store = new CapturingEmbeddingStore();
         EmbeddingModel model = new EmbeddingModel() {
             @Override
@@ -91,7 +91,7 @@ class EmbeddingConfigTest {
                 .knowledgeContentRetriever(store, model, new KnowledgeProperties());
         retriever.retrieve(Query.from("没有 prompt 作用域的问题"));
 
-        assertNotNull(store.lastRequest.filter(), "缺失 promptId 时不能退化为全库检索");
+        assertNotNull(store.lastRequest.filter(), "缺失 userId 时不能退化为全库检索");
     }
 
     private static final class CapturingEmbeddingStore implements EmbeddingStore<TextSegment> {

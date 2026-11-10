@@ -12,13 +12,12 @@ import java.util.List;
 public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocumentEntity> {
 
     @Select("""
-            SELECT id, user_id, prompt_id, file_name, source_type, file_type, file_size,
+            SELECT id, user_id, file_name, source_type, file_type, file_size,
                    char_count, segment_count, status, error_msg, content_hash,
                    created_at, updated_at
             FROM knowledge_document
-            WHERE user_id = #{userId} AND prompt_id = #{promptId}
+            WHERE user_id = #{userId}
             ORDER BY created_at DESC, id DESC
             """)
-    List<KnowledgeDocumentEntity> selectByUserAndPrompt(@Param("userId") Long userId,
-                                                        @Param("promptId") Long promptId);
+    List<KnowledgeDocumentEntity> selectByUser(@Param("userId") Long userId);
 }

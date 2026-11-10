@@ -1,0 +1,71 @@
+/* Resource screens share the chat workspace's materials and text hierarchy. */
+.resource-page {
+  --resource-bg: #faf9f6;
+  --resource-surface: #fffefa;
+  --resource-inset: #f1efe9;
+  --resource-border: #dedbd2;
+  --resource-text: #292b25;
+  --resource-muted: #6e6c62;
+  --resource-action: #a14932;
+  --resource-on-action: #fffaf3;
+  --resource-error: #ad382f;
+  background: var(--resource-bg);
+  color: var(--resource-text);
+}
+.theme-dark .resource-page {
+  --resource-bg: #171815;
+  --resource-surface: #22231f;
+  --resource-inset: #2c2d27;
+  --resource-border: #41423b;
+  --resource-text: #e9e6df;
+  --resource-muted: #b2aea3;
+  --resource-action: #a95036;
+  --resource-on-action: #fffaf3;
+  --resource-error: #f2a198;
+}
+.resource-page > .workspace-container { max-width: 1240px; background: transparent !important; }
+.resource-page .workspace-container > header.bg-white { background: transparent; padding-bottom: 20px; }
+.resource-page .workspace-container > header h1 { font-size: 24px; line-height: 1.4; letter-spacing: -.025em; }
+.resource-page :is(h2, h3) { color: var(--resource-text); }
+.resource-page :is(.text-stone-900, .text-stone-800, .text-stone-700) { color: var(--resource-text); }
+.resource-page :is(.text-stone-600, .text-stone-500, .text-stone-400) { color: var(--resource-muted); }
+.resource-page :is(.bg-white, .bg-stone-50) { background: var(--resource-surface); }
+.theme-dark .resource-page :is(.bg-white, .bg-stone-50) { background: var(--resource-surface); }
+.theme-dark .resource-page .workspace-container > header.bg-white { background: transparent; }
+.resource-page .bg-stone-100 { background: var(--resource-inset); }
+.resource-page :is([class*="border-stone-"], [class*="border-white/"]) { border-color: var(--resource-border) !important; }
+.resource-page :is(.rounded-3xl, .rounded-2xl, .rounded-t-3xl) { border-radius: 12px; }
+.resource-page :is(.rounded-xl, .rounded-lg) { border-radius: 8px; }
+.resource-page :is(.shadow-sm, .shadow-lg, .shadow-2xl) { box-shadow: none; }
+.resource-page :is(button, a).bg-stone-900 { background: var(--resource-action); color: var(--resource-on-action); }
+.resource-page :is(button, a).bg-stone-900:hover:not(:disabled) { filter: brightness(1.1); }
+.resource-page :is(button, a):focus-visible { outline: 2px solid var(--resource-muted); outline-offset: 3px; }
+.resource-page button:disabled { opacity: .5; }
+.resource-page :is(input, textarea, select) {
+  background: var(--resource-bg);
+  border-color: var(--resource-border);
+  color: var(--resource-text);
+  border-radius: 8px;
+}
+.resource-page :is(input, textarea)::placeholder { color: var(--resource-muted); opacity: .85; }
+.resource-page :is(input, textarea, select):focus {
+  border-color: var(--resource-muted);
+  outline: 2px solid color-mix(in srgb, var(--resource-muted) 25%, transparent);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+.resource-page :is(input, textarea, select):disabled { opacity: .55; }
+.resource-page input::file-selector-button { background: var(--resource-inset); color: var(--resource-text); border: 0; border-radius: 5px; padding: 4px 8px; margin-right: 8px; }
+/* Status words carry meaning without a separate color palette for each type. */
+.resource-page :is(.bg-amber-50, .bg-amber-100, .bg-emerald-50, .bg-emerald-100, .bg-sky-100, .bg-violet-100, .bg-red-50, .bg-red-100) { background: var(--resource-inset); }
+.resource-page :is(.text-amber-700, .text-amber-800, .text-emerald-700, .text-sky-700, .text-violet-700) { color: var(--resource-muted); }
+.resource-page :is(.text-red-600, .text-red-700) { color: var(--resource-error); }
+.resource-page :is(.border-emerald-200, .border-amber-200, .border-red-200) { border-color: var(--resource-border) !important; }
+.resource-page .workspace-switch { background: var(--resource-border); border-radius: 999px; }
+.resource-page .workspace-switch[aria-checked="true"] { background: var(--resource-action); }
+.resource-page .workspace-switch > span.bg-white { background: #fffaf3; border-radius: 50%; }
+.resource-page pre code.bg-stone-100 { background: transparent; color: inherit; padding: 0; }
+.resource-page .workspace-card-grid { gap: 16px; }
+.resource-page .workspace-agent-card { padding: 20px; }
+.resource-page .workspace-memory-layout nav button:hover { background: var(--resource-inset); color: var(--resource-text); }
+@media (max-width: 767px) { .resource-page .workspace-container > header h1 { font-size: 22px; } }

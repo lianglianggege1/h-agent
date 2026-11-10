@@ -121,6 +121,11 @@ class AgentTopologyMapperTest {
         assertEquals(1, dto.root().children().size());
         assertEquals("customerInfo", dto.root().children().getFirst().outputKey());
         assertEquals(List.of("message"), dto.root().children().getFirst().inputKeys());
+        var input = dto.root().children().getFirst().inputArguments().getFirst();
+        assertEquals("message", input.name());
+        assertEquals("String", input.type());
+        assertEquals("java.lang.String", dto.root().implementationClass());
+        assertEquals(MockPlanner.class.getName(), dto.root().plannerClass());
         assertEquals(List.of("response", "message", "customerInfo"), dto.stateKeys().stream()
                 .map(key -> key.key())
                 .toList());

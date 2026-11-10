@@ -40,9 +40,26 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const section = workspaceSection(pathname);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
   const [sidebarTarget, setSidebarTarget] = useState<HTMLElement | null>(null);
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const apply = () => {
+      const dark = window.localStorage.getItem("h-agent-theme") === "dark";
+      setDarkMode(dark);
+      document.documentElement.classList.toggle("theme-dark", dark);
+      document.documentElement.classList.toggle("dark", dark);
+    };
+    apply();
+    window.addEventListener("h-agent:theme-change", apply);
+    window.addEventListener("storage", apply);
+    return () => {
+      window.removeEventListener("h-agent:theme-change", apply);
+      window.removeEventListener("storage", apply);
+    };
+  }, []);
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
@@ -86,13 +103,13 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   if (!section) return children;
 
   return <SidebarTarget.Provider value={{ target: sidebarTarget, close: () => setMobileOpen(false), onKeyDown: sidebarKeyDown }}>
-    <div className={`${styles.shell} ${collapsed ? styles.collapsed : ""} ${mobileOpen ? styles.mobileOpen : ""}`}>
+    <div className={`${styles.shell} ${darkMode ? "theme-dark" : ""} ${collapsed ? styles.collapsed : ""} ${mobileOpen ? styles.mobileOpen : ""}`}>
       <a href="#workspace-main" className={styles.skip}>跳到主要内容</a>
       {mobileOpen ? <button className={styles.overlay} aria-label="关闭导航遮罩" onClick={() => setMobileOpen(false)} tabIndex={-1} /> : null}
       <aside id="workspace-sidebar" ref={sidebar} className={styles.sidebar} aria-label="工作区侧栏" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined}
         onKeyDown={sidebarKeyDown}>
         <div className={styles.brand}>
-          <Link href="/chat" onClick={navigate} className={styles.brandLink} aria-label="H-Agent 工作区"><span className={styles.logo}>H</span><span className={styles.label}>H-Agent<span className={styles.brandCaption}>你的 AI 工作空间</span></span></Link>
+          <Link href="/chat" onClick={navigate} className={styles.brandLink} aria-label="H-Agent 工作区"><span className={styles.logo}>H</span><span className={styles.label}>H-Agent<span className={styles.brandCaption}>工作台</span></span></Link>
           <button className={`${styles.iconButton} ${styles.desktopToggle}`} title={collapsed ? "展开侧栏" : "收起侧栏"} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}><WorkspaceIcon name="panel" /></button>
           <button className={`${styles.iconButton} ${styles.mobileClose}`} aria-label="关闭导航" onClick={() => setMobileOpen(false)}><WorkspaceIcon name="close" /></button>
         </div>

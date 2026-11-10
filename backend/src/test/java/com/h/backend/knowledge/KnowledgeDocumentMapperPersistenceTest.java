@@ -23,7 +23,7 @@ class KnowledgeDocumentMapperPersistenceTest {
         long promptId = System.currentTimeMillis();
         KnowledgeDocumentEntity doc = new KnowledgeDocumentEntity();
         doc.setUserId(1L);
-        doc.setPromptId(promptId);
+
         doc.setFileName("test.md");
         doc.setSourceType("FILE");
         doc.setFileType("md");
@@ -33,7 +33,7 @@ class KnowledgeDocumentMapperPersistenceTest {
         mapper.insert(doc);
         assertNotNull(doc.getId());
 
-        List<KnowledgeDocumentEntity> found = mapper.selectByUserAndPrompt(1L, promptId);
+        List<KnowledgeDocumentEntity> found = mapper.selectByUser(1L);
         assertEquals(1, found.size());
         assertEquals("test.md", found.get(0).getFileName());
     }

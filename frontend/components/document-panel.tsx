@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useFilePreview } from "./file-preview";
 import {
   documentTasks,
   reviewDocument,
@@ -44,6 +45,7 @@ function ReviewCard({
   task: DocumentTask;
   onChanged: () => void;
 }) {
+  const preview = useFilePreview();
   const [review, setReview] = useState<DocumentTask | null>(null);
   const [decisions, setDecisions] = useState<Record<string, DocumentDecision>>(
     {},
@@ -113,6 +115,10 @@ function ReviewCard({
               : ""}
           </p>
         </div>
+        {task.downloadUrl && task.outputResourceId && task.status === "COMPLETED" ? <button type="button" className="shrink-0 underline" onClick={() => preview?.open([{
+          id: task.outputResourceId!, fileName: task.fileName, mimeType: "application/octet-stream", fileSize: null,
+          viewUrl: `/api/chat/resources/${encodeURIComponent(task.outputResourceId!)}/content`, downloadUrl: task.downloadUrl!,
+        }], task.outputResourceId!)}>预览文件</button> : null}
         {task.downloadUrl ? (
           <a href={task.downloadUrl} className="shrink-0 underline">
             下载文件

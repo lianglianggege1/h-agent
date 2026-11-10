@@ -1,0 +1,25 @@
+.root { min-width: 0; color: var(--resource-text); }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--resource-border); background: var(--resource-surface); }
+.title { min-width: 0; overflow-wrap: anywhere; }
+.title h2 { font-size: 14px; line-height: 1.6; font-weight: 600; margin: 0; }
+.title p { margin-top: 4px; color: var(--resource-muted); font-size: 12px; line-height: 1.7; }
+.actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.actions button, .childLinks button { padding: 4px 8px; border: 1px solid var(--resource-border); border-radius: 5px; font-size: 12px; line-height: 1.7; color: var(--resource-text); }
+.actions button:hover, .childLinks button:hover { background: var(--resource-inset); }
+.actions .close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; font-size: 22px; color: var(--resource-muted); }
+.body { padding: 20px; }
+.description { font-size: 13px; line-height: 1.85; white-space: pre-wrap; margin-bottom: 20px; overflow-wrap: anywhere; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.field dt { color: var(--resource-muted); font-size: 12px; margin-bottom: 5px; }
+.field dd { margin: 0; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.group { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--resource-border); }
+.group h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+.muted { color: var(--resource-muted); font-size: 12px; line-height: 1.7; }
+.group > .muted { margin-top: 12px; }
+.inputs { display: grid; gap: 10px; }
+.inputs > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.inputs dd { color: var(--resource-muted); margin: 0; }
+.condition { padding: 12px; background: var(--resource-inset); border-radius: 6px; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.childLinks { display: flex; flex-wrap: wrap; gap: 6px; }
+.childLinks button { overflow-wrap: anywhere; text-align: left; }
+@media (max-width: 600px) { .fields { grid-template-columns: 1fr; } .header, .body { padding: 16px; } }

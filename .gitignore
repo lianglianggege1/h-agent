@@ -11,6 +11,7 @@ frontend/*.tsbuildinfo
 
 # Node
 frontend/node_modules/
+frontend/public/pdfjs/
 
 # Java
 *.class

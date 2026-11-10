@@ -38,9 +38,11 @@ test("pause offers continue for an empty draft and sends typed text as a new mes
     const [value, onInputChange] = React.useState("");
     return React.createElement(View, { inputValue: value, onInputChange, isRunning: agent.isRunning, onStop });
   }
-  Chat.View = ({ input: Input, inputValue, onInputChange, isRunning, onStop, onSubmitMessage }) =>
-    React.createElement(Input, { value: inputValue, onChange: onInputChange, isRunning, onStop, onSubmitMessage });
+  Chat.View = function ChatView({ input: Input, inputValue, onInputChange, isRunning, onStop, onSubmitMessage }) {
+    return React.createElement(Input, { value: inputValue, onChange: onInputChange, isRunning, onStop, onSubmitMessage });
+  };
   const stubs = {
+    "./file-preview": { useFilePreview: () => null, FilePreviewProvider: function FilePreviewProvider({ children }) { return children; } },
     "./document-panel": { DocumentTaskSync: () => null },
     "@/lib/document-activities": { mergeDocumentTaskActivities: (messages) => messages },
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useCopilotKit: () => ({ copilotkit }), useRenderTool: () => {},

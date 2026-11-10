@@ -48,7 +48,7 @@ public interface AguiRunSnapshotMapper {
     @Update("""
             UPDATE chat_interaction_runs SET status = 'INTERRUPTED', updated_at = NOW()
             WHERE run_id = #{runId} AND user_id = #{userId}
-              AND status IN ('RUNNING', 'CANCEL_REQUESTED', 'PAUSE_REQUESTED') AND updated_at < NOW() - INTERVAL '60 seconds'
+              AND status IN ('RUNNING', 'CANCEL_REQUESTED', 'PAUSE_REQUESTED')
             """)
     int interruptStale(@Param("userId") Long userId, @Param("runId") String runId);
 }

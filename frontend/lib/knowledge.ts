@@ -19,20 +19,17 @@ export type KnowledgeSegment = {
 };
 
 export type ManualKnowledgePayload = {
-  promptId: number;
   title: string;
   content: string;
 };
 
-export function listKnowledgeDocuments(promptId: number) {
-  const search = new URLSearchParams({ promptId: String(promptId) });
-  return apiFetch<KnowledgeDocument[]>(`/api/knowledge/documents?${search.toString()}`);
+export function listKnowledgeDocuments() {
+  return apiFetch<KnowledgeDocument[]>("/api/knowledge/documents");
 }
 
-export function uploadKnowledgeDocument(promptId: number, file: File) {
+export function uploadKnowledgeDocument(file: File) {
   const form = new FormData();
   form.append("file", file);
-  form.append("promptId", String(promptId));
   return apiFormFetch<number>("/api/knowledge/documents/upload", form);
 }
 

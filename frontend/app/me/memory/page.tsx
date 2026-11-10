@@ -76,10 +76,10 @@ export default function MemoryPage() {
   }
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container workspace-memory-layout">
         <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
-          <Link href="/me" className="text-xs font-semibold text-amber-700">返回我的</Link>
+          <Link href="/me" className="text-xs font-semibold text-stone-600">返回我的</Link>
           <h1 className="mt-2 text-2xl font-semibold">Agent 记忆文件</h1>
         </header>
         <div className="rounded-2xl border border-stone-200/80 bg-white p-5 text-sm text-stone-500 shadow-sm">
@@ -224,11 +224,11 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
   const sections = state.mode === "read" ? readSections : editSections;
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container workspace-memory-layout">
-        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
           <Link
-            className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700"
+            className="text-xs font-semibold uppercase tracking-[0.28em] text-stone-600"
             href="/me"
             onClick={(event) => {
               if (!confirmLeave()) {
@@ -262,13 +262,13 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
         </header>
 
         {state.mode === "loading" && (
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
             <p className="text-sm text-stone-500">正在加载长期记忆…</p>
           </div>
         )}
 
         {state.mode === "error" && (
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
             <p className="text-sm font-medium text-stone-700">{state.loadError}</p>
             <button
               className="mt-3 rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white"
@@ -284,12 +284,12 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
         )}
 
         {sections.length > 0 && state.mode !== "error" && state.mode !== "loading" && (
-          <nav className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm backdrop-blur">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700">章节</p>
+          <nav className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-stone-600">章节</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {sections.map((section, index) => (
                 <button
-                  className="rounded-full border border-stone-200 px-3 py-1 text-xs font-medium text-stone-700 hover:border-amber-300 hover:text-amber-700"
+                  className="rounded-full border border-stone-200 px-3 py-1 text-xs font-medium text-stone-700 hover:border-stone-200 hover:text-stone-600"
                   key={`${section.title}-${index}`}
                   type="button"
                   onClick={() => handleSectionClick(index, section.offset)}
@@ -302,7 +302,7 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
         )}
 
         {state.mode === "read" && state.document !== null && (
-          <article className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
+          <article className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
             {state.document.content.trim() === "" ? (
               <p className="text-sm text-stone-500">暂无记忆内容，点击下方按钮开始记录。</p>
             ) : (
@@ -311,7 +311,7 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
               </div>
             )}
             <button
-              className="mt-4 w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white"
+              className="mt-4 rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white"
               type="button"
               onClick={() => setState((previous) => startEditing(previous))}
             >
@@ -321,20 +321,20 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
         )}
 
         {(state.mode === "edit" || state.mode === "saving") && (
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
+          <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
             {state.revisionStale && (
-              <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
-                <p className="text-xs leading-5 text-amber-800">
+              <div className="mb-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2">
+                <p className="text-xs leading-5 text-stone-600">
                   记忆已被其他会话更新，当前草稿无法保存；重新加载最新内容后再编辑。
                 </p>
                 <button
-                  className="mt-2 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
+                  className="mt-2 rounded-xl bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white"
                   type="button"
                   onClick={() => void handleConflictReload()}
                 >
                   重新加载最新内容
                 </button>
-                {reloadError && <p className="mt-2 text-xs text-amber-800">{reloadError}</p>}
+                {reloadError && <p className="mt-2 text-xs text-stone-600">{reloadError}</p>}
               </div>
             )}
             {saveError && (
@@ -352,7 +352,7 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
               <p className="mt-2 text-xs text-red-600">超过 64 KiB 上限，请精简后保存。</p>
             )}
             <textarea
-              className="mt-2 h-96 w-full resize-y rounded-2xl border border-stone-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-stone-800 outline-none focus:border-amber-300"
+              className="mt-2 h-96 w-full resize-y rounded-2xl border border-stone-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-stone-800 outline-none focus:border-stone-200"
               disabled={saving}
               onChange={(event) => setState((previous) => updateDraft(previous, event.target.value))}
               onKeyDown={handleTextareaKeyDown}
@@ -362,7 +362,7 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
             />
             <div className="mt-4 flex items-center gap-3">
               <button
-                className="flex-1 rounded-2xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex-1 rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={!canSave}
                 type="button"
                 onClick={() => void handleSave()}
@@ -377,33 +377,33 @@ function MemoryEditor({ agents, agentId, onAgentChange }: {
               >
                 取消
               </button>
-              {savedFlash && <span className="text-xs font-medium text-amber-700">已保存</span>}
+              {savedFlash && <span className="text-xs font-medium text-stone-600">已保存</span>}
             </div>
           </div>
         )}
 
         {state.mode === "conflict" && (
-          <div className="rounded-2xl border border-amber-200/80 bg-amber-50/90 p-5 shadow-sm backdrop-blur">
-            <h2 className="text-sm font-semibold text-amber-900">内容已过期</h2>
-            <p className="mt-1 text-xs leading-5 text-amber-800">
+          <div className="rounded-2xl border border-stone-200/80 bg-stone-50 p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-stone-600">内容已过期</h2>
+            <p className="mt-1 text-xs leading-5 text-stone-600">
               记忆已被其他会话更新。重新加载会丢弃本地草稿并显示最新内容；也可以先复制下方草稿再重新加载。
             </p>
-            {reloadError && <p className="mt-2 text-xs text-amber-800">{reloadError}</p>}
+            {reloadError && <p className="mt-2 text-xs text-stone-600">{reloadError}</p>}
             <textarea
-              className="mt-3 h-48 w-full resize-y rounded-2xl border border-amber-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-stone-800"
+              className="mt-3 h-48 w-full resize-y rounded-2xl border border-stone-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-stone-800"
               readOnly
               value={state.draft}
             />
             <div className="mt-4 flex items-center gap-3">
               <button
-                className="flex-1 rounded-2xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white"
+                className="flex-1 rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white"
                 type="button"
                 onClick={() => void handleConflictReload()}
               >
                 重新加载最新内容
               </button>
               <button
-                className="flex-1 rounded-2xl border border-amber-300 px-4 py-3 text-sm font-semibold text-amber-800"
+                className="flex-1 rounded-2xl border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-600"
                 type="button"
                 onClick={() => setState((previous) => conflictResumeEditing(previous))}
               >

@@ -29,7 +29,8 @@ class SubagentCapabilityPolicyTest {
 
         assertThat(effective.tools()).containsExactly(
                 "read_file", "grep_files", "glob_files", "list_files",
-                "mem0_search", "mem0_get", "mem0_save", "mem0_update", "mem0_supersede", "mem0_set_status", "mem0_history", "mem0_operation", "mem0_read_source");
+                "mem0_search", "mem0_get", "mem0_save", "mem0_update", "mem0_supersede", "mem0_set_status", "mem0_history", "mem0_operation", "mem0_read_source",
+                "knowledge_list", "knowledge_search", "knowledge_read", "knowledge_save", "knowledge_update", "knowledge_history", "knowledge_operation");
         assertThat(effective.skills()).isEmpty();
     }
 
@@ -89,6 +90,7 @@ class SubagentCapabilityPolicyTest {
 
         assertThat(tools).containsExactlyInAnyOrder(
                 "read_file", "grep_files", "glob_files", "list_files", "write_file", "edit_file",
-                "mem0_search", "mem0_get", "mem0_save", "mem0_update", "mem0_supersede", "mem0_set_status", "mem0_history", "mem0_operation", "mem0_read_source");
+                "mem0_search", "mem0_get", "mem0_save", "mem0_update", "mem0_supersede", "mem0_set_status", "mem0_history", "mem0_operation", "mem0_read_source",
+                "knowledge_list", "knowledge_search", "knowledge_read", "knowledge_save", "knowledge_update", "knowledge_history", "knowledge_operation");
     }
 }

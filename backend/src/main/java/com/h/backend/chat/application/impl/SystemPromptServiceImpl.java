@@ -81,7 +81,7 @@ public class SystemPromptServiceImpl implements SystemPromptService {
         systemPromptMapper.lockOwner(userId);
         SystemPromptEntity entity = getActiveOwnedPrompt(userId, promptId);
         boolean wasDefault = Boolean.TRUE.equals(entity.getIsDefault());
-        // Historical sessions, runs and knowledge keep their prompt identity and content.
+        // Historical sessions and runs retain their prompt identity; user knowledge is independent.
         entity.setDeletedAt(LocalDateTime.now());
         entity.setUpdatedAt(entity.getDeletedAt());
         entity.setIsDefault(false);

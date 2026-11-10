@@ -2,246 +2,88 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { AgentTopology, AgentTopologyNode, getAgentTopology } from "@/lib/agents";
-import { collectTopologyLegend, decisionRouterSummary, topologyLabel, topologyTone } from "@/lib/agent-ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type AgentTopology, getAgentTopology } from "@/lib/agents";
+import { flattenTopology, stateKeyUsage, type TopologyEntry } from "@/lib/agent-topology";
+import { AgentNodeDetails } from "@/components/agent-node-details";
+import { AgentNodePopover } from "@/components/agent-node-popover";
+import { AgentTopologyGraph } from "@/components/agent-topology-graph";
 import { getCurrentUser } from "@/lib/auth";
+import { ApiError } from "@/lib/http";
 import { agentChatHref } from "@/lib/chat-agent-mode";
 import { savePostLoginRedirect } from "@/lib/session";
+import styles from "./topology.module.css";
 
-const toneClasses: Record<string, { badge: string; border: string; dot: string }> = {
-  ai: {
-    badge: "bg-[#2e8555] text-white",
-    border: "border-l-[#2e8555]",
-    dot: "bg-[#2e8555]",
-  },
-  nonai: {
-    badge: "bg-[#6b7280] text-white",
-    border: "border-l-[#6b7280]",
-    dot: "bg-[#6b7280]",
-  },
-  human: {
-    badge: "bg-[#d97706] text-white",
-    border: "border-l-[#d97706]",
-    dot: "bg-[#d97706]",
-  },
-  seq: {
-    badge: "bg-[#0891b2] text-white",
-    border: "border-l-[#0891b2]",
-    dot: "bg-[#0891b2]",
-  },
-  par: {
-    badge: "bg-[#3b82f6] text-white",
-    border: "border-l-[#3b82f6]",
-    dot: "bg-[#3b82f6]",
-  },
-  loop: {
-    badge: "bg-[#7c3aed] text-white",
-    border: "border-l-[#7c3aed]",
-    dot: "bg-[#7c3aed]",
-  },
-  rtr: {
-    badge: "bg-[#dc2626] text-white",
-    border: "border-l-[#dc2626]",
-    dot: "bg-[#dc2626]",
-  },
-  star: {
-    badge: "bg-[#ca8a04] text-white",
-    border: "border-l-[#ca8a04]",
-    dot: "bg-[#ca8a04]",
-  },
-};
-
-function toneClass(tone: string) {
-  return toneClasses[tone] ?? toneClasses.nonai;
-}
-
-function Detail({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) return null;
-
-  return (
-    <div className="mt-1 flex gap-1.5 text-[11px] leading-5">
-      <span className="shrink-0 font-semibold text-slate-400">{label}</span>
-      <span className="min-w-0 truncate text-slate-600" title={value}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function LoopInfo({ node }: { node: AgentTopologyNode }) {
-  if (!node.loop) return null;
-
-  return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      <span className="rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700">
-        max {node.loop.maxIterations ?? "-"}
-      </span>
-      {node.loop.exitCondition ? (
-        <span
-          className="max-w-40 truncate rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700"
-          title={node.loop.exitCondition}
-        >
-          exit: {node.loop.exitCondition}
-        </span>
-      ) : null}
-      <span className="rounded-[3px] border border-violet-200 bg-violet-50 px-1.5 text-[10px] leading-5 text-violet-700">
-        {node.loop.testExitAtLoopEnd ? "test at end" : "test at start"}
-      </span>
-    </div>
-  );
-}
-
-function DecisionRouterInfo({ node }: { node: AgentTopologyNode }) {
-  const summary = decisionRouterSummary(node.decisionRouter);
-  if (!summary.length) return null;
-
-  return (
-    <div className="mt-2 space-y-1 rounded border border-red-100 bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-800">
-      {summary.map((line) => <p key={line}>{line}</p>)}
-    </div>
-  );
-}
-
-function TopologyNodeView({ node }: { node: AgentTopologyNode }) {
-  const hasChildren = node.children.length > 0;
-  const tone = toneClass(topologyTone(node.topology));
-  const type = node.type && node.type !== node.name ? node.type : null;
-
-  return (
-    <li className="relative flex flex-col items-center px-2 pt-6 before:absolute before:right-1/2 before:top-0 before:h-6 before:w-1/2 before:border-t before:border-slate-300 after:absolute after:left-1/2 after:top-0 after:h-6 after:w-1/2 after:border-l after:border-t after:border-slate-300 first:before:border-t-0 last:after:border-t-0 only:before:hidden only:after:border-t-0">
-      {node.condition ? (
-        <div
-          className="mb-1.5 max-w-52 truncate rounded-[3px] border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] leading-4 text-amber-700"
-          title={node.condition}
-        >
-          when: {node.condition}
-        </div>
-      ) : null}
-
-      <div
-        className={`w-56 rounded-md border border-slate-200 border-l-4 ${tone.border} bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.06)]`}
-      >
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-[10px] font-bold ${tone.badge}`}>
-            {node.decisionRouter ? "Decision Router" : topologyLabel(node.topology)}
-          </span>
-          <span className="min-w-0 truncate text-sm font-semibold text-slate-900" title={node.name}>
-            {node.name}
-          </span>
-          {node.async ? (
-            <span className="shrink-0 rounded-[3px] border border-amber-200 bg-amber-50 px-1 text-[9px] font-medium text-amber-700">
-              async
-            </span>
-          ) : null}
-        </div>
-
-        <div className="mt-1.5">
-          <Detail label="Type" value={type} />
-          <Detail label="Desc" value={node.description} />
-          <Detail label="Returns" value={node.returnType} />
-          <LoopInfo node={node} />
-          <DecisionRouterInfo node={node} />
-        </div>
-      </div>
-
-      {hasChildren ? (
-        <ul className="relative flex justify-center pt-6 before:absolute before:left-1/2 before:top-0 before:h-6 before:border-l before:border-slate-300">
-          {node.children.map((child) => (
-            <TopologyNodeView key={child.nodeId} node={child} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  );
+function EntryLinks({ entries, onSelect, empty }: { entries: TopologyEntry[]; onSelect: (path: string) => void; empty: string }) {
+  return entries.length ? <div className={styles.links}>{entries.map(entry => <button type="button" key={entry.path} onClick={() => onSelect(entry.path)}>{entry.node.name || entry.node.nodeId}</button>)}</div> : <span className={styles.muted}>{empty}</span>;
 }
 
 export default function AgentTopologyPage() {
-  const params = useParams<{ agentId: string }>();
+  const { agentId } = useParams<{ agentId: string }>();
   const router = useRouter();
-  const [authenticated, setAuthenticated] = useState(false);
   const [topology, setTopology] = useState<AgentTopology | null>(null);
+  const [selectedPath, setSelectedPath] = useState("0");
+  const [popup, setPopup] = useState<{ path: string; anchor: HTMLElement } | null>(null);
+  const closePopup = useCallback(() => setPopup(null), []);
   const [error, setError] = useState("");
-
-  const agentId = decodeURIComponent(params.agentId);
-  const legend = useMemo(() => (topology ? collectTopologyLegend(topology.root) : []), [topology]);
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState("");
+  const entries = useMemo(() => topology ? flattenTopology(topology.root) : [], [topology]);
+  const selected = entries.find(entry => entry.path === selectedPath) ?? entries[0];
+  const current = topology?.agent.agentId === agentId ? topology : null;
 
   useEffect(() => {
-    getCurrentUser()
-      .then(async () => {
-        setAuthenticated(true);
-        setTopology(await getAgentTopology(agentId));
-      })
-      .catch((loadError) => {
-        if (loadError instanceof Error && loadError.message !== "Unauthorized") {
-          setError(loadError.message);
-          setAuthenticated(true);
-          return;
-        }
+    const controller = new AbortController();
+    let active = true;
+    void getCurrentUser().then(() => getAgentTopology(agentId, controller.signal)).then(data => {
+      if (!active) return;
+      setTopology(data);
+      setError("");
+      setFetchedAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+    }).catch(failure => {
+      if (!active) return;
+      if ((failure instanceof ApiError && failure.code === 40100) || (failure instanceof Error && failure.message === "Unauthorized")) {
         savePostLoginRedirect(`/me/agents/${encodeURIComponent(agentId)}`);
         router.replace("/auth/login");
-      });
-  }, [agentId, router]);
+      } else setError(failure instanceof Error ? failure.message : "编排信息加载失败");
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [agentId, router, refresh]);
 
-  if (!authenticated) {
-    return <main className="workspace-page" />;
+  function reload() { setLoading(true); setError(""); setRefresh(value => value + 1); }
+  function select(path: string) {
+    setSelectedPath(path);
+    document.getElementById("node-detail")?.scrollIntoView({ block: "nearest", behavior: "instant" });
   }
 
-  return (
-    <main className="workspace-page text-slate-900">
-      <section className="workspace-container space-y-4">
-        <header className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
-          <Link className="text-sm font-medium text-emerald-700" href="/me/agents">
-            返回 Agent 管理
-          </Link>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold">{topology?.agent.displayName ?? "Agent 编排"}</h1>
-              {topology?.agent.summary ? (
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{topology.agent.summary}</p>
-              ) : null}
-            </div>
-            {topology ? (
-              <Link
-                className="inline-flex h-9 items-center justify-center rounded-md bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
-                href={agentChatHref(topology.agent.agentId)}
-              >
-                开始问答
-              </Link>
-            ) : null}
-          </div>
-        </header>
+  const popupEntry = popup ? entries.find(entry => entry.path === popup.path) : undefined;
 
-        {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
-
-        {topology ? (
-          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-lg font-semibold">System Topology</h2>
-              <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {legend.map((item) => (
-                  <div key={item.topology} className="flex items-center gap-1.5 text-xs text-slate-600">
-                    <span className={`h-2.5 w-2.5 rounded-[3px] ${toneClass(item.tone).dot}`} />
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto px-2 pb-5 pt-2 sm:px-4">
-              <div className="inline-block min-w-full text-center">
-                <ul className="inline-flex justify-center">
-                  <TopologyNodeView node={topology.root} />
-                </ul>
-              </div>
-            </div>
+  return <main className={`workspace-page resource-page ${styles.page}`}>
+    <section className="workspace-container space-y-5">
+      <header>
+        <Link href="/me/agents" className={styles.back}>← 智能体管理</Link>
+        <div className={styles.heading}>
+          <div><h1>{current?.agent.displayName ?? "智能体编排"}</h1><p className={styles.muted}>{current?.agent.summary || "查看智能体的执行结构与数据流。"}</p></div>
+          <div className={styles.actions}><button type="button" className="agui-button" disabled={loading} onClick={reload}>{loading ? "加载中…" : "刷新"}</button>{current?.agent.enabled ? <Link className="agui-button agui-button-primary" href={agentChatHref(current.agent.agentId)}>开始问答</Link> : null}</div>
+        </div>
+        {current ? <div className={styles.metadata}><code>{current.agent.agentId}</code><span>{current.agent.domain}</span><span>{current.agent.runtimeType}</span><span>{current.agent.enabled ? "已启用" : "未启用"}</span>{current.agent.tags.map(tag => <span key={tag}>{tag}</span>)}</div> : null}
+      </header>
+      {error ? <div role="alert" className={styles.error}><p>{error}</p><button type="button" className="agui-button" onClick={reload} disabled={loading}>重新加载</button></div> : null}
+      {!current && loading ? <p role="status" className={styles.muted}>正在获取编排信息…</p> : null}
+      {current && selected ? <>
+        <div className={styles.overview}><span>{entries.length} 个节点</span><span>{entries.filter(entry => entry.node.children.length > 0).length} 个编排节点</span><span>{current.stateKeys.length} 个状态键</span><span className={styles.fetched}>获取时间 {fetchedAt}</span></div>
+        <div className={styles.layout} aria-busy={loading}>
+          <section className={styles.panel} aria-label="编排结构"><AgentTopologyGraph root={current.root} selected={selected?.path ?? "0"} onSelect={setSelectedPath} openDetailPath={popup?.path ?? null} onDetails={(path, anchor) => { setSelectedPath(path); setPopup({ path, anchor }); }} /></section>
+          <section className={styles.panel} id="node-detail" aria-label="节点详情">
+            <AgentNodeDetails entry={selected} entries={entries} stateKeys={current.stateKeys} onSelect={select} />
           </section>
-        ) : !error ? (
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
-            正在加载拓扑...
-          </div>
-        ) : null}
-      </section>
-    </main>
-  );
+        </div>
+        <section className={styles.panel}><div className={styles.panelHeader}><div><h2>状态与数据流</h2><p className={styles.muted}>由后端声明的输入与输出键整理。条件分支不一定在每次运行时执行。</p></div></div><div className={styles.tableWrap}><table><thead><tr><th>状态键</th><th>类型</th><th>输出节点</th><th>输入节点</th></tr></thead><tbody>{current.stateKeys.map(key => { const usage = stateKeyUsage(entries, key.key); return <tr key={key.key}><td><code>{key.key}</code></td><td><code>{key.type || "未提供"}</code></td><td><EntryLinks entries={usage.producers} onSelect={select} empty="外部输入或上下文" /></td><td><EntryLinks entries={usage.consumers} onSelect={select} empty="无声明的读取节点" /></td></tr>; })}</tbody></table>{!current.stateKeys.length ? <p className={styles.empty}>未声明共享状态键</p> : null}</div></section>
+        <details className={`${styles.panel} ${styles.raw}`}><summary>接口原始数据 <span className={styles.muted}>GET /api/agents/{encodeURIComponent(agentId)}/topology</span></summary><pre>{JSON.stringify(current, null, 2)}</pre></details>
+      </> : null}
+    </section>
+    {current && popup && popupEntry && popup.anchor.isConnected ? <AgentNodePopover anchor={popup.anchor} entry={popupEntry} entries={entries} stateKeys={current.stateKeys}
+      onClose={closePopup} onSelect={path => { setSelectedPath(path); setPopup(previous => previous ? { ...previous, path } : null); }} /> : null}
+  </main>;
 }

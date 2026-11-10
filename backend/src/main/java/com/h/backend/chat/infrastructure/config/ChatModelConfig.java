@@ -150,6 +150,7 @@ public class ChatModelConfig {
     public HAssistant hAssistant(StreamingChatModel streamingChatModel,
                                  ObjectProvider<McpToolProvider> mcpToolProvider,
                                  com.h.backend.memory.infrastructure.langchain4j.MemoryToolProvider memoryToolProvider,
+                                 com.h.backend.knowledge.interfaces.tool.KnowledgeToolProvider knowledgeToolProvider,
                                  @org.springframework.beans.factory.annotation.Qualifier("chatToolExecutor")
                                  java.util.concurrent.ExecutorService chatToolExecutor,
                                  AgentObservability observability) {
@@ -162,6 +163,7 @@ public class ChatModelConfig {
                 filesystemTool, fileDeliveryTool, shellTool, webSearchTool, documentTool,
                 langChain4jAutomationTool)));
         toolProviders.add(new ObservingToolProvider(memoryToolProvider, observability, "langchain4j"));
+        toolProviders.add(new ObservingToolProvider(knowledgeToolProvider, observability, "langchain4j"));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
         toolProviders.add(new ObservingToolProvider(
@@ -177,7 +179,7 @@ public class ChatModelConfig {
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
                 .chatRequestTransformer(redisChatMemoryStore::withGenerationInstructions)
-                // standard-chat 的长期记忆仅由模型工具访问；知识库保留当前停用配置。
+                // standard-chat 的长期记忆仅由模型工具访问；知识库通过 knowledge_* 工具按需查询。
                 // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> {
                     String[] parts = memoryId.toString().split(":", 3);
@@ -187,6 +189,7 @@ public class ChatModelConfig {
                     String systemMessage = systemPromptService.getSystemPrompt(userId, promptId)
                             + "\n\n" + com.h.backend.document.domain.DocumentInstructions.SYSTEM;
                     systemMessage += "\n\n" + com.h.backend.memory.application.MemoryToolContract.INSTRUCTIONS;
+                    systemMessage += "\n\n" + com.h.backend.knowledge.application.KnowledgeToolContract.INSTRUCTIONS;
                     String skillsSection = skillRuntimeService.skillsSystemMessage(memoryId.toString());
                     if (skillsSection == null) {
                         return systemMessage;

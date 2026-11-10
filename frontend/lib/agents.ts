@@ -37,6 +37,9 @@ export type AgentTopologyNode = {
   loop: AgentTopologyLoop | null;
   decisionRouter: AgentTopologyDecisionRouter | null;
   children: AgentTopologyNode[];
+  inputArguments?: Array<{ name: string; type: string | null }>;
+  implementationClass?: string | null;
+  plannerClass?: string | null;
 };
 
 export type AgentTopology = {
@@ -49,6 +52,6 @@ export function listAgents() {
   return apiFetch<AgentSummary[]>("/api/agents");
 }
 
-export function getAgentTopology(agentId: string) {
-  return apiFetch<AgentTopology>(`/api/agents/${encodeURIComponent(agentId)}/topology`);
+export function getAgentTopology(agentId: string, signal?: AbortSignal) {
+  return apiFetch<AgentTopology>(`/api/agents/${encodeURIComponent(agentId)}/topology`, { cache: "no-store", signal });
 }

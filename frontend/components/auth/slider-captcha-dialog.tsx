@@ -14,6 +14,7 @@ import {
 } from "@/lib/captcha";
 import type { CaptchaPurpose } from "@/lib/captcha";
 import type { TacInstance, TacStyle } from "@/types/tianai-captcha";
+import styles from "./auth-form.module.css";
 
 export type SliderCaptchaDialogProps = {
   open: boolean;
@@ -148,31 +149,31 @@ function SliderCaptchaDialogActive({ purpose, email, onVerified, onCancel, retry
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-900/45 px-2 py-6"
+      className={styles.overlay}
       role="dialog"
       aria-modal="true"
       aria-label="滑块安全验证"
     >
-      <div className="w-full max-w-[352px] rounded-[1.5rem] border border-stone-200 bg-white p-3 shadow-[0_24px_60px_rgba(76,59,36,0.25)]">
-        <div className="mb-2 flex items-baseline justify-between px-1">
-          <h2 className="text-base font-semibold text-stone-900">安全验证</h2>
-          <span className="text-xs text-stone-400">拖动滑块完成拼图</span>
+      <div className={styles.dialog}>
+        <div className={styles.dialogHeader}>
+          <div><h2>安全验证</h2><p>拖动滑块完成拼图</p></div>
+          <button className={styles.close} type="button" aria-label="关闭安全验证" onClick={onCancel}>×</button>
         </div>
 
-        <div className="relative flex min-h-[318px] justify-center">
+        <div className={`${styles.challenge} ${loadError ? styles.challengeFailed : ""}`}>
           {phase === "loading" && !loadError ? (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-stone-400">
+            <div className={styles.loading}>
               正在加载验证码...
             </div>
           ) : null}
-          <div id={bindElId} ref={bindElRef} className="h-slider-captcha-widget flex justify-center" />
+          <div id={bindElId} ref={bindElRef} className={`h-slider-captcha-widget flex justify-center ${styles.widget}`} />
         </div>
 
         {loadError ? (
-          <div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-red-50 px-3 py-2.5">
-            <p className="text-xs leading-5 text-red-700">{loadError}</p>
+          <div className={styles.captchaError} role="alert">
+            <p>{loadError}</p>
             <button
-              className="shrink-0 rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-red-700"
+              className={styles.retry}
               type="button"
               onClick={retry}
             >

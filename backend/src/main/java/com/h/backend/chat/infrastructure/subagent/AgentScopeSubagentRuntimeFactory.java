@@ -205,6 +205,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
                 .compaction(io.agentscope.harness.agent.memory.compaction.CompactionConfig.builder()
                         .flushBeforeCompact(false).offloadBeforeCompact(true).build())
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.ConversationLogMiddleware())
+                .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
                 .disableSessionPersistence()
                 // 与 SDK 声明式 child 一致：继承父显式 middleware（委托合并 + 生命周期投影）。
                 .middleware(assignmentMiddleware)

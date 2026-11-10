@@ -36,6 +36,7 @@ function attachUserReferences(messages: Message[]): Message[] {
   const users = new Set(messages.filter((message) => message.role === "user").map((message) => message.id));
   const references = new Map<string, Map<string, ChatMessageResource>>();
   const cards = new Map<string, ActivityMessage | null>();
+  const previewGroups = new Map<string, ChatMessageResource[]>();
   for (const message of messages) {
     if (message.role !== "activity" || message.activityType !== "h-agent.resource") continue;
     const source = message.content.message as ChatSessionMessage | undefined;
@@ -45,9 +46,10 @@ function attachUserReferences(messages: Message[]): Message[] {
     const selected = references.get(source.id) ?? new Map<string, ChatMessageResource>();
     images.forEach((image) => selected.set(image.id, image));
     references.set(source.id, selected);
+    previewGroups.set(source.id, source.resources ?? []);
     const remaining = source.resources?.filter((resource) => !selected.has(resource.id)) ?? [];
     cards.set(message.id, remaining.length || source.payload ? {
-      ...message, content: { ...message.content, message: { ...source, resources: remaining } },
+      ...message, content: { ...message.content, message: { ...source, resources: remaining }, previewResources: source.resources },
     } : null);
   }
   return messages.flatMap((message): Message[] => {
@@ -56,7 +58,7 @@ function attachUserReferences(messages: Message[]): Message[] {
     const text = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
     return [{ ...message, content: [...text, ...[...references.get(message.id)!.values()].map((resource) => ({
       type: (resource.mimeType.startsWith("video/") ? "video" : resource.mimeType.startsWith("audio/") ? "audio" : "image") as "image" | "video" | "audio", source: { type: "url" as const, value: resource.viewUrl, mimeType: resource.mimeType },
-      metadata: { hAgentReference: true, resourceId: resource.id, filename: resource.fileName },
+      metadata: { hAgentReference: true, resourceId: resource.id, filename: resource.fileName, resource, previewResources: previewGroups.get(message.id) },
     }))] }];
   });
 }

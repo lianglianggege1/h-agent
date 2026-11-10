@@ -43,7 +43,7 @@
 .thread [class~="cpk:prose"] {
   font-family: var(--font-sans);
   font-size: 0.875rem;
-  line-height: 1.65;
+  line-height: 1.72;
 }
 
 .thread [data-testid="copilot-user-message"] {
@@ -56,7 +56,7 @@
 }
 
 .thread [class~="cpk:prose"] :where(p, ul, ol, blockquote, pre, table) {
-  margin-block: 0.6em;
+  margin-block: 0.85em;
 }
 
 /* Streamdown adds block spacing alongside the SDK's prose styles. */
@@ -65,7 +65,7 @@
 }
 
 .thread [class~="cpk:prose"] :where(li) {
-  margin-block: 0.2em;
+  margin-block: 0.35em;
 }
 
 .thread [class~="cpk:prose"] :where(li > p) {
@@ -81,6 +81,11 @@
 .thread [class~="cpk:prose"] :where(h1) { font-size: 1.125rem; }
 .thread [class~="cpk:prose"] :where(h2) { font-size: 1rem; }
 .thread [class~="cpk:prose"] :where(h3, h4, h5, h6) { font-size: 0.875rem; }
+.thread [class~="cpk:prose"] :where(h1, h2, h3, h4, h5, h6) { margin-block: 1.45em 0.55em; letter-spacing: -0.015em; }
+.thread [class~="cpk:prose"] :where(table) { width: 100%; border-collapse: collapse; font-size: 0.8125rem; line-height: 1.55; }
+.thread [class~="cpk:prose"] :where(th, td) { padding: 9px 12px; text-align: left; vertical-align: top; }
+.thread [class~="cpk:prose"] :where(blockquote) { border-left-width: 2px; padding-left: 14px; }
+.thread [class~="cpk:prose"] :where(a) { text-decoration-thickness: 1px; text-underline-offset: 3px; }
 
 .thread [class~="cpk:prose"] :where(code) {
   font-size: 0.9em;
@@ -108,3 +113,69 @@
 @media (min-width: 768px) {
   .thread [class~="cpk:max-w-3xl"] { max-width: calc(100% - 48px); }
 }
+
+/* Chat materials follow the reference project's calm, low-contrast surfaces,
+   with a clear foreground hierarchy in both appearance modes. */
+:global(.theme-dark) .thread {
+  --chat-bg: #171815;
+  --chat-surface: #22231f;
+  --chat-raised: #30312b;
+  --chat-rule: #41423b;
+  --chat-text: #e8e5dd;
+  --chat-muted: #aaa69b;
+  --chat-link: #d99a79;
+}
+:global(.theme-dark) .thread [data-copilotkit] {
+  --background: var(--chat-bg);
+  --foreground: var(--chat-text);
+  --primary: #b95f43;
+  --primary-foreground: #fffaf3;
+  --card: var(--chat-surface);
+  --card-foreground: var(--chat-text);
+  --popover: var(--chat-surface);
+  --popover-foreground: var(--chat-text);
+  --secondary: var(--chat-raised);
+  --secondary-foreground: var(--chat-text);
+  --muted: var(--chat-raised);
+  --muted-foreground: var(--chat-muted);
+  --accent: var(--chat-raised);
+  --accent-foreground: var(--chat-text);
+  --border: var(--chat-rule);
+  --input: var(--chat-rule);
+  --ring: var(--chat-link);
+  background: var(--chat-bg);
+  color: var(--chat-text);
+}
+:global(.theme-dark) .thread [data-testid="copilot-chat"],
+:global(.theme-dark) .thread [data-testid="copilot-message-list"] { background: var(--chat-bg) !important; color: var(--chat-text); }
+:global(.theme-dark) .thread [data-testid="copilot-chat-input"] { background: var(--chat-surface); border-color: var(--chat-rule); box-shadow: 0 1px 2px #0003; }
+:global(.theme-dark) .thread [data-testid="copilot-chat-input"] textarea { color: var(--chat-text) !important; }
+:global(.theme-dark) .thread [data-testid="copilot-chat-input"] textarea::placeholder { color: var(--chat-muted) !important; opacity: 1; }
+:global(.theme-dark) .thread [data-testid="copilot-user-message"] > [class~="cpk:prose"] { color: var(--chat-text) !important; background: var(--chat-raised) !important; }
+:global(.theme-dark) .thread [class~="cpk:prose"] { color: var(--chat-text); }
+:global(.theme-dark) .thread [class~="cpk:prose"] a,
+:global(.theme-dark) .thread [class~="cpk:prose"] .text-amber-700 { color: var(--chat-link) !important; }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(h1, h2, h3, h4, h5, h6, th) { color: #f1eee7; }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(table) { color: var(--chat-text); background: var(--chat-surface); }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(th) { background: var(--chat-raised) !important; }
+:global(.theme-dark) .thread [data-streamdown="table-header"] { background: var(--chat-raised); }
+:global(.theme-dark) .thread [data-streamdown="table-wrapper"] { border-color: var(--chat-rule); }
+:global(.theme-dark) .thread [data-streamdown="code-block-body"] { background: #20211d !important; color: var(--chat-text); }
+:global(.theme-dark) .thread [data-streamdown="code-block-body"] [style*="--shiki-dark"] { color: var(--shiki-dark) !important; background: transparent !important; }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(blockquote) { color: var(--chat-muted); border-color: #68695f; }
+:global(.theme-dark) .thread [class~="cpk:prose"] li::marker { color: var(--chat-muted); }
+:global(.theme-dark) .thread [data-testid="copilot-scroll-to-bottom"] { background: var(--chat-surface); border-color: var(--chat-rule); color: var(--chat-text); }
+:global(.theme-dark) .thread [data-testid="copilot-scroll-to-bottom"] svg { color: inherit; }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(td) { background: var(--chat-surface); }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(thead, tr, th, td) { border-color: var(--chat-rule) !important; }
+:global(.theme-dark) .thread [class~="cpk:prose"] :where(code:not(pre code)) { color: #eee9df; background: var(--chat-raised); }
+:global(.theme-dark) .thread .primaryButton { background: #b95f43; color: #fffaf3; opacity: 1; }
+:global(.theme-dark) .thread .primaryButton:hover:not(:disabled) { background: #cf7656; }
+:global(.theme-dark) .thread .primaryButton:disabled { background: #714b3f; color: #e8d4ca; opacity: 1; }
+:global(.theme-dark) .thread .threadToolbar { color: var(--chat-muted); }
+:global(.theme-dark) .thread .addButton { background: var(--chat-raised); color: var(--chat-text); }
+:global(.theme-dark) .thread .threadMenu summary:hover,
+:global(.theme-dark) .thread .addButton:hover:not(:disabled) { background: #3a3b34; color: #f1eee7; }
+:global(.theme-dark) .thread .menuItems { background: var(--chat-surface); border-color: var(--chat-rule); }
+:global(.theme-dark) .thread .menuItems button { color: var(--chat-text); }
+:global(.theme-dark) .thread .menuItems button:hover { background: var(--chat-raised); }

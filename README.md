@@ -11,7 +11,7 @@ The project combines a Next.js interface with a Spring Boot agent platform. It s
 ## Highlights
 
 - Streaming conversations with persistent sessions, Markdown rendering, and attachments.
-- Standard assistants with private System Prompts and per-prompt RAG knowledge bases.
+- Private System Prompts and a user-owned knowledge library queried and maintained through explicit Agent tools.
 - Domain-agent catalog, topology views, and built-in specialist/workflow agents.
 - Harness collaboration with dynamic subagents, progress events, human approval, workspace files, and Skills.
 - Redis-backed short-term chat context plus Mem0-backed long-term memory for enabled LangChain4j agents.
@@ -62,7 +62,7 @@ This tour was checked against the local pages on 2026-11-02. The interface uses 
 | Workspace | Automations (`自动化任务`) | `/automations` | Schedule work in an existing session |
 | Workspace | Outbound tasks (`外呼任务`) | `/outbound` | Manage authorized test extensions and call progress |
 | Resources | Prompts (`提示词`) | `/me/system-prompts` | Edit private System Prompts and choose a default |
-| Resources | Knowledge (`知识库`) | `/me/knowledge` | Maintain a separate knowledge base for each prompt |
+| Resources | Knowledge (`知识库`) | `/me/knowledge` | Manage user-owned documents and Agent-authored knowledge |
 | Resources | Skills (`技能`) | `/me/skills` | Create Skills and manage proposals and releases |
 | Resources | Long-term memory (`长期记忆`) | `/me/memory` | Read and edit Harness `MEMORY.md` |
 | Account | Personal settings (`个人设置`) | `/me` | View the account, access workspace settings, sign out |
@@ -106,7 +106,9 @@ Select **Prompts (`提示词`)** in the sidebar to select or create a System Pro
 
 ![Prompt management](docs/images/demo-03-system-prompts.jpg)
 
-Select **Knowledge (`知识库`)**, choose a prompt, and upload a file or enter text manually. Supported formats include `md`, `txt`, `doc`, `docx`, `xls`, and `xlsx`. Each prompt owns an independent knowledge base; retrieval follows the prompt selected for the conversation.
+Select **Knowledge (`知识库`)** to upload files or enter text. Supported formats include `md`, `txt`, `doc`, `docx`, `xls`, and `xlsx`. Knowledge belongs only to the authenticated user and is independent of prompts. HAssistant, ordinary Harness and permitted collaborators explicitly call directory, search and chunk-reading tools when needed; no knowledge retrieval runs automatically before each request.
+
+Agents may save reusable knowledge with `knowledge_save` and revise any Agent-authored entry owned by the current user with `knowledge_update`. Versions and provenance are retained. Uploaded and manually entered documents are not editable by model tools, and there is no model delete tool. History is available through `knowledge_history` and `knowledge_read`; uncertain writes can be inspected with `knowledge_operation`. Tools return real sources; the model decides whether to show citations.
 
 ![Knowledge management](docs/images/demo-03-knowledge.jpg)
 
@@ -140,7 +142,7 @@ Only configured test extensions are allowed, with one active call globally. Task
 #### General Assistant — `standard-chat`
 
 - **Best for:** everyday Q&A, summarization, writing, knowledge-base Q&A, and tasks that need a custom persona or instruction set.
-- **How it works:** streams the response token by token; combines the selected System Prompt, its private RAG knowledge base, Redis-backed conversation context, and enabled long-term memory.
+- **How it works:** streams the response token by token; uses the selected System Prompt and Redis conversation context, with model-directed memory and knowledge tools.
 - **Special UI:** only this mode shows the System Prompt selector and direct **Knowledge Base** / **Manage** links.
 - **Example:** `Summarize our refund rules from the current knowledge base and list the supporting points.`
 

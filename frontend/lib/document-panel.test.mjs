@@ -50,11 +50,11 @@ test("document synchronization stays invisible and only Jev low scores show manu
       },
     },
   ).outputText;
-  const module = { exports: {} };
+  const componentModule = { exports: {} };
   new Function("require", "module", "exports", code)(
-    (id) => (id === "@/lib/documents" ? api : require(id)),
-    module,
-    module.exports,
+    (id) => (id === "./file-preview" ? { useFilePreview: () => null } : id === "@/lib/documents" ? api : require(id)),
+    componentModule,
+    componentModule.exports,
   );
   const root = createRoot(document.getElementById("root"));
   const updates = [];
@@ -64,7 +64,7 @@ test("document synchronization stays invisible and only Jev low scores show manu
   try {
     await React.act(async () => {
       root.render(
-        React.createElement(module.exports.DocumentTaskSync, {
+        React.createElement(componentModule.exports.DocumentTaskSync, {
           session: "empty",
           chatRunning: false,
           onUpdated,
@@ -83,7 +83,7 @@ test("document synchronization stays invisible and only Jev low scores show manu
     ];
     await React.act(async () => {
       root.render(
-        React.createElement(module.exports.DocumentTaskSync, {
+        React.createElement(componentModule.exports.DocumentTaskSync, {
           session: "with-file",
           chatRunning: false,
           onUpdated,
@@ -107,7 +107,7 @@ test("document synchronization stays invisible and only Jev low scores show manu
     tasks[0].sessionId = "with-file";
     await React.act(async () =>
       root.render(
-        React.createElement(module.exports.DocumentTaskCard, {
+        React.createElement(componentModule.exports.DocumentTaskCard, {
           content: { task: tasks[0] },
         }),
       ),
@@ -130,7 +130,7 @@ test("document synchronization stays invisible and only Jev low scores show manu
     ]) {
       await React.act(async () =>
         root.render(
-          React.createElement(module.exports.DocumentTaskCard, {
+          React.createElement(componentModule.exports.DocumentTaskCard, {
             content: { task: { ...tasks[0], status } },
           }),
         ),

@@ -8,7 +8,10 @@
     "package": "npm run build && node scripts/package-standalone.mjs",
     "start": "node dist/start",
     "lint": "eslint",
-    "test": "node --test lib/*.test.mjs"
+    "test": "node --test lib/*.test.mjs",
+    "postinstall": "node scripts/prepare-preview-assets.mjs",
+    "predev": "node scripts/prepare-preview-assets.mjs",
+    "prebuild": "node scripts/prepare-preview-assets.mjs"
   },
   "engines": {
     "node": ">=22.15.0"
@@ -18,8 +21,12 @@
     "@ag-ui/core": "1.0.2",
     "@copilotkit/react-core": "1.79.1",
     "@copilotkit/runtime": "1.79.1",
+    "dompurify": "^3.4.17",
+    "highlight.js": "^11.12.0",
     "livekit-client": "2.22.3",
+    "mammoth": "^1.13.0",
     "next": "16.2.6",
+    "pdfjs-dist": "^6.5.438",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",

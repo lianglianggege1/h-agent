@@ -29,7 +29,7 @@ test("inline editing supports cancel, multiline and IME without accidental resub
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const component = { exports: {} };
-  new Function("require", "module", "exports", code)((id) => id.endsWith(".module.css") ? {}
+  new Function("require", "module", "exports", code)((id) => id === "./file-preview" ? { useFilePreview: () => null } : id.endsWith(".module.css") ? {}
     : id === "@copilotkit/react-core/v2" ? { CopilotChatUserMessage: UserMessage } : require(id), component, component.exports);
   const writes = [];
   const root = createRoot(dom.window.document.getElementById("root"));

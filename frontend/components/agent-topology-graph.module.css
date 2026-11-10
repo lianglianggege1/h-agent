@@ -1,0 +1,40 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--resource-border); }
+.toolbar h2 { font-size: 14px; font-weight: 600; }
+.toolbar p { margin-top: 5px; font-size: 12px; line-height: 1.7; color: var(--resource-muted); }
+.controls { display: flex; gap: 4px; align-items: center; }
+.controls button { padding: 5px 9px; min-height: 30px; border: 1px solid var(--resource-border); border-radius: 5px; font-size: 12px; color: var(--resource-text); }
+.controls button:hover:not(:disabled) { background: var(--resource-inset); }
+.controls button:disabled { opacity: .4; }
+.viewport { overflow: auto; max-height: 720px; min-height: 256px; background: var(--resource-bg); scrollbar-width: thin; scrollbar-color: var(--resource-muted) transparent; }
+.viewport:focus-visible { outline: 2px solid var(--resource-muted); outline-offset: -3px; }
+.surface { --graph-line: color-mix(in srgb, var(--resource-muted) 50%, var(--resource-bg)); position: relative; min-height: 256px; margin: 0; overflow: hidden; }
+.tree { position: absolute; top: 32px; left: 50%; display: inline-flex; width: max-content; list-style: none; padding: 0; margin: 0; transform-origin: top center; }
+.branch { position: relative; display: flex; flex-direction: column; align-items: center; padding: 28px 12px 0; }
+.branch::before, .branch::after { content: ""; position: absolute; top: 0; width: 50%; height: 28px; border-top: 1px solid var(--graph-line); }
+.branch::before { right: 50%; }
+.branch::after { left: 50%; border-left: 1px solid var(--graph-line); }
+.branch:first-child::before, .branch:last-child::after { border-top: 0; }
+.branch:only-child::before { display: none; }
+.branch:only-child::after { border-top: 0; }
+.tree > .branch { padding-top: 0; }
+.tree > .branch::before, .tree > .branch::after { display: none; }
+.children { position: relative; display: flex; justify-content: center; list-style: none; margin: 0; padding: 28px 0 0; }
+.children::before { content: ""; position: absolute; top: 0; left: 50%; height: 28px; border-left: 1px solid var(--graph-line); }
+.card { position: relative; z-index: 1; display: flex; flex-direction: column; flex-shrink: 0; width: 232px; height: 166px; padding: 12px 16px; text-align: left; background: var(--resource-surface); color: var(--resource-text); border: 1px solid var(--resource-border); border-radius: 8px; }
+.card:hover { border-color: var(--resource-muted); }
+.cardMain { display: block; width: 100%; text-align: left; border-radius: 4px; }
+.cardFooter { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 5px; border-top: 1px solid var(--resource-border); }
+.detailsButton { flex-shrink: 0; padding: 3px 5px; border-radius: 4px; font-size: 11px; line-height: 1.5; color: var(--resource-text); }
+.detailsButton:hover, .detailsButton[aria-expanded="true"] { background: var(--resource-inset); }
+.selected { border-color: var(--resource-action); box-shadow: 0 0 0 1px var(--resource-action); }
+.cardHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 9px; }
+.badge { padding: 2px 6px; border-radius: 4px; background: var(--resource-inset); font-size: 10px; line-height: 1.5; color: var(--resource-muted); }
+.position { font-size: 10px; color: var(--resource-muted); font-variant-numeric: tabular-nums; }
+.card strong { display: block; font-size: 13px; font-weight: 600; line-height: 1.6; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 4px 0 6px; min-height: 16px; font-size: 11px; line-height: 16px; color: var(--resource-muted); }
+.io { display: flex; gap: 10px; font-size: 10px; line-height: 17px; }
+.io > span { flex-shrink: 0; color: var(--resource-muted); }
+.io code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.execution { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 1.5; color: var(--resource-muted); }
+.caption { padding: 12px 20px; border-top: 1px solid var(--resource-border); color: var(--resource-muted); font-size: 11px; line-height: 1.7; }
+@media (max-width: 600px) { .toolbar { padding: 16px; } .viewport { max-height: 560px; } .controls { flex-wrap: wrap; } }

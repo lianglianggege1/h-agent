@@ -20,7 +20,7 @@ const {
   uploadKnowledgeDocument,
 } = await import("./knowledge.ts");
 
-test("listKnowledgeDocuments calls prompt-scoped endpoint", async () => {
+test("listKnowledgeDocuments calls user-scoped endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let capturedPath;
 
@@ -30,15 +30,15 @@ test("listKnowledgeDocuments calls prompt-scoped endpoint", async () => {
   };
 
   try {
-    const result = await listKnowledgeDocuments(12);
+    const result = await listKnowledgeDocuments();
     assert.deepEqual(result, []);
-    assert.equal(capturedPath, "/api/knowledge/documents?promptId=12");
+    assert.equal(capturedPath, "/api/knowledge/documents");
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("uploadKnowledgeDocument posts multipart file and promptId", async () => {
+test("uploadKnowledgeDocument posts only the multipart file", async () => {
   const originalFetch = globalThis.fetch;
   const file = new File(["hello"], "note.txt", { type: "text/plain" });
   let capturedPath;
@@ -51,12 +51,12 @@ test("uploadKnowledgeDocument posts multipart file and promptId", async () => {
   };
 
   try {
-    const result = await uploadKnowledgeDocument(8, file);
+    const result = await uploadKnowledgeDocument(file);
     const body = capturedInit.body;
     assert.equal(result, 99);
     assert.equal(capturedPath, "/api/knowledge/documents/upload");
     assert.equal(capturedInit.method, "POST");
-    assert.equal(body.get("promptId"), "8");
+    assert.equal(body.has("promptId"), false);
     assert.equal(body.get("file"), file);
   } finally {
     globalThis.fetch = originalFetch;
@@ -75,7 +75,7 @@ test("createManualKnowledge posts JSON payload", async () => {
   };
 
   try {
-    const payload = { promptId: 3, title: "FAQ", content: "常见问题" };
+    const payload = { title: "FAQ", content: "常见问题" };
     const result = await createManualKnowledge(payload);
     assert.equal(result, 100);
     assert.equal(capturedPath, "/api/knowledge/documents/manual");

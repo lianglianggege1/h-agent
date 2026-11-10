@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import {
   KnowledgeDocument,
@@ -14,7 +14,6 @@ import {
   uploadKnowledgeDocument,
 } from "@/lib/knowledge";
 import { savePostLoginRedirect } from "@/lib/session";
-import { SystemPrompt, listSystemPrompts } from "@/lib/system-prompts";
 
 function formatFileSize(value: number | null) {
   if (!value) return "未知大小";
@@ -39,31 +38,23 @@ function getStatusLabel(status: string) {
 function getSourceTypeLabel(sourceType: string) {
   if (sourceType === "MANUAL") return "手动录入";
   if (sourceType === "FILE") return "文件上传";
+  if (sourceType === "AGENT") return "Agent 沉淀";
   return sourceType;
 }
 
 function getStatusClassName(status: string) {
-  if (status === "COMPLETED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "COMPLETED") return "border-stone-200 bg-stone-50 text-stone-600";
   if (status === "FAILED") return "border-red-200 bg-red-50 text-red-600";
-  if (status === "PROCESSING") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "PROCESSING") return "border-stone-200 bg-stone-50 text-stone-600";
   return "border-stone-200 bg-white text-stone-600";
 }
 
-function getPromptIdFromSearch(search: string, promptList: SystemPrompt[]) {
-  const promptIdFromUrl = Number(new URLSearchParams(search).get("promptId"));
-  if (!Number.isFinite(promptIdFromUrl)) return null;
-  return promptList.find((prompt) => prompt.id === promptIdFromUrl)?.id ?? null;
-}
-
-function getPreferredPromptId(promptList: SystemPrompt[], search: string) {
-  const promptIdFromUrl = getPromptIdFromSearch(search, promptList);
-  if (promptIdFromUrl) return promptIdFromUrl;
-  const defaultPrompt = promptList.find((prompt) => prompt.isDefault) ?? promptList[0] ?? null;
-  return defaultPrompt?.id ?? null;
-}
-
-function buildKnowledgeUrl(promptId: number | null) {
-  return promptId ? `/me/knowledge?promptId=${promptId}` : "/me/knowledge";
+function segmentLabel(segment: KnowledgeSegment, position: number) {
+  try {
+    const index = String(JSON.parse(segment.metadata).index ?? "");
+    if (/^\d{1,9}$/.test(index)) return `片段 ${Number(index) + 1}`;
+  } catch { /* Older documents may not contain an original ordering index. */ }
+  return `展示片段 ${position + 1}（原顺序不可用）`;
 }
 
 const segmentPageSize = 20;
@@ -71,10 +62,8 @@ const segmentPageSize = 20;
 export default function KnowledgePage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
-  const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
-  const [selectedPromptId, setSelectedPromptId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
-  const [promptsLoading, setPromptsLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -94,17 +83,11 @@ export default function KnowledgePage() {
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
   const segmentsRequestIdRef = useRef(0);
-  const selectedPromptIdRef = useRef<number | null>(null);
   const segmentsOpenDocIdRef = useRef<number | null>(null);
   const segmentsLoadingRef = useRef(false);
   const segmentsOffsetRef = useRef(0);
 
-  const selectedPrompt = useMemo(
-    () => prompts.find((prompt) => prompt.id === selectedPromptId) ?? null,
-    [prompts, selectedPromptId],
-  );
-
-  const refreshDocuments = useCallback(async (promptId: number) => {
+  const refreshDocuments = useCallback(async () => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
 
@@ -113,7 +96,7 @@ export default function KnowledgePage() {
     setError("");
 
     try {
-      const nextDocuments = await listKnowledgeDocuments(promptId);
+      const nextDocuments = await listKnowledgeDocuments();
       if (!mountedRef.current || requestIdRef.current !== requestId) return;
       setDocuments(nextDocuments);
       setError("");
@@ -205,235 +188,93 @@ export default function KnowledgePage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    const redirectPath = `/me/knowledge${window.location.search}`;
-
     getCurrentUser()
       .then(async () => {
-        const list = await listSystemPrompts();
         if (!mountedRef.current) return;
-
-        const nextPromptId = getPreferredPromptId(list, window.location.search);
-
         setAuthenticated(true);
-        setPrompts(list);
-        setSelectedPromptId(nextPromptId);
-        selectedPromptIdRef.current = nextPromptId;
-        setDocuments([]);
-        setError("");
-        window.history.replaceState(null, "", buildKnowledgeUrl(nextPromptId));
-
-        if (nextPromptId) {
-          await refreshDocuments(nextPromptId);
-        }
+        // Old prompt-scoped links now open the same user-owned knowledge library.
+        window.history.replaceState(null, "", "/me/knowledge");
+        await refreshDocuments();
       })
       .catch(() => {
         if (!mountedRef.current) return;
-        savePostLoginRedirect(redirectPath);
+        savePostLoginRedirect("/me/knowledge");
         router.replace("/auth/login");
       })
-      .finally(() => {
-        if (mountedRef.current) {
-          setPromptsLoading(false);
-        }
-      });
-
-    return () => {
-      mountedRef.current = false;
-    };
+      .finally(() => { if (mountedRef.current) setInitialLoading(false); });
+    return () => { mountedRef.current = false; };
   }, [refreshDocuments, router]);
-
-  useEffect(() => {
-    selectedPromptIdRef.current = selectedPromptId;
-  }, [selectedPromptId]);
-
-  useEffect(() => {
-    if (!authenticated || prompts.length === 0) return;
-
-    function handlePopState() {
-      const nextPromptId = getPreferredPromptId(prompts, window.location.search);
-      if (window.location.pathname === "/me/knowledge") {
-        window.history.replaceState(null, "", buildKnowledgeUrl(nextPromptId));
-      }
-      if (nextPromptId === selectedPromptIdRef.current) return;
-
-      setSelectedPromptId(nextPromptId);
-      selectedPromptIdRef.current = nextPromptId;
-      closeSegments();
-      setDocuments([]);
-      setError("");
-
-      if (nextPromptId) {
-        void refreshDocuments(nextPromptId);
-      } else {
-        requestIdRef.current += 1;
-        setDocumentsLoading(false);
-      }
-    }
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [authenticated, prompts, refreshDocuments, closeSegments]);
-
-  function handleSelectPrompt(promptId: number) {
-    if (promptId === selectedPromptId) return;
-    setSelectedPromptId(promptId);
-    selectedPromptIdRef.current = promptId;
-    closeSegments();
-    setDocuments([]);
-    setError("");
-    setMessage("");
-    window.history.pushState(null, "", buildKnowledgeUrl(promptId));
-    void refreshDocuments(promptId);
-  }
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedPromptId || !selectedFile || uploading) return;
+    if (!selectedFile || uploading) return;
     const form = event.currentTarget;
-    const promptIdAtSubmit = selectedPromptId;
-
-    setUploading(true);
-    setError("");
-    setMessage("");
+    setUploading(true); setError(""); setMessage("");
     try {
-      await uploadKnowledgeDocument(promptIdAtSubmit, selectedFile);
+      await uploadKnowledgeDocument(selectedFile);
       if (!mountedRef.current) return;
-      if (selectedPromptIdRef.current === promptIdAtSubmit) {
-        form.reset();
-        setSelectedFile(null);
-        setMessage("文件已入库");
-        await refreshDocuments(promptIdAtSubmit);
-      }
-    } catch (uploadError) {
-      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
-      setError(uploadError instanceof Error ? uploadError.message : "上传失败");
-    } finally {
-      if (mountedRef.current) {
-        setUploading(false);
-      }
-    }
+      form.reset(); setSelectedFile(null); setMessage("文件已入库");
+      await refreshDocuments();
+    } catch (error) {
+      if (mountedRef.current) setError(error instanceof Error ? error.message : "上传失败");
+    } finally { if (mountedRef.current) setUploading(false); }
   }
 
   async function handleManualSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedPromptId || savingManual || !manualTitle.trim() || !manualContent.trim()) return;
-    const promptIdAtSubmit = selectedPromptId;
-
-    setSavingManual(true);
-    setError("");
-    setMessage("");
+    if (savingManual || !manualTitle.trim() || !manualContent.trim()) return;
+    setSavingManual(true); setError(""); setMessage("");
     try {
-      await createManualKnowledge({
-        promptId: promptIdAtSubmit,
-        title: manualTitle.trim(),
-        content: manualContent.trim(),
-      });
+      await createManualKnowledge({ title: manualTitle.trim(), content: manualContent.trim() });
       if (!mountedRef.current) return;
-      if (selectedPromptIdRef.current === promptIdAtSubmit) {
-        setManualTitle("");
-        setManualContent("");
-        setManualOpen(false);
-        setMessage("文本知识已入库");
-        await refreshDocuments(promptIdAtSubmit);
-      }
-    } catch (manualError) {
-      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
-      setError(manualError instanceof Error ? manualError.message : "保存失败");
-    } finally {
-      if (mountedRef.current) {
-        setSavingManual(false);
-      }
-    }
+      setManualTitle(""); setManualContent(""); setManualOpen(false); setMessage("文本知识已入库");
+      await refreshDocuments();
+    } catch (error) {
+      if (mountedRef.current) setError(error instanceof Error ? error.message : "保存失败");
+    } finally { if (mountedRef.current) setSavingManual(false); }
   }
 
   async function handleDelete(document: KnowledgeDocument) {
-    if (!selectedPromptId || deletingDocId) return;
-    const promptIdAtSubmit = selectedPromptId;
-    const confirmed = window.confirm(`确定删除「${document.fileName}」吗？这会同时移除对应知识库向量。`);
-    if (!confirmed) return;
-
-    if (segmentsOpenDocIdRef.current === document.id) {
-      closeSegments();
-    }
-    setDeletingDocId(document.id);
-    setError("");
-    setMessage("");
+    if (deletingDocId) return;
+    if (!window.confirm(`确定删除「${document.fileName}」吗？这会同时移除对应知识库向量。`)) return;
+    if (segmentsOpenDocIdRef.current === document.id) closeSegments();
+    setDeletingDocId(document.id); setError(""); setMessage("");
     try {
       await deleteKnowledgeDocument(document.id);
       if (!mountedRef.current) return;
-      if (selectedPromptIdRef.current === promptIdAtSubmit) {
-        setMessage("文档已删除");
-        await refreshDocuments(promptIdAtSubmit);
-      }
-    } catch (deleteError) {
-      if (!mountedRef.current || selectedPromptIdRef.current !== promptIdAtSubmit) return;
-      setError(deleteError instanceof Error ? deleteError.message : "删除失败");
-    } finally {
-      if (mountedRef.current) {
-        setDeletingDocId(null);
-      }
-    }
+      setMessage("文档已删除"); await refreshDocuments();
+    } catch (error) {
+      if (mountedRef.current) setError(error instanceof Error ? error.message : "删除失败");
+    } finally { if (mountedRef.current) setDeletingDocId(null); }
   }
 
   if (!authenticated) {
-    return <main className="workspace-page" />;
+    return <main className="workspace-page resource-page" />;
   }
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container space-y-4">
-        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm backdrop-blur">
-          <Link className="text-sm text-amber-700" href="/me">
+        <header className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
+          <Link className="text-sm text-stone-600" href="/me">
             返回我的
           </Link>
-          <p className="mt-4 text-xs uppercase tracking-[0.28em] text-amber-700">Knowledge Base</p>
           <h1 className="mt-2 text-2xl font-semibold">知识库管理</h1>
           <p className="mt-2 text-sm leading-6 text-stone-500">
-            每个 SystemPrompt 拥有独立知识库，聊天检索会跟随当前 Agent 走。
+            知识只属于当前用户，可由不同助手按需查询。你可以上传资料、手工录入，也可以让助手沉淀可复用的知识。
           </p>
         </header>
 
-        {promptsLoading ? (
+        {initialLoading ? (
           <section className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
             <p className="text-sm text-stone-500">加载中...</p>
           </section>
         ) : null}
 
-        {!promptsLoading && prompts.length === 0 ? (
-          <section className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm">
-            <p className="text-sm leading-6 text-stone-600">还没有可绑定知识库的 SystemPrompt，请先创建一个 Agent。</p>
-            <Link
-              className="mt-4 block rounded-2xl bg-stone-900 px-4 py-3 text-center text-sm font-semibold text-white"
-              href="/me/system-prompts"
-            >
-              去创建 SystemPrompt
-            </Link>
-          </section>
-        ) : null}
-
-        {prompts.length > 0 ? (
-          <>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {prompts.map((prompt) => (
-                <button
-                  key={prompt.id}
-                  className={`shrink-0 rounded-full border px-4 py-2 text-sm shadow-sm transition ${
-                    prompt.id === selectedPromptId
-                      ? "border-stone-900 bg-stone-900 text-white"
-                      : "border-stone-200 bg-white text-stone-600"
-                  }`}
-                  type="button"
-                  onClick={() => handleSelectPrompt(prompt.id)}
-                >
-                  {prompt.name}
-                  {prompt.isDefault ? " · 默认" : ""}
-                </button>
-              ))}
-            </div>
-
+        <>
             <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <form className="rounded-2xl bg-stone-50/80 p-4" onSubmit={handleUpload}>
+                <form className="rounded-2xl bg-stone-50 p-4" onSubmit={handleUpload}>
                   <label className="block text-sm font-semibold text-stone-700" htmlFor="knowledge-file">
                     上传文件
                   </label>
@@ -450,13 +291,13 @@ export default function KnowledgePage() {
                   <button
                     className="mt-3 w-full rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:bg-stone-400"
                     type="submit"
-                    disabled={!selectedPromptId || !selectedFile || uploading}
+                    disabled={!selectedFile || uploading}
                   >
                     {uploading ? "上传中" : "上传并入库"}
                   </button>
                 </form>
 
-                <div className="rounded-2xl bg-stone-50/80 p-4">
+                <div className="rounded-2xl bg-stone-50 p-4">
                   <button
                     className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left text-sm font-semibold text-stone-700"
                     type="button"
@@ -471,14 +312,14 @@ export default function KnowledgePage() {
                   {manualOpen ? (
                     <form className="mt-3 space-y-3" onSubmit={handleManualSubmit}>
                       <input
-                        className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                        className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                         value={manualTitle}
                         onChange={(event) => setManualTitle(event.target.value)}
                         maxLength={120}
                         placeholder="标题，例如：产品 FAQ"
                       />
                       <textarea
-                        className="min-h-40 w-full resize-none rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                        className="min-h-40 w-full resize-none rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
                         value={manualContent}
                         onChange={(event) => setManualContent(event.target.value)}
                         maxLength={20000}
@@ -500,13 +341,12 @@ export default function KnowledgePage() {
             <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Documents</p>
-                  <h2 className="mt-1 truncate text-lg font-semibold">{selectedPrompt?.name ?? "当前 Agent"}</h2>
+                  <h2 className="mt-1 truncate text-lg font-semibold">我的知识文档</h2>
                 </div>
                 {documentsLoading ? <p className="shrink-0 text-sm text-stone-500">加载中...</p> : null}
               </div>
 
-              {message ? <p className="mt-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
+              {message ? <p className="mt-3 rounded-2xl bg-stone-50 px-4 py-3 text-sm text-stone-600">{message}</p> : null}
               {error ? <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
               {!documentsLoading && !error && documents.length === 0 ? (
@@ -517,7 +357,7 @@ export default function KnowledgePage() {
 
               <div className="workspace-card-grid mt-4">
                 {documents.map((document) => (
-                  <article key={document.id} className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
+                  <article key={document.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h3 className="break-words text-sm font-semibold text-stone-800">{document.fileName}</h3>
@@ -616,9 +456,9 @@ export default function KnowledgePage() {
                             {segments.map((segment, index) => (
                               <article
                                 key={`${document.id}-${index}`}
-                                className="rounded-2xl border border-stone-100 bg-stone-50/70 p-3"
+                                className="rounded-2xl border border-stone-100 bg-stone-50 p-3"
                               >
-                                <p className="text-xs font-semibold text-stone-500">#{index + 1}</p>
+                                <p className="text-xs font-semibold text-stone-500">{segmentLabel(segment, index)}</p>
                                 <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-800">
                                   {segment.text}
                                 </p>
@@ -648,8 +488,7 @@ export default function KnowledgePage() {
                 ))}
               </div>
             </section>
-          </>
-        ) : null}
+        </>
       </section>
     </main>
   );

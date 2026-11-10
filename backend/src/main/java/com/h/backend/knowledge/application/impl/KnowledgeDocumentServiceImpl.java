@@ -20,11 +20,10 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     @Override
-    public Long create(Long userId, Long promptId, String fileName, String sourceType,
+    public Long create(Long userId, String fileName, String sourceType,
                        String fileType, Long fileSize, String contentHash) {
         KnowledgeDocumentEntity doc = new KnowledgeDocumentEntity();
         doc.setUserId(userId);
-        doc.setPromptId(promptId);
         doc.setFileName(fileName);
         doc.setSourceType(sourceType);
         doc.setFileType(fileType);
@@ -63,8 +62,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     @Override
-    public List<KnowledgeDocumentDto> list(Long userId, Long promptId) {
-        return mapper.selectByUserAndPrompt(userId, promptId).stream()
+    public List<KnowledgeDocumentDto> list(Long userId) {
+        return mapper.selectByUser(userId).stream()
                 .map(d -> new KnowledgeDocumentDto(
                         d.getId(), d.getFileName(), d.getSourceType(), d.getFileType(),
                         d.getFileSize(), d.getCharCount(), d.getSegmentCount(),

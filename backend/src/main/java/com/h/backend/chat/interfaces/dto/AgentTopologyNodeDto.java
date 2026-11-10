@@ -16,6 +16,9 @@ public record AgentTopologyNodeDto(
         Boolean async,
         LoopMetaDto loop,
         DecisionRouterMetaDto decisionRouter,
-        List<AgentTopologyNodeDto> children
+        List<AgentTopologyNodeDto> children,
+        List<AgentInputArgumentDto> inputArguments,
+        String implementationClass,
+        String plannerClass
 ) {
 }

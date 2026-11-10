@@ -358,6 +358,7 @@ public class HarnessAgentConfig {
             AgentScopeObservationInstaller observationInstaller,
             AgentScopeAutomationTool automationTool,
             com.h.backend.memory.infrastructure.agentscope.MemoryTools memoryTools,
+            com.h.backend.knowledge.interfaces.tool.AgentScopeKnowledgeTools knowledgeTools,
             com.h.backend.generation.interfaces.tool.AgentScopeVideoTool videoTool,
             com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
@@ -377,6 +378,7 @@ public class HarnessAgentConfig {
         toolkit.registerTool(videoTool);
         toolkit.registerTool(documentTool);
         memoryTools.register(toolkit);
+        knowledgeTools.register(toolkit);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .agentId(ChatAgentIds.HARNESS)
@@ -410,6 +412,7 @@ public class HarnessAgentConfig {
                 .memory(memoryConfig)
                 // Native MEMORY.md, daily memory ledgers and session logs stay enabled.
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
+                .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
                 .toolResultEviction(toolResultEvictionConfig)
                 // 子 Agent 会继承显式 middleware：把持久化委托合并进 provider 的真实 SYSTEM。
                 .middleware(assignmentMiddleware)

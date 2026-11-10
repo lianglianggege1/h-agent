@@ -50,9 +50,10 @@ test("listAgents calls agent catalog endpoint", async () => {
 test("getAgentTopology encodes agent id", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
+  const controller = new AbortController();
 
-  globalThis.fetch = async (path) => {
-    calls.push(path);
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path, init });
     return Response.json({
       code: 0,
       message: "ok",
@@ -61,9 +62,11 @@ test("getAgentTopology encodes agent id", async () => {
   };
 
   try {
-    await getAgentTopology("car/rental");
+    await getAgentTopology("car/rental", controller.signal);
 
-    assert.equal(calls[0], "/api/agents/car%2Frental/topology");
+    assert.equal(calls[0].path, "/api/agents/car%2Frental/topology");
+    assert.equal(calls[0].init.cache, "no-store");
+    assert.equal(calls[0].init.signal, controller.signal);
   } finally {
     globalThis.fetch = originalFetch;
   }

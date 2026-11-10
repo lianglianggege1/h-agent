@@ -20,9 +20,6 @@ public class KnowledgeDocumentEntity {
     @TableField("user_id")
     private Long userId;
 
-    @TableField("prompt_id")
-    private Long promptId;
-
     @TableField("file_name")
     private String fileName;
 
@@ -42,6 +39,13 @@ public class KnowledgeDocumentEntity {
     private Integer segmentCount;
 
     private String status;
+    private Integer version;
+    private String body;
+    private String applicability;
+    @TableField("source_refs")
+    private String sourceRefs;
+    @TableField("pending_operation")
+    private String pendingOperation;
 
     @TableField("error_msg")
     private String errorMsg;

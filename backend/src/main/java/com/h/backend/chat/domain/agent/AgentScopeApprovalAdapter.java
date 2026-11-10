@@ -77,6 +77,14 @@ public class AgentScopeApprovalAdapter {
                         io.agentscope.core.permission.PermissionBehavior.ALLOW, "owned-memory-policy"));
             }
         }
+        for (var tool : com.h.backend.knowledge.application.KnowledgeToolContract.definitions()) {
+            var behavior = mode == ApprovalMode.EXPLORE && !tool.readOnly()
+                    ? io.agentscope.core.permission.PermissionBehavior.DENY
+                    : io.agentscope.core.permission.PermissionBehavior.ALLOW;
+            var rule = new PermissionRule(tool.name(), null, behavior, "owned-knowledge-policy");
+            if (behavior == io.agentscope.core.permission.PermissionBehavior.DENY) builder.addDenyRule(tool.name(), rule);
+            else builder.addAllowRule(tool.name(), rule);
+        }
         builder.addWorkingDirectory(
                 actualWorkspace,
                 new AdditionalWorkingDirectory(actualWorkspace, "projectSettings")

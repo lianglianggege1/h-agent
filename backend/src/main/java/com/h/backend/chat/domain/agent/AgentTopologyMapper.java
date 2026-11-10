@@ -1,6 +1,7 @@
 package com.h.backend.chat.domain.agent;
 
 import com.h.backend.chat.interfaces.dto.AgentSummaryDto;
+import com.h.backend.chat.interfaces.dto.AgentInputArgumentDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyNodeDto;
 import com.h.backend.chat.interfaces.dto.DecisionRouterMetaDto;
@@ -58,7 +59,13 @@ public class AgentTopologyMapper {
                 agent.async(),
                 loopMeta(agent),
                 decisionRouter,
-                children
+                children,
+                arguments(agent).stream()
+                        .filter(argument -> isVisibleStateKey(argument.name()))
+                        .map(argument -> new AgentInputArgumentDto(argument.name(), simpleTypeName(argument.type())))
+                        .toList(),
+                agent.type() == null ? null : agent.type().getName(),
+                agent.plannerType() == null ? null : agent.plannerType().getName()
         );
     }
 

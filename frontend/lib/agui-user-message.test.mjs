@@ -17,7 +17,7 @@ const code = ts.transpileModule(readFileSync(new URL("../components/agui-user-me
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
 }).outputText;
 const component = { exports: {} };
-new Function("require", "module", "exports", code)((id) => id.endsWith(".module.css") ? {} : require(id), component, component.exports);
+new Function("require", "module", "exports", code)((id) => id === "./file-preview" ? { useFilePreview: () => null } : id.endsWith(".module.css") ? {} : require(id), component, component.exports);
 
 test("the real SDK user message places a reference thumbnail below the text and opens the original", () => {
   const message = { id: "user", role: "user", content: [

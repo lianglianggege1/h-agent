@@ -33,7 +33,7 @@ class KnowledgeIngestServiceTest {
 
     @Test
     void manualIngestShouldSplitTagMetadataAndStore() {
-        Mockito.when(docService.create(any(), any(), any(), any(), any(), any(), any()))
+        Mockito.when(docService.create(any(), any(), any(), any(), any(), any()))
                 .thenReturn(99L);
         Mockito.when(model.embedAll(anyList()))
                 .thenAnswer(inv -> {
@@ -43,14 +43,14 @@ class KnowledgeIngestServiceTest {
                     return Response.from(embs);
                 });
 
-        service.ingestManual(1L, 2L, "标题", "这是一段用于测试的中文知识内容。".repeat(50));
+        service.ingestManual(1L, "标题", "这是一段用于测试的中文知识内容。".repeat(50));
 
         ArgumentCaptor<List<TextSegment>> captor = ArgumentCaptor.forClass(List.class);
-        Mockito.verify(store).addAll(anyList(), captor.capture());
+        Mockito.verify(store).addAll(anyList(), anyList(), captor.capture());
         List<TextSegment> stored = captor.getValue();
         assertFalse(stored.isEmpty());
         TextSegment first = stored.get(0);
-        assertEquals("2", first.metadata().getString("promptId"));
+        assertEquals(null, first.metadata().getString("promptId"));
         assertEquals("99", first.metadata().getString("docId"));
         assertEquals("1", first.metadata().getString("userId"));
         Mockito.verify(docService).markCompleted(Mockito.eq(99L), Mockito.anyInt(), Mockito.anyInt());

@@ -38,7 +38,7 @@ test("idle order refresh keeps the draft editable and image references synchroni
     module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
   const cards = { exports: {} };
   // The real resource card and context run here; unrelated business-card imports are unused.
-  new Function("require", "module", "exports", cardCode)((id) => id.startsWith("@/") ? {} : require(id), cards, cards.exports);
+  new Function("require", "module", "exports", cardCode)((id) => id === "./file-preview" ? { useFilePreview: () => null } : id.startsWith("@/") ? {} : require(id), cards, cards.exports);
   const image = { id: "image-1", type: "IMAGE", role: "OUTPUT", viewUrl: "/image", downloadUrl: "/download",
     fileName: "image.png", mimeType: "image/png", fileSize: 23 };
   let shownResource = image;
@@ -74,6 +74,7 @@ test("idle order refresh keeps the draft editable and image references synchroni
   let writes = 0;
   agent.subscribe({ onMessagesChanged: () => { writes++; } });
   const stubs = {
+    "./file-preview": { useFilePreview: () => null, FilePreviewProvider: function FilePreviewProvider({ children }) { return children; } },
     "./document-panel": { DocumentTaskSync: () => null },
     "@/lib/document-activities": { mergeDocumentTaskActivities: (messages) => messages },
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,

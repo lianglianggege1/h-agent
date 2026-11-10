@@ -54,15 +54,15 @@ export default function AgentsPage() {
   }, [router]);
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container flex flex-col">
         <header className="border-b border-stone-200 pb-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-amber-700">领域 Agent</p>
+              <p className="text-xs font-medium text-stone-600">领域 Agent</p>
               <h1 className="mt-1 text-xl font-semibold">专业问答</h1>
             </div>
-            <div className="flex shrink-0 items-center gap-3 text-sm font-medium text-amber-700">
+            <div className="flex shrink-0 items-center gap-3 text-sm font-medium text-stone-600">
               <Link href="/chat">普通聊天</Link>
               <Link href="/automations">自动化</Link>
               <Link href="/me/agents">管理</Link>
@@ -71,7 +71,7 @@ export default function AgentsPage() {
 
           <div className="mt-4 space-y-3">
             <input
-              className="h-11 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+              className="h-11 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm outline-none transition focus:border-stone-200 focus:ring-4 focus:ring-amber-100"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索 Agent、领域或能力"
@@ -99,11 +99,11 @@ export default function AgentsPage() {
 
         <div className="workspace-card-grid mt-6">
           {bootstrapping ? (
-            <div className="rounded-lg border border-stone-200 bg-white/85 px-4 py-3 text-sm text-stone-500">
+            <div className="rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-500">
               正在加载 Agent...
             </div>
           ) : filteredAgents.length === 0 ? (
-            <div className="rounded-lg border border-stone-200 bg-white/85 px-4 py-3 text-sm text-stone-500">
+            <div className="rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-500">
               没有匹配的 Agent。
             </div>
           ) : (
@@ -111,7 +111,7 @@ export default function AgentsPage() {
               <article key={agent.agentId} className="workspace-agent-card rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs text-amber-700">{agent.domain}</p>
+                    <p className="text-xs text-stone-600">{agent.domain}</p>
                     <h2 className="mt-1 truncate text-base font-semibold">{agent.displayName}</h2>
                   </div>
                   <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-[11px] text-stone-500">
@@ -121,7 +121,7 @@ export default function AgentsPage() {
                 <p className="mt-3 text-sm leading-6 text-stone-500">{agent.summary}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {agent.tags.map((tag) => (
-                    <span key={tag} className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                    <span key={tag} className="rounded-md bg-stone-50 px-2 py-1 text-xs text-stone-600">
                       {tag}
                     </span>
                   ))}

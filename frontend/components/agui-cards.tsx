@@ -15,6 +15,8 @@ import { ProgressCard, progressSchema, HistoricalReasoning } from "@/components/
 import { MarkdownContent } from "@/components/markdown-content";
 import { OrderCard, type OrderCardContent } from "@/components/order/order-card";
 
+import { useFilePreview } from "./file-preview";
+import type { PreviewResource } from "@/lib/file-preview";
 import { DocumentTaskCard } from "@/components/document-panel";
 import type { DocumentTask } from "@/lib/documents";
 
@@ -130,9 +132,12 @@ function formatResourceSize(bytes: number | null): string | null {
 export function ResourceCard({
   content,
 }: {
-  content: { message: ChatSessionMessage };
+  content: { message: ChatSessionMessage; previewResources?: PreviewResource[] };
 }) {
   const references = useContext(ResourceReferenceContext);
+  const preview = useFilePreview();
+  const resources = content.previewResources ?? content.message.resources ?? [];
+  const generating = Boolean(content.message.payload?.status && !["SUCCEEDED", "COMPLETED", "READY"].includes(content.message.payload.status) && content.message.resources?.some(item => item.role === "GENERATED"));
   if (
     !content.message.resources?.length &&
     content.message.payload?.status === "SUCCEEDED"
@@ -159,7 +164,7 @@ export function ResourceCard({
         return (
           <div key={resource.id} className="space-y-2">
             {resource.mimeType.startsWith("image/") ? (
-              <a href={resource.viewUrl} target="_blank" rel="noreferrer">
+              <a href={resource.viewUrl} target="_blank" rel="noreferrer" onClick={(event) => { if (preview) { event.preventDefault(); if (!generating) preview.open(resources, resource.id); } }}>
                 <picture>
                   <img
                     src={resource.viewUrl}
@@ -211,6 +216,7 @@ export function ResourceCard({
                   </div>
                 </>
               ) : null}
+              <button type="button" className="agui-button text-xs" aria-label={`预览 ${resource.fileName}`} disabled={generating} onClick={() => preview?.open(resources, resource.id)}>预览</button>
               <a
                 href={resource.downloadUrl}
                 download={resource.fileName}

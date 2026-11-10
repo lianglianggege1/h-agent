@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AuthUser, getCurrentUser, logout } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
 import { WorkspaceIcon } from "@/components/workspace-shell";
@@ -10,6 +10,11 @@ import { WorkspaceIcon } from "@/components/workspace-shell";
 export default function MePage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const theme = useSyncExternalStore(
+    (callback) => { window.addEventListener("h-agent:theme-change", callback); return () => window.removeEventListener("h-agent:theme-change", callback); },
+    () => window.localStorage.getItem("h-agent-theme") === "dark" ? "dark" : "light",
+    () => "light",
+  );
 
   useEffect(() => {
     getCurrentUser()
@@ -19,6 +24,11 @@ export default function MePage() {
         router.replace("/auth/login");
       });
   }, [router]);
+
+  function chooseTheme(value: "light" | "dark") {
+    window.localStorage.setItem("h-agent-theme", value);
+    window.dispatchEvent(new Event("h-agent:theme-change"));
+  }
 
   async function handleLogout() {
     try {
@@ -46,6 +56,16 @@ export default function MePage() {
           <div className="min-w-0"><p className="text-sm font-semibold">账号</p><p className="mt-1 break-all text-sm text-stone-500">{user.email}</p></div>
           <button className="agui-button shrink-0" type="button" onClick={handleLogout}>退出登录</button>
         </div>
+        <div className="pt-3"><h2 className="text-sm font-semibold">通用</h2><p className="mt-1 text-xs text-stone-500">设置工作区的外观。</p></div>
+        <section className="rounded-2xl border border-stone-200 bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div><h3 className="text-sm font-semibold">外观</h3><p className="mt-1 text-xs text-stone-500">选择白天或黑夜模式</p></div>
+            <div className="flex gap-2" role="group" aria-label="外观模式">
+              <button type="button" aria-pressed={theme === "light"} onClick={() => chooseTheme("light")} className={`agui-button ${theme === "light" ? "agui-button-primary" : ""}`}>☼ 白天</button>
+              <button type="button" aria-pressed={theme === "dark"} onClick={() => chooseTheme("dark")} className={`agui-button ${theme === "dark" ? "agui-button-primary" : ""}`}>☾ 黑夜</button>
+            </div>
+          </div>
+        </section>
         <div className="pt-3"><h2 className="text-sm font-semibold">工作区设置</h2><p className="mt-1 text-xs text-stone-500">管理助手的能力、资源和工作方式。</p></div>
         <div className="workspace-card-grid">
           {[

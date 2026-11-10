@@ -42,6 +42,11 @@
 .editorActions { display: flex; gap: 4px; margin-left: auto; }
 .confirm { color: #3964fe; }
 .confirm:hover:not(:disabled) { background: #e9eeff; color: #3159e5; }
+:global(.theme-dark) .editor { background: #30312b; border-color: #45463f; }
+:global(.theme-dark) .editor textarea { color: #e9e6df; background: transparent; }
+:global(.theme-dark) .iconButton:hover:not(:disabled) { background: #3a3b34; color: #e9e6df; }
+:global(.theme-dark) .confirm { color: #e5a184; }
+:global(.theme-dark) .audio { background: #30312b; color: #aaa69b; }
 @media (hover: hover) {
   .message:not([data-latest]) .actions { opacity: 0; transition: opacity 100ms; }
   .message:hover .actions, .message:focus-within .actions { opacity: 1; }

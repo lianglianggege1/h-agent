@@ -41,23 +41,21 @@ public class KnowledgeDocumentController {
 
     @PostMapping("/upload")
     public ApiResponse<Long> upload(@AuthenticationPrincipal AuthUserPrincipal principal,
-                                    @RequestParam("file") MultipartFile file,
-                                    @RequestParam("promptId") Long promptId) {
-        return ApiResponse.ok(ingestService.ingestFile(principal.userId(), promptId, file));
+                                    @RequestParam("file") MultipartFile file) {
+        return ApiResponse.ok(ingestService.ingestFile(principal.userId(), file));
     }
 
     @PostMapping("/manual")
     public ApiResponse<Long> manual(@AuthenticationPrincipal AuthUserPrincipal principal,
                                     @Valid @RequestBody ManualInputRequest request) {
         return ApiResponse.ok(ingestService.ingestManual(
-                principal.userId(), request.promptId(), request.title(), request.content()));
+                principal.userId(), request.title(), request.content()));
     }
 
     @GetMapping
     public ApiResponse<List<KnowledgeDocumentDto>> list(
-            @AuthenticationPrincipal AuthUserPrincipal principal,
-            @RequestParam("promptId") Long promptId) {
-        return ApiResponse.ok(documentService.list(principal.userId(), promptId));
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return ApiResponse.ok(documentService.list(principal.userId()));
     }
 
     @DeleteMapping("/{docId}")
@@ -73,15 +71,8 @@ public class KnowledgeDocumentController {
     public ApiResponse<Long> reparse(@AuthenticationPrincipal AuthUserPrincipal principal,
                                      @PathVariable Long docId) {
         KnowledgeDocumentEntity doc = documentService.requireOwned(principal.userId(), docId);
-        // 重解析仅支持手动输入（文件原文未持久化，无法重读）；文件类型提示用户重新上传
-        if (!"MANUAL".equals(doc.getSourceType())) {
-            ingestService.removeVectors(docId);
-            documentService.delete(docId);
-            return ApiResponse.error(40005, "文件类文档请重新上传以重解析");
-        }
-        ingestService.removeVectors(docId);
-        documentService.delete(docId);
-        return ApiResponse.ok(docId);
+        // Original uploaded files were never persisted. Preserve existing data instead of deleting it.
+        return ApiResponse.error(40005, "请重新上传文件或录入文本；原文档和切片已保留");
     }
 
     @GetMapping("/{docId}/segments")

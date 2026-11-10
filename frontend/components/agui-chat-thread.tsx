@@ -13,6 +13,7 @@ import styles from "./agui-chat-thread.module.css";
 import { DocumentTaskSync } from "./document-panel";
 import { mergeDocumentTaskActivities } from "@/lib/document-activities";
 import type { DocumentTask } from "@/lib/documents";
+import { FilePreviewProvider, useFilePreview } from "./file-preview";
 import { ChatAttachmentPicker } from "./chat-attachment-picker";
 import { historyReferenceResources, selectHistoryReference } from "@/lib/reference-images";
 import { OrderReferenceContext } from "./order/order-card";
@@ -50,6 +51,7 @@ function AttachmentMenuButton() {
 }
 
 function ThreadInput(props: CopilotChatInputProps) {
+  const preview = useFilePreview();
   const actions = useContext(Actions);
   const continuing = actions?.paused && !props.value?.trim();
   const label = props.isRunning ? "暂停回答" : continuing ? "继续回答" : "发送消息";
@@ -63,9 +65,11 @@ function ThreadInput(props: CopilotChatInputProps) {
     </div> : null}
     {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[1000px] flex-wrap gap-2 px-4" aria-label="待发送附件">
       {actions.attachments.map((item) => <span key={item.resourceId} title={item.fileName} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
+        <button type="button" className="inline-flex min-w-0 items-center gap-2 text-left" aria-label={"预览 " + item.fileName} onClick={() => preview?.open(actions.attachments.map(({ resourceId, ...resource }) => ({ ...resource, id: resourceId })), item.resourceId)}>
         {item.mimeType.startsWith("image/") ? <picture><img src={item.viewUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /></picture> : item.mimeType.startsWith("video/") ? <video src={item.viewUrl} muted preload="metadata" className="h-10 w-10 rounded-lg object-cover" /> : item.mimeType.startsWith("audio/") ? <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-lg bg-stone-100">♫</span> : null}
         <span>{item.role === "REFERENCE" ? (item.mimeType.startsWith("video/") ? "引用视频" : item.mimeType.startsWith("audio/") ? "引用音频" : "引用图片") : item.fileName}</span>
-        <button aria-label={"移除 " + item.fileName} onClick={() => actions.removeFile(item.resourceId)}>×</button>
+        </button>
+        <button type="button" aria-label={"移除 " + item.fileName} onClick={() => actions.removeFile(item.resourceId)}>×</button>
       </span>)}
       {actions.uploading ? <span className="text-xs text-stone-500">上传中…</span> : null}
     </div> : null}
@@ -99,7 +103,7 @@ function ThreadView(props: CopilotChatViewProps) {
   />;
 }
 
-export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: { threadId: string; onChanged?: () => void; orderAssistant?: boolean }) {
+function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { threadId: string; onChanged?: () => void; orderAssistant?: boolean }) {
   const localAgentId = "thread-" + threadId;
   const { agent, isReady } = useAgent({ agentId: localAgentId, runtimeAgentId: "default", threadId, throttleMs: 40 });
   const { copilotkit } = useCopilotKit();
@@ -403,4 +407,8 @@ export function AguiChatThread({ threadId, onChanged, orderAssistant = false }: 
     </ResourceReferenceContext.Provider>
     </OrderReferenceContext.Provider>
   </section>;
+}
+
+export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean }) {
+  return <FilePreviewProvider key={props.threadId}><ChatThreadContent {...props} /></FilePreviewProvider>;
 }

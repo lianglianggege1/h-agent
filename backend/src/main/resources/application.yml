@@ -204,7 +204,7 @@ agents:
 # enabled=true 时 Mem0 契约字段必须完整（URL/API key/contract version/openapi sha256），否则启动 fail-fast。
 memory:
   long-term:
-    enabled: false
+    enabled: true
     mem0:
       base-url: ${MEM0_BASE_URL:http://169.254.210.181:8888}
       # MEM0_BASE_API_KEY 是旧名称，只作兼容回退。

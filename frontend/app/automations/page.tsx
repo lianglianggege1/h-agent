@@ -80,8 +80,8 @@ function runStatusLabel(status: AutomationRun["status"]) {
 }
 
 function runStatusTone(status: AutomationRun["status"]) {
-  if (status === "QUEUED" || status === "RUNNING" || status === "CANCEL_REQUESTED") return "text-amber-600";
-  if (status === "SUCCEEDED") return "text-emerald-600";
+  if (status === "QUEUED" || status === "RUNNING" || status === "CANCEL_REQUESTED") return "text-stone-600";
+  if (status === "SUCCEEDED") return "text-stone-600";
   return "text-red-600";
 }
 
@@ -253,25 +253,22 @@ export default function AutomationsPage() {
   }
 
   return (
-    <main className="workspace-page text-stone-900">
+    <main className="workspace-page resource-page text-stone-900">
       <section className="workspace-container pb-8">
         <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
-              <span className="h-2 w-2 rounded-full bg-amber-500" /> Automation desk
-            </div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">自动化任务</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">自动化任务</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
               让 Agent 按计划在你指定的会话中继续工作，沿用该会话的上下文、工具和权限。
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Link className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-white/70" href="/chat">
+            <Link className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-white" href="/chat">
               返回聊天
             </Link>
             <button
               type="button"
-              className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-stone-900/15 transition hover:-translate-y-0.5"
+              className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition "
               onClick={() => setShowCreate(true)}
             >
               ＋ 新建任务
@@ -285,7 +282,7 @@ export default function AutomationsPage() {
             ["已开启（最多 3 个）", tasks.filter((task) => task.enabled).length],
             ["最近失败", tasks.filter((task) => task.lastStatus === "FAILED").length],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-2xl border border-white/70 bg-white/65 p-5 shadow-sm backdrop-blur">
+            <div key={label} className="rounded-2xl border border-white/70 bg-white p-5 shadow-sm">
               <p className="text-xs font-medium text-stone-500">{label}</p>
               <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
             </div>
@@ -295,23 +292,23 @@ export default function AutomationsPage() {
         {error ? <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
         {proposals.length > 0 ? (
-          <section className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/85 p-5 shadow-sm">
+          <section className="mt-6 rounded-2xl border border-stone-200 bg-stone-50 p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">待确认提案</h2>
                 <p className="mt-1 text-xs text-stone-500">Agent 只生成提案；由你在这里确认后才会更改任务。</p>
               </div>
-              <span className="rounded-full bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white">{proposals.length}</span>
+              <span className="rounded-full bg-stone-900 px-2.5 py-1 text-xs font-semibold text-white">{proposals.length}</span>
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {proposals.map((proposal) => (
-                <article key={proposal.id} className="rounded-xl border border-amber-100 bg-white p-4">
+                <article key={proposal.id} className="rounded-xl border border-stone-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold">{proposal.name ?? `${proposal.action} 任务`}</p>
                       <p className="mt-1 text-xs text-stone-500">{proposal.action} · 有效至 {formatDate(proposal.expiresAt)}</p>
                     </div>
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">待确认</span>
+                    <span className="rounded-full bg-stone-100 px-2 py-1 text-[11px] font-semibold text-stone-600">待确认</span>
                   </div>
                   {proposal.cronExpression ? (
                     <div className="mt-3 space-y-1 text-xs text-stone-600">
@@ -333,27 +330,27 @@ export default function AutomationsPage() {
 
         <div className="mt-6 space-y-4">
           {loading ? (
-            <div className="rounded-2xl border border-stone-200 bg-white/75 p-6 text-sm text-stone-500">正在加载…</div>
+            <div className="rounded-2xl border border-stone-200 bg-white p-6 text-sm text-stone-500">正在加载…</div>
           ) : tasks.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-stone-300 bg-white/55 px-6 py-16 text-center">
+            <div className="rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-16 text-center">
               <p className="text-lg font-semibold">还没有自动化任务</p>
               <p className="mt-2 text-sm text-stone-500">从这里创建，或者在聊天里告诉 Agent “每天几点帮我做什么”。</p>
-              <button className="mt-6 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>
+              <button className="mt-6 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>
                 创建第一个任务
               </button>
             </div>
           ) : tasks.map((task) => (
-            <article key={task.id} className="overflow-hidden rounded-2xl border border-stone-200/80 bg-white/85 shadow-sm">
+            <article key={task.id} className="overflow-hidden rounded-2xl border border-stone-200/80 bg-white shadow-sm">
               <div className="p-5 sm:p-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{task.name}</h2>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${task.runtime === "AGENTSCOPE" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold bg-stone-100 text-stone-600`}>
                         {task.runtime === "AGENTSCOPE" ? "AgentScope" : "LangChain4j"}
                       </span>
                       <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] text-stone-500">{task.agentId}</span>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${task.schedulerSyncStatus === "SYNC_FAILED" ? "bg-red-100 text-red-700" : task.schedulerSyncStatus === "SYNCED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${task.schedulerSyncStatus === "SYNC_FAILED" ? "bg-red-100 text-red-700" : task.schedulerSyncStatus === "SYNCED" ? "bg-stone-100 text-stone-600" : "bg-stone-100 text-stone-600"}`}>
                         {task.schedulerSyncStatus === "SYNC_FAILED" ? "调度同步失败" : task.schedulerSyncStatus === "SYNCED" ? "XXL 调度已同步" : task.enabled ? "XXL 调度同步中" : "未调度"}
                       </span>
                     </div>
@@ -364,7 +361,9 @@ export default function AutomationsPage() {
                     type="button"
                     disabled={busyTaskId === task.id}
                     onClick={() => toggle(task)}
-                    className={`relative h-7 w-12 shrink-0 rounded-full transition ${task.enabled ? "bg-emerald-500" : "bg-stone-300"}`}
+                    className="workspace-switch relative h-7 w-12 shrink-0 rounded-full transition"
+                    role="switch"
+                    aria-checked={task.enabled}
                     aria-label={task.enabled ? "暂停任务" : "启用任务"}
                   >
                     <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${task.enabled ? "left-6" : "left-1"}`} />
@@ -385,7 +384,7 @@ export default function AutomationsPage() {
               </div>
 
               {expandedTaskId === task.id ? (
-                <div className="border-t border-stone-200 bg-stone-50/80 px-5 py-4 sm:px-6">
+                <div className="border-t border-stone-200 bg-stone-50 px-5 py-4 sm:px-6">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">最近运行</p>
                   {(runs[task.id] ?? []).length === 0 ? <p className="text-sm text-stone-500">暂无运行记录。</p> : (
                     <div className="space-y-2">
@@ -394,7 +393,7 @@ export default function AutomationsPage() {
                           <span className={`font-semibold ${runStatusTone(run.status)}`}>{runStatusLabel(run.status)}</span>
                           <span className="text-stone-400">{run.triggerType === "MANUAL" ? "手动" : "计划"} · {formatDate(run.startedAt)}</span>
                           <span className="line-clamp-1 flex-1 text-stone-600">{run.errorMessage ?? run.output ?? "执行中…"}</span>
-                          {run.sessionId ? <Link className="font-semibold text-amber-700" href={`/chat?sessionId=${encodeURIComponent(run.sessionId)}`}>打开会话 →</Link> : null}
+                          {run.sessionId ? <Link className="font-semibold text-stone-600" href={`/chat?sessionId=${encodeURIComponent(run.sessionId)}`}>打开会话 →</Link> : null}
                         </div>
                       ))}
                     </div>
@@ -407,30 +406,30 @@ export default function AutomationsPage() {
       </section>
 
       {showCreate ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/45 p-0 backdrop-blur-sm sm:items-center sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && setShowCreate(false)}>
-          <form className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-[#fffdf8] p-6 shadow-2xl sm:rounded-3xl sm:p-8" onSubmit={submit}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/45 p-0 sm:items-center sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && setShowCreate(false)}>
+          <form className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl sm:p-8" onSubmit={submit}>
             <div className="flex items-center justify-between">
-              <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">New automation</p><h2 className="mt-1 text-2xl font-semibold">新建自动化任务</h2></div>
+              <div><h2 className="mt-1 text-2xl font-semibold">新建自动化任务</h2></div>
               <button type="button" className="h-10 w-10 rounded-full text-xl text-stone-500 hover:bg-stone-100" onClick={() => setShowCreate(false)}>×</button>
             </div>
 
             <div className="mt-7 space-y-5">
               <label className="block text-sm font-semibold">任务名称
-                <input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：每日 AI 行业简报" className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100" />
+                <input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：每日 AI 行业简报" className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-stone-200 focus:ring-4 focus:ring-amber-100" />
               </label>
               <label className="block text-sm font-semibold">执行会话
                 <select required value={sessionId} onChange={(event) => {
                   const selected = sessions.find((session) => session.sessionId === event.target.value);
                   setSessionId(event.target.value);
                   setAgentId(selected?.agentId ?? "");
-                }} className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-amber-500">
+                }} className="mt-2 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-normal outline-none focus:border-stone-200">
                   <option value="" disabled>选择已有会话</option>
                   {sessions.map((session) => <option value={session.sessionId} key={session.sessionId}>{session.title} · {session.agentDisplayName}</option>)}
                 </select>
                 <span className="mt-2 block text-xs font-normal text-stone-500">任务会在此会话中继续执行，并沿用它的上下文、工具和批准模式。</span>
               </label>
               <label className="block text-sm font-semibold">你希望 Agent 做什么？
-                <textarea required maxLength={20000} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="描述每次触发时需要完成的任务、输入来源和期望输出…" className="mt-2 min-h-32 w-full resize-y rounded-xl border border-stone-200 bg-white px-4 py-3 font-normal leading-6 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100" />
+                <textarea required maxLength={20000} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="描述每次触发时需要完成的任务、输入来源和期望输出…" className="mt-2 min-h-32 w-full resize-y rounded-xl border border-stone-200 bg-white px-4 py-3 font-normal leading-6 outline-none focus:border-stone-200 focus:ring-4 focus:ring-amber-100" />
               </label>
 
               <fieldset>
@@ -442,7 +441,7 @@ export default function AutomationsPage() {
                   ))}
                 </div>
                 {frequency === "custom" ? (
-                  <input required value={customCron} onChange={(event) => setCustomCron(event.target.value)} className="mt-3 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-mono text-sm outline-none focus:border-amber-500" />
+                  <input required value={customCron} onChange={(event) => setCustomCron(event.target.value)} className="mt-3 h-12 w-full rounded-xl border border-stone-200 bg-white px-4 font-mono text-sm outline-none focus:border-stone-200" />
                 ) : (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     {frequency === "weekly" ? <select value={weekday} onChange={(event) => setWeekday(event.target.value)} className="h-12 rounded-xl border border-stone-200 bg-white px-4">{WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select> : <div className="hidden sm:block" />}
@@ -456,7 +455,7 @@ export default function AutomationsPage() {
             <div className="mt-8 flex justify-end gap-3">
               <button type="button" className="rounded-xl px-5 py-2.5 text-sm font-semibold text-stone-600" onClick={() => setShowCreate(false)}>取消</button>
               <div className="mr-auto text-xs leading-5 text-stone-500">创建后默认为关闭状态，可在任务列表中开启。</div>
-              <button type="submit" disabled={saving || !agentId || !sessionId} className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-600/20 disabled:opacity-50">{saving ? "创建中…" : "创建任务（默认关闭）"}</button>
+              <button type="submit" disabled={saving || !agentId || !sessionId} className="rounded-xl bg-stone-900 px-6 py-2.5 text-sm font-semibold text-white  disabled:opacity-50">{saving ? "创建中…" : "创建任务（默认关闭）"}</button>
             </div>
           </form>
         </div>

@@ -44,18 +44,19 @@ class KnowledgeRagIntegrationTest {
     }
 
     @Test
-    void shouldRetrieveOnlyWithinSamePrompt() {
+    void shouldRetrieveAcrossPromptsButIsolateUsers() {
         long promptA = System.currentTimeMillis();
         long promptB = promptA + 1;
-        ingestService.ingestManual(1L, promptA, "向量数据库说明",
+        ingestService.ingestManual(1L, "向量数据库说明",
                 "PgVector 是 PostgreSQL 的向量检索扩展，支持余弦相似度搜索。".repeat(10));
 
         List<Content> hitA = knowledgeContentRetriever.retrieve(
                 queryFor("什么是 PgVector", 1L, promptA));
-        assertFalse(hitA.isEmpty(), "同 promptId 应能检索到内容");
+        assertFalse(hitA.isEmpty(), "同用户应能检索到内容");
 
         List<Content> hitB = knowledgeContentRetriever.retrieve(
                 queryFor("什么是 PgVector", 1L, promptB));
-        assertTrue(hitB.isEmpty(), "不同 promptId 不应检索到内容（隔离）");
+        assertFalse(hitB.isEmpty(), "同用户不同 Prompt 也能检索知识");
+        assertTrue(knowledgeContentRetriever.retrieve(queryFor("什么是 PgVector", 2L, promptA)).isEmpty(), "不同用户必须隔离");
     }
 }

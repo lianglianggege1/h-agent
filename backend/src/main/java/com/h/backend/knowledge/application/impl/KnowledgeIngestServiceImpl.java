@@ -5,11 +5,7 @@ import com.h.backend.knowledge.infrastructure.config.KnowledgeProperties;
 import com.h.backend.knowledge.application.KnowledgeDocumentService;
 import com.h.backend.knowledge.application.KnowledgeIngestService;
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.DocumentSplitter;
-import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
-import dev.langchain4j.data.document.splitter.DocumentSplitters;
-import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
@@ -20,7 +16,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.List;
 import java.util.Locale;
 
 import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
@@ -59,17 +54,17 @@ public class KnowledgeIngestServiceImpl implements KnowledgeIngestService {
 
     @Override
     @Transactional
-    public Long ingestFile(Long userId, Long promptId, MultipartFile file) {
+    public Long ingestFile(Long userId, MultipartFile file) {
         String fileName = file.getOriginalFilename();
         if (!isAllowedType(fileName)) {
             throw new BusinessException(40001, "不支持的文件类型：" + fileName);
         }
         String ext = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        Long docId = documentService.create(userId, promptId, fileName, "FILE",
+        Long docId = documentService.create(userId, fileName, "FILE",
                 ext, file.getSize(), null);
         try (InputStream in = file.getInputStream()) {
             Document document = new ApacheTikaDocumentParser().parse(in);
-            ingestDocument(docId, userId, promptId, fileName, document);
+            ingestDocument(docId, userId, fileName, document);
             return docId;
         } catch (IOException | RuntimeException ex) {
             log.warn("文档解析入库失败 docId={}", docId, ex);
@@ -80,11 +75,11 @@ public class KnowledgeIngestServiceImpl implements KnowledgeIngestService {
 
     @Override
     @Transactional
-    public Long ingestManual(Long userId, Long promptId, String title, String content) {
-        Long docId = documentService.create(userId, promptId, title, "MANUAL",
+    public Long ingestManual(Long userId, String title, String content) {
+        Long docId = documentService.create(userId, title, "MANUAL",
                 "txt", (long) content.length(), null);
         try {
-            ingestDocument(docId, userId, promptId, title, Document.from(content));
+            ingestDocument(docId, userId, title, Document.from(content));
             return docId;
         } catch (RuntimeException ex) {
             log.warn("手动输入入库失败 docId={}", docId, ex);
@@ -93,26 +88,16 @@ public class KnowledgeIngestServiceImpl implements KnowledgeIngestService {
         }
     }
 
-    private void ingestDocument(Long docId, Long userId, Long promptId,
+    private void ingestDocument(Long docId, Long userId,
                                 String fileName, Document document) {
         String text = document.text();
         if (text == null || text.isBlank()) {
             documentService.markFailed(docId, "解析后内容为空");
             throw new BusinessException(40003, "解析后内容为空");
         }
-        DocumentSplitter splitter = DocumentSplitters.recursive(
-                props.getSplit().getChunkSize(), props.getSplit().getChunkOverlap());
-        List<TextSegment> segments = splitter.split(document);
-        for (TextSegment seg : segments) {
-            Metadata md = seg.metadata();
-            md.put("promptId", String.valueOf(promptId));
-            md.put("docId", String.valueOf(docId));
-            md.put("userId", String.valueOf(userId));
-            md.put("fileName", fileName);
-        }
-        List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
-        embeddingStore.addAll(embeddings, segments);
-        documentService.markCompleted(docId, text.length(), segments.size());
+        int count = new com.h.backend.knowledge.application.KnowledgeTextIndexer(embeddingModel, embeddingStore, props)
+                .index(userId, docId, 1, fileName, text);
+        documentService.markCompleted(docId, text.length(), count);
     }
 
     @Override

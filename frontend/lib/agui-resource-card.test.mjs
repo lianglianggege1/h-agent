@@ -29,7 +29,7 @@ const cardsModule = { exports: {} };
 // Render the real resource card; unrelated business cards are outside this test's scope.
 new Function("require", "module", "exports", code)(
   (id) =>
-    id.startsWith("@/") || id === "@copilotkit/react-core/v2"
+    id === "./file-preview" ? { useFilePreview: () => null } : id.startsWith("@/") || id === "@copilotkit/react-core/v2"
       ? {}
       : require(id),
   cardsModule,

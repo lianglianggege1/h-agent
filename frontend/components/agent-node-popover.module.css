@@ -1,0 +1,7 @@
+.layer:global(.resource-page) { position: fixed; inset: 0; z-index: 80; pointer-events: none; background: transparent; padding: 0; }
+.popover { position: fixed; top: 12px; left: 12px; width: min(460px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 24px)); overflow: auto; overscroll-behavior: contain; pointer-events: auto; border: 1px solid var(--resource-border); border-radius: 12px; background: var(--resource-surface); box-shadow: 0 12px 48px #0003; scrollbar-width: thin; scrollbar-color: var(--resource-muted) transparent; }
+.popover [data-node-details-header] { position: sticky; top: 0; z-index: 1; }
+@media (max-width: 600px) {
+  .layer:global(.resource-page) { background: #0006; pointer-events: auto; }
+  .popover { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto; max-height: 80dvh; }
+}

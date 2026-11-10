@@ -1,17 +1,17 @@
-.shell { display: flex; height: 100dvh; overflow: hidden; background: #f8f9fb; color: #25262b; }
-.sidebar { width: 248px; flex: 0 0 248px; display: flex; min-height: 0; flex-direction: column; background: #f1f3f6; border-right: 1px solid #e5e7eb; }
+.shell { display: flex; height: 100dvh; overflow: hidden; background: #f4f1eb; color: #262720; }
+.sidebar { width: 248px; flex: 0 0 248px; display: flex; min-height: 0; flex-direction: column; background: #eeebe4; border-right: 1px solid #ded9ce; }
 .brand { display: flex; align-items: center; gap: 8px; padding: 22px 16px 18px; }
 .brandLink { display: flex; flex: 1; min-width: 0; align-items: center; gap: 11px; font-size: 16px; font-weight: 650; letter-spacing: -.4px; }
-.logo { display: grid; place-items: center; width: 33px; height: 33px; flex-shrink: 0; border-radius: 11px; color: white; background: #292b35; font-size: 18px; font-weight: 700; }
-.brandCaption { display: block; margin-top: 3px; color: #8a8e9a; font-size: 10px; font-weight: 400; letter-spacing: .4px; }
+.logo { display: grid; place-items: center; width: 33px; height: 33px; flex-shrink: 0; border-radius: 8px; color: #f7f3ea; background: #a14932; font-family: Georgia, serif; font-size: 18px; font-weight: 700; }
+.brandCaption { display: block; margin-top: 3px; color: #898477; font-size: 10px; font-weight: 400; letter-spacing: .12em; }
 .iconButton { display: grid; width: 32px; height: 32px; flex-shrink: 0; place-items: center; border-radius: 8px; color: #777c89; cursor: pointer; }
-.iconButton:hover { background: #e5e8ee; color: #292b35; }
+.iconButton:hover { background: #e3ded3; color: #262720; }
 .navigation { padding: 0 12px; overflow-y: auto; flex-shrink: 0; }
 .group { margin-bottom: 12px; }
 .groupLabel { padding: 9px 12px 7px; font-size: 10px; color: #9296a1; letter-spacing: .1em; }
-.navLink { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 9px; color: #6a6f7b; font-size: 13px; transition: background .15s, color .15s; }
-.navLink:hover { background: #e7eaf0; color: #25262b; }
-.active { background: #e3e7ee; color: #25262b; font-weight: 600; }
+.navLink { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 6px; color: #6f6b62; font-size: 13px; transition: background .15s, color .15s; }
+.navLink:hover { background: #e3ded3; color: #262720; }
+.active { background: #e1d9cd; color: #873f2d; font-weight: 600; }
 .navLink svg { flex-shrink: 0; }
 .sidebarSlot { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .slotContent { display: flex; flex: 1; min-height: 0; flex-direction: column; }
@@ -29,6 +29,18 @@
 .skip { position: fixed; left: 270px; top: -80px; z-index: 100; border-radius: 8px; background: #25262b; padding: 10px 16px; color: white; }
 .skip:focus { top: 12px; }
 .shell :is(a, button, input):focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; }
+
+:global(.theme-dark) { background: #171815; color: #e9e6df; }
+:global(.theme-dark) .sidebar { background: #1e1f1b; border-color: #34352f; }
+:global(.theme-dark) .logo { background: #c06b4e; color: #171815; }
+:global(.theme-dark) .brandCaption, :global(.theme-dark) .groupLabel { color: #969286; }
+:global(.theme-dark) .navLink { color: #b7b3a9; }
+:global(.theme-dark) .navLink:hover { background: #2d2e28; color: #f0ede5; }
+:global(.theme-dark) .active { background: #3a302a; color: #e5a184; }
+:global(.theme-dark) .account { border-color: #34352f; }
+:global(.theme-dark) .iconButton:hover { background: #2d2e28; color: #f0ede5; }
+:global(.theme-dark) .mobileBar { background: #1e1f1b; border-color: #34352f; }
+:global(.theme-dark) .shell :is(a, button, input):focus-visible { outline-color: #d58b6c; }
 
 @media (max-width: 1023px) {
   .sidebar, .collapsed .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 70; width: min(290px, 86vw); transform: translateX(-100%); visibility: hidden; transition: transform .2s, visibility .2s; }
