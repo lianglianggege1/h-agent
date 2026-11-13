@@ -12,7 +12,6 @@ import com.h.backend.chat.domain.subagentdefinition.model.SubagentTurnSnapshot;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
-import io.agentscope.core.model.ToolSchema;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
@@ -179,7 +178,10 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
             ResolvedSubagentDefinition definition, RuntimeContext parentContext) {
         CompiledSubagentDefinition compiled = definition.compiled();
         SubagentCapabilityPolicy.EffectiveCapabilities capabilities =
-                capabilityPolicy.effective(compiled, null);
+                capabilityPolicy.effective(compiled, SubagentToolkitPolicy.parentDenied(
+                        harnessAgent().getToolkit(), capabilityPolicy.allowedTools(), parentContext,
+                        parentContext == null ? harnessAgent().getDelegate().getPermissionContext()
+                                : harnessAgent().getDelegate().getAgentState(parentContext).getPermissionContext()));
 
         HarnessAgent.Builder sub = HarnessAgent.builder()
                 .name(definition.agentId())
@@ -199,12 +201,16 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
                 .stateStore(harnessAgent().getStateStore())
                 // leaf worker 约束：无嵌套 subagent、无 shell、无 Memory/会话持久化。
                 .disableSubagents()
+                .disableToolsConfig()
+                .disableDynamicSkills()
+                .disableDefaultWorkspaceSkills()
                 .disableShellTool()
                 .disableMemoryTools()
                 .disableMemoryHooks()
                 .compaction(io.agentscope.harness.agent.memory.compaction.CompactionConfig.builder()
                         .flushBeforeCompact(false).offloadBeforeCompact(true).build())
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.ConversationLogMiddleware())
+                .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
                 .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
                 .disableSessionPersistence()
                 // 与 SDK 声明式 child 一致：继承父显式 middleware（委托合并 + 生命周期投影）。
@@ -214,6 +220,9 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
                 .middleware(observationInstaller.middleware());
 
         HarnessAgent child = sub.build();
+        // The builder registers fresh SESSION-scoped filesystem tools and may add other SDK
+        // tools. Enforce the allowlist again after build, including the explicitly empty case.
+        SubagentToolkitPolicy.retainAllowed(child.getToolkit(), capabilities.tools());
         log.debug("Materialized USER subagent agentId={} definitionId={} version={} tools={}",
                 definition.agentId(), definition.definitionId(), definition.version(),
                 capabilities.tools());
@@ -223,14 +232,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
     /** 平台能力交集后的精确 toolkit：不在有效集合内的工具全部移除（空集合表示无能力）。 */
     private Toolkit exactToolkit(List<String> effectiveTools) {
         Toolkit toolkit = harnessAgent().getToolkit().copy();
-        Set<String> allow = Set.copyOf(effectiveTools);
-        List<String> toRemove = new ArrayList<>();
-        for (ToolSchema schema : toolkit.getToolSchemas()) {
-            if (!allow.contains(schema.getName())) {
-                toRemove.add(schema.getName());
-            }
-        }
-        toRemove.forEach(toolkit::removeTool);
+        SubagentToolkitPolicy.retainAllowed(toolkit, effectiveTools);
         return toolkit;
     }
 

@@ -167,18 +167,16 @@ public class ChatModelConfig {
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由
         // SkillRuntimeToolProvider 依据本次执行的 Runtime Snapshot 提供。
         toolProviders.add(new ObservingToolProvider(
-                skillRuntimeToolProvider::provideTools, observability, "langchain4j"));
-        toolProviders.add(new ObservingToolProvider(request -> {
-            McpToolProvider provider = mcpToolProvider.getIfAvailable();
-            if (provider == null) {
-                return ToolProviderResult.builder().build();
-            }
-            return provider.provideTools(request);
-        }, observability, "langchain4j"));
+                skillRuntimeToolProvider, observability, "langchain4j"));
+        McpToolProvider mcp = mcpToolProvider.getIfAvailable();
+        if (mcp != null) {
+            toolProviders.add(new ObservingToolProvider(mcp, observability, "langchain4j"));
+        }
 
         return AiServices.builder(HAssistant.class)
                 .streamingChatModel(streamingChatModel)
-                .chatRequestTransformer(redisChatMemoryStore::withGenerationInstructions)
+                .chatRequestTransformer((request, memoryId) -> redisChatMemoryStore.withGenerationInstructions(
+                        com.h.backend.chat.infrastructure.ai.CapabilityRequestInstructions.apply(request), memoryId))
                 // standard-chat 的长期记忆仅由模型工具访问；知识库通过 knowledge_* 工具按需查询。
                 // 不同用户的系统提示词不一样
                 .systemMessageProvider(memoryId -> {
@@ -186,15 +184,9 @@ public class ChatModelConfig {
                     Long userId = Long.valueOf(parts[0]);
                     Long promptId = Long.valueOf(parts[1]);
 
-                    String systemMessage = systemPromptService.getSystemPrompt(userId, promptId)
-                            + "\n\n" + com.h.backend.document.domain.DocumentInstructions.SYSTEM;
-                    systemMessage += "\n\n" + com.h.backend.memory.application.MemoryToolContract.INSTRUCTIONS;
-                    systemMessage += "\n\n" + com.h.backend.knowledge.application.KnowledgeToolContract.INSTRUCTIONS;
-                    String skillsSection = skillRuntimeService.skillsSystemMessage(memoryId.toString());
-                    if (skillsSection == null) {
-                        return systemMessage;
-                    }
-                    return systemMessage + "\n\n" + skillsSection;
+                    return com.h.backend.chat.application.capability.AgentPromptComposer.standardChat(
+                            systemPromptService.getSystemPrompt(userId, promptId),
+                            skillRuntimeService.skillsSystemMessage(memoryId.toString()));
                 })
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)
