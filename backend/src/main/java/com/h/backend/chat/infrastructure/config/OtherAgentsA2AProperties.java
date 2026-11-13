@@ -6,34 +6,19 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "agents.a2a.other-agents")
 public class OtherAgentsA2AProperties {
-
-    private String baseUrl = "http://localhost:8082";
     private boolean enabled = true;
+    private String version = "0.1.0";
 
-    public String getBaseUrl() {
-        return baseUrl;
-    }
+    public boolean isEnabled() { return enabled; }
 
-    public void setBaseUrl(String baseUrl) {
-        this.baseUrl = baseUrl;
-    }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
-    public boolean isEnabled() {
-        return enabled;
-    }
+    public String getVersion() { return version; }
 
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public String agentUrl(String agentId) {
-        return normalizedBaseUrl() + "/a2a/agents/" + agentId;
-    }
-
-    private String normalizedBaseUrl() {
-        if (baseUrl == null || baseUrl.isBlank()) {
-            return "http://localhost:8082";
+    public void setVersion(String version) {
+        if (version == null || version.isBlank()) {
+            throw new IllegalArgumentException("A2A version must not be blank");
         }
-        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.version = version;
     }
 }

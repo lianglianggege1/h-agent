@@ -7,7 +7,17 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "other-agents.a2a")
 public class OtherAgentsA2AProperties {
 
-    private String publicUrl = "http://localhost:8082";
+    private String publicUrl = "";
+    private String version = "0.1.0";
+
+    public String getVersion() { return version; }
+
+    public void setVersion(String version) {
+        if (version == null || version.isBlank()) {
+            throw new IllegalArgumentException("A2A version must not be blank");
+        }
+        this.version = version;
+    }
 
     public String getPublicUrl() {
         return publicUrl;

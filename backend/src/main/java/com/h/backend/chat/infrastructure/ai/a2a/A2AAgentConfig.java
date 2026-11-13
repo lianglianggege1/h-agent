@@ -41,7 +41,7 @@ public class A2AAgentConfig {
     private ChatMemoryIdFactory chatMemoryIdFactory;
 
     @Resource
-    private com.h.backend.chat.infrastructure.config.OtherAgentsA2AProperties otherAgentsA2AProperties;
+    private NacosA2AClientFactory nacosA2AClientFactory;
 
     @Resource
     private AgentObservability agentObservability;
@@ -63,20 +63,20 @@ public class A2AAgentConfig {
         // 必须在 a2aBuilder 构造 A2A Client（内部经 A2AHttpClientFactory 选型）之前完成初始化。
         com.h.backend.observability.a2a.ObservingA2AHttpClientProvider.initialize(agentObservability);
 
-        A2ARemoteAgents.CreativeWriter creativeWriter = AgenticServices
-                .a2aBuilder(otherAgentsA2AProperties.agentUrl("creative-writer"), A2ARemoteAgents.CreativeWriter.class)
+        A2ARemoteAgents.CreativeWriter creativeWriter = nacosA2AClientFactory
+                .builder("creative-writer", A2ARemoteAgents.CreativeWriter.class)
                 .listener(platformListener())
                 .outputKey("story")
                 .build();
 
-        A2ARemoteAgents.AudienceEditor audienceEditor = AgenticServices
-                .a2aBuilder(otherAgentsA2AProperties.agentUrl("audience-editor"), A2ARemoteAgents.AudienceEditor.class)
+        A2ARemoteAgents.AudienceEditor audienceEditor = nacosA2AClientFactory
+                .builder("audience-editor", A2ARemoteAgents.AudienceEditor.class)
                 .listener(platformListener())
                 .outputKey("story")
                 .build();
 
-        A2ARemoteAgents.StyleEditor styleEditor = AgenticServices
-                .a2aBuilder(otherAgentsA2AProperties.agentUrl("style-editor"), A2ARemoteAgents.StyleEditor.class)
+        A2ARemoteAgents.StyleEditor styleEditor = nacosA2AClientFactory
+                .builder("style-editor", A2ARemoteAgents.StyleEditor.class)
                 .listener(platformListener())
                 .outputKey("story")
                 .build();

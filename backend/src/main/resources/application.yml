@@ -191,8 +191,8 @@ management:
 agents:
   a2a:
     other-agents:
-      enabled: false
-      base-url: http://localhost:8082
+      enabled: ${OTHER_AGENTS_A2A_ENABLED:true}
+      version: ${OTHER_AGENTS_A2A_VERSION:0.1.0}
   mcp:
     other-agents:
       enabled: false
@@ -341,6 +341,7 @@ automation:
 h-agent:
   registry:
     enabled: ${NACOS_ENABLED:true}
+    a2a-enabled: ${NACOS_A2A_ENABLED:true}
     server-addr: ${NACOS_SERVER_ADDR:169.254.210.181:8848}
     namespace: ${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}
     group: ${NACOS_GROUP:DEFAULT_GROUP}

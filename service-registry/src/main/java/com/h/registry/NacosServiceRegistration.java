@@ -10,10 +10,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationListener;
 import org.springframework.util.Assert;
 
-import java.net.Inet4Address;
-import java.net.NetworkInterface;
-import java.net.SocketException;
-import java.util.Collections;
 import java.util.HashMap;
 
 /** Registers the actual bound HTTP port, excluding a separate management server. */
@@ -40,8 +36,9 @@ final class NacosServiceRegistration implements ApplicationListener<WebServerIni
             return;
         }
         Instance candidate = new Instance();
-        candidate.setIp(properties.ip().isBlank() ? localIp() : properties.ip());
-        candidate.setPort(properties.port() == 0 ? event.getWebServer().getPort() : properties.port());
+        var address = NacosRegistrationAddress.resolve(properties, event.getWebServer().getPort());
+        candidate.setIp(address.ip());
+        candidate.setPort(address.port());
         Assert.isTrue(candidate.getPort() > 0, "Nacos registration requires a bound HTTP port");
         candidate.setClusterName(properties.cluster());
         candidate.setEphemeral(true);
@@ -72,28 +69,4 @@ final class NacosServiceRegistration implements ApplicationListener<WebServerIni
         }
     }
 
-    private static String localIp() {
-        try {
-            String fallback = null;
-            for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!network.isUp() || network.isLoopback() || network.isVirtual()) {
-                    continue;
-                }
-                for (var address : Collections.list(network.getInetAddresses())) {
-                    if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
-                        if (address.isSiteLocalAddress()) {
-                            return address.getHostAddress();
-                        }
-                        fallback = address.getHostAddress();
-                    }
-                }
-            }
-            if (fallback != null) {
-                return fallback;
-            }
-        } catch (SocketException e) {
-            throw new IllegalStateException("Cannot determine registration IP; set NACOS_IP", e);
-        }
-        throw new IllegalStateException("No non-loopback IPv4 address; set NACOS_IP");
-    }
 }

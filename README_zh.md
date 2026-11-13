@@ -279,7 +279,7 @@ MINIO_USER_SKILLS_BUCKET=h-agent-skills
 
 两个 Java 服务默认注册到 Nacos。请在根目录 `.env` 填写 `NACOS_USERNAME`、`NACOS_PASSWORD`；注册失败会中止启动。SDK 地址为 `169.254.210.181:8848`，gRPC 使用 `9848`，namespace 为 `bc2a5f7e-0ab7-452c-849c-13527706651f`。控制台保留 `8081`，backend 默认端口调整为 `8083`。
 
-详见 [Nacos 注册与发现接入说明](docs/runbooks/nacos-service-discovery.md)。现有 A2A 调用继续使用原来的配置地址，后续再统一重构。
+详见 [Nacos 注册与发现接入说明](docs/runbooks/nacos-service-discovery.md)。A2A 已接入 Nacos 原生 AI Registry，发布 AgentCard 和 Endpoint，并在调用前发现运行地址。先启动 other-agents，再启动 backend；只运行 backend 时设置 `OTHER_AGENTS_A2A_ENABLED=false`。
 
 ### 2. 构建并启动后端
 

@@ -279,7 +279,7 @@ Never commit `.env` or real credentials.
 
 Both Java services register with Nacos by default. Set `NACOS_USERNAME` and `NACOS_PASSWORD` in the root `.env`; registration failure aborts startup. The SDK connects to `169.254.210.181:8848` with gRPC on `9848`, using namespace `bc2a5f7e-0ab7-452c-849c-13527706651f`. The console remains on `8081`, while backend now defaults to `8083`.
 
-See [Nacos registration and discovery](docs/runbooks/nacos-service-discovery.md) for lifecycle, advertised addresses, configuration, and the shared discovery API. Existing A2A calls keep their configured addresses.
+See [Nacos registration and discovery](docs/runbooks/nacos-service-discovery.md) for lifecycle, advertised addresses, configuration, and the shared discovery API. A2A publishes AgentCards and endpoints to the Nacos AI Registry and discovers runtime addresses per request. Start other-agents before backend, or set `OTHER_AGENTS_A2A_ENABLED=false` for backend-only development.
 
 ### 2. Build and run the backend
 

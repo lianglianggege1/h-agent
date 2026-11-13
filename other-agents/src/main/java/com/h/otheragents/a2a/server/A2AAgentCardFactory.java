@@ -25,7 +25,7 @@ public class A2AAgentCardFactory {
                 .description(export.method().publicDescription())
                 .url(properties.agentUrl(export.id()))
                 .provider(new AgentProvider("h-agent other-agents", baseUrl))
-                .version("0.1.0")
+                .version(properties.getVersion())
                 .capabilities(AgentCapabilities.builder()
                         .streaming(false)
                         .pushNotifications(false)

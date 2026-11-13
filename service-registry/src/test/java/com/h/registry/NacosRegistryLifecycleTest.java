@@ -100,6 +100,22 @@ class NacosRegistryLifecycleTest {
         verify(namingService, never()).registerInstance(any(), any(), any(Instance.class));
     }
 
+    @Test
+    void aiClientSharesNamespaceAndClosesAfterApplicationShutdown() throws Exception {
+        var ai = mock(com.alibaba.nacos.api.ai.AiService.class);
+        try (var factory = org.mockito.Mockito.mockStatic(com.alibaba.nacos.api.ai.AiFactory.class)) {
+            factory.when(() -> com.alibaba.nacos.api.ai.AiFactory.createAiService(any(java.util.Properties.class)))
+                    .thenReturn(ai);
+            try (var context = start("h-agent.registry.a2a-enabled=true", "h-agent.registry.namespace=a2a-test")) {
+                assertThat(context.getBean(com.alibaba.nacos.api.ai.AiService.class)).isSameAs(ai);
+                factory.verify(() -> com.alibaba.nacos.api.ai.AiFactory.createAiService(
+                        org.mockito.ArgumentMatchers.argThat(properties -> "a2a-test".equals(
+                                properties.getProperty(com.alibaba.nacos.api.PropertyKeyConst.NAMESPACE)))));
+            }
+            verify(ai).shutdown();
+        }
+    }
+
     private ConfigurableApplicationContext start(String... overrides) {
         return new SpringApplicationBuilder(TestApplication.class)
                 .logStartupInfo(false)
