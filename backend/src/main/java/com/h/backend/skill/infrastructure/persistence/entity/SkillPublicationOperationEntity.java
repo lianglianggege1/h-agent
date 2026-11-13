@@ -61,4 +61,10 @@ public class SkillPublicationOperationEntity {
 
     @TableField("updated_at")
     private LocalDateTime updatedAt;
+    @TableField("release_note")
+    private String releaseNote;
+
+    @TableField("source_coordinates_json")
+    private String sourceCoordinatesJson;
+
 }

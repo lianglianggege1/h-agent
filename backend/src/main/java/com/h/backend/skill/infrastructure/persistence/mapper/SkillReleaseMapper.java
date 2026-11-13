@@ -16,12 +16,12 @@ public interface SkillReleaseMapper extends BaseMapper<SkillReleaseEntity> {
 
     /** JSONB 列不能用 BaseMapper 的隐式 insert（参数按 varchar 发送会被 PostgreSQL 拒绝），必须显式 cast。 */
     @Insert("""
-            INSERT INTO skill_releases (skill_id, version_number, tag_name, commit_sha,
+            INSERT INTO skill_releases (skill_id, version_number, tag_name, commit_sha, source_provider, source_version, source_revision,
                     artifact_store, artifact_object_key, artifact_object_version_id, artifact_media_type,
                     artifact_digest, artifact_size, builder_version, validation_policy_version,
                     security_policy_version, release_note, manifest_json, validation_summary_json,
                     status, created_by)
-            VALUES (#{skillId}, #{versionNumber}, #{tagName}, #{commitSha},
+            VALUES (#{skillId}, #{versionNumber}, #{tagName}, #{commitSha}, #{sourceProvider}, #{sourceVersion}, #{sourceRevision},
                     #{artifactStore}, #{artifactObjectKey}, #{artifactObjectVersionId}, #{artifactMediaType},
                     #{artifactDigest}, #{artifactSize}, #{builderVersion}, #{validationPolicyVersion},
                     #{securityPolicyVersion}, #{releaseNote}, #{manifestJson}::jsonb, #{validationSummaryJson}::jsonb,
@@ -70,4 +70,10 @@ public interface SkillReleaseMapper extends BaseMapper<SkillReleaseEntity> {
             SELECT COUNT(*) FROM skill_releases WHERE skill_id = #{skillId}
             """)
     long countBySkillId(@Param("skillId") long skillId);
+    @Update("""
+            UPDATE skill_releases SET source_provider = 'nacos', source_version = #{version}, source_revision = #{revision}
+            WHERE id = #{id} AND skill_id = #{skillId} AND source_provider = 'gitee'
+            """)
+    int migrateSource(@Param("skillId") long skillId, @Param("id") long id,
+                      @Param("version") String version, @Param("revision") String revision);
 }

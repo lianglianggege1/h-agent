@@ -9,6 +9,10 @@ import java.util.List;
 @ConfigurationProperties(prefix = "skill-platform")
 public class SkillPlatformProperties {
 
+    private final Nacos nacos = new Nacos();
+
+    public Nacos getNacos() { return nacos; }
+
     private final Repository repository = new Repository();
     private final Artifacts artifacts = new Artifacts();
     private final Validation validation = new Validation();
@@ -40,8 +44,26 @@ public class SkillPlatformProperties {
         return systemSkills;
     }
 
+    public static class Nacos {
+        private String serverAddr = "localhost:8848";
+        private String namespace = "";
+        private String username = "";
+        private String password = "";
+        private String namePrefix = "h-agent-skill-";
+        public String getServerAddr() { return serverAddr; }
+        public void setServerAddr(String value) { serverAddr = value; }
+        public String getNamespace() { return namespace; }
+        public void setNamespace(String value) { namespace = value; }
+        public String getUsername() { return username; }
+        public void setUsername(String value) { username = value; }
+        public String getPassword() { return password; }
+        public void setPassword(String value) { password = value; }
+        public String getNamePrefix() { return namePrefix; }
+        public void setNamePrefix(String value) { namePrefix = value; }
+    }
+
     public static class Repository {
-        private String provider = "gitee";
+        private String provider = "nacos";
         private String cloneUrl = "https://gitee.com/huajiangliangliang/hj-skill-repo.git";
         private String branch = "master";
         private String credentialEnv = "GITEE_TOKEN";

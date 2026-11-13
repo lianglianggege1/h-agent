@@ -12,6 +12,9 @@ import com.h.backend.skill.infrastructure.artifact.SkillArtifactPublisher;
 import com.h.backend.skill.infrastructure.artifact.SkillArtifactResolver;
 import com.h.backend.skill.infrastructure.config.SkillPlatformProperties;
 import com.h.backend.skill.infrastructure.gitee.GiteeSkillRepository;
+import com.h.backend.skill.domain.source.SkillSourceRepository;
+import com.h.backend.skill.domain.source.SkillSourceRepository.SourceSnapshot;
+import java.util.function.Supplier;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillDefinitionEntity;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillOperationLogEntity;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillProposalEntity;
@@ -32,23 +35,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * SkillCatalog 深模块（设计 §8/§11）：用户 Skill 的 Proposal 编辑、发布、
  * 生效、启停、撤销、归档与查询。
  *
- * <p>Controller 与 Runtime 不直接接触 Gitee client、branch、tag 或数据库表。
- * 发布流程：校验证据 -> 重读 proposal head 内容并复核 -> 构建确定性 bundle ->
- * MinIO 制品（读回验证）-> squash 合并到 master -> Release tag（重读验证）->
+ * <p>Controller 与 Runtime 不直接接触源码后端或数据库表。
+ * 发布流程：校验证据 -> 重读 proposal head 内容并复核 ->
+ * Nacos 固定版本（原始内容读回验证）-> MinIO 制品（读回验证）->
  * PostgreSQL 登记不可变 Release -> 删除 Proposal。
  *
  * <p>发布、设为生效、启用是三个独立动作；本类不提供任何组合命令（设计 §7.1）。
@@ -62,7 +63,8 @@ public class SkillCatalogService {
     private final SkillReleaseMapper releaseMapper;
     private final SkillPublicationOperationMapper publicationMapper;
     private final SkillOperationLogMapper operationLogMapper;
-    private final GiteeSkillRepository gitee;
+    private final GiteeSkillRepository legacyGitee;
+    private final SkillSourceRepository sources;
     private final SkillContentValidator validator;
     private final DeterministicSkillTarBuilder tarBuilder;
     private final SkillArtifactPublisher artifactPublisher;
@@ -77,7 +79,8 @@ public class SkillCatalogService {
             SkillReleaseMapper releaseMapper,
             SkillPublicationOperationMapper publicationMapper,
             SkillOperationLogMapper operationLogMapper,
-            GiteeSkillRepository gitee,
+            GiteeSkillRepository legacyGitee,
+            SkillSourceRepository sources,
             SkillContentValidator validator,
             DeterministicSkillTarBuilder tarBuilder,
             SkillArtifactPublisher artifactPublisher,
@@ -91,7 +94,8 @@ public class SkillCatalogService {
         this.releaseMapper = releaseMapper;
         this.publicationMapper = publicationMapper;
         this.operationLogMapper = operationLogMapper;
-        this.gitee = gitee;
+        this.legacyGitee = legacyGitee;
+        this.sources = sources;
         this.validator = validator;
         this.tarBuilder = tarBuilder;
         this.artifactPublisher = artifactPublisher;
@@ -129,7 +133,7 @@ public class SkillCatalogService {
     public record ReleaseSummaryView(
             Long id, int versionNumber, String digest, long size,
             String releaseNote, String status, String commitSha, LocalDateTime createdAt,
-            boolean revoked, String revokeReason
+            boolean revoked, String revokeReason, String sourceProvider, String sourceVersion, String sourceRevision
     ) {
     }
 
@@ -170,6 +174,10 @@ public class SkillCatalogService {
     // ==================================================================
 
     public SkillSummaryView createSkill(long userId, CreateSkillCommand command) {
+        return transactionTemplate.execute(status -> createSkillLocked(userId, command));
+    }
+
+    private SkillSummaryView createSkillLocked(long userId, CreateSkillCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         String skillKey = normalizeKey(command.skillKey());
         String displayName = requireText(command.displayName(), "displayName", 255);
@@ -198,19 +206,14 @@ public class SkillCatalogService {
         definition.setRevision(1L);
         definitionMapper.insert(definition);
 
-        String directory = gitDirectory(userId, skillKey);
-        String branch = "proposal/" + userId + "/" + definition.getId() + "/"
-                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        gitee.createBranch(branch, properties.getRepository().getBranch());
         Map<String, byte[]> initial = new LinkedHashMap<>();
         String skillMd = (command.skillMd() == null || command.skillMd().isBlank())
-                ? defaultSkillMd(skillKey, displayName)
-                : command.skillMd();
+                ? defaultSkillMd(skillKey, displayName) : command.skillMd();
         initial.put("SKILL.md", skillMd.getBytes(StandardCharsets.UTF_8));
         initial.put("skill.yaml", defaultSkillYaml(skillKey, displayName).getBytes(StandardCharsets.UTF_8));
-        String head = pushFiles(directory, branch, initial);
-
-        insertProposal(definition.getId(), branch, head, null, userId);
+        requireRemoteSafe(SkillFileSet.of(initial));
+        SourceSnapshot snapshot = sources.openDraft(definition.getId(), SkillFileSet.of(initial));
+        insertProposal(definition.getId(), snapshot, null, userId);
 
         logOperation(userId, definition.getId(), null, "CREATE", null, Map.of(
                 "skillKey", skillKey, "displayName", displayName));
@@ -243,6 +246,10 @@ public class SkillCatalogService {
     }
 
     public void deleteSkill(long userId, long skillId) {
+        sourceLocked(userId, skillId, () -> { deleteSkillLocked(userId, skillId); return null; });
+    }
+
+    private void deleteSkillLocked(long userId, long skillId) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         if (releaseMapper.countBySkillId(skillId) > 0) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT,
@@ -250,7 +257,10 @@ public class SkillCatalogService {
         }
         SkillProposalEntity proposal = proposalMapper.selectOpenBySkillId(skillId);
         if (proposal != null) {
-            safeDeleteBranch(proposal.getBranchName());
+            if ("nacos".equals(proposal.getSourceProvider())) {
+                sources.discard(skillId, proposal.getSourceVersion(), proposal.getHeadCommitSha());
+            }
+            // Legacy Git history is retained read-only for migration/rollback.
             proposalMapper.deleteById(proposal.getId());
         }
         definitionMapper.deleteById(skillId);
@@ -262,10 +272,13 @@ public class SkillCatalogService {
     // ==================================================================
 
     public ProposalView getProposal(long userId, long skillId) {
+        return sourceLocked(userId, skillId, () -> getProposalLocked(userId, skillId));
+    }
+
+    private ProposalView getProposalLocked(long userId, long skillId) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         SkillProposalEntity proposal = requireOpenProposal(skillId);
-        Map<String, byte[]> contents = readBranchFiles(gitDirectory(userId, definition.getSkillKey()),
-                proposal.getBranchName());
+        Map<String, byte[]> contents = proposalSnapshot(definition, proposal).files().files();
         return toProposalView(proposal, contents);
     }
 
@@ -274,6 +287,10 @@ public class SkillCatalogService {
      * 一个 Skill 同时最多一个 OPEN Proposal。
      */
     public ProposalView createProposalFromRelease(long userId, long skillId, Long baseReleaseId) {
+        return sourceLocked(userId, skillId, () -> createProposalFromReleaseLocked(userId, skillId, baseReleaseId));
+    }
+
+    private ProposalView createProposalFromReleaseLocked(long userId, long skillId, Long baseReleaseId) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         if (proposalMapper.selectOpenBySkillId(skillId) != null) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_STATE_INVALID,
@@ -292,82 +309,57 @@ public class SkillCatalogService {
             base = releases.get(0);
         }
 
-        String directory = gitDirectory(userId, definition.getSkillKey());
-        String branch = "proposal/" + userId + "/" + skillId + "/"
-                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        gitee.createBranch(branch, properties.getRepository().getBranch());
-
+        migrateHistoryLocked(skillId);
         Map<String, byte[]> seed = base == null
-                ? Map.of("SKILL.md", defaultSkillMd(definition.getSkillKey(), definition.getDisplayName())
-                        .getBytes(StandardCharsets.UTF_8))
-                : readTagFiles(directory, base.getTagName());
-        String head = pushFiles(directory, branch, seed);
-
-        insertProposal(skillId, branch, head, base == null ? null : base.getId(), userId);
-        SkillProposalEntity proposal = requireOpenProposal(skillId);
-        return toProposalView(proposal, seed);
+                ? Map.of("SKILL.md", defaultSkillMd(definition.getSkillKey(), definition.getDisplayName()).getBytes(StandardCharsets.UTF_8),
+                         "skill.yaml", defaultSkillYaml(definition.getSkillKey(), definition.getDisplayName()).getBytes(StandardCharsets.UTF_8))
+                : releaseFiles(base);
+        requireRemoteSafe(SkillFileSet.of(seed));
+        SourceSnapshot snapshot = sources.openDraft(skillId, SkillFileSet.of(seed));
+        insertProposal(skillId, snapshot, base == null ? null : base.getId(), userId);
+        return toProposalView(requireOpenProposal(skillId), snapshot.files().files());
     }
 
     public ProposalView saveProposal(long userId, long skillId, String expectedHead, List<SaveProposalChange> changes) {
+        return sourceLocked(userId, skillId, () -> saveProposalLocked(userId, skillId, expectedHead, changes));
+    }
+
+    private ProposalView saveProposalLocked(long userId, long skillId, String expectedHead, List<SaveProposalChange> changes) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         SkillProposalEntity proposal = requireOpenProposal(skillId);
-        if (!Objects.equals(proposal.getHeadCommitSha(), expectedHead)) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
-        }
-        if (changes == null || changes.isEmpty()) {
-            return toProposalView(proposal, readBranchFiles(gitDirectory(userId, definition.getSkillKey()),
-                    proposal.getBranchName()));
-        }
-
-        String directory = gitDirectory(userId, definition.getSkillKey());
-        String branch = proposal.getBranchName();
-        Map<String, byte[]> current = readBranchFiles(directory, branch);
-        Map<String, byte[]> next = new LinkedHashMap<>(current);
+        SourceSnapshot before = proposalSnapshot(definition, proposal);
+        requireHead(proposal, expectedHead);
+        if (changes == null || changes.isEmpty()) return toProposalView(proposal, before.files().files());
+        Map<String, byte[]> next = new LinkedHashMap<>(before.files().files());
         for (SaveProposalChange change : changes) {
             String path = requireRelativePath(change.path());
-            if (change.contentBase64() == null || change.contentBase64().isEmpty()) {
-                next.remove(path);
-            } else {
-                next.put(path, Base64.getMimeDecoder().decode(change.contentBase64()));
-            }
-        }
-
-        // 推送远端前的最低安全校验：路径与高置信度凭据（设计 §9.3）
-        List<String> blockers = validator.remoteWriteBlockers(SkillFileSet.of(next));
-        if (!blockers.isEmpty()) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID, String.join("; ", blockers));
-        }
-
-        String newHead = proposal.getHeadCommitSha();
-        for (SaveProposalChange change : changes) {
-            String path = requireRelativePath(change.path());
-            String fullPath = directory + "/" + path;
-            if (change.contentBase64() == null || change.contentBase64().isEmpty()) {
-                String sha = gitee.readFileSha(fullPath, branch);
-                if (sha != null) {
-                    gitee.deleteFile(fullPath, branch, sha, "chore(skill): remove " + path);
+            if (change.contentBase64() == null) next.remove(path);
+            else {
+                try { next.put(path, Base64.getDecoder().decode(change.contentBase64())); }
+                catch (IllegalArgumentException ex) {
+                    throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID, "文件 Base64 编码非法");
                 }
-            } else {
-                newHead = gitee.putFile(fullPath, branch, change.contentBase64(), "chore(skill): update " + path);
             }
         }
-
-        int updated = proposalMapper.advanceHead(proposal.getId(), expectedHead, newHead, userId);
-        if (updated == 0) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
-        }
-        SkillProposalEntity refreshed = proposalMapper.selectById(proposal.getId());
-        return toProposalView(refreshed, readBranchFiles(directory, branch));
+        SkillFileSet fileSet = SkillFileSet.of(next);
+        requireRemoteSafe(fileSet);
+        SourceSnapshot saved = sources.save(skillId, proposal.getSourceVersion(), expectedHead, fileSet);
+        if (!Objects.equals(saved.revision(), expectedHead)) advanceProposal(proposal, expectedHead, saved.revision(), userId);
+        return toProposalView(proposal, saved.files().files());
     }
 
     public SkillValidationResult validateProposal(long userId, long skillId, String expectedHead) {
+        return sourceLocked(userId, skillId, () -> validateProposalLocked(userId, skillId, expectedHead));
+    }
+
+    private SkillValidationResult validateProposalLocked(long userId, long skillId, String expectedHead) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         SkillProposalEntity proposal = requireOpenProposal(skillId);
         if (!Objects.equals(proposal.getHeadCommitSha(), expectedHead)) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
         }
-        Map<String, byte[]> contents = readBranchFiles(
-                gitDirectory(userId, definition.getSkillKey()), proposal.getBranchName());
+        Map<String, byte[]> contents = proposalSnapshot(definition, proposal).files().files();
+        requireHead(proposal, expectedHead);
         SkillValidationResult contentValidation = validator.validate(
                 SkillFileSet.of(contents), definition.getSkillKey(), reservedKeys());
         SkillValidationResult result = contentValidation.valid()
@@ -383,12 +375,16 @@ public class SkillCatalogService {
     }
 
     public void discardProposal(long userId, long skillId, String expectedHead) {
+        sourceLocked(userId, skillId, () -> { discardProposalLocked(userId, skillId, expectedHead); return null; });
+    }
+
+    private void discardProposalLocked(long userId, long skillId, String expectedHead) {
         requireOwned(userId, skillId);
         SkillProposalEntity proposal = requireOpenProposal(skillId);
         if (!Objects.equals(proposal.getHeadCommitSha(), expectedHead)) {
             throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
         }
-        safeDeleteBranch(proposal.getBranchName());
+        if ("nacos".equals(proposal.getSourceProvider())) sources.discard(skillId, proposal.getSourceVersion(), proposal.getHeadCommitSha());
         proposalMapper.deleteById(proposal.getId());
         logOperation(userId, skillId, null, "DISCARD_PROPOSAL", null, Map.of("head", expectedHead));
     }
@@ -397,141 +393,101 @@ public class SkillCatalogService {
     // 发布
     // ==================================================================
 
-    public ReleaseSummaryView publishRelease(
+    public ReleaseSummaryView publishRelease(long userId, long skillId, String expectedHead, String validatedHead, String releaseNote, String idempotencyKey) {
+        return sourceLocked(userId, skillId, () -> publishReleaseLocked(userId, skillId, expectedHead, validatedHead, releaseNote, idempotencyKey));
+    }
+
+    private ReleaseSummaryView publishReleaseLocked(
             long userId, long skillId, String expectedHead, String validatedHead,
             String releaseNote, String idempotencyKey
     ) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         String note = requireReleaseNote(releaseNote);
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT, "缺少 Idempotency-Key");
+        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT, "缺少或非法 Idempotency-Key");
+        }
+        // Consult completed operations BEFORE requiring the now-deleted Proposal.
+        SkillPublicationOperationEntity existing = publicationMapper.selectByIdempotencyKey(idempotencyKey);
+        if (existing != null) {
+            if (!Objects.equals(existing.getSkillId(), skillId)
+                    || !Objects.equals(existing.getExpectedProposalHead(), expectedHead)
+                    || !Objects.equals(existing.getReleaseNote(), note)
+                    || !Objects.equals(expectedHead, validatedHead)) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT, "Idempotency-Key 已用于不同发布请求");
+            }
+            if (SkillPublicationOperationEntity.STATE_COMPLETED.equals(existing.getState()) && existing.getReservedReleaseId() != null) {
+                return toReleaseSummary(requireRelease(skillId, existing.getReservedReleaseId()));
+            }
         }
         SkillProposalEntity proposal = requireOpenProposal(skillId);
-        if (!Objects.equals(proposal.getHeadCommitSha(), expectedHead)) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
-        }
+        SourceSnapshot snapshot = proposalSnapshot(definition, proposal);
+        requireHead(proposal, expectedHead);
         if (!Objects.equals(expectedHead, validatedHead)
                 || !SkillProposalEntity.VALIDATION_VALID.equals(proposal.getValidationStatus())
                 || !Objects.equals(validatedHead, proposal.getValidatedHeadSha())) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.VALIDATION_STALE, "当前内容缺少有效校验，请先重新校验");
+            throw SkillPlatformException.of(SkillPlatformErrorKind.VALIDATION_STALE);
         }
-
-        SkillPublicationOperationEntity operation = findOrCreatePublicationOperation(
-                idempotencyKey, skillId, proposal.getId(), expectedHead);
-        if (SkillPublicationOperationEntity.STATE_COMPLETED.equals(operation.getState())
-                && operation.getReservedReleaseId() != null) {
-            SkillReleaseEntity existing = releaseMapper.selectById(operation.getReservedReleaseId());
-            if (existing != null) {
-                return toReleaseSummary(existing);
-            }
+        SkillValidationResult result = validator.validate(snapshot.files(), definition.getSkillKey(), reservedKeys());
+        if (!result.valid()) throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID, String.join("; ", result.errors()));
+        SkillPublicationOperationEntity operation = existing;
+        if (operation == null) {
+            operation = new SkillPublicationOperationEntity();
+            operation.setSkillId(skillId);
+            operation.setProposalId(proposal.getId());
+            operation.setIdempotencyKey(idempotencyKey);
+            operation.setExpectedProposalHead(expectedHead);
+            operation.setReleaseNote(note);
+            operation.setState(SkillPublicationOperationEntity.STATE_PREPARED);
+            publicationMapper.insert(operation);
         }
-
-        int marked = proposalMapper.markPublishing(proposal.getId(), expectedHead);
-        if (marked == 0) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH, "草稿已被其他操作修改");
+        // A remote publish with a lost response is retried at this SAME exact version.
+        sources.publish(skillId, snapshot.version(), snapshot.revision());
+        SourceSnapshot published = sources.read(skillId, snapshot.version());
+        if (!snapshot.revision().equals(published.revision())) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_DRIFTED);
         }
-        try {
-            return executePublication(userId, definition, proposal, note, operation);
-        } catch (RuntimeException ex) {
-            proposalMapper.reopen(proposal.getId());
-            markOperationFailed(operation.getId(), errorCodeOf(ex));
-            throw ex;
-        }
-    }
-
-    private ReleaseSummaryView executePublication(
-            long userId, SkillDefinitionEntity definition, SkillProposalEntity proposal,
-            String note, SkillPublicationOperationEntity operation
-    ) {
-        long skillId = definition.getId();
-        String directory = gitDirectory(userId, definition.getSkillKey());
-
-        // 1. 重读 proposal head 内容并复核校验（设计 §12 步骤 5）
-        Map<String, byte[]> contents = readBranchFiles(directory, proposal.getBranchName());
-        SkillValidationResult revalidated = validator.validate(
-                SkillFileSet.of(contents), definition.getSkillKey(), reservedKeys());
-        if (!revalidated.valid()) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID,
-                    "发布校验失败: " + String.join("; ", revalidated.errors()));
-        }
-        SkillFileSet fileSet = SkillFileSet.of(contents);
-
-        // 2. 构建确定性 bundle 并发布不可变制品（读回验证）
-        updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_PREPARED, null, null, null);
-        byte[] bundle = tarBuilder.build(fileSet);
+        byte[] bundle = tarBuilder.build(published.files());
         ArtifactDescriptor descriptor = artifactPublisher.storeVerifiedUserBundle(userId, bundle);
-        updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_ARTIFACT_STORED_VERIFIED,
-                null, toJson(descriptor), null);
-
-        // 3. squash 合并到 master 形成干净 publication commit
-        long prNumber = gitee.createPullRequest(proposal.getBranchName(),
-                properties.getRepository().getBranch(), "publish skill " + definition.getSkillKey());
-        String mergeSha = gitee.mergePullRequest(prNumber,
-                "publish " + definition.getSkillKey(), "release: " + note);
-        updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_MASTER_UPDATED,
-                toJson(Map.of("mergeCommitSha", mergeSha, "prNumber", prNumber)), null, null);
-
-        // 4. 创建并验证 Release tag
-        int version = releaseMapper.selectMaxVersion(skillId) + 1;
-        String tagName = releaseTagName(userId, skillId, version);
-        gitee.createTag(tagName, mergeSha, "Skill release v" + version + ": " + note);
-        String verifiedCommit = gitee.verifyTagCommit(tagName);
-        if (verifiedCommit == null || !verifiedCommit.equals(mergeSha)) {
-            throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_DRIFTED, "Release tag 验证失败");
+        if (!descriptor.digest().equals("sha256:" + snapshot.revision()) || descriptor.size() != bundle.length) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.ARTIFACT_CORRUPT);
         }
-        updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_TAG_VERIFIED,
-                toJson(Map.of("tagName", tagName, "commitSha", verifiedCommit)), null, null);
-
-        // 5. PostgreSQL 登记不可变 Release（不写 Activation/Enable，设计 §12 步骤 10）
-        SkillReleaseEntity release = transactionTemplate.execute(status -> {
-            SkillDefinitionEntity locked = definitionMapper.selectOwnedByIdForUpdate(skillId, userId);
-            if (locked == null) {
-                throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_NOT_OWNED);
-            }
-            SkillReleaseEntity entity = new SkillReleaseEntity();
-            entity.setSkillId(skillId);
-            entity.setVersionNumber(version);
-            entity.setTagName(tagName);
-            entity.setCommitSha(mergeSha);
-            entity.setArtifactStore(descriptor.store());
-            entity.setArtifactObjectKey(descriptor.objectKey());
-            entity.setArtifactObjectVersionId(descriptor.objectVersionId());
-            entity.setArtifactMediaType(descriptor.mediaType());
-            entity.setArtifactDigest(descriptor.digest());
-            entity.setArtifactSize(descriptor.size());
-            entity.setBuilderVersion(DeterministicSkillTarBuilder.BUILDER_VERSION);
-            entity.setValidationPolicyVersion(SkillContentValidator.VALIDATION_POLICY_VERSION);
-            entity.setSecurityPolicyVersion(SkillContentValidator.SECURITY_POLICY_VERSION);
-            entity.setReleaseNote(note);
-            entity.setManifestJson(toJson(buildManifest(fileSet)));
-            entity.setValidationSummaryJson(toJson(Map.of("warnings", revalidated.warnings())));
-            entity.setStatus(SkillReleaseEntity.STATUS_AVAILABLE);
-            entity.setCreatedBy(userId);
-            releaseMapper.insertRelease(entity);
-
-            // 显示名称与说明可随新 Release 改变（设计不变量 4）
-            String displayName = readSkillYamlField(contents, "displayName");
-            if (displayName != null && !displayName.isBlank()) {
-                SkillDefinitionEntity update = new SkillDefinitionEntity();
-                update.setId(skillId);
-                update.setDisplayName(displayName);
-                definitionMapper.updateById(update);
-            }
-            updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_RELEASE_INDEXED,
-                    null, null, null);
-            publicationMapper.updateReservedRelease(operation.getId(), entity.getId(), version);
-            return entity;
-        });
-
-        // 6. 删除 Proposal 分支与记录（失败只进入后台清理，不影响已登记 Release）
-        safeDeleteBranch(proposal.getBranchName());
+        int version = releaseMapper.selectMaxVersion(skillId) + 1;
+        SkillReleaseEntity release = new SkillReleaseEntity();
+        release.setSkillId(skillId);
+        release.setVersionNumber(version);
+        release.setSourceProvider("nacos");
+        release.setSourceVersion(snapshot.version());
+        release.setSourceRevision(snapshot.revision());
+        release.setArtifactStore(descriptor.store());
+        release.setArtifactObjectKey(descriptor.objectKey());
+        release.setArtifactObjectVersionId(descriptor.objectVersionId());
+        release.setArtifactMediaType(descriptor.mediaType());
+        release.setArtifactDigest(descriptor.digest());
+        release.setArtifactSize(descriptor.size());
+        release.setBuilderVersion(DeterministicSkillTarBuilder.BUILDER_VERSION);
+        release.setValidationPolicyVersion(SkillContentValidator.VALIDATION_POLICY_VERSION);
+        release.setSecurityPolicyVersion(SkillContentValidator.SECURITY_POLICY_VERSION);
+        release.setReleaseNote(note);
+        release.setManifestJson(toJson(buildManifest(published.files())));
+        release.setValidationSummaryJson(toJson(Map.of("warnings", result.warnings())));
+        release.setStatus(SkillReleaseEntity.STATUS_AVAILABLE);
+        release.setCreatedBy(userId);
+        releaseMapper.insertRelease(release);
+        String displayName = readSkillYamlField(published.files().files(), "displayName");
+        if (displayName != null && !displayName.isBlank()) {
+            SkillDefinitionEntity update = new SkillDefinitionEntity();
+            update.setId(skillId);
+            update.setDisplayName(displayName);
+            definitionMapper.updateById(update);
+        }
+        if (publicationMapper.complete(operation.getId(), release.getId(), version,
+                toJson(Map.of("provider", "nacos", "version", snapshot.version(), "revision", snapshot.revision())),
+                toJson(descriptor)) != 1) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT, "发布登记未完成");
+        }
         proposalMapper.deleteById(proposal.getId());
-        updateOperation(operation.getId(), SkillPublicationOperationEntity.STATE_COMPLETED, null, null, null);
-
-        logOperation(userId, skillId, release.getId(), "PUBLISH", null, Map.of(
-                "version", version, "digest", descriptor.digest(), "tagName", tagName));
-        log.info("Skill 发布完成 userId={} skillId={} v{} digest={}",
-                userId, skillId, version, descriptor.digest());
+        logOperation(userId, skillId, release.getId(), "PUBLISH", null,
+                Map.of("version", version, "digest", descriptor.digest(), "sourceVersion", snapshot.version()));
         return toReleaseSummary(release);
     }
 
@@ -549,8 +505,7 @@ public class SkillCatalogService {
     public ReleaseDetailView getRelease(long userId, long skillId, long releaseId) {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         SkillReleaseEntity release = requireRelease(skillId, releaseId);
-        Map<String, byte[]> contents = readTagFiles(
-                gitDirectory(userId, definition.getSkillKey()), release.getTagName());
+        Map<String, byte[]> contents = releaseFiles(release);
         List<ProposalFileView> files = contents.entrySet().stream()
                 .map(entry -> new ProposalFileView(entry.getKey(), entry.getValue().length,
                         Base64.getEncoder().encodeToString(entry.getValue())))
@@ -570,9 +525,8 @@ public class SkillCatalogService {
         SkillDefinitionEntity definition = requireOwned(userId, skillId);
         SkillReleaseEntity from = requireRelease(skillId, fromId);
         SkillReleaseEntity to = requireRelease(skillId, toId);
-        String directory = gitDirectory(userId, definition.getSkillKey());
-        Map<String, byte[]> fromFiles = readTagFiles(directory, from.getTagName());
-        Map<String, byte[]> toFiles = readTagFiles(directory, to.getTagName());
+        Map<String, byte[]> fromFiles = releaseFiles(from);
+        Map<String, byte[]> toFiles = releaseFiles(to);
 
         Set<String> allPaths = new java.util.TreeSet<>(fromFiles.keySet());
         allPaths.addAll(toFiles.keySet());
@@ -713,24 +667,59 @@ public class SkillCatalogService {
     }
 
     // ==================================================================
-    // 内部：Git 文件读写
+    // 内部：源码快照与旧 Proposal 导入
     // ==================================================================
 
-    private String pushFiles(String directory, String branch, Map<String, byte[]> files) {
-        String head = null;
-        for (Map.Entry<String, byte[]> entry : files.entrySet()) {
-            head = gitee.putFile(directory + "/" + entry.getKey(), branch,
-                    Base64.getEncoder().encodeToString(entry.getValue()), "chore(skill): init " + entry.getKey());
-        }
-        return head == null ? "" : head;
+    /** Per-Skill, retry-safe migration. Does not change Release IDs, provenance, artifacts or activation. */
+    public void migrateSources(long userId, long skillId) {
+        sourceLocked(userId, skillId, () -> {
+            migrateHistoryLocked(skillId);
+            SkillProposalEntity proposal = proposalMapper.selectOpenBySkillId(skillId);
+            if (proposal != null && !"nacos".equals(proposal.getSourceProvider())) {
+                proposalSnapshot(requireOwned(userId, skillId), proposal);
+            }
+            return null;
+        });
     }
 
-    private void insertProposal(long skillId, String branch, String head, Long baseReleaseId, long userId) {
+    private void migrateHistoryLocked(long skillId) {
+        if (proposalMapper.countUnfinishedPublications(skillId) != 0) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT,
+                    "存在尚未收敛的历史发布，请先恢复原发布流程再迁移");
+        }
+        List<SkillReleaseEntity> releases = new ArrayList<>(releaseMapper.selectBySkillId(skillId));
+        releases.sort(java.util.Comparator.comparingInt(SkillReleaseEntity::getVersionNumber));
+        SkillProposalEntity current = proposalMapper.selectOpenBySkillId(skillId);
+        if (releases.stream().anyMatch(r -> !"nacos".equals(r.getSourceProvider()))
+                && current != null && "nacos".equals(current.getSourceProvider())) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT,
+                    "历史迁移需要空闲的远端草稿位，请先完成当前 Nacos 草稿");
+        }
+        for (SkillReleaseEntity release : releases) {
+            if ("nacos".equals(release.getSourceProvider())) continue;
+            SkillFileSet files = artifactResolver.openVerified(toDescriptor(release)).files();
+            if (!release.getArtifactDigest().equals("sha256:" + DeterministicSkillTarBuilder.sha256Hex(tarBuilder.build(files)))) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.ARTIFACT_CORRUPT,
+                        "历史制品无法由当前 builder 原样重建，停止迁移");
+            }
+            requireRemoteSafe(files);
+            SourceSnapshot imported = sources.importPublished(skillId, "v" + release.getVersionNumber(), files);
+            if (!release.getArtifactDigest().equals("sha256:" + imported.revision())) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_DRIFTED);
+            }
+            if (releaseMapper.migrateSource(skillId, release.getId(), imported.version(), imported.revision()) != 1) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT);
+            }
+        }
+    }
+
+    private void insertProposal(long skillId, SourceSnapshot snapshot, Long baseReleaseId, long userId) {
         SkillProposalEntity proposal = new SkillProposalEntity();
         proposal.setSkillId(skillId);
         proposal.setBaseReleaseId(baseReleaseId);
-        proposal.setBranchName(branch);
-        proposal.setHeadCommitSha(head);
+        proposal.setSourceProvider("nacos");
+        proposal.setSourceVersion(snapshot.version());
+        proposal.setHeadCommitSha(snapshot.revision());
         proposal.setRevision(1L);
         proposal.setValidationStatus(SkillProposalEntity.VALIDATION_UNVALIDATED);
         proposal.setSourceType(SkillProposalEntity.SOURCE_TYPE_USER);
@@ -740,22 +729,93 @@ public class SkillCatalogService {
         proposalMapper.insert(proposal);
     }
 
-    private Map<String, byte[]> readBranchFiles(String directory, String branch) {
-        Map<String, byte[]> contents = new LinkedHashMap<>();
-        for (GiteeSkillRepository.GiteeFile file : gitee.listFilesUnder(directory, branch)) {
-            contents.put(relativePath(file.path(), directory),
-                    gitee.readFile(file.path(), branch));
+    private SourceSnapshot proposalSnapshot(SkillDefinitionEntity definition, SkillProposalEntity proposal) {
+        if (!"nacos".equals(proposal.getSourceProvider())) {
+            migrateHistoryLocked(definition.getId());
+            // Import the exact pinned Git commit, never the mutable branch head.
+            String directory = "users/" + definition.getOwnerUserId() + "/skills/" + definition.getSkillKey();
+            Map<String, byte[]> files = new LinkedHashMap<>();
+            for (GiteeSkillRepository.GiteeFile file : legacyGitee.listFilesUnder(directory, proposal.getHeadCommitSha())) {
+                String path = file.path().startsWith(directory + "/") ? file.path().substring(directory.length() + 1) : file.path();
+                files.put(path, legacyGitee.readFile(file.path(), proposal.getHeadCommitSha()));
+            }
+            requireRemoteSafe(SkillFileSet.of(files));
+            SourceSnapshot imported = sources.openDraft(definition.getId(), SkillFileSet.of(files));
+            if (proposalMapper.migrateSource(proposal.getId(), proposal.getHeadCommitSha(), imported.version(), imported.revision()) != 1) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH);
+            }
+            proposal.setSourceProvider("nacos");
+            proposal.setSourceVersion(imported.version());
+            proposal.setHeadCommitSha(imported.revision());
+            proposal.setRevision(proposal.getRevision() + 1);
+            proposal.setValidationStatus(SkillProposalEntity.VALIDATION_UNVALIDATED);
+            proposal.setValidatedHeadSha(null);
+            proposal.setValidationResultJson(null);
+            return imported;
         }
-        return contents;
+        SourceSnapshot snapshot = sources.read(definition.getId(), proposal.getSourceVersion());
+        if (!Objects.equals(proposal.getHeadCommitSha(), snapshot.revision())) {
+            // Remote write succeeded but the PG transaction/response failed. Only its direct
+            // verified child may advance PG; arbitrary console edits must fail closed.
+            if (!Objects.equals(proposal.getHeadCommitSha(), snapshot.parentRevision())) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_DRIFTED);
+            }
+            advanceProposal(proposal, proposal.getHeadCommitSha(), snapshot.revision(), definition.getOwnerUserId());
+        }
+        return snapshot;
     }
 
-    private Map<String, byte[]> readTagFiles(String directory, String tagName) {
-        Map<String, byte[]> contents = new LinkedHashMap<>();
-        for (GiteeSkillRepository.GiteeFile file : gitee.listFilesUnder(directory, tagName)) {
-            contents.put(relativePath(file.path(), directory),
-                    gitee.readFile(file.path(), tagName));
+    private void advanceProposal(SkillProposalEntity proposal, String expected, String next, long userId) {
+        if (proposalMapper.advanceHead(proposal.getId(), expected, next, userId) != 1) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH);
         }
-        return contents;
+        proposal.setHeadCommitSha(next);
+        proposal.setRevision(proposal.getRevision() + 1);
+        proposal.setValidatedHeadSha(null);
+        proposal.setValidationStatus(SkillProposalEntity.VALIDATION_UNVALIDATED);
+        proposal.setValidationResultJson(null);
+        proposal.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private Map<String, byte[]> releaseFiles(SkillReleaseEntity release) {
+        // Historical Git releases already have verified MinIO artifacts; preserve their exact
+        // bytes and provenance without requiring Gitee to remain online for history/diff.
+        if (!"nacos".equals(release.getSourceProvider())) return artifactResolver.openVerified(toDescriptor(release)).files().files();
+        SourceSnapshot snapshot = sources.read(release.getSkillId(), release.getSourceVersion());
+        if (!snapshot.revision().equals(release.getSourceRevision())
+                || !release.getArtifactDigest().equals("sha256:" + snapshot.revision())) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.SOURCE_DRIFTED);
+        }
+        return snapshot.files().files();
+    }
+
+    private void requireRemoteSafe(SkillFileSet files) {
+        var quota = properties.getValidation();
+        if (files.totalBytes() > quota.getMaxTotalBytes() || files.paths().size() > quota.getMaxFiles()
+                || files.files().values().stream().anyMatch(b -> b.length > quota.getMaxFileBytes())) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.QUOTA_EXCEEDED);
+        }
+        if (files.paths().stream().anyMatch(path -> path.equals(SkillBundleManifest.MANIFEST_PATH) || path.startsWith("h-agent-source/")
+                || path.getBytes(StandardCharsets.UTF_8).length > 100 || path.split("/").length > quota.getMaxDepth())) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID, "文件路径超限或占用制品保留路径");
+        }
+        List<String> blockers = validator.remoteWriteBlockers(files);
+        if (!blockers.isEmpty()) throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_INVALID, String.join("; ", blockers));
+    }
+
+    private void requireHead(SkillProposalEntity proposal, String expected) {
+        if (!Objects.equals(proposal.getHeadCommitSha(), expected)) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.PROPOSAL_HEAD_MISMATCH);
+        }
+    }
+
+    private <T> T sourceLocked(long userId, long skillId, Supplier<T> action) {
+        return transactionTemplate.execute(status -> {
+            if (definitionMapper.selectOwnedByIdForUpdate(skillId, userId) == null) {
+                throw SkillPlatformException.of(SkillPlatformErrorKind.SKILL_NOT_OWNED);
+            }
+            return action.get();
+        });
     }
 
     // ==================================================================
@@ -790,20 +850,6 @@ public class SkillCatalogService {
         return releases.stream().filter(r -> r.getId() == releaseId).findFirst().orElse(null);
     }
 
-    private String gitDirectory(long userId, String skillKey) {
-        return "users/" + userId + "/skills/" + skillKey;
-    }
-
-    private String releaseTagName(long userId, long skillId, int version) {
-        return "users/" + userId + "/skills/" + skillId + "/v" + version;
-    }
-
-    private String relativePath(String fullPath, String directory) {
-        return fullPath.startsWith(directory + "/")
-                ? fullPath.substring(directory.length() + 1)
-                : fullPath;
-    }
-
     private long countSkillByKey(long userId, String skillKey) {
         Long count = definitionMapper.selectCount(new QueryWrapper<SkillDefinitionEntity>()
                 .eq("owner_user_id", userId)
@@ -816,14 +862,6 @@ public class SkillCatalogService {
                 .map(SkillPlatformProperties.SystemSkill::getKey)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-    }
-
-    private void safeDeleteBranch(String branch) {
-        try {
-            gitee.deleteBranch(branch);
-        } catch (RuntimeException ex) {
-            log.warn("删除 Proposal 分支失败（进入后台清理）");
-        }
     }
 
     private ProposalView toProposalView(SkillProposalEntity proposal, Map<String, byte[]> contents) {
@@ -869,7 +907,8 @@ public class SkillCatalogService {
                 release.getId(), release.getVersionNumber(),
                 release.getArtifactDigest(), release.getArtifactSize(), release.getReleaseNote(),
                 release.getStatus(), release.getCommitSha(), release.getCreatedAt(),
-                SkillReleaseEntity.STATUS_REVOKED.equals(release.getStatus()), release.getRevokeReason());
+                SkillReleaseEntity.STATUS_REVOKED.equals(release.getStatus()), release.getRevokeReason(),
+                release.getSourceProvider(), release.getSourceVersion(), release.getSourceRevision());
     }
 
     private List<ManifestEntryView> readManifestEntries(SkillReleaseEntity release) {
@@ -923,46 +962,6 @@ public class SkillCatalogService {
         return null;
     }
 
-    private SkillPublicationOperationEntity findOrCreatePublicationOperation(
-            String idempotencyKey, long skillId, long proposalId, String expectedHead
-    ) {
-        SkillPublicationOperationEntity existing = publicationMapper.selectByIdempotencyKey(idempotencyKey);
-        if (existing != null) {
-            if (!Objects.equals(existing.getSkillId(), skillId)
-                    || !Objects.equals(existing.getProposalId(), proposalId)
-                    || !Objects.equals(existing.getExpectedProposalHead(), expectedHead)) {
-                throw SkillPlatformException.of(SkillPlatformErrorKind.OPERATION_CONFLICT,
-                        "Idempotency-Key 已用于不同发布请求");
-            }
-            return existing;
-        }
-        SkillPublicationOperationEntity operation = new SkillPublicationOperationEntity();
-        operation.setIdempotencyKey(idempotencyKey);
-        operation.setSkillId(skillId);
-        operation.setProposalId(proposalId);
-        operation.setExpectedProposalHead(expectedHead);
-        operation.setState(SkillPublicationOperationEntity.STATE_PREPARED);
-        publicationMapper.insert(operation);
-        return operation;
-    }
-
-    private void updateOperation(long id, String state, String gitCoordinates,
-                                 String artifactDescriptor, String errorCode) {
-        try {
-            publicationMapper.updateState(id, state, gitCoordinates, artifactDescriptor, errorCode);
-        } catch (RuntimeException ex) {
-            log.warn("更新发布操作状态失败 operationId={} state={}", id, state);
-        }
-    }
-
-    private void markOperationFailed(long id, String errorCode) {
-        try {
-            publicationMapper.updateState(id, SkillPublicationOperationEntity.STATE_FAILED, null, null, errorCode);
-        } catch (RuntimeException ex) {
-            log.warn("标记发布操作失败 operationId={}", id);
-        }
-    }
-
     private void logOperation(long userId, long skillId, Long releaseId, String operation,
                              Map<String, String> fromState, Map<String, ?> toState) {
         try {
@@ -976,7 +975,6 @@ public class SkillCatalogService {
             logEntity.setActorUserId(userId);
             operationLogMapper.insertLog(logEntity);
         } catch (RuntimeException ex) {
-            log.error(ex.getMessage());
             log.warn("写 Skill 操作日志失败 skillId={} operation={}", skillId, operation);
         }
     }
@@ -984,13 +982,6 @@ public class SkillCatalogService {
     private int currentVersionOf(long skillId, long releaseId) {
         SkillReleaseEntity release = releaseMapper.selectBySkillAndId(skillId, releaseId);
         return release == null ? 0 : release.getVersionNumber();
-    }
-
-    private String errorCodeOf(Throwable ex) {
-        if (ex instanceof SkillPlatformException platform) {
-            return platform.kind().name();
-        }
-        return "UNKNOWN";
     }
 
     private String toJson(Object value) {

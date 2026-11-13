@@ -11,10 +11,15 @@ import com.h.backend.skill.infrastructure.artifact.SkillArtifactResolver;
 import com.h.backend.skill.infrastructure.artifact.VerifiedSkillBundle;
 import com.h.backend.skill.infrastructure.config.SkillPlatformProperties;
 import com.h.backend.skill.infrastructure.gitee.GiteeSkillRepository;
+import com.h.backend.skill.domain.source.SkillSourceRepository;
+import com.h.backend.skill.domain.source.SkillSourceRepository.SourceSnapshot;
+import org.springframework.transaction.support.TransactionCallback;
+import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import com.h.backend.skill.infrastructure.persistence.entity.SkillPublicationOperationEntity;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillDefinitionEntity;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillProposalEntity;
 import com.h.backend.skill.infrastructure.persistence.entity.SkillReleaseEntity;
-import com.h.backend.skill.infrastructure.persistence.mapper.AgentRunSkillBindingMapper;
 import com.h.backend.skill.infrastructure.persistence.mapper.SkillDefinitionMapper;
 import com.h.backend.skill.infrastructure.persistence.mapper.SkillOperationLogMapper;
 import com.h.backend.skill.infrastructure.persistence.mapper.SkillProposalMapper;
@@ -53,6 +58,7 @@ class SkillCatalogServiceTest {
     private final SkillReleaseMapper releaseMapper = mock(SkillReleaseMapper.class);
     private final SkillPublicationOperationMapper publicationMapper = mock(SkillPublicationOperationMapper.class);
     private final SkillOperationLogMapper operationLogMapper = mock(SkillOperationLogMapper.class);
+    private final SkillSourceRepository sources = mock(SkillSourceRepository.class);
     private final GiteeSkillRepository gitee = mock(GiteeSkillRepository.class);
     private final SkillArtifactPublisher artifactPublisher = mock(SkillArtifactPublisher.class);
     private final SkillArtifactResolver artifactResolver = mock(SkillArtifactResolver.class);
@@ -75,10 +81,15 @@ class SkillCatalogServiceTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
+        doAnswer(invocation -> invocation.getArgument(0, TransactionCallback.class).doInTransaction(null))
+                .when(transactionTemplate).execute(any());
+        when(definitionMapper.selectOwnedByIdForUpdate(anyLong(), anyLong())).thenAnswer(invocation ->
+                definitionMapper.selectOwnedById(invocation.getArgument(0), invocation.getArgument(1)));
+        when(sources.read(SKILL_ID, "1.0.0")).thenReturn(new SourceSnapshot("1.0.0", HEAD, null, SkillFileSet.of(Map.of())));
         properties.getSystemSkills().clear();
         service = new SkillCatalogService(
                 definitionMapper, proposalMapper, releaseMapper, publicationMapper,
-                operationLogMapper, gitee, validator, tarBuilder,
+                operationLogMapper, gitee, sources, validator, tarBuilder,
                 artifactPublisher, artifactResolver, properties,
                 new ObjectMapper(), transactionTemplate);
     }
@@ -338,7 +349,6 @@ class SkillCatalogServiceTest {
         when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(definition);
         SkillProposalEntity proposal = openProposal();
         when(proposalMapper.selectOpenBySkillId(SKILL_ID)).thenReturn(proposal);
-        when(gitee.listFilesUnder("users/7/skills/demo-skill", "refs/heads/p/1")).thenReturn(List.of());
         when(proposalMapper.recordValidation(eq(proposal.getId()), eq(HEAD), any(), any())).thenReturn(1);
 
         var result = service.validateProposal(USER_ID, SKILL_ID, HEAD);
@@ -349,11 +359,111 @@ class SkillCatalogServiceTest {
                 eq(SkillProposalEntity.VALIDATION_INVALID), any());
     }
 
+    private SourceSnapshot preparePublication() {
+        SkillFileSet files = SkillFileSet.of(Map.of(
+                "SKILL.md", "---\nname: demo-skill\ndescription: Demo\n---\n\nUse this skill.\n".getBytes(StandardCharsets.UTF_8),
+                "skill.yaml", "schemaVersion: 1\nkey: demo-skill\ndisplayName: Demo\ncapabilities:\n  scripts: false\n".getBytes(StandardCharsets.UTF_8)));
+        byte[] bundle = new DeterministicSkillTarBuilder(new ObjectMapper()).build(files);
+        String revision = DeterministicSkillTarBuilder.sha256Hex(bundle);
+        SourceSnapshot snapshot = new SourceSnapshot("1.0.0", revision, null, files);
+        SkillProposalEntity proposal = openProposal();
+        proposal.setHeadCommitSha(revision);
+        proposal.setValidatedHeadSha(revision);
+        when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(ownedSkill(1));
+        when(proposalMapper.selectOpenBySkillId(SKILL_ID)).thenReturn(proposal);
+        when(sources.read(SKILL_ID, "1.0.0")).thenReturn(snapshot);
+        when(artifactPublisher.storeVerifiedUserBundle(eq(USER_ID), any())).thenReturn(
+                ArtifactDescriptor.of("sha256:" + revision, bundle.length, ArtifactDescriptor.USER_STORE, "digest/key", "object-version"));
+        doAnswer(inv -> { inv.getArgument(0, SkillReleaseEntity.class).setId(RELEASE_ID); return 1; }).when(releaseMapper).insertRelease(any());
+        doAnswer(inv -> { inv.getArgument(0, SkillPublicationOperationEntity.class).setId(41L); return 1; }).when(publicationMapper).insert(any(SkillPublicationOperationEntity.class));
+        when(publicationMapper.complete(eq(41L), eq(RELEASE_ID), eq(1), any(), any())).thenReturn(1);
+        return snapshot;
+    }
+
+    @Test
+    void successfulPublicationRecordsExactSourceAndArtifactWithoutActivatingOrEnabling() {
+        var snapshot = preparePublication();
+        var result = service.publishRelease(USER_ID, SKILL_ID, snapshot.revision(), snapshot.revision(), "first", "publish-1");
+        assertThat(result.versionNumber()).isEqualTo(1);
+        assertThat(result.sourceVersion()).isEqualTo("1.0.0");
+        assertThat(result.commitSha()).isNull();
+        assertThat(result.digest()).isEqualTo("sha256:" + snapshot.revision());
+        verify(sources).publish(SKILL_ID, "1.0.0", snapshot.revision());
+        verify(definitionMapper, never()).casActivateRelease(anyLong(), anyLong(), any(), anyLong());
+        verify(definitionMapper, never()).casSetEnabled(anyLong(), anyLong(), anyBoolean(), anyLong());
+        verify(proposalMapper).deleteById(31L);
+        verify(gitee, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    void completedRetryWorksAfterProposalDeletionAndRejectsChangedReleaseNote() {
+        when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(ownedSkill(1));
+        SkillPublicationOperationEntity operation = new SkillPublicationOperationEntity();
+        operation.setSkillId(SKILL_ID);
+        operation.setExpectedProposalHead(HEAD);
+        operation.setReleaseNote("first");
+        operation.setReservedReleaseId(RELEASE_ID);
+        operation.setState(SkillPublicationOperationEntity.STATE_COMPLETED);
+        when(publicationMapper.selectByIdempotencyKey("done")).thenReturn(operation);
+        when(releaseMapper.selectBySkillAndId(SKILL_ID, RELEASE_ID)).thenReturn(release(1, "AVAILABLE"));
+        assertThat(service.publishRelease(USER_ID, SKILL_ID, HEAD, HEAD, "first", "done").id()).isEqualTo(RELEASE_ID);
+        verify(proposalMapper, never()).selectOpenBySkillId(anyLong());
+        assertThatThrownBy(() -> service.publishRelease(USER_ID, SKILL_ID, HEAD, HEAD, "changed", "done")).isInstanceOf(SkillPlatformException.class);
+        verify(sources, never()).publish(anyLong(), any(), any());
+    }
+
+    @Test
+    void failedArtifactAfterRemotePublishNeverIndexesReleaseOrDropsProposal() {
+        var snapshot = preparePublication();
+        when(artifactPublisher.storeVerifiedUserBundle(eq(USER_ID), any())).thenThrow(SkillPlatformException.of(SkillPlatformErrorKind.ARTIFACT_UNAVAILABLE));
+        assertThatThrownBy(() -> service.publishRelease(USER_ID, SKILL_ID, snapshot.revision(), snapshot.revision(), "first", "publish-1"))
+                .isInstanceOf(SkillPlatformException.class);
+        verify(releaseMapper, never()).insertRelease(any());
+        verify(proposalMapper, never()).deleteById(anyLong());
+        verify(sources, never()).discard(anyLong(), any(), any());
+    }
+
+    @Test
+    void refreshReconcilesOnlyDirectChildAfterLostDatabaseCommitAndInvalidatesValidation() {
+        when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(ownedSkill(1));
+        when(proposalMapper.selectOpenBySkillId(SKILL_ID)).thenReturn(openProposal());
+        when(sources.read(SKILL_ID, "1.0.0")).thenReturn(new SourceSnapshot("1.0.0", "next", HEAD, SkillFileSet.of(Map.of())));
+        when(proposalMapper.advanceHead(31L, HEAD, "next", USER_ID)).thenReturn(1);
+        var result = service.getProposal(USER_ID, SKILL_ID);
+        assertThat(result.headCommitSha()).isEqualTo("next");
+        assertThat(result.validationStatus()).isEqualTo("UNVALIDATED");
+        assertThat(result.validationWarnings()).isEmpty();
+        when(sources.read(SKILL_ID, "1.0.0")).thenReturn(new SourceSnapshot("1.0.0", "unknown", "other-parent", SkillFileSet.of(Map.of())));
+        assertThatThrownBy(() -> service.getProposal(USER_ID, SKILL_ID)).isInstanceOfSatisfying(SkillPlatformException.class,
+                ex -> assertThat(ex.kind()).isEqualTo(SkillPlatformErrorKind.SOURCE_DRIFTED));
+    }
+
+    @Test
+    void legacyProposalMigrationReadsPinnedCommitAndNeverWritesGit() {
+        when(definitionMapper.selectOwnedById(SKILL_ID, USER_ID)).thenReturn(ownedSkill(1));
+        SkillProposalEntity proposal = openProposal();
+        proposal.setSourceProvider("gitee");
+        when(proposalMapper.selectOpenBySkillId(SKILL_ID)).thenReturn(proposal);
+        String path = "users/7/skills/demo-skill/SKILL.md";
+        when(gitee.listFilesUnder("users/7/skills/demo-skill", HEAD)).thenReturn(List.of(new GiteeSkillRepository.GiteeFile(path, "blob", 4, "file")));
+        when(gitee.readFile(path, HEAD)).thenReturn("body".getBytes(StandardCharsets.UTF_8));
+        var snapshot = new SourceSnapshot("v1", "new-fingerprint", null, SkillFileSet.of(Map.of("SKILL.md", "body".getBytes(StandardCharsets.UTF_8))));
+        when(sources.openDraft(eq(SKILL_ID), any())).thenReturn(snapshot);
+        when(proposalMapper.migrateSource(31L, HEAD, "v1", "new-fingerprint")).thenReturn(1);
+        assertThat(service.getProposal(USER_ID, SKILL_ID).headCommitSha()).isEqualTo("new-fingerprint");
+        verify(gitee).readFile(path, HEAD);
+        verify(gitee, never()).putFile(any(), any(), any(), any());
+        verify(gitee, never()).deleteBranch(any());
+    }
+
     private SkillProposalEntity openProposal() {
         SkillProposalEntity proposal = new SkillProposalEntity();
         proposal.setId(31L);
         proposal.setSkillId(SKILL_ID);
         proposal.setBranchName("refs/heads/p/1");
+        proposal.setSourceProvider("nacos");
+        proposal.setSourceVersion("1.0.0");
+        proposal.setRevision(1L);
         proposal.setHeadCommitSha(HEAD);
         proposal.setValidationStatus(SkillProposalEntity.VALIDATION_VALID);
         proposal.setValidatedHeadSha(HEAD);

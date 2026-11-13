@@ -41,4 +41,13 @@ public interface SkillPublicationOperationMapper extends BaseMapper<SkillPublica
             """)
     int updateReservedRelease(@Param("id") long id, @Param("releaseId") long releaseId,
                               @Param("versionNumber") int versionNumber);
+    @Update("""
+            UPDATE skill_publication_operations
+            SET state = 'COMPLETED', reserved_release_id = #{releaseId}, reserved_version_number = #{version},
+                source_coordinates_json = #{coordinates}::jsonb, artifact_descriptor_json = #{descriptor}::jsonb,
+                updated_at = NOW(), error_code = NULL
+            WHERE id = #{id}
+            """)
+    int complete(@Param("id") long id, @Param("releaseId") long releaseId, @Param("version") int version,
+                 @Param("coordinates") String coordinates, @Param("descriptor") String descriptor);
 }

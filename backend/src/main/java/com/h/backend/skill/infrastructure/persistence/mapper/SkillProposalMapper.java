@@ -26,7 +26,7 @@ public interface SkillProposalMapper extends BaseMapper<SkillProposalEntity> {
     @Update("""
             UPDATE skill_proposals
             SET head_commit_sha = #{newHead}, revision = revision + 1, updated_at = NOW(),
-                updated_by = #{updatedBy}, validation_status = 'UNVALIDATED', validated_head_sha = NULL
+                updated_by = #{updatedBy}, validation_status = 'UNVALIDATED', validated_head_sha = NULL, validation_result_json = NULL
             WHERE id = #{id} AND status = 'OPEN' AND head_commit_sha = #{expectedHead}
             """)
     int advanceHead(@Param("id") long id, @Param("expectedHead") String expectedHead,
@@ -54,4 +54,15 @@ public interface SkillProposalMapper extends BaseMapper<SkillProposalEntity> {
             WHERE id = #{id} AND status = 'PUBLISHING'
             """)
     int reopen(@Param("id") long id);
+    @Update("""
+            UPDATE skill_proposals SET source_provider = 'nacos', source_version = #{version},
+                head_commit_sha = #{head}, branch_name = NULL, revision = revision + 1,
+                validation_status = 'UNVALIDATED', validated_head_sha = NULL,
+                validation_result_json = NULL, updated_at = NOW()
+            WHERE id = #{id} AND head_commit_sha = #{expectedHead} AND status = 'OPEN'
+            """)
+    int migrateSource(@Param("id") long id, @Param("expectedHead") String expectedHead,
+                      @Param("version") String version, @Param("head") String head);
+    @Select("SELECT COUNT(*) FROM skill_proposals WHERE skill_id = #{skillId} AND status <> 'OPEN'")
+    int countUnfinishedPublications(@Param("skillId") long skillId);
 }

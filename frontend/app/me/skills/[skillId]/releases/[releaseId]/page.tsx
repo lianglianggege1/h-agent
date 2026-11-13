@@ -243,8 +243,8 @@ export default function ReleaseDetailPage() {
               <dd className="mt-0.5 text-sm text-stone-700">{formatDate(summary.createdAt)}</dd>
             </div>
             <div>
-              <dt>Commit</dt>
-              <dd className="mt-0.5 break-all font-mono text-sm text-stone-700">{summary.commitSha}</dd>
+              <dt>{summary.commitSha ? "Commit" : "来源版本"}</dt>
+              <dd className="mt-0.5 break-all font-mono text-sm text-stone-700">{summary.commitSha ?? summary.sourceVersion}</dd>
             </div>
             <div>
               <dt>Artifact Digest</dt>

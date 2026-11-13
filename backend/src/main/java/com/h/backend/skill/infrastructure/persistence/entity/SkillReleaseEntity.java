@@ -85,4 +85,13 @@ public class SkillReleaseEntity {
 
     @TableField("revoke_reason")
     private String revokeReason;
+    @TableField("source_provider")
+    private String sourceProvider;
+
+    @TableField("source_version")
+    private String sourceVersion;
+
+    @TableField("source_revision")
+    private String sourceRevision;
+
 }

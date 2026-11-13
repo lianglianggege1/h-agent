@@ -125,6 +125,11 @@
             <version>${agentscope.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.alibaba.nacos</groupId>
+            <artifactId>nacos-maintainer-client</artifactId>
+            <version>3.2.4</version>
+        </dependency>
+        <dependency>
             <groupId>com.h</groupId>
             <artifactId>service-registry</artifactId>
             <version>0.0.1-SNAPSHOT</version>

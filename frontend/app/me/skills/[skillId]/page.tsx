@@ -515,8 +515,8 @@ export default function SkillWorkspacePage() {
                       <dd className="mt-0.5 text-stone-700">{formatDate(release.createdAt)}</dd>
                     </div>
                     <div>
-                      <dt>Commit</dt>
-                      <dd className="mt-0.5 font-mono text-stone-700">{shortCommit(release.commitSha)}</dd>
+                      <dt>{release.commitSha ? "Commit" : "来源版本"}</dt>
+                      <dd className="mt-0.5 font-mono text-stone-700">{release.commitSha ? shortCommit(release.commitSha) : release.sourceVersion}</dd>
                     </div>
                   </dl>
                   <Link

@@ -151,8 +151,15 @@ resource-storage:
 
 # Skill 版本平台：仓库 Token 和制品凭据均来自环境变量或 .env。
 skill-platform:
+  nacos:
+    server-addr: ${NACOS_SKILLS_SERVER_ADDR:${NACOS_SERVER_ADDR:169.254.210.181:8848}}
+    namespace: ${NACOS_SKILLS_NAMESPACE:${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}}
+    username: ${NACOS_SKILLS_USERNAME:${NACOS_USERNAME:}}
+    password: ${NACOS_SKILLS_PASSWORD:${NACOS_PASSWORD:}}
+    name-prefix: h-agent-skill-
+  # Read-only legacy Proposal importer. New writes always use Nacos.
   repository:
-    provider: gitee
+    provider: nacos
     clone-url: https://gitee.com/huajiangliangliang/hj-skill-repo.git
     branch: master
     credential-env: GITEE_TOKEN

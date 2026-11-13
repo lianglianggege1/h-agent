@@ -84,4 +84,11 @@ public interface SkillDefinitionMapper extends BaseMapper<SkillDefinitionEntity>
             ORDER BY skill_key ASC
             """)
     List<SkillDefinitionEntity> selectSnapshotCandidates(@Param("userId") long userId);
+    @Select("""
+            SELECT d.* FROM skill_definitions d
+            WHERE EXISTS (SELECT 1 FROM skill_releases r WHERE r.skill_id = d.id AND r.source_provider = 'gitee')
+               OR EXISTS (SELECT 1 FROM skill_proposals p WHERE p.skill_id = d.id AND p.source_provider = 'gitee')
+            ORDER BY d.id
+            """)
+    List<SkillDefinitionEntity> selectSourceMigrationCandidates();
 }

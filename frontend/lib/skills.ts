@@ -41,7 +41,10 @@ export type ReleaseSummary = {
   size: number;
   releaseNote: string;
   status: string;
-  commitSha: string;
+  commitSha: string | null;
+  sourceProvider?: string;
+  sourceVersion?: string | null;
+  sourceRevision?: string | null;
   createdAt: string;
   revoked: boolean;
   revokeReason: string | null;

@@ -71,4 +71,10 @@ public class SkillProposalEntity {
 
     @TableField("updated_at")
     private LocalDateTime updatedAt;
+    @TableField("source_provider")
+    private String sourceProvider;
+
+    @TableField("source_version")
+    private String sourceVersion;
+
 }
