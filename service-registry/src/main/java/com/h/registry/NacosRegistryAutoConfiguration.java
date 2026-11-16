@@ -15,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.core.env.Environment;
 
 import java.util.Properties;
@@ -33,9 +34,16 @@ public class NacosRegistryAutoConfiguration {
 
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "h-agent.registry", name = "a2a-enabled", havingValue = "true")
+    @ConditionalOnExpression("${h-agent.registry.a2a-enabled:false} or ${h-agent.registry.mcp-enabled:false}")
     AiService nacosAiService(NacosRegistryProperties properties) throws NacosException {
         return AiFactory.createAiService(clientProperties(properties));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "h-agent.registry", name = "mcp-enabled", havingValue = "true")
+    NacosMcpDiscovery nacosMcpDiscovery(AiService aiService) {
+        return new NacosMcpDiscovery(aiService);
     }
 
     private Properties clientProperties(NacosRegistryProperties properties) {

@@ -202,8 +202,10 @@ agents:
       version: ${OTHER_AGENTS_A2A_VERSION:0.1.0}
   mcp:
     other-agents:
-      enabled: false
-      url: http://localhost:8082/test1/mcp
+      enabled: ${OTHER_AGENTS_MCP_ENABLED:false}
+      server-name: ${OTHER_AGENTS_MCP_NAME:test1-mcp}
+      version: ${OTHER_AGENTS_MCP_VERSION:${MCP_TEST1_VERSION:0.0.1}}
+      url: ${OTHER_AGENTS_MCP_URL:http://localhost:8082/test1/mcp}
       token: ${MCP_TEST1_TOKEN:dev-token-test1}
       tool-execution-timeout-seconds: 4
 
@@ -349,6 +351,7 @@ h-agent:
   registry:
     enabled: ${NACOS_ENABLED:true}
     a2a-enabled: ${NACOS_A2A_ENABLED:true}
+    mcp-enabled: ${NACOS_MCP_ENABLED:true}
     server-addr: ${NACOS_SERVER_ADDR:169.254.210.181:8848}
     namespace: ${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}
     group: ${NACOS_GROUP:DEFAULT_GROUP}

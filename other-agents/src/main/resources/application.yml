@@ -14,9 +14,11 @@ other-agents:
   mcp:
     endpoints:
       test1:
+        version: ${MCP_TEST1_VERSION:0.0.1}
         path: /test1/mcp
         token: ${MCP_TEST1_TOKEN:dev-token-test1}
       test2:
+        version: ${MCP_TEST2_VERSION:0.0.1}
         path: /test2/mcp
         token: ${MCP_TEST2_TOKEN:dev-token-test2}
 
@@ -81,6 +83,7 @@ h-agent:
   registry:
     enabled: ${NACOS_ENABLED:true}
     a2a-enabled: ${NACOS_A2A_ENABLED:true}
+    mcp-enabled: ${NACOS_MCP_ENABLED:true}
     server-addr: ${NACOS_SERVER_ADDR:169.254.210.181:8848}
     namespace: ${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}
     group: ${NACOS_GROUP:DEFAULT_GROUP}

@@ -23,9 +23,20 @@ public class OtherAgentsMcpConfig {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "agents.mcp.other-agents", name = "enabled", havingValue = "true")
-    McpClient otherAgentsMcpClient(OtherAgentsMcpProperties properties, AgentObservability observability) {
+    McpClient otherAgentsMcpClient(OtherAgentsMcpProperties properties, AgentObservability observability,
+            org.springframework.beans.factory.ObjectProvider<com.h.registry.NacosMcpDiscovery> discovery) {
+        var resolver = discovery.getIfAvailable();
+        if (resolver != null) {
+            return DiscoveredMcpClient.create(properties.getServerName(),
+                    preferred -> resolver.resolve(properties.getServerName(), properties.getVersion(), preferred),
+                    url -> directClient(properties, observability, url));
+        }
+        return directClient(properties, observability, properties.getUrl());
+    }
+
+    private McpClient directClient(OtherAgentsMcpProperties properties, AgentObservability observability, String url) {
         StreamableHttpMcpTransport.Builder transportBuilder = new StreamableHttpMcpTransport.Builder()
-                .url(properties.getUrl());
+                .url(url);
         String token = properties.getToken();
         Supplier<Map<String, String>> authHeaders = null;
         if (token != null && !token.isBlank()) {

@@ -118,5 +118,9 @@ class MultiEndpointMcpProtocolIT {
     @EnableAutoConfiguration
     @Import({AdditionMcpTool.class, MultiplicationMcpTool.class, McpEndpointConfig.class})
     static class TestApplication {
+        @org.springframework.context.annotation.Bean
+        com.h.agent.observability.AgentObservability observability() {
+            return com.h.agent.observability.NoopAgentObservability.getInstance();
+        }
     }
 }

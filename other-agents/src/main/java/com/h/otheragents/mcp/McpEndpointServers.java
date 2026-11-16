@@ -28,11 +28,15 @@ public class McpEndpointServers implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(McpEndpointServers.class);
 
+    public record Endpoint(String name, String version, String path, List<ToolCallback> tools) { }
+
+    private final List<Endpoint> endpoints;
     private final List<McpAsyncServer> servers;
     private final RouterFunction<? extends ServerResponse> routerFunction;
 
-    private McpEndpointServers(List<McpAsyncServer> servers,
+    private McpEndpointServers(List<Endpoint> endpoints, List<McpAsyncServer> servers,
                                RouterFunction<? extends ServerResponse> routerFunction) {
+        this.endpoints = List.copyOf(endpoints);
         this.servers = servers;
         this.routerFunction = routerFunction;
     }
@@ -43,6 +47,7 @@ public class McpEndpointServers implements AutoCloseable {
      */
     public static McpEndpointServers build(McpEndpointProperties properties, Map<String, List<Object>> toolGroups,
                                            AgentObservability observability) {
+        List<Endpoint> endpoints = new ArrayList<>();
         List<McpAsyncServer> servers = new ArrayList<>();
         RouterFunction<? extends ServerResponse> merged = null;
 
@@ -63,10 +68,13 @@ public class McpEndpointServers implements AutoCloseable {
             transportProviderBuilder.contextExtractor(new ObservingMcpTransportContextExtractor());
             WebFluxStreamableServerTransportProvider transportProvider = transportProviderBuilder.build();
 
+            ToolCallback[] callbacks = toToolCallbacks(toolObjects);
+            endpoints.add(new Endpoint(serverName(endpointId, endpoint), serverVersion(endpoint),
+                    endpoint.getPath(), List.of(callbacks)));
             List<McpServerFeatures.AsyncToolSpecification> toolSpecifications =
                     observability == null
-                            ? org.springframework.ai.mcp.McpToolUtils.toAsyncToolSpecifications(toToolCallbacks(toolObjects))
-                            : ObservedMcpToolSpecifications.observing(observability, toToolCallbacks(toolObjects));
+                            ? org.springframework.ai.mcp.McpToolUtils.toAsyncToolSpecifications(callbacks)
+                            : ObservedMcpToolSpecifications.observing(observability, callbacks);
 
             McpAsyncServer server = McpServer.async(transportProvider)
                     .serverInfo(serverName(endpointId, endpoint), serverVersion(endpoint))
@@ -86,7 +94,7 @@ public class McpEndpointServers implements AutoCloseable {
         if (servers.isEmpty()) {
             throw new IllegalStateException("No MCP endpoints configured under other-agents.mcp.endpoints");
         }
-        return new McpEndpointServers(servers, merged);
+        return new McpEndpointServers(endpoints, servers, merged);
     }
 
     private static ToolCallback[] toToolCallbacks(List<Object> toolObjects) {
@@ -111,6 +119,8 @@ public class McpEndpointServers implements AutoCloseable {
     public RouterFunction<? extends ServerResponse> routerFunction() {
         return routerFunction;
     }
+
+    public List<Endpoint> endpoints() { return endpoints; }
 
     public List<McpAsyncServer> servers() {
         return List.copyOf(servers);

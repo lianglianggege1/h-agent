@@ -6,6 +6,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class OtherAgentsMcpProperties {
 
     private boolean enabled = false;
+    private String serverName = "test1-mcp";
+    private String version = "0.0.1";
+
+    public String getServerName() { return serverName; }
+    public void setServerName(String value) { serverName = value; }
+    public String getVersion() { return version; }
+    public void setVersion(String value) { version = value; }
 
     private String url = "http://localhost:8082/test1/mcp";
 

@@ -18,6 +18,17 @@ import java.util.*;
 public class OrderMcpClient {
     private final String url;
     private final String token;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.h.registry.NacosMcpDiscovery> discovery;
+    @Value("${chat.orders.mcp.server-name:${ORDER_MCP_NAME:orders-mcp}}")
+    private String serverName = "orders-mcp";
+    @Value("${chat.orders.mcp.version:${ORDER_MCP_VERSION:0.0.1}}")
+    private String version = "0.0.1";
+
+    private String endpointUrl() {
+        var resolver = discovery == null ? null : discovery.getIfAvailable();
+        return resolver == null ? url : resolver.resolve(serverName, version, null);
+    }
     private final ObjectMapper json = new ObjectMapper();
     @org.springframework.beans.factory.annotation.Autowired
     private com.h.agent.observability.AgentObservability observability = com.h.agent.observability.NoopAgentObservability.getInstance();
@@ -42,7 +53,7 @@ public class OrderMcpClient {
                 "X-Order-Actor",operator?"operator":"agent","X-Order-Session-Id",sessionId,
                 "X-Order-Assistant-Id","order-processing-assistant");
         try (McpClient client=new DefaultMcpClient.Builder().transport(StreamableHttpMcpTransport.builder()
-                .url(url).customHeaders(new com.h.backend.observability.mcp.ObservingMcpHeadersSupplier(observability,()->headers)).build())
+                .url(endpointUrl()).customHeaders(new com.h.backend.observability.mcp.ObservingMcpHeadersSupplier(observability,()->headers)).build())
                 .toolExecutionTimeout(Duration.ofSeconds(15)).build()) {
             var result=client.executeTool(ToolExecutionRequest.builder().id(UUID.randomUUID().toString())
                     .name(name).arguments(json.writeValueAsString(args)).build());

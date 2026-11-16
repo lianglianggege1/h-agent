@@ -2,7 +2,7 @@
 
 `backend` 和 `other-agents` 通过共享 Maven 模块 `service-registry` 使用 Nacos Java SDK 3.2.4。模块自动适配 Spring Boot 4 的 Servlet / WebFlux 应用，不引入 Spring Cloud。
 
-两个应用接入普通服务实例的注册、注销和健康实例查询。A2A 同时使用 Nacos 原生 AI Registry 发布 AgentCard、注册 Endpoint 并发现地址；MCP、配置中心和 Python LiveKit Worker 仍使用原有方式。
+两个应用接入普通服务实例的注册、注销和健康实例查询。A2A 同时使用 Nacos 原生 AI Registry 发布 AgentCard、注册 Endpoint 并发现地址；MCP 也使用原生 AI Registry 注册与发现，详见 [MCP 接入手册](nacos-mcp.md)。配置中心和 Python LiveKit Worker 保持原有方式。
 
 ## 连接与启动
 
@@ -45,7 +45,7 @@ java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
 - 正常关闭时主动注销实例，然后关闭 NamingService；进程异常退出则由 Nacos 根据临时实例的连接状态摘除。
 - 单独的 management HTTP 端口不会覆盖业务端口的注册。
 - 启动成功后的断连由 SDK 自动重连并恢复注册。发现查询使用 SDK 订阅缓存；缓存可能短时滞后，没有可用缓存时错误传递给调用方。
-- A2A 通过独立 AiService 查询当前 Endpoint，MCP 仍使用固定地址。A2A 请求失败后不自动重放，避免重复执行模型生成。
+- A2A 通过独立 AiService 查询当前 Endpoint，MCP 按服务名和版本发现地址，并在一个协议会话内固定实例。A2A 请求失败后不自动重放，避免重复执行模型生成。
 
 后续业务可以直接注入统一发现入口：
 

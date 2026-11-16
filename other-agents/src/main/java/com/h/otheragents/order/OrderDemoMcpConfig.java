@@ -15,10 +15,11 @@ public class OrderDemoMcpConfig {
     @Bean(destroyMethod = "close")
     public McpEndpointServers orderDemoMcpServer(OrderDemoMcpTools tools, AgentObservability observability,
             @Value("${order-demo.mcp.path:/orders/mcp}") String path,
-            @Value("${order-demo.mcp.token:${ORDER_MCP_TOKEN:dev-token-orders}}") String token) {
+            @Value("${order-demo.mcp.token:${ORDER_MCP_TOKEN:dev-token-orders}}") String token,
+            @Value("${order-demo.mcp.version:${ORDER_MCP_VERSION:0.0.1}}") String version) {
         McpEndpointProperties properties = new McpEndpointProperties();
         McpEndpointProperties.Endpoint endpoint = new McpEndpointProperties.Endpoint();
-        endpoint.setPath(path); endpoint.setToken(token);
+        endpoint.setPath(path); endpoint.setToken(token); endpoint.setVersion(version);
         properties.setEndpoints(Map.of("orders", endpoint));
         return McpEndpointServers.build(properties, Map.of("orders", List.of(tools)), observability);
     }
