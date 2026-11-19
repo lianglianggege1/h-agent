@@ -135,7 +135,7 @@ public class A2AAgentConfig {
                 .name("故事创作流程")
                 .description("映射故事信息并执行故事创作审核")
                 .listener(platformListener())
-                .subAgents(Agents.StoryInfoMapper.class, storyCreatorWithReview)
+                .subAgents(new Agents.StoryInfoMapper(), storyCreatorWithReview)
                 .output(scope -> scope.readState("story"))
                 .outputKey("response")
                 .build();
