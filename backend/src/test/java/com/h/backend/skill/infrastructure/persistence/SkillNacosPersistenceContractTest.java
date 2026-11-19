@@ -63,7 +63,8 @@ class SkillNacosPersistenceContractTest {
                 try (Connection c = dataSource.getConnection(); var statement = c.createStatement()) {
                     statement.execute("CREATE TABLE users(id BIGINT PRIMARY KEY)");
                     statement.execute("INSERT INTO users(id) VALUES (7),(8)");
-                    for (String migration : List.of("V20260828_02__create_skill_version_platform.sql", "V20261113_01__nacos_skill_sources.sql")) {
+                    for (String migration : List.of("V20260828_02__create_skill_version_platform.sql", "V20261113_01__nacos_skill_sources.sql",
+                            "V20261113_02__nacos_skill_source_constraints.sql")) {
                         try (var in = getClass().getResourceAsStream("/db/migration/" + migration)) {
                             statement.execute(new String(in.readAllBytes(), StandardCharsets.UTF_8));
                         }

@@ -18,13 +18,3 @@ COMMENT ON COLUMN skill_proposals.head_commit_sha IS 'Compatibility column: opaq
 COMMENT ON COLUMN skill_releases.source_version IS 'Exact Nacos version; independent of product version_number and latest';
 CREATE INDEX idx_skill_releases_nacos_version ON skill_releases(skill_id, source_version)
     WHERE source_provider = 'nacos';
-
-ALTER TABLE skill_proposals ADD CONSTRAINT ck_skill_proposals_nacos_source CHECK (
-    source_provider IN ('gitee', 'nacos') AND
-    (source_provider <> 'nacos' OR (source_version IS NOT NULL AND head_commit_sha ~ '^[a-f0-9]{64}$'))
-);
-ALTER TABLE skill_releases ADD CONSTRAINT ck_skill_releases_nacos_source CHECK (
-    source_provider IN ('gitee', 'nacos') AND
-    (source_provider <> 'nacos' OR (source_version IS NOT NULL AND source_revision IS NOT NULL
-     AND source_revision ~ '^[a-f0-9]{64}$' AND artifact_digest = 'sha256:' || source_revision))
-);
