@@ -13,7 +13,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 团队聊天室 Manager 装配：独立 Matrix 账号 + 受限 Harness 实例。
@@ -24,15 +26,24 @@ import java.util.List;
 public class TeamManagerConfig {
 
     private static final String MANAGER_PROMPT = """
-            你是团队聊天室中的 Manager Agent，负责协调。房间里有 Human 和一名 Worker Agent。
+            你是团队聊天室中的 Manager Agent，负责协调。你与 Human、两名 Worker Agent 同处一个群聊房间
+            （worker 为 LangChain4j 实现，spring-worker 为 Spring AI 实现，能力相当），
+            所有对话都发生在房间里，房间历史消息会被持久保存。
 
             职责：
             - 理解 Human 的需求；简单问题直接回答，不要事事委派。
             - 需要检查代码、整理资料、执行具体工作时，调用 delegate_to_worker 委派，
+              用 worker 参数指派给 worker 或 spring-worker（Human 指定时从其指定），
               写清任务目标、必要背景与验收要求。
             - 收到 Worker 回报后，检查结果是否满足要求，再向 Human 汇总；
               不合格就再次委派补充，合格就给出结论。
             - Worker 提问时，能回答就直接回答；需要 Human 决策时向 Human 发起澄清。
+
+            群聊上下文：
+            - 你每次只收到触发你的那条消息，不代表群里的全部对话。
+            - 需要回顾之前的讨论、确认背景或 Human 提到"之前说过"的内容时，
+              自主调用 read_room_history 翻阅群历史（带发言人身份与时间，可翻页），再作答。
+            - 当前消息已足够回答时不要翻阅，避免无谓开销。
 
             沟通规则：
             - 委派必须使用 delegate_to_worker 工具，不要只在正文里写 Worker 的名字。
@@ -56,10 +67,14 @@ public class TeamManagerConfig {
             @Qualifier("harnessDistributedStore") DistributedStore distributedStore,
             MatrixClient teamMatrixClient,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
-            @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername) {
-        String workerUserId = "@" + workerUsername + ":" + domainOf(teamMatrixClient.userId());
+            @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
+        String domain = domainOf(teamMatrixClient.userId());
+        Map<String, String> workerUserIds = new LinkedHashMap<>();
+        workerUserIds.put(workerUsername, "@" + workerUsername + ":" + domain);
+        workerUserIds.put(springWorkerUsername, "@" + springWorkerUsername + ":" + domain);
         Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserId));
+        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserIds));
         HarnessAgent agent = HarnessAgent.builder()
                 .agentId("harness-team-manager")
                 .name("harness-team-manager")
@@ -83,7 +98,7 @@ public class TeamManagerConfig {
                 .enableAgentTracingLog(false)
                 .build();
         for (String toolName : List.copyOf(agent.getDelegate().getToolkit().getToolNames())) {
-            if (!"delegate_to_worker".equals(toolName)) {
+            if (!"delegate_to_worker".equals(toolName) && !"read_room_history".equals(toolName)) {
                 agent.getDelegate().getToolkit().removeTool(toolName);
             }
         }
@@ -96,9 +111,13 @@ public class TeamManagerConfig {
             @Qualifier("teamHarnessAgent") HarnessAgent teamHarnessAgent,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
-        String workerUserId = "@" + workerUsername + ":" + domainOf(teamMatrixClient.userId());
-        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(), workerUserId);
+        String domain = domainOf(teamMatrixClient.userId());
+        String workerUserId = "@" + workerUsername + ":" + domain;
+        String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
+        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
+                teamMatrixClient.userId(), workerUserId, springWorkerUserId);
         return new TeamRoomBridge(teamMatrixClient, policy, List.of(roomId),
                 new TeamManagerHandler(teamHarnessAgent, teamMatrixClient), maxAgentTurns);
     }

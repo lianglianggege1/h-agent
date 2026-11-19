@@ -7,6 +7,7 @@ const config = {
   roomId: "!room:matrix.local",
   managerUserId: "@manager:matrix.local",
   workerUserId: "@worker:matrix.local",
+  springWorkerUserId: "@spring-worker:matrix.local",
 };
 
 test("parses text events with mentions and team metadata", () => {
@@ -56,6 +57,7 @@ test("labels senders and kinds", () => {
   assert.equal(senderLabel("@huajiang:matrix.local", "@huajiang:matrix.local", config), "自己");
   assert.equal(senderLabel("@manager:matrix.local", "@huajiang:matrix.local", config), "Manager");
   assert.equal(senderLabel("@worker:matrix.local", "@huajiang:matrix.local", config), "Worker");
+  assert.equal(senderLabel("@spring-worker:matrix.local", "@huajiang:matrix.local", config), "SpringWorker");
   assert.equal(senderLabel("@other:matrix.local", "@huajiang:matrix.local", config), "other");
   assert.equal(kindLabel("report"), "回报");
   assert.equal(kindLabel(null), null);
@@ -70,7 +72,9 @@ test("mention trigger tracks the @token before the caret", () => {
 
 test("mention ids derive from the message text", () => {
   assert.deepEqual(mentionIdsFor("@Worker 只回复 OK", config), ["@worker:matrix.local"]);
+  assert.deepEqual(mentionIdsFor("@SpringWorker 只回复 OK", config), ["@spring-worker:matrix.local"]);
   assert.deepEqual(mentionIdsFor("@manager 和 @Worker 协作", config), ["@manager:matrix.local", "@worker:matrix.local"]);
+  assert.deepEqual(mentionIdsFor("@worker 和 @springworker 协作", config), ["@worker:matrix.local", "@spring-worker:matrix.local"]);
   assert.deepEqual(mentionIdsFor("没有点名", config), []);
   assert.deepEqual(mentionIdsFor("@workerx 不是点名", config), []);
 });

@@ -1,10 +1,12 @@
 package com.h.matrixteam;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * Manager–Worker 触发策略。人类消息默认由 Manager 接待；
- * Worker 只在被委派或被明确提及时行动；确认、旁听与自发消息不触发执行。
+ * Worker 只认结构化点名（委派与点名都带 m.mentions），多 Worker 房间不会抢答同一条委派；
+ * 确认、旁听与自发消息不触发执行。
  */
 public final class TeamPolicy {
 
@@ -12,18 +14,45 @@ public final class TeamPolicy {
 
     private final Role role;
     private final String selfUserId;
-    private final String peerAgentUserId;
+    private final String managerUserId;
     private final Set<String> agentUserIds;
 
-    public TeamPolicy(Role role, String selfUserId, String peerAgentUserId) {
+    public TeamPolicy(Role role, String selfUserId, String managerUserId, String... workerUserIds) {
         this.role = role;
         this.selfUserId = selfUserId;
-        this.peerAgentUserId = peerAgentUserId;
-        this.agentUserIds = Set.of(selfUserId, peerAgentUserId);
+        this.managerUserId = managerUserId;
+        Set<String> agents = new HashSet<>();
+        agents.add(selfUserId);
+        agents.add(managerUserId);
+        agents.addAll(Set.of(workerUserIds));
+        this.agentUserIds = Set.copyOf(agents);
     }
 
     public boolean isAgent(String sender) {
         return agentUserIds.contains(sender);
+    }
+
+    /** 历史翻阅用的发言人身份标签：自己、Manager、Worker（localpart）、Human（localpart）。 */
+    public String speakerLabel(String sender) {
+        if (sender.equals(selfUserId)) {
+            return "自己（" + roleName(role) + "）";
+        }
+        if (sender.equals(managerUserId)) {
+            return "Manager";
+        }
+        if (isAgent(sender)) {
+            return "Worker（" + localpart(sender) + "）";
+        }
+        return "Human（" + localpart(sender) + "）";
+    }
+
+    private static String roleName(Role role) {
+        return role == Role.MANAGER ? "Manager" : "Worker";
+    }
+
+    private static String localpart(String userId) {
+        int colon = userId.indexOf(':');
+        return userId.substring(userId.startsWith("@") ? 1 : 0, colon < 0 ? userId.length() : colon);
     }
 
     public boolean shouldRespond(TeamMessage message) {
@@ -40,10 +69,8 @@ public final class TeamPolicy {
                     : (TeamProtocol.KIND_REPORT.equals(message.kind())
                         || TeamProtocol.KIND_QUESTION.equals(message.kind())
                         || message.mentions(selfUserId));
-            case WORKER -> fromHuman
-                    ? message.mentions(selfUserId)
-                    : (TeamProtocol.KIND_DELEGATE.equals(message.kind())
-                        || message.mentions(selfUserId));
+            // 委派消息必然点名目标 Worker，只认点名即可避免多个 Worker 抢答同一条委派。
+            case WORKER -> message.mentions(selfUserId);
         };
     }
 

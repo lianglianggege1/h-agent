@@ -54,12 +54,32 @@ public final class MatrixClient {
         body.put("type", "m.login.password");
         body.putObject("identifier").put("type", "m.id.user").put("user", username);
         body.put("password", password);
-        JsonNode response = request("POST", "/_matrix/client/v3/login", body, Duration.ofSeconds(30));
-        this.accessToken = response.path("access_token").asText();
-        this.userId = response.path("user_id").asText();
-        this.deviceId = response.path("device_id").asText();
-        if (accessToken.isBlank() || userId.isBlank()) {
-            throw new IllegalStateException("Matrix login failed for " + username + ": " + response);
+        // Synapse 登录限流（429）且被拒请求也消耗配额，退避间隔必须大于配额恢复速度（约 6s/次）。
+        for (int attempt = 0; ; attempt++) {
+            try {
+                JsonNode response = request("POST", "/_matrix/client/v3/login", body, Duration.ofSeconds(30));
+                this.accessToken = response.path("access_token").asText();
+                this.userId = response.path("user_id").asText();
+                this.deviceId = response.path("device_id").asText();
+                if (accessToken.isBlank() || userId.isBlank()) {
+                    throw new IllegalStateException("Matrix login failed for " + username + ": " + response);
+                }
+                return;
+            } catch (IllegalStateException e) {
+                if (attempt >= 4 || !e.getMessage().contains("429")) {
+                    throw e;
+                }
+                sleep(15_000L << attempt);
+            }
+        }
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Matrix login retry interrupted", e);
         }
     }
 
@@ -76,6 +96,19 @@ public final class MatrixClient {
 
     public void join(String roomIdOrAlias) {
         request("POST", "/_matrix/client/v3/join/" + encode(roomIdOrAlias), JSON.createObjectNode(), Duration.ofSeconds(30));
+    }
+
+    /**
+     * 反向分页读取房间历史（最新在前）。before 传上一次响应的 end 令牌可继续向更早翻页。
+     */
+    public JsonNode messages(String roomId, int limit, String before) {
+        StringBuilder path = new StringBuilder("/_matrix/client/v3/rooms/")
+                .append(encode(roomId)).append("/messages?dir=b&limit=").append(limit);
+        if (before != null && !before.isBlank()) {
+            path.append("&from=").append(encode(before));
+        }
+        path.append("&filter=").append(encode("{\"types\":[\"m.room.message\"]}"));
+        return request("GET", path.toString(), null, Duration.ofSeconds(30));
     }
 
     /**

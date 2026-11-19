@@ -42,14 +42,20 @@ public class TeamWorkerConfig {
             ChatModel chatModel,
             MatrixClient workerMatrixClient,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
-            @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername) {
-        String managerUserId = "@" + managerUsername + ":" + domainOf(workerMatrixClient.userId());
+            @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
+        String domain = domainOf(workerMatrixClient.userId());
+        String managerUserId = "@" + managerUsername + ":" + domain;
+        String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         return AiServices.builder(WorkerAssistant.class)
                 .chatModel(chatModel)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(30))
-                .tools(new TeamWorkerTools(workerMatrixClient, roomId, managerUserId))
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(1000))
+                .tools(new TeamWorkerTools(workerMatrixClient, roomId, managerUserId,
+                        workerMatrixClient.userId(), springWorkerUserId))
                 .build();
     }
+    // 我的思考：调教很重要，也就是你如何取舍 工具、技能、记忆等
+    // 以及所选择的平台（agent）
 
     @Bean(initMethod = "start", destroyMethod = "close")
     public TeamRoomBridge teamWorkerBridge(
@@ -57,9 +63,12 @@ public class TeamWorkerConfig {
             WorkerAssistant workerAssistant,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
-        String managerUserId = "@" + managerUsername + ":" + domainOf(workerMatrixClient.userId());
-        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, workerMatrixClient.userId(), managerUserId);
+        String domain = domainOf(workerMatrixClient.userId());
+        String managerUserId = "@" + managerUsername + ":" + domain;
+        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, workerMatrixClient.userId(),
+                managerUserId, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
         return new TeamRoomBridge(workerMatrixClient, policy, List.of(roomId),
                 message -> handle(workerAssistant, workerMatrixClient, managerUserId, message), maxAgentTurns);
     }

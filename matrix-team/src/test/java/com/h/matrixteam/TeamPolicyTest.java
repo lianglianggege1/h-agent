@@ -15,11 +15,13 @@ class TeamPolicyTest {
 
     private static final String MANAGER = "@manager:matrix.local";
     private static final String WORKER = "@worker:matrix.local";
+    private static final String SPRING_WORKER = "@spring-worker:matrix.local";
     private static final String HUMAN = "@huajiang:matrix.local";
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final TeamPolicy manager = new TeamPolicy(TeamPolicy.Role.MANAGER, MANAGER, WORKER);
-    private final TeamPolicy worker = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER);
+    private final TeamPolicy manager = new TeamPolicy(TeamPolicy.Role.MANAGER, MANAGER, MANAGER, WORKER, SPRING_WORKER);
+    private final TeamPolicy worker = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER, WORKER, SPRING_WORKER);
+    private final TeamPolicy springWorker = new TeamPolicy(TeamPolicy.Role.WORKER, SPRING_WORKER, MANAGER, WORKER, SPRING_WORKER);
 
     private static TeamMessage message(String sender, String body, List<String> mentions, String kind, String taskId) {
         return new TeamMessage("$evt", "!room:matrix.local", sender, body, mentions, false, kind, taskId);
@@ -54,6 +56,33 @@ class TeamPolicyTest {
         assertTrue(worker.shouldRespond(message(MANAGER, "请检查代码", List.of(WORKER),
                 TeamProtocol.KIND_DELEGATE, "task-1")));
         assertTrue(worker.shouldRespond(message(MANAGER, "补充一点", List.of(WORKER), null, null)));
+    }
+
+    @Test
+    void delegationOnlyTriggersTheMentionedWorker() {
+        TeamMessage toWorker = message(MANAGER, "请检查代码", List.of(WORKER), TeamProtocol.KIND_DELEGATE, "task-1");
+        assertTrue(worker.shouldRespond(toWorker));
+        assertFalse(springWorker.shouldRespond(toWorker));
+        TeamMessage toSpring = message(MANAGER, "请整理资料", List.of(SPRING_WORKER), TeamProtocol.KIND_DELEGATE, "task-2");
+        assertTrue(springWorker.shouldRespond(toSpring));
+        assertFalse(worker.shouldRespond(toSpring));
+    }
+
+    @Test
+    void workersIgnoreEachOthersReportsButManagerHandlesThem() {
+        TeamMessage report = message(SPRING_WORKER, "完成", List.of(MANAGER), TeamProtocol.KIND_REPORT, "task-2");
+        assertFalse(worker.shouldRespond(report));
+        assertTrue(manager.shouldRespond(report));
+        assertTrue(manager.isAgent(SPRING_WORKER));
+        assertTrue(worker.isAgent(SPRING_WORKER));
+    }
+
+    @Test
+    void speakerLabelsDistinguishManagerAndEachWorker() {
+        assertEquals("Manager", worker.speakerLabel(MANAGER));
+        assertEquals("Worker（spring-worker）", worker.speakerLabel(SPRING_WORKER));
+        assertEquals("Worker（worker）", manager.speakerLabel(WORKER));
+        assertEquals("自己（Worker）", springWorker.speakerLabel(SPRING_WORKER));
     }
 
     @Test

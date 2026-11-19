@@ -16,6 +16,7 @@ type TeamMatrixSession = {
   roomId: string;
   managerUserId: string;
   workerUserId: string;
+  springWorkerUserId: string;
   accessToken: string;
   userId: string;
   deviceId: string;
@@ -48,8 +49,9 @@ export default function TeamRoomPage() {
           roomId: data.roomId,
           managerUserId: data.managerUserId,
           workerUserId: data.workerUserId,
+          springWorkerUserId: data.springWorkerUserId,
         });
-        setRoomMembers([data.userId, data.managerUserId, data.workerUserId]);
+        setRoomMembers([data.userId, data.managerUserId, data.workerUserId, data.springWorkerUserId]);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -175,10 +177,15 @@ export default function TeamRoomPage() {
   }
 
   const memberOrder = (userId: string) =>
-    userId === session.userId ? 0 : userId === config.managerUserId ? 1 : userId === config.workerUserId ? 2 : 3;
+    userId === session.userId ? 0
+      : userId === config.managerUserId ? 1
+        : userId === config.workerUserId ? 2
+          : userId === config.springWorkerUserId ? 3 : 4;
   const sortedMembers = [...roomMembers].sort((a, b) => memberOrder(a) - memberOrder(b) || a.localeCompare(b));
   const memberRole = (userId: string) =>
-    userId === session.userId ? "人类" : userId === config.managerUserId ? "协调" : userId === config.workerUserId ? "执行" : "成员";
+    userId === session.userId ? "人类"
+      : userId === config.managerUserId ? "协调"
+        : userId === config.workerUserId || userId === config.springWorkerUserId ? "执行" : "成员";
 
   return (
     <main className="chat-workspace flex h-full min-h-0 w-full flex-col overflow-hidden text-stone-900">

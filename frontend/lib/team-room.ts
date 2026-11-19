@@ -3,6 +3,7 @@ export type TeamConfig = {
   roomId: string;
   managerUserId: string;
   workerUserId: string;
+  springWorkerUserId: string;
 };
 
 export type TeamMessageView = {
@@ -55,6 +56,7 @@ export function senderLabel(sender: string, selfUserId: string, config: TeamConf
   if (sender === selfUserId) return "自己";
   if (sender === config.managerUserId) return "Manager";
   if (sender === config.workerUserId) return "Worker";
+  if (sender === config.springWorkerUserId) return "SpringWorker";
   return sender.replace(/^@/, "").split(":")[0];
 }
 
@@ -72,7 +74,8 @@ export type TeamMember = { label: string; userId: string; description: string };
 export function teamMembers(config: TeamConfig): TeamMember[] {
   return [
     { label: "Manager", userId: config.managerUserId, description: "协调" },
-    { label: "Worker", userId: config.workerUserId, description: "执行" },
+    { label: "Worker", userId: config.workerUserId, description: "执行 · LangChain4j" },
+    { label: "SpringWorker", userId: config.springWorkerUserId, description: "执行 · Spring AI" },
   ];
 }
 
@@ -85,5 +88,6 @@ export function mentionIdsFor(text: string, config: TeamConfig): string[] {
   return [
     ...(/@manager\b/i.test(text) ? [config.managerUserId] : []),
     ...(/@worker\b/i.test(text) ? [config.workerUserId] : []),
+    ...(/@springworker\b/i.test(text) ? [config.springWorkerUserId] : []),
   ];
 }

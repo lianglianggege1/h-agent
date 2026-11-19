@@ -22,6 +22,7 @@ public class TeamMatrixSessionController {
             String roomId,
             String managerUserId,
             String workerUserId,
+            String springWorkerUserId,
             String accessToken,
             String userId,
             String deviceId
@@ -34,6 +35,7 @@ public class TeamMatrixSessionController {
     private final String humanPassword;
     private final String managerUsername;
     private final String workerUsername;
+    private final String springWorkerUsername;
     private volatile TeamMatrixSession cached;
 
     public TeamMatrixSessionController(
@@ -42,13 +44,15 @@ public class TeamMatrixSessionController {
             @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanUsername,
             @Value("${MATRIX_HUMAN_PASSWORD:}") String humanPassword,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
-            @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername) {
+            @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
         this.homeserverUrl = homeserverUrl;
         this.roomId = roomId;
         this.humanUsername = humanUsername;
         this.humanPassword = humanPassword;
         this.managerUsername = managerUsername;
         this.workerUsername = workerUsername;
+        this.springWorkerUsername = springWorkerUsername;
     }
 
     @GetMapping("/matrix-session")
@@ -61,6 +65,7 @@ public class TeamMatrixSessionController {
                     homeserverUrl, roomId,
                     "@" + managerUsername + ":" + domain,
                     "@" + workerUsername + ":" + domain,
+                    "@" + springWorkerUsername + ":" + domain,
                     client.accessToken(), client.userId(), client.deviceId());
         }
         return ApiResponse.ok(cached);
