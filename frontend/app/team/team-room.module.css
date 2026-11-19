@@ -1,0 +1,60 @@
+.meta { display: flex; align-items: center; gap: 8px; color: #8a8d94; font-size: 12px; }
+.sender { font-weight: 500; color: #595e68; }
+.kind { padding: 2px 8px; border: 1px solid #fed7aa; border-radius: 6px; background: #fff7ed; color: #9a3412; font-size: 11px; }
+.userBubble { max-width: 85%; padding: 0.5rem 0.875rem; border-radius: 0.875rem; background: #f4f5f7; color: #25262b; font-size: 0.875rem; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
+.prose { min-width: 0; color: #25262b; font-size: 0.875rem; line-height: 1.72; }
+.composer { border: 1px solid #e5e7ec; border-radius: 24px; background: #fafbfc; box-shadow: 0 2px 8px #1f293705; }
+.composer:focus-within { border-color: #c5cfe7; box-shadow: 0 2px 10px #1f293708; }
+.composer textarea { display: block; box-sizing: border-box; width: 100%; min-height: 44px; max-height: 8rem; padding: 10px 16px 4px; border: 0; outline: none; background: transparent; color: #25262b; font: inherit; font-size: 14px; line-height: 24px; resize: none; overflow-y: auto; }
+.composer textarea::placeholder { color: #92969f; opacity: 1; }
+.composerWrap { position: relative; }
+.mentionMenu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-direction: column; width: 220px; padding: 4px; border: 1px solid #e9eaee; border-radius: 10px; background: #fff; box-shadow: 0 6px 20px #17203312; }
+.mentionItem { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: #595e68; text-align: left; font-size: 13px; cursor: pointer; }
+.mentionItemActive { background: #f4f5f7; color: #30343b; }
+.mentionDesc { color: #92969f; font-size: 11px; }
+.mentionEmpty { margin: 0; padding: 8px 10px; color: #92969f; font-size: 12px; }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 8px 16px; }
+.hint { color: #92969f; font-size: 11px; line-height: 20px; }
+.send { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; min-width: 34px; padding: 0; border: 0; border-radius: 50%; background: #3964fe; color: white; cursor: pointer; transition: background 100ms, opacity 100ms; }
+.send:hover:not(:disabled) { background: #3158e5; }
+.send:disabled { opacity: .4; cursor: default; }
+.send:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
+.send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.error { margin-bottom: 8px; color: #dc2626; font-size: 13px; }
+.members { display: flex; flex-direction: column; gap: 2px; width: 232px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid #e5e0d7; padding: 14px 10px; }
+.membersHeading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; padding: 0 8px; color: #8a8d94; font-size: 12px; font-weight: 500; }
+.memberRow { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; }
+.avatar { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; background: #f0f1f3; color: #595e68; font-size: 12px; font-weight: 600; }
+.memberName { color: #30343b; font-size: 13px; font-weight: 500; line-height: 1.3; }
+.memberRole { color: #92969f; font-size: 11px; }
+
+:global(.theme-dark) .meta { color: #aaa69b; }
+:global(.theme-dark) .sender { color: #d8d5cd; }
+:global(.theme-dark) .kind { border-color: #41423b; background: #30312b; color: #d99a79; }
+:global(.theme-dark) .userBubble { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .prose { color: #e8e5dd; }
+:global(.theme-dark) .prose a { color: #d99a79; }
+:global(.theme-dark) .prose code { background: #30312b; color: #eee9df; }
+:global(.theme-dark) .prose pre code { background: transparent; color: inherit; }
+:global(.theme-dark) .prose th { background: #30312b; }
+:global(.theme-dark) .prose blockquote { border-color: #68695f; color: #aaa69b; }
+:global(.theme-dark) .composer { border-color: #41423b; background: #22231f; box-shadow: 0 1px 2px #0003; }
+:global(.theme-dark) .composer:focus-within { border-color: #68695f; }
+:global(.theme-dark) .composer textarea { color: #e8e5dd; }
+:global(.theme-dark) .composer textarea::placeholder { color: #aaa69b; }
+:global(.theme-dark) .mentionMenu { border-color: #41423b; background: #22231f; box-shadow: 0 6px 20px #0006; }
+:global(.theme-dark) .mentionItem { color: #e8e5dd; }
+:global(.theme-dark) .mentionItemActive { background: #30312b; color: #f1eee7; }
+:global(.theme-dark) .mentionDesc, :global(.theme-dark) .mentionEmpty { color: #aaa69b; }
+:global(.theme-dark) .hint { color: #aaa69b; }
+:global(.theme-dark) .send { background: #b95f43; color: #fffaf3; opacity: 1; }
+:global(.theme-dark) .send:hover:not(:disabled) { background: #cf7656; }
+:global(.theme-dark) .send:disabled { background: #714b3f; color: #e8d4ca; opacity: 1; }
+:global(.theme-dark) .error { color: #f29a91; }
+:global(.theme-dark) .members { border-color: #393a33; }
+:global(.theme-dark) .membersHeading { color: #aaa69b; }
+:global(.theme-dark) .avatar { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .memberName { color: #e8e5dd; }
+:global(.theme-dark) .memberRole { color: #aaa69b; }
+@media (max-width: 1023px) { .members { display: none; } }
+@media (prefers-reduced-motion: reduce) { .send { transition: none; } }

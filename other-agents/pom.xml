@@ -16,6 +16,7 @@
     <properties>
         <java.version>26</java.version>
         <langchain4j.version>1.22.0</langchain4j.version>
+        <lombok.version>1.18.48</lombok.version>
         <spring-ai.version>2.0.0</spring-ai.version>
     </properties>
     <repositories>
@@ -86,6 +87,11 @@
     </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>com.h</groupId>
+            <artifactId>matrix-team</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
@@ -302,6 +308,7 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
+                                    <version>${lombok.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
@@ -317,6 +324,7 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
+                                    <version>${lombok.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>

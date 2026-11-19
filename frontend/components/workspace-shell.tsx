@@ -20,6 +20,7 @@ export function WorkspaceIcon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
     chat: <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />,
     agents: <><rect x="4" y="6" width="16" height="14" rx="4" /><path d="M12 2v4M2 12h2m16 0h2M8 15h8M8 10h.01M16 10h.01" /></>,
+    team: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20" /><circle cx="17" cy="9" r="2.5" /><path d="M16.5 14.6a5 5 0 0 1 5 4.9V20" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
     phone: <path d="m7 3 3 5-2 2a14 14 0 0 0 6 6l2-2 5 3-1 4C10 22 2 14 3 4l4-1Z" />,
     prompt: <><rect x="4" y="3" width="16" height="18" rx="3" /><path d="m8 8 3 3-3 3m5 2h3" /></>,

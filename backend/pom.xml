@@ -16,7 +16,7 @@
     <properties>
         <java.version>26</java.version>
         <langchain4j.version>1.22.0</langchain4j.version>
-        <lombok.version>1.18.46</lombok.version>
+        <lombok.version>1.18.48</lombok.version>
         <agentscope.version>2.0.2</agentscope.version>
         <xxl-job.version>3.4.1</xxl-job.version>
     </properties>
@@ -90,6 +90,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.h</groupId>
+            <artifactId>matrix-team</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
             <groupId>com.ag-ui.community</groupId>
             <artifactId>java-server</artifactId>
             <version>0.1.1</version>
@@ -128,6 +133,13 @@
             <groupId>com.alibaba.nacos</groupId>
             <artifactId>nacos-maintainer-client</artifactId>
             <version>3.2.4</version>
+            <exclusions>
+                <!-- service-registry supplies nacos-common with relocated gRPC in nacos-client. -->
+                <exclusion>
+                    <groupId>com.alibaba.nacos</groupId>
+                    <artifactId>nacos-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.h</groupId>
