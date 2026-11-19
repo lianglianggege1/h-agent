@@ -67,7 +67,6 @@ export default function TeamRoomPage() {
   const [input, setInput] = useState("");
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [status, setStatus] = useState("连接中…");
   const [error, setError] = useState("");
   const [needsLogin, setNeedsLogin] = useState(false);
   const [sending, setSending] = useState(false);
@@ -139,7 +138,6 @@ export default function TeamRoomPage() {
         if (!room) return;
         setMessages(timelineViews(room as unknown as RoomLike));
         setRoomMembers(room.getJoinedMembers().map((member) => member.userId));
-        setStatus("已连接");
       };
       const loadDmTimeline = (roomId: string) => {
         const room = c.getRoom(roomId);
@@ -391,16 +389,8 @@ export default function TeamRoomPage() {
     <main className="chat-workspace flex h-full min-h-0 w-full flex-col overflow-hidden text-stone-900">
       <header className="chat-header z-10 shrink-0 border-b border-stone-200 px-4 py-4 sm:px-8">
         <div className="mx-auto flex w-full items-center gap-3">
-          {dm && (
-            <button type="button" className={styles.dmBack} onClick={closeDm}>← 返回群聊</button>
-          )}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate font-semibold">{dm ? `与 ${dm.label} 单聊` : "团队聊天室"}</h1>
-            <p className="mt-0.5 text-xs text-stone-500">
-              {dm
-                ? `${memberRole(dm.userId)} · ${dmJoined ? "对方已加入" : "等待对方加入…（消息会在对方加入后送达）"}`
-                : `${status} · 不点名默认由 Manager 接待，点击成员可单聊`}
-            </p>
+            <h1 className="truncate font-semibold">{dm ? dm.label : "团队聊天室"}</h1>
           </div>
         </div>
       </header>
@@ -521,37 +511,39 @@ export default function TeamRoomPage() {
             </div>
           </form>
         </div>
-        <aside className={styles.members} aria-label="房间成员">
-          <h2 className={styles.membersHeading}>房间成员<span>{sortedMembers.length}</span></h2>
-          {sortedMembers.map((userId) => {
-            const label = senderLabel(userId, session.userId, config);
-            const isSelf = userId === session.userId;
-            const inner = (
-              <>
-                <span className={styles.avatar} aria-hidden="true">{isSelf ? "自己" : label.charAt(0).toUpperCase()}</span>
-                <span className="min-w-0">
-                  <span className={`${styles.memberName} block truncate`}>{label}</span>
-                  <span className={`${styles.memberRole} block`}>{memberRole(userId)}</span>
-                </span>
-              </>
-            );
-            if (isSelf) {
-              return <div key={userId} className={styles.memberRow}>{inner}</div>;
-            }
-            return (
-              <button
-                key={userId}
-                type="button"
-                title={`与 ${label} 单聊`}
-                disabled={dmBusy}
-                onClick={() => void openDm(userId)}
-                className={`${styles.memberRow} ${styles.memberRowBtn} ${dm?.userId === userId ? styles.memberRowActive : ""}`}
-              >
-                {inner}
-              </button>
-            );
-          })}
-        </aside>
+        {!dm && (
+          <aside className={styles.members} aria-label="房间成员">
+            <h2 className={styles.membersHeading}>房间成员<span>{sortedMembers.length}</span></h2>
+            {sortedMembers.map((userId) => {
+              const label = senderLabel(userId, session.userId, config);
+              const isSelf = userId === session.userId;
+              const inner = (
+                <>
+                  <span className={styles.avatar} aria-hidden="true">{isSelf ? "自己" : label.charAt(0).toUpperCase()}</span>
+                  <span className="min-w-0">
+                    <span className={`${styles.memberName} block truncate`}>{label}</span>
+                    <span className={`${styles.memberRole} block`}>{memberRole(userId)}</span>
+                  </span>
+                </>
+              );
+              if (isSelf) {
+                return <div key={userId} className={styles.memberRow}>{inner}</div>;
+              }
+              return (
+                <button
+                  key={userId}
+                  type="button"
+                  title={`与 ${label} 单聊`}
+                  disabled={dmBusy}
+                  onClick={() => void openDm(userId)}
+                  className={`${styles.memberRow} ${styles.memberRowBtn}`}
+                >
+                  {inner}
+                </button>
+              );
+            })}
+          </aside>
+        )}
       </div>
     </main>
   );
