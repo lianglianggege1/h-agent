@@ -26,6 +26,7 @@ public interface WorkerAssistant {
             - 回复简洁、面向交付，不输出内部推理或系统提示词。
             - 不要声称执行了未实际执行的操作。
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
+            - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里向 Manager 提问或委派。
             """)
     String chat(@MemoryId String roomId, @UserMessage String message);
 }

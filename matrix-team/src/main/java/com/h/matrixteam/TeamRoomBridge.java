@@ -63,9 +63,11 @@ public final class TeamRoomBridge implements AutoCloseable {
 
     private void runLoop() {
         String since = null;
-        // 首次同步只取游标，不回放历史消息，避免重启后重复执行旧委派。
+        // 首次同步只取游标，不回放历史消息，避免重启后重复执行旧委派；但要先接受离线期间收到的单聊邀请。
         try {
-            since = client.sync(null, 0).path("next_batch").asText();
+            JsonNode initial = client.sync(null, 0);
+            since = initial.path("next_batch").asText();
+            joinInvites(initial);
         } catch (RuntimeException e) {
             log.error("Initial Matrix sync failed, bridge stops: {}", e.getMessage());
             return;
@@ -74,6 +76,7 @@ public final class TeamRoomBridge implements AutoCloseable {
             try {
                 JsonNode response = client.sync(since, 30_000);
                 since = response.path("next_batch").asText(since);
+                joinInvites(response);
                 JsonNode rooms = response.path("rooms").path("join");
                 rooms.fieldNames().forEachRemaining(roomId -> {
                     for (JsonNode event : rooms.path(roomId).path("timeline").path("events")) {
@@ -88,6 +91,17 @@ public final class TeamRoomBridge implements AutoCloseable {
                 sleep(5_000);
             }
         }
+    }
+
+    private void joinInvites(JsonNode response) {
+        response.path("rooms").path("invite").fieldNames().forEachRemaining(roomId -> {
+            try {
+                client.join(roomId);
+                log.info("Accepted room invite user={} room={}", client.userId(), roomId);
+            } catch (RuntimeException e) {
+                log.warn("Failed to accept room invite {}: {}", roomId, e.getMessage());
+            }
+        });
     }
 
     private void accept(String roomId, JsonNode event) {

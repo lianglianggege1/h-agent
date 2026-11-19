@@ -25,7 +25,7 @@ public class SpringWorkerTools {
         this.roomId = roomId;
         this.managerUserId = managerUserId;
         this.history = new TeamHistoryReader(client, roomId,
-                new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, workerUserIds));
+                new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, roomId, workerUserIds));
     }
 
     @Tool(description = "当任务缺少必要信息、无法继续时，向 Manager 提出一个具体问题。不要猜测缺失的需求。")

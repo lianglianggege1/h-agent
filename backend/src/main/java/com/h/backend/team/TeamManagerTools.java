@@ -27,7 +27,7 @@ public class TeamManagerTools {
         this.roomId = roomId;
         this.workerUserIds = Map.copyOf(workerUserIds);
         this.history = new TeamHistoryReader(client, roomId,
-                new TeamPolicy(TeamPolicy.Role.MANAGER, client.userId(), client.userId(),
+                new TeamPolicy(TeamPolicy.Role.MANAGER, client.userId(), client.userId(), roomId,
                         workerUserIds.values().toArray(String[]::new)));
     }
 

@@ -19,9 +19,9 @@ class TeamPolicyTest {
     private static final String HUMAN = "@huajiang:matrix.local";
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final TeamPolicy manager = new TeamPolicy(TeamPolicy.Role.MANAGER, MANAGER, MANAGER, WORKER, SPRING_WORKER);
-    private final TeamPolicy worker = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER, WORKER, SPRING_WORKER);
-    private final TeamPolicy springWorker = new TeamPolicy(TeamPolicy.Role.WORKER, SPRING_WORKER, MANAGER, WORKER, SPRING_WORKER);
+    private final TeamPolicy manager = new TeamPolicy(TeamPolicy.Role.MANAGER, MANAGER, MANAGER, "!room:matrix.local", WORKER, SPRING_WORKER);
+    private final TeamPolicy worker = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER, "!room:matrix.local", WORKER, SPRING_WORKER);
+    private final TeamPolicy springWorker = new TeamPolicy(TeamPolicy.Role.WORKER, SPRING_WORKER, MANAGER, "!room:matrix.local", WORKER, SPRING_WORKER);
 
     private static TeamMessage message(String sender, String body, List<String> mentions, String kind, String taskId) {
         return new TeamMessage("$evt", "!room:matrix.local", sender, body, mentions, false, kind, taskId);
@@ -97,6 +97,17 @@ class TeamPolicyTest {
     void selfMessagesNeverTrigger() {
         assertFalse(manager.shouldRespond(message(MANAGER, "自己的话", List.of(MANAGER), null, null)));
         assertFalse(worker.shouldRespond(message(WORKER, "自己的话", List.of(WORKER), null, null)));
+    }
+
+    @Test
+    void dmRoomsTriggerOnAnyHumanMessageWithoutMentions() {
+        TeamMessage dmHuman = new TeamMessage("$dm1", "!dm:matrix.local", HUMAN, "在吗", List.of(), false, null, null);
+        assertTrue(manager.shouldRespond(dmHuman));
+        assertTrue(worker.shouldRespond(dmHuman));
+        assertTrue(springWorker.shouldRespond(dmHuman));
+        TeamMessage dmAgent = new TeamMessage("$dm2", "!dm:matrix.local", WORKER, "旁听", List.of(), false, null, null);
+        assertFalse(manager.shouldRespond(dmAgent));
+        assertFalse(springWorker.shouldRespond(dmAgent));
     }
 
     @Test

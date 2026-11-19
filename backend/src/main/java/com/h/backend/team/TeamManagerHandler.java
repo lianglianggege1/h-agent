@@ -23,18 +23,23 @@ public class TeamManagerHandler implements TeamRoomBridge.Handler {
 
     private final HarnessAgent agent;
     private final MatrixClient client;
+    private final String teamRoomId;
 
-    public TeamManagerHandler(HarnessAgent agent, MatrixClient client) {
+    public TeamManagerHandler(HarnessAgent agent, MatrixClient client, String teamRoomId) {
         this.agent = agent;
         this.client = client;
+        this.teamRoomId = teamRoomId;
     }
 
     @Override
     public void handle(TeamMessage message) {
+        boolean direct = !message.roomId().equals(teamRoomId);
         String prompt = switch (message.kind() == null ? "" : message.kind()) {
             case TeamProtocol.KIND_REPORT -> "Worker 回报（任务 %s）：%s".formatted(message.taskId(), message.body());
             case TeamProtocol.KIND_QUESTION -> "Worker 提问（任务 %s）：%s".formatted(message.taskId(), message.body());
-            default -> "Human 消息（来自 %s）：%s".formatted(message.sender(), message.body());
+            default -> direct
+                    ? "Human 单聊消息：%s".formatted(message.body())
+                    : "Human 消息（来自 %s）：%s".formatted(message.sender(), message.body());
         };
         RuntimeContext context = RuntimeContext.builder()
                 .userId("team-manager")

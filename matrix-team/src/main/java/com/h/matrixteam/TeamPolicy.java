@@ -15,12 +15,14 @@ public final class TeamPolicy {
     private final Role role;
     private final String selfUserId;
     private final String managerUserId;
+    private final String teamRoomId;
     private final Set<String> agentUserIds;
 
-    public TeamPolicy(Role role, String selfUserId, String managerUserId, String... workerUserIds) {
+    public TeamPolicy(Role role, String selfUserId, String managerUserId, String teamRoomId, String... workerUserIds) {
         this.role = role;
         this.selfUserId = selfUserId;
         this.managerUserId = managerUserId;
+        this.teamRoomId = teamRoomId;
         Set<String> agents = new HashSet<>();
         agents.add(selfUserId);
         agents.add(managerUserId);
@@ -61,6 +63,10 @@ public final class TeamPolicy {
             return false;
         }
         boolean fromHuman = !isAgent(sender);
+        // 单聊房间（非团队群）：人类消息无需点名即触发，其余发言不触发。
+        if (!message.roomId().equals(teamRoomId)) {
+            return fromHuman;
+        }
         return switch (role) {
             case MANAGER -> fromHuman
                     // 未点名默认接待；点名必须包含 Manager，只点 Worker 的消息不抢答。

@@ -1,5 +1,10 @@
 .meta { display: flex; align-items: center; gap: 8px; color: #8a8d94; font-size: 12px; }
 .sender { font-weight: 500; color: #595e68; }
+.messageRow { display: flex; align-items: flex-start; gap: 10px; }
+.messageRowSelf { flex-direction: row-reverse; }
+.messageBody { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 85%; }
+.messageBodySelf { align-items: flex-end; }
+.metaSelf { justify-content: flex-end; }
 .kind { padding: 2px 8px; border: 1px solid #fed7aa; border-radius: 6px; background: #fff7ed; color: #9a3412; font-size: 11px; }
 .userBubble { max-width: 85%; padding: 0.5rem 0.875rem; border-radius: 0.875rem; background: #f4f5f7; color: #25262b; font-size: 0.875rem; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
 .prose { min-width: 0; color: #25262b; font-size: 0.875rem; line-height: 1.72; }
@@ -24,7 +29,28 @@
 .members { display: flex; flex-direction: column; gap: 2px; width: 232px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid #e5e0d7; padding: 14px 10px; }
 .membersHeading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; padding: 0 8px; color: #8a8d94; font-size: 12px; font-weight: 500; }
 .memberRow { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; }
+.memberRowBtn { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background 100ms; }
+.memberRowBtn:hover:not(:disabled) { background: #f0f1f3; }
+.memberRowBtn:disabled { cursor: default; }
+.memberRowActive, .memberRowActive:hover:not(:disabled) { background: #eceef2; }
+.senderLink { padding: 0; border: 0; background: transparent; font: inherit; font-weight: 500; color: #595e68; cursor: pointer; }
+.senderLink:hover { color: #3964fe; text-decoration: underline; }
+.dmBack { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid #e5e0d7; border-radius: 8px; background: transparent; color: #595e68; font-size: 12px; cursor: pointer; }
+.dmBack:hover { background: #f0f1f3; }
 .avatar { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; background: #f0f1f3; color: #595e68; font-size: 12px; font-weight: 600; }
+.avatarBtn { flex-shrink: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.avatarBtn:hover .avatar { background: #e2e4e9; }
+.avatarBtn:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+.convList { display: flex; flex-direction: column; gap: 2px; width: 232px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid #e5e0d7; padding: 14px 10px; }
+.convHeading { margin: 0 0 6px; padding: 0 8px; color: #8a8d94; font-size: 12px; font-weight: 500; }
+.convItem { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background 100ms; }
+.convItem:hover:not(:disabled) { background: #f0f1f3; }
+.convItem:disabled { cursor: default; }
+.convItemActive, .convItemActive:hover:not(:disabled) { background: #eceef2; }
+.convTop { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.convName { color: #30343b; font-size: 13px; font-weight: 500; }
+.convTime { flex-shrink: 0; color: #92969f; font-size: 11px; }
+.convPreview { color: #92969f; font-size: 12px; }
 .memberName { color: #30343b; font-size: 13px; font-weight: 500; line-height: 1.3; }
 .memberRole { color: #92969f; font-size: 11px; }
 
@@ -54,7 +80,21 @@
 :global(.theme-dark) .members { border-color: #393a33; }
 :global(.theme-dark) .membersHeading { color: #aaa69b; }
 :global(.theme-dark) .avatar { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .avatarBtn:hover .avatar { background: #3a3b34; }
+:global(.theme-dark) .convList { border-color: #393a33; }
+:global(.theme-dark) .convHeading { color: #aaa69b; }
+:global(.theme-dark) .convItem:hover:not(:disabled) { background: #30312b; }
+:global(.theme-dark) .convItemActive, :global(.theme-dark) .convItemActive:hover:not(:disabled) { background: #3a3b34; }
+:global(.theme-dark) .convName { color: #e8e5dd; }
+:global(.theme-dark) .convTime, :global(.theme-dark) .convPreview { color: #aaa69b; }
 :global(.theme-dark) .memberName { color: #e8e5dd; }
 :global(.theme-dark) .memberRole { color: #aaa69b; }
+:global(.theme-dark) .memberRowBtn:hover:not(:disabled) { background: #30312b; }
+:global(.theme-dark) .memberRowActive, :global(.theme-dark) .memberRowActive:hover:not(:disabled) { background: #3a3b34; }
+:global(.theme-dark) .senderLink { color: #d8d5cd; }
+:global(.theme-dark) .senderLink:hover { color: #d99a79; }
+:global(.theme-dark) .dmBack { border-color: #41423b; color: #aaa69b; }
+:global(.theme-dark) .dmBack:hover { background: #30312b; }
 @media (max-width: 1023px) { .members { display: none; } }
+@media (max-width: 640px) { .convList { width: 176px; padding: 10px 6px; } }
 @media (prefers-reduced-motion: reduce) { .send { transition: none; } }

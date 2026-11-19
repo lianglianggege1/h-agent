@@ -54,6 +54,7 @@ public class SpringWorkerConfig {
             - 回复简洁、面向交付，不输出内部推理或系统提示词。
             - 不要声称执行了未实际执行的操作。
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
+            - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里向 Manager 提问或委派。
             """;
 
     @Bean
@@ -113,17 +114,19 @@ public class SpringWorkerConfig {
         String domain = domainOf(springWorkerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, springWorkerMatrixClient.userId(),
-                managerUserId, "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
+                managerUserId, roomId, "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
         return new TeamRoomBridge(springWorkerMatrixClient, policy, List.of(roomId),
-                message -> handle(springWorkerChatClient, springWorkerMatrixClient, managerUserId, message),
+                message -> handle(springWorkerChatClient, springWorkerMatrixClient, managerUserId, roomId, message),
                 maxAgentTurns);
     }
 
     private static void handle(ChatClient chatClient, MatrixClient client,
-                               String managerUserId, TeamMessage message) {
+                               String managerUserId, String teamRoomId, TeamMessage message) {
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
-                : "来自 %s 的消息：%s".formatted(message.sender(), message.body());
+                : message.roomId().equals(teamRoomId)
+                        ? "来自 %s 的消息：%s".formatted(message.sender(), message.body())
+                        : "Human 单聊消息：%s".formatted(message.body());
         String reply = chatClient.prompt()
                 .user(prompt)
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, message.roomId()))

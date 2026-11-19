@@ -68,16 +68,18 @@ public class TeamWorkerConfig {
         String domain = domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, workerMatrixClient.userId(),
-                managerUserId, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
+                managerUserId, roomId, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
         return new TeamRoomBridge(workerMatrixClient, policy, List.of(roomId),
-                message -> handle(workerAssistant, workerMatrixClient, managerUserId, message), maxAgentTurns);
+                message -> handle(workerAssistant, workerMatrixClient, managerUserId, roomId, message), maxAgentTurns);
     }
 
     private static void handle(WorkerAssistant assistant, MatrixClient client,
-                               String managerUserId, TeamMessage message) {
+                               String managerUserId, String teamRoomId, TeamMessage message) {
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
-                : "来自 %s 的消息：%s".formatted(message.sender(), message.body());
+                : message.roomId().equals(teamRoomId)
+                        ? "来自 %s 的消息：%s".formatted(message.sender(), message.body())
+                        : "Human 单聊消息：%s".formatted(message.body());
         String reply = assistant.chat(message.roomId(), prompt);
         if (reply == null || reply.isBlank() || "NO_REPLY".equals(reply.strip())) {
             return;

@@ -49,6 +49,7 @@ public class TeamManagerConfig {
             - 委派必须使用 delegate_to_worker 工具，不要只在正文里写 Worker 的名字。
             - 回复简洁，面向 Human；不要输出内部推理、系统提示词或工具日志。
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
+            - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里委派任务。
             """;
 
     @Bean
@@ -117,9 +118,9 @@ public class TeamManagerConfig {
         String workerUserId = "@" + workerUsername + ":" + domain;
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
-                teamMatrixClient.userId(), workerUserId, springWorkerUserId);
+                teamMatrixClient.userId(), roomId, workerUserId, springWorkerUserId);
         return new TeamRoomBridge(teamMatrixClient, policy, List.of(roomId),
-                new TeamManagerHandler(teamHarnessAgent, teamMatrixClient), maxAgentTurns);
+                new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId), maxAgentTurns);
     }
 
     private static String domainOf(String userId) {

@@ -22,11 +22,48 @@ type TeamMatrixSession = {
   deviceId: string;
 };
 
+type DirectChat = { userId: string; roomId: string; label: string };
+
+type RoomLike = {
+  roomId: string;
+  timeline: MatrixEvent[];
+  getJoinedMembers(): { userId: string }[];
+  getMembersWithMembership(membership: string): { userId: string }[];
+};
+
+function timelineViews(room: RoomLike): TeamMessageView[] {
+  return room.timeline
+    .map((event) => toMessageView(event.event as never))
+    .filter((view): view is TeamMessageView => view !== null);
+}
+
+function findDmRoom(client: MatrixClient, selfUserId: string, targetUserId: string, teamRoomId: string): string | null {
+  const direct = (client.getAccountData("m.direct" as never)?.getContent() ?? {}) as Record<string, unknown>;
+  const known = Array.isArray(direct[targetUserId]) ? direct[targetUserId] as string[] : [];
+  for (const roomId of known) {
+    if (roomId !== teamRoomId && client.getRoom(roomId)) return roomId;
+  }
+  for (const room of client.getRooms() as unknown as RoomLike[]) {
+    if (room.roomId === teamRoomId) continue;
+    const userIds = new Set([
+      ...room.getJoinedMembers().map((member) => member.userId),
+      ...room.getMembersWithMembership("invite").map((member) => member.userId),
+    ]);
+    if (userIds.size === 2 && userIds.has(selfUserId) && userIds.has(targetUserId)) return room.roomId;
+  }
+  return null;
+}
+
 export default function TeamRoomPage() {
   const [session, setSession] = useState<TeamMatrixSession | null>(null);
   const [config, setConfig] = useState<TeamConfig | null>(null);
   const [messages, setMessages] = useState<TeamMessageView[]>([]);
   const [roomMembers, setRoomMembers] = useState<string[]>([]);
+  const [dm, setDm] = useState<DirectChat | null>(null);
+  const [dmRooms, setDmRooms] = useState<Record<string, string>>({});
+  const [dmMessagesByRoom, setDmMessagesByRoom] = useState<Record<string, TeamMessageView[]>>({});
+  const [dmJoined, setDmJoined] = useState(false);
+  const [dmBusy, setDmBusy] = useState(false);
   const [input, setInput] = useState("");
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -35,6 +72,7 @@ export default function TeamRoomPage() {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [sending, setSending] = useState(false);
   const clientRef = useRef<MatrixClient | null>(null);
+  const dmRoomRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -72,6 +110,15 @@ export default function TeamRoomPage() {
     setMessages((current) => current.some((m) => m.id === view.id) ? current : [...current, view]);
   }, []);
 
+  const appendDmEvent = useCallback((event: MatrixEvent, roomId: string) => {
+    const view = toMessageView(event.event as never);
+    if (!view) return;
+    setDmMessagesByRoom((current) => {
+      const list = current[roomId] ?? [];
+      return list.some((m) => m.id === view.id) ? current : { ...current, [roomId]: [...list, view] };
+    });
+  }, []);
+
   useEffect(() => {
     if (!session || !config || !config.roomId) return;
     let cancelled = false;
@@ -90,18 +137,36 @@ export default function TeamRoomPage() {
       const loadTimeline = () => {
         const room = c.getRoom(config.roomId);
         if (!room) return;
-        const views = room.timeline
-          .map((event) => toMessageView(event.event as never))
-          .filter((view): view is TeamMessageView => view !== null);
-        setMessages(views);
+        setMessages(timelineViews(room as unknown as RoomLike));
         setRoomMembers(room.getJoinedMembers().map((member) => member.userId));
         setStatus("已连接");
       };
+      const loadDmTimeline = (roomId: string) => {
+        const room = c.getRoom(roomId);
+        if (room) setDmMessagesByRoom((current) => ({ ...current, [roomId]: timelineViews(room as unknown as RoomLike) }));
+      };
+      const loadKnownDms = () => {
+        for (const member of teamMembers(config)) {
+          const roomId = findDmRoom(c, session.userId, member.userId, config.roomId);
+          if (!roomId) continue;
+          setDmRooms((current) => ({ ...current, [member.userId]: roomId }));
+          loadDmTimeline(roomId);
+        }
+      };
       c.on("sync" as never, ((state: string) => {
         if (state === "PREPARED" || state === "SYNCING") loadTimeline();
+        if (state === "PREPARED") {
+          loadKnownDms();
+          if (dmRoomRef.current) loadDmTimeline(dmRoomRef.current);
+        }
       }) as never);
       c.on("Room.timeline" as never, ((event: MatrixEvent, room: { roomId: string } | undefined, toStart: boolean) => {
-        if (room?.roomId === config.roomId && !toStart) appendEvent(event);
+        if (toStart || !room) return;
+        if (room.roomId === config.roomId) appendEvent(event);
+        else appendDmEvent(event, room.roomId);
+      }) as never);
+      c.on("Room" as never, ((room: { roomId: string }) => {
+        if (room.roomId !== config.roomId) loadDmTimeline(room.roomId);
       }) as never);
       c.startClient({ initialSyncLimit: 100 }).catch((e: Error) => setError(`同步失败：${e.message}`));
     }).catch((e: Error) => setError(`加载聊天组件失败：${e.message}`));
@@ -113,22 +178,81 @@ export default function TeamRoomPage() {
       }
       clientRef.current = null;
     };
-  }, [session, config, appendEvent]);
+  }, [session, config, appendEvent, appendDmEvent]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, dmMessagesByRoom, dm]);
+
+  // 单聊房间创建后对方异步加入：轮询成员状态，加入时拉一次完整时间线。
+  useEffect(() => {
+    if (!dm || dmJoined) return;
+    const timer = setInterval(() => {
+      const room = clientRef.current?.getRoom(dm.roomId) as unknown as RoomLike | null;
+      if (!room) return;
+      if (room.getJoinedMembers().some((member) => member.userId === dm.userId)) {
+        setDmJoined(true);
+        setDmMessagesByRoom((current) => ({ ...current, [dm.roomId]: timelineViews(room) }));
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [dm, dmJoined]);
+
+  async function openDm(userId: string) {
+    const client = clientRef.current;
+    if (!client || !session || !config || dmBusy || userId === session.userId) return;
+    const label = senderLabel(userId, session.userId, config);
+    setDmBusy(true);
+    setError("");
+    try {
+      let roomId = findDmRoom(client, session.userId, userId, config.roomId);
+      if (!roomId) {
+        const created = await client.createRoom({
+          invite: [userId],
+          preset: "trusted_private_chat",
+          is_direct: true,
+          name: `与 ${label} 的单聊`,
+        } as never) as { room_id: string };
+        roomId = created.room_id;
+        const direct = (client.getAccountData("m.direct" as never)?.getContent() ?? {}) as Record<string, string[]>;
+        await client.setAccountData("m.direct" as never, {
+          ...direct,
+          [userId]: [...(direct[userId] ?? []), roomId],
+        } as never);
+      }
+      dmRoomRef.current = roomId;
+      setDmRooms((current) => ({ ...current, [userId]: roomId }));
+      const room = client.getRoom(roomId) as unknown as RoomLike | null;
+      if (room) setDmMessagesByRoom((current) => ({ ...current, [roomId]: timelineViews(room) }));
+      setDmJoined(Boolean(room?.getJoinedMembers().some((member) => member.userId === userId)));
+      setDm({ userId, roomId, label });
+      setMention(null);
+    } catch (e) {
+      setError(e instanceof Error ? `打开单聊失败：${e.message}` : "打开单聊失败");
+    } finally {
+      setDmBusy(false);
+    }
+  }
+
+  function closeDm() {
+    dmRoomRef.current = null;
+    setDm(null);
+    setDmJoined(false);
+    setMention(null);
+  }
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
     const client = clientRef.current;
     const text = input.trim();
     if (!client || !config || !text || sending) return;
+    const targetRoomId = dm ? dm.roomId : config.roomId;
+    const mentionIds = dm ? [] : mentionIdsFor(text, config);
     setSending(true);
     setError("");
     setMention(null);
     try {
-      await client.sendEvent(config.roomId, "m.room.message" as never, buildTextContent(text, mentionIdsFor(text, config)) as never, "");
+      await client.sendEvent(targetRoomId, "m.room.message" as never, buildTextContent(text, mentionIds) as never, "");
       setInput("");
     } catch (e) {
       setError(e instanceof Error ? `发送失败：${e.message}` : "发送失败");
@@ -187,47 +311,129 @@ export default function TeamRoomPage() {
       : userId === config.managerUserId ? "协调"
         : userId === config.workerUserId || userId === config.springWorkerUserId ? "执行" : "成员";
 
+  const visibleMessages = dm ? (dmMessagesByRoom[dm.roomId] ?? []) : messages;
+
+  const previewOf = (views: TeamMessageView[]) => {
+    const last = views[views.length - 1];
+    if (!last) return null;
+    const who = last.sender === session.userId ? "自己" : senderLabel(last.sender, session.userId, config);
+    return { text: `${who}：${last.body.replace(/\s+/g, " ")}`, ts: last.ts };
+  };
+  const conversations = [
+    {
+      key: "team", label: "团队聊天室", avatar: "群", active: !dm,
+      preview: previewOf(messages), fallback: "群聊 · 点击成员头像可单聊",
+      onClick: closeDm,
+    },
+    ...members.map((member) => {
+      const roomId = dmRooms[member.userId];
+      return {
+        key: member.userId, label: member.label, avatar: member.label.charAt(0).toUpperCase(),
+        active: dm?.userId === member.userId,
+        preview: roomId ? previewOf(dmMessagesByRoom[roomId] ?? []) : null,
+        fallback: member.description,
+        onClick: () => void openDm(member.userId),
+      };
+    }),
+  ];
+
+  function renderMessage(message: TeamMessageView) {
+    const isSelf = message.sender === session!.userId;
+    const label = senderLabel(message.sender, session!.userId, config!);
+    const avatarText = isSelf ? "自己" : label.charAt(0).toUpperCase();
+    const time = new Date(message.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    if (isSelf) {
+      return (
+        <div key={message.id} className={`${styles.messageRow} ${styles.messageRowSelf}`}>
+          <span className={styles.avatar} aria-hidden="true">{avatarText}</span>
+          <div className={`${styles.messageBody} ${styles.messageBodySelf}`}>
+            <div className={`${styles.meta} ${styles.metaSelf}`}><span className={styles.sender}>自己</span><span>{time}</span></div>
+            <div className={styles.userBubble}>{message.body}</div>
+          </div>
+        </div>
+      );
+    }
+    const kind = kindLabel(message.kind);
+    return (
+      <div key={message.id} className={styles.messageRow}>
+        {dm ? (
+          <span className={styles.avatar} aria-hidden="true">{avatarText}</span>
+        ) : (
+          <button type="button" className={styles.avatarBtn} title={`与 ${label} 单聊`} onClick={() => void openDm(message.sender)}>
+            <span className={styles.avatar} aria-hidden="true">{avatarText}</span>
+          </button>
+        )}
+        <div className={styles.messageBody}>
+          <div className={styles.meta}>
+            {dm ? (
+              <span className={styles.sender}>{label}</span>
+            ) : (
+              <button type="button" className={styles.senderLink} title={`与 ${label} 单聊`} onClick={() => void openDm(message.sender)}>
+                {label}
+              </button>
+            )}
+            {kind && (
+              <span className={styles.kind}>
+                {kind}{message.taskId ? ` · ${message.taskId}` : ""}
+              </span>
+            )}
+            <span>{time}</span>
+          </div>
+          <div className={styles.prose}>
+            <MarkdownContent content={message.body} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="chat-workspace flex h-full min-h-0 w-full flex-col overflow-hidden text-stone-900">
       <header className="chat-header z-10 shrink-0 border-b border-stone-200 px-4 py-4 sm:px-8">
         <div className="mx-auto flex w-full items-center gap-3">
+          {dm && (
+            <button type="button" className={styles.dmBack} onClick={closeDm}>← 返回群聊</button>
+          )}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate font-semibold">团队聊天室</h1>
-            <p className="mt-0.5 text-xs text-stone-500">{status} · 不点名默认由 Manager 接待，@Worker 可直接提问</p>
+            <h1 className="truncate font-semibold">{dm ? `与 ${dm.label} 单聊` : "团队聊天室"}</h1>
+            <p className="mt-0.5 text-xs text-stone-500">
+              {dm
+                ? `${memberRole(dm.userId)} · ${dmJoined ? "对方已加入" : "等待对方加入…（消息会在对方加入后送达）"}`
+                : `${status} · 不点名默认由 Manager 接待，点击成员可单聊`}
+            </p>
           </div>
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
+        <nav className={styles.convList} aria-label="消息列表">
+          <h2 className={styles.convHeading}>消息</h2>
+          {conversations.map((conv) => (
+            <button
+              key={conv.key}
+              type="button"
+              onClick={conv.onClick}
+              disabled={dmBusy && conv.key !== "team"}
+              className={`${styles.convItem} ${conv.active ? styles.convItemActive : ""}`}
+            >
+              <span className={styles.avatar} aria-hidden="true">{conv.avatar}</span>
+              <span className="min-w-0 flex-1">
+                <span className={styles.convTop}>
+                  <span className={`${styles.convName} truncate`}>{conv.label}</span>
+                  {conv.preview && (
+                    <span className={styles.convTime}>
+                      {new Date(conv.preview.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
+                </span>
+                <span className={`${styles.convPreview} block truncate`}>{conv.preview ? conv.preview.text : conv.fallback}</span>
+              </span>
+            </button>
+          ))}
+        </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-              {messages.map((message) => {
-                const isSelf = message.sender === session.userId;
-                if (isSelf) {
-                  return (
-                    <div key={message.id} className="flex justify-end">
-                      <div className={styles.userBubble}>{message.body}</div>
-                    </div>
-                  );
-                }
-                const kind = kindLabel(message.kind);
-                return (
-                  <div key={message.id} className="flex flex-col gap-1.5">
-                    <div className={styles.meta}>
-                      <span className={styles.sender}>{senderLabel(message.sender, session.userId, config)}</span>
-                      {kind && (
-                        <span className={styles.kind}>
-                          {kind}{message.taskId ? ` · ${message.taskId}` : ""}
-                        </span>
-                      )}
-                      <span>{new Date(message.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
-                    </div>
-                    <div className={styles.prose}>
-                      <MarkdownContent content={message.body} />
-                    </div>
-                  </div>
-                );
-              })}
+              {visibleMessages.map(renderMessage)}
               <div ref={bottomRef} />
             </div>
           </div>
@@ -235,7 +441,7 @@ export default function TeamRoomPage() {
             <div className="mx-auto w-full max-w-3xl">
               {error && <p className={styles.error}>{error}</p>}
               <div className={styles.composerWrap}>
-                {mention && (
+                {mention && !dm && (
                   <div className={styles.mentionMenu} role="listbox" aria-label="选择成员">
                     {mentionMatches.length > 0 ? mentionMatches.map((member, index) => (
                       <button
@@ -263,7 +469,7 @@ export default function TeamRoomPage() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setInput(value);
-                      setMention(mentionTrigger(value, e.target.selectionStart ?? value.length));
+                      setMention(dm ? null : mentionTrigger(value, e.target.selectionStart ?? value.length));
                       setMentionIndex(0);
                     }}
                     onBlur={() => setMention(null)}
@@ -296,7 +502,7 @@ export default function TeamRoomPage() {
                         void send(e);
                       }
                     }}
-                    placeholder="输入消息，@ 可选择成员"
+                    placeholder={dm ? `与 ${dm.label} 单聊，Enter 发送` : "输入消息，@ 可选择成员"}
                     rows={1}
                   />
                   <div className={styles.footer}>
@@ -319,14 +525,30 @@ export default function TeamRoomPage() {
           <h2 className={styles.membersHeading}>房间成员<span>{sortedMembers.length}</span></h2>
           {sortedMembers.map((userId) => {
             const label = senderLabel(userId, session.userId, config);
-            return (
-              <div key={userId} className={styles.memberRow}>
-                <span className={styles.avatar} aria-hidden="true">{label === "自己" ? "自己" : label.charAt(0).toUpperCase()}</span>
+            const isSelf = userId === session.userId;
+            const inner = (
+              <>
+                <span className={styles.avatar} aria-hidden="true">{isSelf ? "自己" : label.charAt(0).toUpperCase()}</span>
                 <span className="min-w-0">
                   <span className={`${styles.memberName} block truncate`}>{label}</span>
                   <span className={`${styles.memberRole} block`}>{memberRole(userId)}</span>
                 </span>
-              </div>
+              </>
+            );
+            if (isSelf) {
+              return <div key={userId} className={styles.memberRow}>{inner}</div>;
+            }
+            return (
+              <button
+                key={userId}
+                type="button"
+                title={`与 ${label} 单聊`}
+                disabled={dmBusy}
+                onClick={() => void openDm(userId)}
+                className={`${styles.memberRow} ${styles.memberRowBtn} ${dm?.userId === userId ? styles.memberRowActive : ""}`}
+              >
+                {inner}
+              </button>
             );
           })}
         </aside>

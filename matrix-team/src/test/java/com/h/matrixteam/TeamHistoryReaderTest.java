@@ -13,9 +13,9 @@ class TeamHistoryReaderTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ROOM = "!room:matrix.local";
     private static final TeamPolicy MANAGER_POLICY = new TeamPolicy(
-            TeamPolicy.Role.MANAGER, "@manager:matrix.local", "@manager:matrix.local", "@worker:matrix.local");
+            TeamPolicy.Role.MANAGER, "@manager:matrix.local", "@manager:matrix.local", ROOM, "@worker:matrix.local");
     private static final TeamPolicy WORKER_POLICY = new TeamPolicy(
-            TeamPolicy.Role.WORKER, "@worker:matrix.local", "@manager:matrix.local", "@worker:matrix.local");
+            TeamPolicy.Role.WORKER, "@worker:matrix.local", "@manager:matrix.local", ROOM, "@worker:matrix.local");
 
     private static String event(String id, String sender, long ts, String body, String teamJson) {
         String content = "{\"msgtype\":\"m.text\",\"body\":" + JSON.valueToTree(body)
