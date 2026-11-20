@@ -15,10 +15,10 @@ public interface DocumentTaskMapper extends BaseMapper<DocumentTaskEntity> {
     DocumentTaskEntity lockOwned(
             @Param("user") Long user, @Param("session") String session, @Param("id") String id);
 
-    List<DocumentTaskEntity> claim();
+    List<DocumentTaskEntity> claim(@Param("owner") String owner);
 
     /** 原子恢复服务不可用任务，并使旧工作线程检查点失效。 */
-    int requeueUnavailable();
+    int requeueUnavailable(@Param("owner") String owner);
 
     Long activeAnchor(@Param("user") Long user, @Param("session") String session);
 

@@ -1,5 +1,6 @@
 package com.h.backend.chat.application.impl;
 
+import com.h.backend.chat.domain.subagentdefinition.SubagentCapabilityPolicy;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionException;
 import com.h.backend.chat.domain.subagentdefinition.model.CreateSubagentDraftCommand;
@@ -136,7 +137,7 @@ class SubagentDefinitionCatalogImplTest {
         assertThat(aliceView.limits().maxEnabled()).isEqualTo(20);
         assertThat(aliceView.limits().usedDefinitions()).isEqualTo(1);
         assertThat(aliceView.capabilities().defaultTools())
-                .containsExactly("read_file", "grep_files", "glob_files", "list_files");
+                .containsExactlyElementsOf(SubagentCapabilityPolicy.DEFAULT_TOOLS);
         assertThat(aliceView.capabilities().requestableTools())
                 .containsExactly("write_file", "edit_file");
     }

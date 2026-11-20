@@ -406,6 +406,16 @@
             <artifactId>minio</artifactId>
             <version>9.0.1</version>
         </dependency>
+        <!-- minio 传递的 okhttp 5.x 是 KMP 空壳 jar（Maven 无 Gradle 元数据），必须钉 4.x JVM 版 -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -468,6 +478,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!-- 主产物保持普通 jar 供 other-agents 依赖；可执行 fat jar 带 exec classifier -->
+                    <classifier>exec</classifier>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

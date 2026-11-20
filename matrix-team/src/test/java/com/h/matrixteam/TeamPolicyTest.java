@@ -136,9 +136,31 @@ class TeamPolicyTest {
         event.put("type", "m.room.member");
         assertNull(TeamProtocol.parse("!room:matrix.local", event));
 
-        ObjectNode image = JSON.createObjectNode();
-        image.put("type", "m.room.message");
-        image.putObject("content").put("msgtype", "m.image").put("body", "pic.png");
-        assertNull(TeamProtocol.parse("!room:matrix.local", image));
+        ObjectNode notice = JSON.createObjectNode();
+        notice.put("type", "m.room.message");
+        notice.putObject("content").put("msgtype", "m.notice").put("body", "bot notice");
+        assertNull(TeamProtocol.parse("!room:matrix.local", notice));
+    }
+
+    @Test
+    void parsesMediaMessagesAndBlankBodyFallsBackToUrlName() {
+        ObjectNode event = JSON.createObjectNode();
+        event.put("type", "m.room.message");
+        event.put("event_id", "$img");
+        event.put("sender", HUMAN);
+        ObjectNode content = event.putObject("content");
+        content.put("msgtype", "m.image");
+        content.put("body", "");
+        content.put("url", "mxc://matrix.local/photo123");
+        content.putObject("info").put("mimetype", "image/png").put("size", 1024);
+
+        TeamMessage parsed = TeamProtocol.parse("!room:matrix.local", event);
+        assertEquals("m.image", parsed.msgtype());
+        assertEquals("photo123", parsed.body());
+        assertTrue(parsed.isMedia());
+        assertEquals("image/png", parsed.mimetype());
+        assertEquals(1024, parsed.size());
+        assertTrue(manager.shouldRespond(parsed));
+        assertFalse(worker.shouldRespond(parsed));
     }
 }

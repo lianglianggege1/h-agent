@@ -21,21 +21,32 @@ public class GenerationTaskSubmissionCoordinator {
 
     private final GenerationTaskRepository taskRepository;
     private final GenerationChatProjectionPort chatProjectionPort;
+    private final com.h.backend.generation.infrastructure.config.GenerationProperties properties;
     private final Clock clock;
 
     @Autowired
     public GenerationTaskSubmissionCoordinator(
             GenerationTaskRepository taskRepository,
-            GenerationChatProjectionPort chatProjectionPort) {
-        this(taskRepository, chatProjectionPort, Clock.systemUTC());
+            GenerationChatProjectionPort chatProjectionPort,
+            com.h.backend.generation.infrastructure.config.GenerationProperties properties) {
+        this(taskRepository, chatProjectionPort, properties, Clock.systemUTC());
     }
 
     GenerationTaskSubmissionCoordinator(
             GenerationTaskRepository taskRepository,
             GenerationChatProjectionPort chatProjectionPort,
             Clock clock) {
+        this(taskRepository, chatProjectionPort, null, clock);
+    }
+
+    GenerationTaskSubmissionCoordinator(
+            GenerationTaskRepository taskRepository,
+            GenerationChatProjectionPort chatProjectionPort,
+            com.h.backend.generation.infrastructure.config.GenerationProperties properties,
+            Clock clock) {
         this.taskRepository = taskRepository;
         this.chatProjectionPort = chatProjectionPort;
+        this.properties = properties;
         this.clock = clock;
     }
 
@@ -64,6 +75,9 @@ public class GenerationTaskSubmissionCoordinator {
         }
         Instant now = clock.instant();
         GenerationTask task = GenerationTask.create(id, userId, sessionId, spec, now);
+        task.assignTeam(
+                properties == null ? "backend" : properties.getOwner(),
+                com.h.backend.capability.matrix.TeamActorContext.get());
         taskRepository.save(task);
         try {
             // Validate the owned destination and reserve the message before a paid V2 request.

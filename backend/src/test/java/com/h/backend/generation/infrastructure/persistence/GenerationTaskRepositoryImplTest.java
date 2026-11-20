@@ -38,7 +38,7 @@ class GenerationTaskRepositoryImplTest {
         when(mapper.selectById("retired-task")).thenReturn(retired);
         when(mapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
                 .thenReturn(List.of(retired, active));
-        when(mapper.selectDue(any(), anyInt())).thenReturn(List.of(retired, active));
+        when(mapper.selectDue(any(), anyInt(), any())).thenReturn(List.of(retired, active));
         var repository = new GenerationTaskRepositoryImpl(mapper, json);
 
         assertTrue(repository.findById("retired-task").isEmpty());

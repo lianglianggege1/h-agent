@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildTextContent, kindLabel, mentionIdsFor, mentionTrigger, senderLabel, toMessageView } from "./team-room.ts";
+import {
+  buildReplyContent, buildTextContent, kindLabel, linkifyMxc, mentionIdsFor, mentionTrigger,
+  senderLabel, stripReplyFallback, toMessageView, toProgressView,
+} from "./team-room.ts";
 
 const config = {
   homeserverUrl: "http://localhost:8008",
@@ -77,4 +80,46 @@ test("mention ids derive from the message text", () => {
   assert.deepEqual(mentionIdsFor("@worker 和 @springworker 协作", config), ["@worker:matrix.local", "@spring-worker:matrix.local"]);
   assert.deepEqual(mentionIdsFor("没有点名", config), []);
   assert.deepEqual(mentionIdsFor("@workerx 不是点名", config), []);
+});
+
+test("reply fallback is stripped from display body but kept for agents", () => {
+  const body = "> <@worker:matrix.local> 原消息第一行\n> 第二行\n\n我的回复";
+  const parsed = stripReplyFallback(body);
+  assert.equal(parsed.body, "我的回复");
+  assert.deepEqual(parsed.fallback, { sender: "@worker:matrix.local", text: "原消息第一行\n第二行" });
+  assert.deepEqual(stripReplyFallback("普通消息"), { body: "普通消息", fallback: null });
+  const content = buildReplyContent("我的回复", [], { eventId: "$9", sender: "@worker:matrix.local", body: "原消息第一行", msgtype: "m.text" });
+  assert.equal(content.body, body.replace("原消息第一行\n> 第二行", "原消息第一行"));
+  assert.deepEqual(content["m.relates_to"], { "m.in_reply_to": { event_id: "$9" } });
+  const view = toMessageView({
+    event_id: "$10", sender: "@huajiang:matrix.local", type: "m.room.message",
+    content: { msgtype: "m.text", body, "m.relates_to": { "m.in_reply_to": { event_id: "$9" } } },
+  });
+  assert.equal(view.body, "我的回复");
+  assert.equal(view.replyTo, "$9");
+  assert.equal(view.replyFallback.sender, "@worker:matrix.local");
+});
+
+test("mxc references become markdown links unless already linked or in code", () => {
+  assert.equal(
+    linkifyMxc("结果见 mxc://matrix.local/AbC123 谢谢"),
+    "结果见 [AbC123](mxc://matrix.local/AbC123) 谢谢",
+  );
+  assert.equal(linkifyMxc("[文件](mxc://matrix.local/AbC123)"), "[文件](mxc://matrix.local/AbC123)");
+  assert.equal(linkifyMxc("`mxc://matrix.local/AbC123`"), "`mxc://matrix.local/AbC123`");
+});
+
+test("progress snapshots parse into run views", () => {
+  const view = toProgressView({
+    event_id: "$p1", sender: "@worker:matrix.local", origin_server_ts: 5, type: "com.h.agent.progress",
+    content: {
+      runId: "run-1", status: "RUNNING", answerStarted: false, startedAt: 1,
+      steps: [{ id: "tool-1", name: "web_search", status: "RUNNING", kind: "tool" }],
+      entries: [{ id: "e1", type: "reasoning", chunks: ["想一想"] }],
+    },
+  });
+  assert.equal(view.runId, "run-1");
+  assert.equal(view.steps.length, 1);
+  assert.equal(view.entries[0].type, "reasoning");
+  assert.equal(toProgressView({ event_id: "$p2", sender: "@w:b", type: "m.room.message", content: {} }), null);
 });

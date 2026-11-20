@@ -5,7 +5,7 @@ import com.h.backend.knowledge.infrastructure.config.KnowledgeProperties;
 import com.h.backend.knowledge.infrastructure.persistence.KnowledgeToolRepository;
 import com.h.backend.knowledge.infrastructure.persistence.KnowledgeToolRepository.Document;
 import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.memory.application.MemorySources;
+import com.h.backend.memory.application.MemorySourcePort;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.*;
@@ -28,10 +28,10 @@ public class UserKnowledgeTools implements KnowledgeTools {
     private final EmbeddingStore<TextSegment> vectors;
     private final KnowledgeTextIndexer indexer;
     private final KnowledgeProperties properties;
-    private final MemorySources sources;
+    private final MemorySourcePort sources;
     private final ObjectMapper json;
     public UserKnowledgeTools(KnowledgeToolRepository repo,EmbeddingModel embeddings,EmbeddingStore<TextSegment> vectors,
-                              KnowledgeTextIndexer indexer,KnowledgeProperties properties,MemorySources sources,ObjectMapper json) {
+                              KnowledgeTextIndexer indexer,KnowledgeProperties properties,MemorySourcePort sources,ObjectMapper json) {
         this.repo=repo;this.embeddings=embeddings;this.vectors=vectors;this.indexer=indexer;
         this.properties=properties;this.sources=sources;this.json=json;
     }

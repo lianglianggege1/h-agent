@@ -15,9 +15,11 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTaskEntity> {
             SELECT * FROM generation_tasks
             WHERE status IN ('IN_PROGRESS', 'RETRY_WAIT', 'MATERIALIZING')
               AND generation_type IN ('VIDEO_V2', 'TEXT_TO_VIDEO', 'IMAGE_TO_VIDEO')
+              AND COALESCE(owner, 'backend') = #{owner}
               AND next_poll_at <= #{now}
             ORDER BY next_poll_at ASC
             LIMIT #{limit}
             """)
-    List<GenerationTaskEntity> selectDue(@Param("now") LocalDateTime now, @Param("limit") int limit);
+    List<GenerationTaskEntity> selectDue(
+            @Param("now") LocalDateTime now, @Param("limit") int limit, @Param("owner") String owner);
 }

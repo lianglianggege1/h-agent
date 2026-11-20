@@ -1,4 +1,4 @@
-package com.h.backend.chat.infrastructure.tools;
+package com.h.backend.chat.application;
 
 import dev.langchain4j.web.search.WebSearchEngine;
 import dev.langchain4j.web.search.WebSearchInformationResult;
@@ -16,7 +16,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class WebSearchToolTest {
+class WebSearchServiceTest {
 
     @TempDir
     Path tempDir;
@@ -40,9 +40,9 @@ class WebSearchToolTest {
                         )
                 )
         ));
-        WebSearchTool tool = new WebSearchTool(searchEngine);
+        WebSearchService service = new WebSearchService(searchEngine);
 
-        String result = tool.webSearch("What is LangChain4j?", 2);
+        String result = service.search("What is LangChain4j?", 2);
 
         assertEquals("What is LangChain4j?", searchEngine.request.searchTerms());
         assertEquals(2, searchEngine.request.maxResults());
@@ -55,9 +55,9 @@ class WebSearchToolTest {
 
     @Test
     void shouldReturnConfigurationErrorWhenSearchEngineIsMissing() {
-        WebSearchTool tool = new WebSearchTool(null);
+        WebSearchService service = new WebSearchService(null);
 
-        String result = tool.webSearch("latest LangChain4j release", 5);
+        String result = service.search("latest LangChain4j release", 5);
 
         assertEquals("Error: Tavily API key is not configured", result);
     }
@@ -67,7 +67,7 @@ class WebSearchToolTest {
         Path backendDir = Files.createDirectory(tempDir.resolve("backend"));
         Files.writeString(tempDir.resolve(".env"), "TAVILY_API_KEY=parent-key\n");
 
-        String apiKey = WebSearchTool.loadTavilyApiKey(backendDir, null);
+        String apiKey = WebSearchService.loadTavilyApiKey(backendDir, null);
 
         assertEquals("parent-key", apiKey);
     }

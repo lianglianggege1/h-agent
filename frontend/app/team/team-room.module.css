@@ -50,6 +50,46 @@
 .convPreview { color: #92969f; font-size: 12px; }
 .memberName { color: #30343b; font-size: 13px; font-weight: 500; line-height: 1.3; }
 .memberRole { color: #92969f; font-size: 11px; }
+.mediaBubble { padding: 6px; }
+.mediaImage { display: block; max-width: 320px; max-height: 260px; border-radius: 10px; object-fit: contain; }
+.mediaVideo { display: block; max-width: 360px; max-height: 260px; border-radius: 10px; background: #000; }
+.mediaAudio { display: block; width: 280px; max-width: 100%; }
+.fileCard { display: flex; align-items: center; gap: 10px; max-width: 320px; padding: 10px 12px; border: 1px solid #e5e7ec; border-radius: 12px; background: #fff; color: #30343b; text-decoration: none; }
+.fileCard:hover { border-color: #c5cfe7; }
+.fileIcon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 8px; background: #f0f1f3; color: #595e68; }
+.fileIcon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fileName { font-size: 13px; font-weight: 500; }
+.fileSize { color: #92969f; font-size: 11px; }
+.footerLeft { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.attach { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #92969f; cursor: pointer; transition: background 100ms, color 100ms; }
+.attach:hover:not(:disabled) { background: #f0f1f3; color: #595e68; }
+.attach:disabled { opacity: .5; cursor: default; }
+.attach:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+.attach svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mediaWrap { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.mediaActions { display: flex; gap: 10px; padding-left: 2px; }
+.quoteBtn { padding: 0; border: 0; background: transparent; font: inherit; font-size: 11px; color: #b3b7bf; cursor: pointer; opacity: 0; transition: opacity 100ms; }
+.messageRow:hover .quoteBtn { opacity: 1; }
+.quoteBtn:hover { color: #3964fe; }
+.quoteBlock { display: flex; flex-direction: column; gap: 2px; max-width: 100%; padding: 6px 10px; border-left: 3px solid #c5cfe7; border-radius: 6px; background: #f4f5f7; font-size: 12px; }
+.quoteSender { color: #595e68; font-weight: 500; }
+.quoteText { color: #8a8d94; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.bubbleMarkdown { white-space: normal; }
+.replyChip { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 12px; border: 1px solid #e5e7ec; border-radius: 10px; background: #f4f5f7; font-size: 12px; }
+.replyChipText { min-width: 0; flex: 1; color: #595e68; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replyChipClose { flex-shrink: 0; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #92969f; font-size: 14px; line-height: 1; cursor: pointer; }
+.replyChipClose:hover { background: #e2e4e9; color: #30343b; }
+.refChips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.refChip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #e5e7ec; border-radius: 10px; background: #fff; font-size: 12px; }
+.refChipLabel { flex-shrink: 0; padding: 2px 6px; border-radius: 6px; background: #f0f1f3; color: #595e68; font-size: 11px; }
+.refChipName { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #30343b; }
+.avatarWrap { position: relative; flex-shrink: 0; }
+.badge { position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
+.receipt { margin-top: 2px; color: #b3b7bf; font-size: 11px; }
+.receipt summary { display: inline-flex; gap: 4px; cursor: pointer; list-style: none; }
+.receipt summary::-webkit-details-marker { display: none; }
+.receipt summary:hover { color: #3964fe; }
+.receiptList { display: block; margin-top: 2px; color: #92969f; font-size: 11px; line-height: 1.6; }
 
 :global(.theme-dark) .meta { color: #aaa69b; }
 :global(.theme-dark) .sender { color: #d8d5cd; }
@@ -89,6 +129,29 @@
 :global(.theme-dark) .memberRowBtn:hover:not(:disabled) { background: #30312b; }
 :global(.theme-dark) .senderLink { color: #d8d5cd; }
 :global(.theme-dark) .senderLink:hover { color: #d99a79; }
+:global(.theme-dark) .fileCard { border-color: #41423b; background: #22231f; color: #e8e5dd; }
+:global(.theme-dark) .fileCard:hover { border-color: #68695f; }
+:global(.theme-dark) .fileIcon { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .fileSize { color: #aaa69b; }
+:global(.theme-dark) .attach { color: #aaa69b; }
+:global(.theme-dark) .attach:hover:not(:disabled) { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .mediaAction { color: #aaa69b; }
+:global(.theme-dark) .mediaAction:hover { color: #d99a79; }
+:global(.theme-dark) .quoteBtn { color: #77786e; }
+:global(.theme-dark) .quoteBtn:hover { color: #d99a79; }
+:global(.theme-dark) .quoteBlock { border-color: #68695f; background: #30312b; }
+:global(.theme-dark) .quoteSender { color: #d8d5cd; }
+:global(.theme-dark) .quoteText { color: #aaa69b; }
+:global(.theme-dark) .replyChip { border-color: #41423b; background: #30312b; }
+:global(.theme-dark) .replyChipText { color: #d8d5cd; }
+:global(.theme-dark) .replyChipClose { color: #aaa69b; }
+:global(.theme-dark) .replyChipClose:hover { background: #3a3b34; color: #f1eee7; }
+:global(.theme-dark) .refChip { border-color: #41423b; background: #22231f; }
+:global(.theme-dark) .refChipLabel { background: #30312b; color: #e8e5dd; }
+:global(.theme-dark) .refChipName { color: #e8e5dd; }
+:global(.theme-dark) .receipt { color: #77786e; }
+:global(.theme-dark) .receipt summary:hover { color: #d99a79; }
+:global(.theme-dark) .receiptList { color: #aaa69b; }
 @media (max-width: 1023px) { .members { display: none; } }
 @media (max-width: 640px) { .convList { width: 176px; padding: 10px 6px; } }
 @media (prefers-reduced-motion: reduce) { .send { transition: none; } }

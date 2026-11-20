@@ -2,11 +2,30 @@ package com.h.otheragents.team;
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.Model;
+import com.h.backend.chat.application.FileDeliveryService;
+import com.h.backend.chat.application.WebSearchService;
+import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
+import com.h.backend.document.application.DocumentWorkflow;
+import com.h.backend.generation.interfaces.tool.TeamImageGenerationTool;
+import com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.backend.skill.application.SkillRuntimeService;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamMessage;
 import com.h.matrixteam.TeamPolicy;
 import com.h.matrixteam.TeamProtocol;
 import com.h.matrixteam.TeamRoomBridge;
+import com.h.otheragents.team.capability.TeamIdentity;
+import com.h.otheragents.team.tool.springai.SpringDeliveryTools;
+import com.h.otheragents.team.tool.springai.SpringDocumentTools;
+import com.h.otheragents.team.tool.springai.SpringFilesystemTools;
+import com.h.otheragents.team.tool.springai.SpringGenerationTools;
+import com.h.otheragents.team.tool.springai.SpringKnowledgeToolProvider;
+import com.h.otheragents.team.tool.springai.SpringMemoryToolProvider;
+import com.h.otheragents.team.tool.springai.SpringSearchTools;
+import com.h.otheragents.team.tool.springai.SpringShellTools;
+import com.h.otheragents.team.tool.springai.SpringSkillTools;
+import com.h.otheragents.team.tool.springai.SpringToolContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.anthropic.AnthropicChatModel;
@@ -15,24 +34,33 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 团队聊天室 SpringWorker 装配：独立 Matrix 账号 + Spring AI ChatClient。
- * 窗口记忆按房间隔离（MessageWindowChatMemory + MessageChatMemoryAdvisor），工具走 Spring AI @Tool。
- * 只在被点名（含 Manager 委派）时执行，结果以结构化回报发回房间。
+ * 窗口记忆按房间隔离（MessageWindowChatMemory + MessageChatMemoryAdvisor）。
+ * 能力以 Spring AI 原生方式书写：静态能力为 @Tool/@ToolParam 方法（身份经 ToolContext 注入），
+ * 记忆/知识库为 FunctionToolCallback 动态工具集，技能按本轮快照构建 activate_skill/read_skill_resource。
+ * 业务逻辑委托框架无关的共享服务；只在被点名（含 Manager 委派）时执行，结果以结构化回报发回房间。
  */
 @Configuration
 @ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class SpringWorkerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SpringWorkerConfig.class);
+
+    private static final String AGENT_ID = "spring-worker";
 
     private static final String SPRING_WORKER_PROMPT = """
             你是团队聊天室中的 SpringWorker，由 Spring AI 框架实现的 Worker Agent，负责执行 Manager 委派的任务。
@@ -43,6 +71,14 @@ public class SpringWorkerConfig {
             - 认真完成委派任务，交付明确结果；你的最终回复会被自动作为任务结果回报给 Manager。
             - 缺少必要信息时调用 askManager 工具提问，不要猜测需求。
             - Human 直接向你提问时，直接回答该问题。
+
+            交付能力：
+            - 你拥有文档生成/解析、文件读写、Shell、联网搜索、长期记忆与知识库等工具。
+            - 生成图片用 generate_image，生成视频用 generate_video（提交后自动发送到聊天室，
+              可用 query_video_task 查询进度）；参考素材传房间媒体的 mxc:// 地址。
+            - 生成的文档、图片、音视频等成果必须通过 send_file_to_chat 或 generate_document
+              发送到聊天室，成员才能看到；只在文本里描述文件路径不算交付。
+            - Human 上传的附件可用 list_document_inputs 查看、parse_document 解析后再处理。
 
             群聊上下文：
             - 你每次只收到触发你的那条消息，不代表群里的全部对话。
@@ -56,6 +92,17 @@ public class SpringWorkerConfig {
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
             - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里向 Manager 提问或委派。
             """;
+
+    /** 本轮执行固定的原生工具集与共享服务（静态 @Tool 对象 + 动态 Provider + 技能快照服务 + 人类身份）。 */
+    private record Capabilities(
+            List<Object> toolObjects,
+            SpringMemoryToolProvider memoryTools,
+            SpringKnowledgeToolProvider knowledgeTools,
+            SkillRuntimeService skillRuntimeService,
+            ObjectMapper json,
+            long humanUserId
+    ) {
+    }
 
     @Bean
     public MatrixClient springWorkerMatrixClient(
@@ -81,7 +128,6 @@ public class SpringWorkerConfig {
 
     @Bean
     public ChatClient springWorkerChatClient(
-            SpringWorkerTools springWorkerTools,
             @Value("${API_KEY:}") String apiKey,
             @Value("${MODEL_NAME:}") String modelName) {
         AnthropicChatModel chatModel = AnthropicChatModel.builder()
@@ -92,21 +138,61 @@ public class SpringWorkerConfig {
                         .build())
                 .options(AnthropicChatOptions.builder()
                         .model(Model.of(modelName))
-                        .maxTokens(8192)
+                        // 流式走 options 构建的 async 客户端，凭据必须放在 options 上
+                        .apiKey(apiKey)
+                        .baseUrl("https://api.minimaxi.com/anthropic")
+                        .timeout(Duration.ofSeconds(120))
+                        .maxTokens(16384)
+                        .thinkingEnabled(4096)
                         .build())
                 .build();
         ChatMemory chatMemory = MessageWindowChatMemory.builder().maxMessages(1000).build();
         return ChatClient.builder(chatModel)
                 .defaultSystem(SPRING_WORKER_PROMPT)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
-                .defaultTools(springWorkerTools)
                 .build();
+    }
+
+    @Bean
+    public TeamRoomBridge.Handler springWorkerHandler(
+            ChatClient springWorkerChatClient,
+            MatrixClient springWorkerMatrixClient,
+            SpringWorkerTools springWorkerTools,
+            DocumentWorkflow documentWorkflow,
+            AssistantFileStorage fileStorage,
+            ShellExecutionService shellExecutionService,
+            WebSearchService webSearchService,
+            FileDeliveryService fileDeliveryService,
+            TeamImageGenerationTool images,
+            TeamVideoGenerationTool videos,
+            SpringMemoryToolProvider memoryTools,
+            SpringKnowledgeToolProvider knowledgeTools,
+            SkillRuntimeService skillRuntimeService,
+            ObjectMapper json,
+            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
+            @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
+            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId) {
+        String managerUserId = "@" + managerUsername + ":" + domainOf(springWorkerMatrixClient.userId());
+        List<Object> toolObjects = List.of(
+                springWorkerTools,
+                new SpringDocumentTools(documentWorkflow, json),
+                new SpringGenerationTools(images, videos),
+                new SpringFilesystemTools(fileStorage),
+                new SpringShellTools(shellExecutionService),
+                new SpringSearchTools(webSearchService),
+                new SpringDeliveryTools(fileDeliveryService));
+        Capabilities capabilities = new Capabilities(
+                toolObjects, memoryTools, knowledgeTools, skillRuntimeService, json, humanUserId);
+        return message -> handle(springWorkerChatClient, springWorkerMatrixClient, capabilities,
+                managerUserId, roomId, message);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
     public TeamRoomBridge springWorkerBridge(
             MatrixClient springWorkerMatrixClient,
-            ChatClient springWorkerChatClient,
+            @org.springframework.beans.factory.annotation.Qualifier("springWorkerHandler")
+            TeamRoomBridge.Handler springWorkerHandler,
+            com.h.matrixteam.TeamRunTracker teamRunTracker,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
@@ -116,22 +202,89 @@ public class SpringWorkerConfig {
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, springWorkerMatrixClient.userId(),
                 managerUserId, roomId, "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
         return new TeamRoomBridge(springWorkerMatrixClient, policy, List.of(roomId),
-                message -> handle(springWorkerChatClient, springWorkerMatrixClient, managerUserId, roomId, message),
-                maxAgentTurns);
+                springWorkerHandler, maxAgentTurns, teamRunTracker);
     }
 
-    private static void handle(ChatClient chatClient, MatrixClient client,
+    private static void handle(ChatClient chatClient, MatrixClient client, Capabilities capabilities,
                                String managerUserId, String teamRoomId, TeamMessage message) {
+        long humanUserId = capabilities.humanUserId();
+        String memoryId = TeamIdentity.memoryId(humanUserId, AGENT_ID, message.roomId());
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
                 : message.roomId().equals(teamRoomId)
                         ? "来自 %s 的消息：%s".formatted(message.sender(), message.body())
                         : "Human 单聊消息：%s".formatted(message.body());
-        String reply = chatClient.prompt()
-                .user(prompt)
-                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, message.roomId()))
-                .call()
-                .content();
+        try {
+            capabilities.skillRuntimeService().snapshotForTopLevelRun(humanUserId, null, memoryId);
+            String skillsMessage = capabilities.skillRuntimeService().skillsSystemMessage(memoryId);
+            if (skillsMessage != null) {
+                prompt = prompt + "\n\n" + skillsMessage;
+            }
+        } catch (RuntimeException failure) {
+            log.warn("SpringWorker 技能快照固定失败，本轮不带技能执行: {}", failure.getMessage());
+        }
+        SpringToolContext identity = new SpringToolContext(humanUserId, message.roomId(), memoryId,
+                TeamIdentity.agentContext(humanUserId, message.roomId(), AGENT_ID, message.eventId()));
+        StringBuilder answer = new StringBuilder();
+        com.h.matrixteam.TeamProgressReporter reporter =
+                new com.h.matrixteam.TeamProgressReporter(client, message.roomId());
+        Runnable resetAnswer = () -> answer.setLength(0);
+        List<ToolCallback> callbacks = new ArrayList<>();
+        for (ToolCallback callback : MethodToolCallbackProvider.builder()
+                .toolObjects(capabilities.toolObjects().toArray()).build().getToolCallbacks()) {
+            callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
+        }
+        for (ToolCallback callback : capabilities.memoryTools().getToolCallbacks()) {
+            callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
+        }
+        for (ToolCallback callback : capabilities.knowledgeTools().getToolCallbacks()) {
+            callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
+        }
+        for (ToolCallback callback : SpringSkillTools.forRun(
+                capabilities.skillRuntimeService(), memoryId, capabilities.json())) {
+            callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
+        }
+        com.h.backend.capability.matrix.TeamActorContext.set(client.userId());
+        com.h.backend.capability.matrix.TeamActorContext.setRoom(message.roomId());
+        com.h.matrixteam.TeamProgressContext.set(reporter);
+        reporter.start();
+        try {
+            chatClient.prompt()
+                    .user(prompt)
+                    .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, message.roomId()))
+                    .toolContext(Map.of(SpringToolContext.KEY, identity))
+                    .toolCallbacks(callbacks.toArray(new ToolCallback[0]))
+                    .stream()
+                    .chatResponse()
+                    .doOnNext(response -> {
+                        if (response == null || response.getResult() == null
+                                || response.getResult().getOutput() == null) {
+                            return;
+                        }
+                        var output = response.getResult().getOutput();
+                        String text = output.getText();
+                        if (text == null || text.isEmpty()) {
+                            return;
+                        }
+                        if (Boolean.TRUE.equals(output.getMetadata().get("thinking"))) {
+                            reporter.reasoning(text);
+                        } else {
+                            if (answer.isEmpty()) {
+                                reporter.answerStarted();
+                            }
+                            answer.append(text);
+                        }
+                    })
+                    .blockLast(Duration.ofMinutes(5));
+            reporter.finish("COMPLETED");
+        } catch (RuntimeException failure) {
+            reporter.finish("FAILED");
+            throw failure;
+        } finally {
+            com.h.matrixteam.TeamProgressContext.clear();
+            com.h.backend.capability.matrix.TeamActorContext.clear();
+        }
+        String reply = answer.toString();
         if (reply == null || reply.isBlank() || "NO_REPLY".equals(reply.strip())) {
             return;
         }

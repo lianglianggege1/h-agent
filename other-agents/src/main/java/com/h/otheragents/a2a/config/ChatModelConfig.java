@@ -23,7 +23,11 @@ public class ChatModelConfig {
 
     @Bean
     public ChatModel chatModel(AgentObservability observability) {
+        // 与 backend ChatModelEnvironment 一致：先读工作目录 .env，再读父目录（服务可从模块目录启动）
         Path envPath = Path.of(".env");
+        if (!Files.exists(envPath)) {
+            envPath = Path.of("../.env");
+        }
         if (!Files.exists(envPath)) {
             return new DisabledChatModel();
         }
@@ -36,7 +40,7 @@ public class ChatModelConfig {
                     .baseUrl("https://api.minimaxi.com/anthropic/v1")
                     .modelName(properties.getProperty("MODEL_NAME"))
                     .maxTokens(8192)
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(120))
                     .logRequests(true)
                     .logResponses(true)
                     .logger(LoggerFactory.getLogger(LANGCHAIN4J_HTTP_REQUEST_LOGGER))

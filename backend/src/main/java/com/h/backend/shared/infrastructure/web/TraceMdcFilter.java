@@ -26,8 +26,8 @@ public class TraceMdcFilter extends OncePerRequestFilter {
 
     public static final String TRACE_ID_HEADER = "X-Trace-Id";
     public static final String SPAN_ID_HEADER = "X-Span-Id";
-    public static final String TRACE_ID_KEY = "traceId";
-    public static final String SPAN_ID_KEY = "spanId";
+    public static final String TRACE_ID_KEY = ExecutionLogContext.TRACE_ID_KEY;
+    public static final String SPAN_ID_KEY = ExecutionLogContext.SPAN_ID_KEY;
 
     /** 仅允许安全字符，防止日志伪造（换行注入伪造日志行） */
     private static final Pattern SAFE_ID = Pattern.compile("^[A-Za-z0-9._-]{1,128}$");

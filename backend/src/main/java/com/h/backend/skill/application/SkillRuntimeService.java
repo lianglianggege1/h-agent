@@ -180,6 +180,35 @@ public class SkillRuntimeService {
         return snapshot == null ? null : snapshot.langchainSkills();
     }
 
+    /** 框架无关的 Skill 内容视图：供各框架原生工具入口（如 Spring AI）直接读取指令与文本资源。 */
+    public record SkillContent(String name, String description, String instructions, Map<String, String> resources) {
+    }
+
+    /** 本次执行快照的 Skill 内容；未注册或无 Skill 返回空列表。 */
+    public List<SkillContent> skillContentsFor(String memoryId) {
+        PreparedSnapshot snapshot = findPrepared(memoryId);
+        if (snapshot == null || snapshot.isEmpty()) {
+            return List.of();
+        }
+        List<SkillContent> contents = new ArrayList<>();
+        for (SnapshotSkill skill : snapshot.skills()) {
+            Map<String, String> resources = new java.util.LinkedHashMap<>();
+            for (String path : skill.bundle().files().sortedPaths()) {
+                if ("SKILL.md".equals(path) || !isTextResource(path)) {
+                    continue;
+                }
+                resources.put(path, new String(skill.bundle().files().get(path), StandardCharsets.UTF_8));
+            }
+            String instructions = skill.bundle().files().requireText("SKILL.md");
+            contents.add(new SkillContent(
+                    skill.skillKey(),
+                    skill.displayName() == null ? skill.skillKey() : skill.displayName(),
+                    instructions == null ? "" : instructions,
+                    resources));
+        }
+        return contents;
+    }
+
     // ==================================================================
     // 快照构建
     // ==================================================================

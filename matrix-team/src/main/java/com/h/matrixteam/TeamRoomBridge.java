@@ -31,6 +31,7 @@ public final class TeamRoomBridge implements AutoCloseable {
     private final List<String> roomIds;
     private final Handler handler;
     private final int maxAgentTurns;
+    private final TeamRunTracker tracker;
 
     private final Map<String, Boolean> seen = new LinkedHashMap<>(256, 0.75f, true) {
         @Override
@@ -45,11 +46,17 @@ public final class TeamRoomBridge implements AutoCloseable {
 
     public TeamRoomBridge(MatrixClient client, TeamPolicy policy, List<String> roomIds,
                           Handler handler, int maxAgentTurns) {
+        this(client, policy, roomIds, handler, maxAgentTurns, null);
+    }
+
+    public TeamRoomBridge(MatrixClient client, TeamPolicy policy, List<String> roomIds,
+                          Handler handler, int maxAgentTurns, TeamRunTracker tracker) {
         this.client = client;
         this.policy = policy;
         this.roomIds = List.copyOf(roomIds);
         this.handler = handler;
         this.maxAgentTurns = maxAgentTurns;
+        this.tracker = tracker;
     }
 
     public void start() {
@@ -114,6 +121,12 @@ public final class TeamRoomBridge implements AutoCloseable {
                 return;
             }
         }
+        // 收到即已读：公开回执让房间内其他成员（含人类前端）看到本 agent 的已读状态。
+        try {
+            client.sendReadReceipt(roomId, message.eventId());
+        } catch (RuntimeException e) {
+            log.warn("Failed to send read receipt room={} event={}: {}", roomId, message.eventId(), e.getMessage());
+        }
         AtomicInteger turns = agentTurns.computeIfAbsent(roomId, key -> new AtomicInteger());
         if (!policy.isAgent(message.sender())) {
             turns.set(0);
@@ -127,6 +140,7 @@ public final class TeamRoomBridge implements AutoCloseable {
         roomExecutors.computeIfAbsent(roomId, key -> Executors.newSingleThreadExecutor(
                 runnable -> Thread.ofPlatform().name("matrix-room-" + key).daemon(true).unstarted(runnable)
         )).submit(() -> {
+            if (tracker != null) tracker.begin(roomId);
             try {
                 handler.handle(message);
             } catch (Exception e) {
@@ -136,6 +150,8 @@ public final class TeamRoomBridge implements AutoCloseable {
                 } catch (RuntimeException sendError) {
                     log.error("Failed to report handler error to room {}: {}", roomId, sendError.getMessage());
                 }
+            } finally {
+                if (tracker != null) tracker.end(roomId);
             }
         });
     }

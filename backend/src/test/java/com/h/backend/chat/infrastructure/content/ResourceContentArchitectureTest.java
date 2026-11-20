@@ -3,7 +3,7 @@ package com.h.backend.chat.infrastructure.content;
 import com.h.backend.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.application.impl.ChatResourceServiceImpl;
 import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
-import com.h.backend.chat.infrastructure.tools.FileDeliveryTool;
+import com.h.backend.chat.application.FileDeliveryService;
 import com.h.backend.chat.interfaces.web.ChatResourceController;
 import com.h.backend.generation.infrastructure.storage.ResourceStorageGeneratedArtifactAdapter;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -48,7 +48,7 @@ class ResourceContentArchitectureTest {
             ResourceContentPolicy.class,
             ChatResourceController.class,
             com.h.backend.document.application.DocumentWorkflow.class,
-            FileDeliveryTool.class,
+            FileDeliveryService.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,
     };
@@ -57,7 +57,7 @@ class ResourceContentArchitectureTest {
     private static final Class<?>[] INSPECTOR_DEPENDENTS = {
             ChatResourceController.class,
             com.h.backend.document.application.DocumentWorkflow.class,
-            FileDeliveryTool.class,
+            FileDeliveryService.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,
             ResourceContentPolicy.class,

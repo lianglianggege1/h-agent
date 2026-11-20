@@ -51,7 +51,7 @@ class SuccessfulTurnCommitterTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void commitPersistsAssistantMessageCompletesRunAndStagesCapture() {
+    void commitPersistsAssistantMessageAndCompletesRunWithoutAutomaticCapture() {
         AgentDefinition standardAgent = standardAgent();
         ChatAgentExecutionCommand command = command(standardAgent, 11L);
         when(chatSessionService.appendAssistantMessage(7L, "session-actual", "答复"))
@@ -61,17 +61,10 @@ class SuccessfulTurnCommitterTest {
 
         committer.commit(command, "答复");
 
+        verify(chatSessionService).appendAssistantMessage(7L, "session-actual", "答复");
         verify(agentRunService).completeRun(99L, 22L);
-        ArgumentCaptor<CompletedTurn> turnCaptor = ArgumentCaptor.forClass(CompletedTurn.class);
-        verify(memoryRuntime).stageCapture(turnCaptor.capture());
-        CompletedTurn turn = turnCaptor.getValue();
-        assertEquals(MemoryScopeKind.USER, turn.captureScope());
-        assertEquals(11L, turn.userMessageId());
-        assertEquals(22L, turn.assistantMessageId());
-        assertEquals(7L, turn.context().userId());
-        assertEquals(ChatAgentIds.STANDARD_CHAT, turn.context().logicalAgentId());
-        assertEquals("session-root", turn.context().memoryRunId());
-        assertEquals(99L, turn.context().sourceExecutionId());
+        // standard-chat 的长期记忆仅由模型显式工具访问，成功 turn 不再自动 capture。
+        verify(memoryRuntime, never()).stageCapture(any());
     }
 
     @Test

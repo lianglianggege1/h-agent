@@ -50,7 +50,7 @@ class UserKnowledgeToolsTest {
             }
         };
         var props=new KnowledgeProperties();props.getSplit().setChunkSize(100);props.getSplit().setChunkOverlap(10);
-        var source=mock(MemorySources.class);when(source.validated(any(),anyList())).thenReturn(List.of());
+        var source=mock(MemorySourcePort.class);when(source.validated(any(),anyList())).thenReturn(List.of());
         knowledge=new UserKnowledgeTools(new KnowledgeToolRepository(jdbc,new DataSourceTransactionManager(ds)),model,vectors,
                 new KnowledgeTextIndexer(model,vectors,props),props,source,json);
     }

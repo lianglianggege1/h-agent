@@ -4,11 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { MatrixClient, MatrixEvent } from "matrix-js-sdk";
 import { MarkdownContent } from "@/components/markdown-content";
+import { ProgressCard } from "@/components/agui-progress";
+import { ChatAttachmentPicker } from "@/components/chat-attachment-picker";
+import type { ChatMessageResource } from "@/lib/chat-sessions";
 import { apiFetch, ApiError } from "@/lib/http";
 import styles from "./team-room.module.css";
 import {
-  buildTextContent, kindLabel, mentionIdsFor, mentionTrigger, senderLabel, teamMembers, toMessageView,
-  type TeamConfig, type TeamMember, type TeamMessageView,
+  buildMediaContent, buildReplyContent, buildTextContent, isMediaMsgtype, kindLabel, linkifyMxc,
+  mediaLabel, mediaMsgtypeForMime, mediaSummary, mentionIdsFor, mentionTrigger, senderLabel, teamMembers,
+  toMessageView, toProgressView, PROGRESS_EVENT_TYPE,
+  type ReplyTarget, type TeamConfig, type TeamMember, type TeamMessageView, type TeamProgressView,
 } from "@/lib/team-room";
 
 type TeamMatrixSession = {
@@ -24,6 +29,8 @@ type TeamMatrixSession = {
 
 type DirectChat = { userId: string; roomId: string; label: string };
 
+type TeamReference = { eventId: string; url: string; body: string; msgtype: string };
+
 type RoomLike = {
   roomId: string;
   timeline: MatrixEvent[];
@@ -35,6 +42,23 @@ function timelineViews(room: RoomLike): TeamMessageView[] {
   return room.timeline
     .map((event) => toMessageView(event.event as never))
     .filter((view): view is TeamMessageView => view !== null);
+}
+
+function timelineProgress(room: RoomLike): Record<string, TeamProgressView> {
+  const byRun: Record<string, TeamProgressView> = {};
+  for (const event of room.timeline) {
+    const view = toProgressView(event.event as never);
+    if (!view) continue;
+    const prev = byRun[view.runId];
+    byRun[view.runId] = { ...view, id: prev?.id ?? view.id, ts: prev ? Math.min(prev.ts, view.ts) : view.ts };
+  }
+  return byRun;
+}
+
+function humanSize(size: number): string {
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function findDmRoom(client: MatrixClient, selfUserId: string, targetUserId: string, teamRoomId: string): string | null {
@@ -62,6 +86,12 @@ export default function TeamRoomPage() {
   const [dm, setDm] = useState<DirectChat | null>(null);
   const [dmRooms, setDmRooms] = useState<Record<string, string>>({});
   const [dmMessagesByRoom, setDmMessagesByRoom] = useState<Record<string, TeamMessageView[]>>({});
+  const [progressByRoom, setProgressByRoom] = useState<Record<string, Record<string, TeamProgressView>>>({});
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const [references, setReferences] = useState<TeamReference[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [receiptTick, setReceiptTick] = useState(0);
+  const markedRef = useRef<Record<string, string>>({});
   const [dmJoined, setDmJoined] = useState(false);
   const [dmBusy, setDmBusy] = useState(false);
   const [input, setInput] = useState("");
@@ -70,9 +100,11 @@ export default function TeamRoomPage() {
   const [error, setError] = useState("");
   const [needsLogin, setNeedsLogin] = useState(false);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const clientRef = useRef<MatrixClient | null>(null);
   const dmRoomRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -101,6 +133,17 @@ export default function TeamRoomPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const mergeProgress = useCallback((event: MatrixEvent, roomId: string) => {
+    const view = toProgressView(event.event as never);
+    if (!view) return;
+    setProgressByRoom((current) => {
+      const room = current[roomId] ?? {};
+      const prev = room[view.runId];
+      const merged = { ...view, id: prev?.id ?? view.id, ts: prev ? Math.min(prev.ts, view.ts) : view.ts };
+      return { ...current, [roomId]: { ...room, [view.runId]: merged } };
+    });
   }, []);
 
   const appendEvent = useCallback((event: MatrixEvent) => {
@@ -137,11 +180,14 @@ export default function TeamRoomPage() {
         const room = c.getRoom(config.roomId);
         if (!room) return;
         setMessages(timelineViews(room as unknown as RoomLike));
+        setProgressByRoom((current) => ({ ...current, [config.roomId]: timelineProgress(room as unknown as RoomLike) }));
         setRoomMembers(room.getJoinedMembers().map((member) => member.userId));
       };
       const loadDmTimeline = (roomId: string) => {
         const room = c.getRoom(roomId);
-        if (room) setDmMessagesByRoom((current) => ({ ...current, [roomId]: timelineViews(room as unknown as RoomLike) }));
+        if (!room) return;
+        setDmMessagesByRoom((current) => ({ ...current, [roomId]: timelineViews(room as unknown as RoomLike) }));
+        setProgressByRoom((current) => ({ ...current, [roomId]: timelineProgress(room as unknown as RoomLike) }));
       };
       const loadKnownDms = () => {
         for (const member of teamMembers(config)) {
@@ -152,14 +198,23 @@ export default function TeamRoomPage() {
         }
       };
       c.on("sync" as never, ((state: string) => {
-        if (state === "PREPARED" || state === "SYNCING") loadTimeline();
+        if (state === "PREPARED" || state === "SYNCING") {
+          loadTimeline();
+          setReceiptTick((t) => t + 1);
+        }
         if (state === "PREPARED") {
           loadKnownDms();
           if (dmRoomRef.current) loadDmTimeline(dmRoomRef.current);
         }
       }) as never);
+      c.on("Room.receipt" as never, (() => setReceiptTick((t) => t + 1)) as never);
+      c.on("Room.accountData" as never, (() => setReceiptTick((t) => t + 1)) as never);
       c.on("Room.timeline" as never, ((event: MatrixEvent, room: { roomId: string } | undefined, toStart: boolean) => {
         if (toStart || !room) return;
+        if (event.getType() === PROGRESS_EVENT_TYPE) {
+          mergeProgress(event, room.roomId);
+          return;
+        }
         if (room.roomId === config.roomId) appendEvent(event);
         else appendDmEvent(event, room.roomId);
       }) as never);
@@ -176,11 +231,25 @@ export default function TeamRoomPage() {
       }
       clientRef.current = null;
     };
-  }, [session, config, appendEvent, appendDmEvent]);
+  }, [session, config, appendEvent, appendDmEvent, mergeProgress]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, dmMessagesByRoom, dm]);
+  }, [messages, dmMessagesByRoom, progressByRoom, dm]);
+
+  // 正在 viewing 的房间自动标记已读（fully_read + 公开回执），清除其未读角标。
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client || !session || !config) return;
+    const roomId = dm ? dm.roomId : config.roomId;
+    const room = client.getRoom(roomId);
+    const last = room?.timeline[room.timeline.length - 1];
+    const eventId = last?.getId();
+    if (!room || !last || !eventId) return;
+    if (markedRef.current[roomId] === eventId) return;
+    markedRef.current[roomId] = eventId;
+    void client.setRoomReadMarkers(roomId, eventId, last).catch(() => {});
+  }, [dm, messages, dmMessagesByRoom, session, config, receiptTick]);
 
   // 单聊房间创建后对方异步加入：轮询成员状态，加入时拉一次完整时间线。
   useEffect(() => {
@@ -225,6 +294,8 @@ export default function TeamRoomPage() {
       setDmJoined(Boolean(room?.getJoinedMembers().some((member) => member.userId === userId)));
       setDm({ userId, roomId, label });
       setMention(null);
+      setReplyTo(null);
+      setReferences([]);
     } catch (e) {
       setError(e instanceof Error ? `打开单聊失败：${e.message}` : "打开单聊失败");
     } finally {
@@ -237,6 +308,8 @@ export default function TeamRoomPage() {
     setDm(null);
     setDmJoined(false);
     setMention(null);
+    setReplyTo(null);
+    setReferences([]);
   }
 
   async function send(event: React.FormEvent) {
@@ -250,12 +323,43 @@ export default function TeamRoomPage() {
     setError("");
     setMention(null);
     try {
-      await client.sendEvent(targetRoomId, "m.room.message" as never, buildTextContent(text, mentionIds) as never, "");
+      const body = references.length ? `${text}\n\n${references.map((ref) => ref.url).join("\n")}` : text;
+      const content = replyTo
+        ? buildReplyContent(body, mentionIds, replyTo)
+        : buildTextContent(body, mentionIds);
+      await client.sendEvent(targetRoomId, "m.room.message" as never, content as never, "");
       setInput("");
+      setReplyTo(null);
+      setReferences([]);
     } catch (e) {
       setError(e instanceof Error ? `发送失败：${e.message}` : "发送失败");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function attachFiles(files: FileList | null) {
+    const client = clientRef.current;
+    if (!client || !config || !files || files.length === 0 || uploading) return;
+    const targetRoomId = dm ? dm.roomId : config.roomId;
+    setUploading(true);
+    setError("");
+    try {
+      for (const file of Array.from(files)) {
+        const { content_uri: contentUri } = await client.uploadContent(file);
+        const mimetype = file.type || "application/octet-stream";
+        await client.sendEvent(
+          targetRoomId,
+          "m.room.message" as never,
+          buildMediaContent(mediaMsgtypeForMime(mimetype), contentUri, file.name, mimetype, file.size) as never,
+          "",
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? `附件发送失败：${e.message}` : "附件发送失败");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -310,16 +414,34 @@ export default function TeamRoomPage() {
         : userId === config.workerUserId || userId === config.springWorkerUserId ? "执行" : "成员";
 
   const visibleMessages = dm ? (dmMessagesByRoom[dm.roomId] ?? []) : messages;
+  const visibleProgress = Object.values(progressByRoom[(dm ? dm.roomId : config.roomId)] ?? {});
+  const timelineItems = [
+    ...visibleMessages.map((message) => ({ ts: message.ts, key: message.id, element: renderMessage(message) })),
+    ...visibleProgress.map((progress) => ({ ts: progress.ts, key: `progress-${progress.runId}`, element: renderProgress(progress) })),
+  ].sort((a, b) => a.ts - b.ts);
+
+  const pickerResources: ChatMessageResource[] = visibleMessages
+    .filter((message) => isMediaMsgtype(message.msgtype) && message.url)
+    .map((message) => {
+      const http = mediaHttpUrl(message.url) ?? "";
+      return {
+        id: message.id, type: message.msgtype, role: "GENERATED",
+        viewUrl: http, downloadUrl: http, fileName: message.body,
+        mimeType: message.mimetype ?? "application/octet-stream",
+        fileSize: message.size > 0 ? message.size : null, width: null, height: null,
+      };
+    });
 
   const previewOf = (views: TeamMessageView[]) => {
     const last = views[views.length - 1];
     if (!last) return null;
     const who = last.sender === session.userId ? "自己" : senderLabel(last.sender, session.userId, config);
-    return { text: `${who}：${last.body.replace(/\s+/g, " ")}`, ts: last.ts };
+    const text = isMediaMsgtype(last.msgtype) ? mediaSummary(last) : last.body.replace(/\s+/g, " ");
+    return { text: `${who}：${text}`, ts: last.ts };
   };
   const conversations = [
     {
-      key: "team", label: "团队聊天室", avatar: "群", active: !dm,
+      key: "team", label: "团队聊天室", avatar: "群", active: !dm, roomId: config.roomId,
       preview: previewOf(messages), fallback: "群聊 · 点击成员头像可单聊",
       onClick: closeDm,
     },
@@ -327,7 +449,7 @@ export default function TeamRoomPage() {
       const roomId = dmRooms[member.userId];
       return {
         key: member.userId, label: member.label, avatar: member.label.charAt(0).toUpperCase(),
-        active: dm?.userId === member.userId,
+        active: dm?.userId === member.userId, roomId,
         preview: roomId ? previewOf(dmMessagesByRoom[roomId] ?? []) : null,
         fallback: member.description,
         onClick: () => void openDm(member.userId),
@@ -335,18 +457,233 @@ export default function TeamRoomPage() {
     }),
   ];
 
+  function mediaHttpUrl(mxc: string | null): string | null {
+    const client = clientRef.current;
+    if (!mxc || !client) return null;
+    const base = client.mxcUrlToHttp(mxc, undefined, undefined, undefined, undefined, undefined, true);
+    if (!base) return null;
+    const token = client.getAccessToken();
+    if (!token) return base;
+    // Synapse 鉴权媒体要求请求带 token，SDK 生成的 URL 不含凭据，<img>/<a> 无法走 header。
+    const url = new URL(base);
+    url.searchParams.set("access_token", token);
+    return url.href;
+  }
+
+  function unreadCount(roomId: string | undefined): number {
+    if (!roomId || !session) return 0;
+    const room = clientRef.current?.getRoom(roomId);
+    if (!room) return 0;
+    // 未读消息条数：m.fully_read 标记之后、非本人发送的 m.room.message 数量。
+    // 不用 getUnreadNotificationCount（那是推送通知数，群聊非 @ 消息为 0）。
+    const marker = room.getAccountData("m.fully_read")?.getContent()?.event_id as string | undefined;
+    const timeline = room.timeline;
+    const idx = marker ? timeline.findIndex((event) => event.getId() === marker) : -1;
+    let count = 0;
+    for (let i = idx + 1; i < timeline.length; i++) {
+      const event = timeline[i];
+      if (event.getType() !== "m.room.message" || event.getSender() === session.userId) continue;
+      count++;
+    }
+    return count;
+  }
+
+  function receiptOf(message: TeamMessageView) {
+    const client = clientRef.current;
+    if (!client || !config || !session) return null;
+    const roomId = dm ? dm.roomId : config.roomId;
+    const room = client.getRoom(roomId);
+    const event = room?.findEventById(message.id);
+    if (!room || !event) return null;
+    const others = room.getJoinedMembers().map((member) => member.userId).filter((userId) => userId !== message.sender);
+    if (!others.length) return null;
+    const read = others.filter((userId) => room.hasUserReadEvent(userId, message.id));
+    const unread = others.filter((userId) => !room.hasUserReadEvent(userId, message.id));
+    const names = (list: string[]) => list.map((userId) => senderLabel(userId, session.userId, config)).join("、");
+    return (
+      <details className={styles.receipt}>
+        <summary>{read.length}/{others.length} 已读</summary>
+        <span className={styles.receiptList}>已读：{read.length ? names(read) : "无"}；未读：{unread.length ? names(unread) : "无"}</span>
+      </details>
+    );
+  }
+
+  function quoteMessage(message: TeamMessageView) {
+    setReplyTo({ eventId: message.id, sender: message.sender, body: message.body, msgtype: message.msgtype });
+    inputRef.current?.focus();
+  }
+
+  // 跨域 Matrix 媒体会忽略 <a download>，改为取字节后 Blob 下载，点击即保存（与普通聊天一致）。
+  async function downloadMedia(src: string, fileName: string) {
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName || "下载";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? `下载失败：${e.message}` : "下载失败");
+    }
+  }
+
+  function toggleReference(message: TeamMessageView) {
+    if (!message.url) return;
+    const url = message.url;
+    setReferences((current) => current.some((ref) => ref.eventId === message.id)
+      ? current.filter((ref) => ref.eventId !== message.id)
+      : [...current, { eventId: message.id, url, body: message.body, msgtype: message.msgtype }]);
+    inputRef.current?.focus();
+  }
+
+  function addReference(message: TeamMessageView) {
+    if (!message.url) return;
+    const url = message.url;
+    setReferences((current) => current.some((ref) => ref.eventId === message.id)
+      ? current
+      : [...current, { eventId: message.id, url, body: message.body, msgtype: message.msgtype }]);
+  }
+
+  function mediaActions(message: TeamMessageView, src: string) {
+    const selected = references.some((ref) => ref.eventId === message.id);
+    return (
+      <span className={styles.mediaActions}>
+        <button
+          type="button"
+          aria-label={`下载 ${message.body}`}
+          title={`下载 ${message.body}`}
+          onClick={() => void downloadMedia(src, message.body)}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-pressed={selected}
+          aria-label={`${selected ? "取消引用" : "引用"} ${message.body}`}
+          title={selected ? "取消引用" : "引用素材"}
+          onClick={() => toggleReference(message)}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 ${selected ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d={selected ? "m5 12 4 4 10-10" : "m9 5-5 5 5 5M4 10h9a7 7 0 0 1 7 7v2"} />
+          </svg>
+          {selected ? "已引用" : "引用"}
+        </button>
+      </span>
+    );
+  }
+
+  function renderMedia(message: TeamMessageView) {
+    const src = mediaHttpUrl(message.url);
+    if (!src) return <div className={styles.prose}>{message.body}</div>;
+    switch (message.msgtype) {
+      case "m.image":
+        return (
+          <div className={styles.mediaWrap}>
+            <img src={src} alt={message.body} className={styles.mediaImage} loading="lazy" />
+            {mediaActions(message, src)}
+          </div>
+        );
+      case "m.video":
+        return (
+          <div className={styles.mediaWrap}>
+            <video src={src} controls className={styles.mediaVideo} />
+            {mediaActions(message, src)}
+          </div>
+        );
+      case "m.audio":
+        return (
+          <div className={styles.mediaWrap}>
+            <audio src={src} controls className={styles.mediaAudio} />
+            {mediaActions(message, src)}
+          </div>
+        );
+      default:
+        return (
+          <div className={styles.mediaWrap}>
+            <a href={src} download={message.body} className={styles.fileCard} onClick={(e) => { e.preventDefault(); void downloadMedia(src, message.body); }}>
+              <span className={styles.fileIcon} aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M14 3v5h5" /><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /></svg>
+              </span>
+              <span className="min-w-0">
+                <span className={`${styles.fileName} block truncate`}>{message.body}</span>
+                <span className={styles.fileSize}>
+                  {message.mimetype ?? "文件"}{message.size > 0 ? ` · ${humanSize(message.size)}` : ""}
+                </span>
+              </span>
+            </a>
+            {mediaActions(message, src)}
+          </div>
+        );
+    }
+  }
+
+  function quoteBlockOf(message: TeamMessageView) {
+    if (!message.replyTo) return null;
+    const original = visibleMessages.find((item) => item.id === message.replyTo);
+    const quoted = original
+      ? { sender: original.sender, text: isMediaMsgtype(original.msgtype) ? mediaSummary(original) : original.body }
+      : message.replyFallback;
+    if (!quoted) return null;
+    const label = senderLabel(quoted.sender, session!.userId, config!);
+    return (
+      <div className={styles.quoteBlock}>
+        <span className={styles.quoteSender}>{label}</span>
+        <span className={styles.quoteText}>{quoted.text.replace(/\s+/g, " ").slice(0, 120)}</span>
+      </div>
+    );
+  }
+
+  function renderProgress(progress: TeamProgressView) {
+    const label = senderLabel(progress.sender, session!.userId, config!);
+    return (
+      <div key={`progress-${progress.runId}`} className={styles.messageRow}>
+        <span className={styles.avatar} aria-hidden="true">{label.charAt(0).toUpperCase()}</span>
+        <div className={styles.messageBody}>
+          <div className={styles.meta}><span className={styles.sender}>{label}</span><span>执行过程</span></div>
+          <ProgressCard content={{
+            runId: progress.runId, status: progress.status, reasoning: "",
+            answerStarted: progress.answerStarted, startedAt: progress.startedAt, processEndedAt: progress.processEndedAt,
+            entries: progress.entries, steps: progress.steps,
+          }} />
+        </div>
+      </div>
+    );
+  }
+
   function renderMessage(message: TeamMessageView) {
     const isSelf = message.sender === session!.userId;
     const label = senderLabel(message.sender, session!.userId, config!);
     const avatarText = isSelf ? "自己" : label.charAt(0).toUpperCase();
     const time = new Date(message.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    const media = isMediaMsgtype(message.msgtype);
+    const quoteBlock = quoteBlockOf(message);
+    const textContent = (
+      <MarkdownContent content={linkifyMxc(message.body)} resolveMediaUrl={mediaHttpUrl} />
+    );
     if (isSelf) {
       return (
         <div key={message.id} className={`${styles.messageRow} ${styles.messageRowSelf}`}>
           <span className={styles.avatar} aria-hidden="true">{avatarText}</span>
           <div className={`${styles.messageBody} ${styles.messageBodySelf}`}>
-            <div className={`${styles.meta} ${styles.metaSelf}`}><span className={styles.sender}>自己</span><span>{time}</span></div>
-            <div className={styles.userBubble}>{message.body}</div>
+            <div className={`${styles.meta} ${styles.metaSelf}`}>
+              {!media && (
+                <button type="button" className={styles.quoteBtn} onClick={() => quoteMessage(message)}>引用</button>
+              )}
+              <span className={styles.sender}>自己</span><span>{time}</span>
+            </div>
+            {quoteBlock}
+            <div className={media ? `${styles.userBubble} ${styles.mediaBubble}` : styles.userBubble}>
+              {media ? renderMedia(message) : <div className={styles.bubbleMarkdown}>{textContent}</div>}
+            </div>
+            {receiptOf(message)}
           </div>
         </div>
       );
@@ -376,10 +713,17 @@ export default function TeamRoomPage() {
               </span>
             )}
             <span>{time}</span>
+            {!media && (
+              <button type="button" className={styles.quoteBtn} onClick={() => quoteMessage(message)}>引用</button>
+            )}
           </div>
-          <div className={styles.prose}>
-            <MarkdownContent content={message.body} />
-          </div>
+          {quoteBlock}
+          {media ? renderMedia(message) : (
+            <div className={styles.prose}>
+              {textContent}
+            </div>
+          )}
+          {receiptOf(message)}
         </div>
       </div>
     );
@@ -405,7 +749,12 @@ export default function TeamRoomPage() {
               disabled={dmBusy && conv.key !== "team"}
               className={`${styles.convItem} ${conv.active ? styles.convItemActive : ""}`}
             >
-              <span className={styles.avatar} aria-hidden="true">{conv.avatar}</span>
+              <span className={styles.avatarWrap}>
+                <span className={styles.avatar} aria-hidden="true">{conv.avatar}</span>
+                {unreadCount(conv.roomId) > 0 && (
+                  <span className={styles.badge}>{unreadCount(conv.roomId) > 99 ? "99+" : unreadCount(conv.roomId)}</span>
+                )}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className={styles.convTop}>
                   <span className={`${styles.convName} truncate`}>{conv.label}</span>
@@ -423,7 +772,7 @@ export default function TeamRoomPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-              {visibleMessages.map(renderMessage)}
+              {timelineItems.map((item) => item.element)}
               <div ref={bottomRef} />
             </div>
           </div>
@@ -431,6 +780,26 @@ export default function TeamRoomPage() {
             <div className="mx-auto w-full max-w-3xl">
               {error && <p className={styles.error}>{error}</p>}
               <div className={styles.composerWrap}>
+                {references.length > 0 && (
+                  <div className={styles.refChips} aria-label="待发送引用">
+                    {references.map((ref) => (
+                      <span key={ref.eventId} className={styles.refChip} title={ref.body}>
+                        <span className={styles.refChipLabel}>{mediaLabel(ref.msgtype)}</span>
+                        <span className={styles.refChipName}>{ref.body}</span>
+                        <button type="button" className={styles.replyChipClose} aria-label={`移除引用 ${ref.body}`} onClick={() => setReferences((current) => current.filter((item) => item.eventId !== ref.eventId))}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {replyTo && (
+                  <div className={styles.replyChip}>
+                    <span className={styles.replyChipText}>
+                      引用 {senderLabel(replyTo.sender, session.userId, config)}：
+                      {(isMediaMsgtype(replyTo.msgtype) ? `${mediaLabel(replyTo.msgtype)} ${replyTo.body}` : replyTo.body).replace(/\s+/g, " ").slice(0, 60)}
+                    </span>
+                    <button type="button" className={styles.replyChipClose} aria-label="取消引用" onClick={() => setReplyTo(null)}>×</button>
+                  </div>
+                )}
                 {mention && !dm && (
                   <div className={styles.mentionMenu} role="listbox" aria-label="选择成员">
                     {mentionMatches.length > 0 ? mentionMatches.map((member, index) => (
@@ -496,7 +865,19 @@ export default function TeamRoomPage() {
                     rows={1}
                   />
                   <div className={styles.footer}>
-                    <span className={styles.hint}>Enter 发送，Shift+Enter 换行</span>
+                    <span className={styles.footerLeft}>
+                      <button
+                        type="button"
+                        aria-label="发送附件"
+                        title="发送附件"
+                        disabled={uploading}
+                        className={styles.attach}
+                        onClick={() => setPickerOpen(true)}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                      </button>
+                      <span className={styles.hint}>{uploading ? "附件上传中…" : "Enter 发送，Shift+Enter 换行"}</span>
+                    </span>
                     <button
                       type="submit"
                       aria-label="发送"
@@ -507,6 +888,29 @@ export default function TeamRoomPage() {
                     </button>
                   </div>
                 </div>
+                {pickerOpen && (
+                  <ChatAttachmentPicker
+                    resources={pickerResources}
+                    hasOlder={false}
+                    loadingOlder={false}
+                    onLoadOlder={() => {}}
+                    onUpload={() => { setPickerOpen(false); fileInputRef.current?.click(); }}
+                    onSelect={(resource) => {
+                      const message = visibleMessages.find((item) => item.id === resource.id);
+                      if (message) addReference(message);
+                      setPickerOpen(false);
+                      inputRef.current?.focus();
+                    }}
+                    onClose={() => setPickerOpen(false)}
+                  />
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => void attachFiles(e.target.files)}
+                />
               </div>
             </div>
           </form>

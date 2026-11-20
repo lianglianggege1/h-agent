@@ -39,6 +39,12 @@ public class DocumentTask {
 
     private String originalRequest;
 
+    /** 任务归属的服务实例；多服务共享任务表时各自只领取自己的任务。 */
+    private String owner;
+
+    /** 创建任务的 Agent Matrix 身份，团队续跑据此路由回原 Agent。 */
+    private String actor;
+
     /** 原请求续跑状态，与内容放行状态独立，取消续跑不撤销人工核对。 */
     private String resumeStatus = "NONE";
 

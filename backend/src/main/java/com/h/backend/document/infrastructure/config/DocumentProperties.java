@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties("chat.documents")
 public class DocumentProperties {
+    /** 任务归属实例标识；共享任务表的服务必须各自配置不同值，避免跨服务抢占。 */
+    private String owner = "backend";
+
     /** 单个输入或输出文件的字节上限。 */
     private long maxBytes = 52_428_800;
 

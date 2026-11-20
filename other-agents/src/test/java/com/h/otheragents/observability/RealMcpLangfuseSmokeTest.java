@@ -89,6 +89,8 @@ class RealMcpLangfuseSmokeTest {
 
     @BeforeAll
     void requireConfiguration() {
+        Assumptions.assumeTrue("true".equalsIgnoreCase(System.getenv("LANGFUSE_SMOKE")),
+                "真实 Langfuse 冒烟测试为显式开关：设置 LANGFUSE_SMOKE=true 才运行");
         Map<String, String> fileValues = EnvFileLoader.load();
         baseUrl = EnvFileLoader.resolve(fileValues, "LANGFUSE_BASE_URL");
         publicKey = EnvFileLoader.resolve(fileValues, "LANGFUSE_PUBLIC_KEY");

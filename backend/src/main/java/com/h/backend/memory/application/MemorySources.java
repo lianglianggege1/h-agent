@@ -12,7 +12,7 @@ import java.util.*;
 
 /** Owned product messages and read-only legacy workspace sources. */
 @Component
-public class MemorySources {
+public class MemorySources implements MemorySourcePort {
     private final ChatSessionService chats;
     private final BaseStore workspace;
     public MemorySources(@Lazy ChatSessionService chats, @Qualifier("harnessWorkspaceStore") BaseStore workspace) {
@@ -34,7 +34,8 @@ public class MemorySources {
         if (body instanceof List<?> lines) return String.join("\n", lines.stream().map(String::valueOf).toList());
         return "";
     }
-    public Map<String,Object> search(Long user, String query) {
+    public Map<String,Object> search(AgentMemoryContext ctx, String query) {
+        Long user = ctx.userId();
         List<Map<String,Object>> results = new ArrayList<>();
         int scanned = 0;
         boolean exhausted = false;

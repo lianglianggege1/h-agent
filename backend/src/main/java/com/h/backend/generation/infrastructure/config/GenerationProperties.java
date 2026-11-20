@@ -11,10 +11,13 @@ import java.util.Properties;
 
 @ConfigurationProperties(prefix = "generation")
 public class GenerationProperties {
+    private String owner = "backend";
     private final Polling polling = new Polling();
     private final MiniMax minimax = new MiniMax();
     private final Download download = new Download();
 
+    public String getOwner() { return owner; }
+    public void setOwner(String owner) { this.owner = owner; }
     public Polling getPolling() { return polling; }
     public MiniMax getMinimax() { return minimax; }
     public Download getDownload() { return download; }

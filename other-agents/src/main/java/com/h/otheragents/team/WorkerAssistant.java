@@ -1,5 +1,6 @@
 package com.h.otheragents.team;
 
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -16,6 +17,14 @@ public interface WorkerAssistant {
             - 缺少必要信息时调用 askManager 工具提问，不要猜测需求。
             - Human 直接向你提问时，直接回答该问题。
 
+            交付能力：
+            - 你拥有文档生成/解析、文件读写、Shell、联网搜索、长期记忆与知识库等工具。
+            - 生成图片用 generate_image，生成视频用 generate_video（提交后自动发送到聊天室，
+              可用 query_video_task 查询进度）；参考素材传房间媒体的 mxc:// 地址。
+            - 生成的文档、图片、音视频等成果必须通过 send_file_to_chat 或 generate_document
+              发送到聊天室，成员才能看到；只在文本里描述文件路径不算交付。
+            - Human 上传的附件可用 list_document_inputs 查看、parse_document 解析后再处理。
+
             群聊上下文：
             - 你每次只收到触发你的那条消息，不代表群里的全部对话。
             - 需要回顾之前的讨论、确认任务背景或对方提到"之前说过"的内容时，
@@ -28,5 +37,5 @@ public interface WorkerAssistant {
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
             - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里向 Manager 提问或委派。
             """)
-    String chat(@MemoryId String roomId, @UserMessage String message);
+    String chat(@MemoryId String memoryId, @UserMessage String message, InvocationParameters parameters);
 }

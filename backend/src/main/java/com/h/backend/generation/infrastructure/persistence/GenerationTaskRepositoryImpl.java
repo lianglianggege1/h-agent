@@ -65,7 +65,12 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
 
     @Override
     public List<GenerationTask> findDue(Instant now, int limit) {
-        return mapper.selectDue(toLocalDateTime(now), limit).stream()
+        return findDue(now, limit, "backend");
+    }
+
+    @Override
+    public List<GenerationTask> findDue(Instant now, int limit, String owner) {
+        return mapper.selectDue(toLocalDateTime(now), limit, owner).stream()
                 .filter(this::isSupported).map(this::toDomain).toList();
     }
 
@@ -76,11 +81,17 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
 
     @Override
     public List<GenerationTask> findStaleSubmissions(Instant before, int limit) {
+        return findStaleSubmissions(before, limit, "backend");
+    }
+
+    @Override
+    public List<GenerationTask> findStaleSubmissions(Instant before, int limit, String owner) {
         return mapper
                 .selectList(
                         new QueryWrapper<GenerationTaskEntity>()
                                 .in("generation_type", SUPPORTED_TYPES)
                                 .eq("status", "PENDING_SUBMISSION")
+                                .apply("COALESCE(owner, 'backend') = {0}", owner)
                                 .lt("updated_at", toLocalDateTime(before))
                                 .last("LIMIT " + Math.clamp(limit, 1, 100)))
                 .stream()
@@ -133,6 +144,8 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
             entity.setCreatedAt(toLocalDateTime(task.createdAt()));
             entity.setUpdatedAt(toLocalDateTime(task.updatedAt()));
             entity.setCompletedAt(toLocalDateTime(task.completedAt()));
+            entity.setOwner(task.owner());
+            entity.setActor(task.actor());
             if (task.artifact() != null) {
                 entity.setArtifactId(task.artifact().resourceId());
                 entity.setArtifactStorageType(task.artifact().storageType());
@@ -180,6 +193,7 @@ public class GenerationTaskRepositoryImpl implements GenerationTaskRepository {
                             toInstant(entity.getCompletedAt()));
             restored.restoredDetails(
                     entity.getResultText(), entity.getVersion() == null ? 0 : entity.getVersion());
+            restored.assignTeam(entity.getOwner(), entity.getActor());
             return restored;
         } catch (Exception exception) {
             throw new IllegalStateException(

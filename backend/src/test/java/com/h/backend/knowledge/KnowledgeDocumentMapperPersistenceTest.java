@@ -20,9 +20,10 @@ class KnowledgeDocumentMapperPersistenceTest {
 
     @Test
     void shouldInsertAndQueryByUserAndPrompt() {
-        long promptId = System.currentTimeMillis();
+        // 真实 PG 中存在用户数据：用一次性 userId 隔离，避免断言受残留数据影响。
+        long userId = System.currentTimeMillis();
         KnowledgeDocumentEntity doc = new KnowledgeDocumentEntity();
-        doc.setUserId(1L);
+        doc.setUserId(userId);
 
         doc.setFileName("test.md");
         doc.setSourceType("FILE");
@@ -33,8 +34,12 @@ class KnowledgeDocumentMapperPersistenceTest {
         mapper.insert(doc);
         assertNotNull(doc.getId());
 
-        List<KnowledgeDocumentEntity> found = mapper.selectByUser(1L);
-        assertEquals(1, found.size());
-        assertEquals("test.md", found.get(0).getFileName());
+        try {
+            List<KnowledgeDocumentEntity> found = mapper.selectByUser(userId);
+            assertEquals(1, found.size());
+            assertEquals("test.md", found.get(0).getFileName());
+        } finally {
+            mapper.deleteById(doc.getId());
+        }
     }
 }

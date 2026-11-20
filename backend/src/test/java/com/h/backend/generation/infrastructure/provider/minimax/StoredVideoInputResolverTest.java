@@ -105,7 +105,8 @@ class StoredVideoInputResolverTest {
                         });
         var resolver =
                 new StoredVideoInputResolver(
-                        rows, storage, new GenerationProperties(), new ObjectMapper());
+                        rows, storage,
+                        new FfprobeMediaValidator(new GenerationProperties(), new ObjectMapper()));
         var content =
                 resolver.resolve(
                         1L,
@@ -135,7 +136,8 @@ class StoredVideoInputResolverTest {
         when(rows.selectByResourceId("foreign")).thenReturn(row);
         var resolver =
                 new StoredVideoInputResolver(
-                        rows, storage, new GenerationProperties(), new ObjectMapper());
+                        rows, storage,
+                        new FfprobeMediaValidator(new GenerationProperties(), new ObjectMapper()));
         assertThrows(
                 IllegalArgumentException.class,
                 () ->
@@ -188,7 +190,8 @@ class StoredVideoInputResolverTest {
                                         false));
         var resolver =
                 new StoredVideoInputResolver(
-                        rows, storage, new GenerationProperties(), new ObjectMapper());
+                        rows, storage,
+                        new FfprobeMediaValidator(new GenerationProperties(), new ObjectMapper()));
         assertThrows(
                 IllegalArgumentException.class,
                 () ->

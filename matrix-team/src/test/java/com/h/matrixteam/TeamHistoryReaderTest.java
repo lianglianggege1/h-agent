@@ -70,4 +70,14 @@ class TeamHistoryReaderTest {
         assertEquals("（该范围内没有历史消息）",
                 TeamHistoryReader.format(JSON.readTree("{\"chunk\":[]}"), ROOM, MANAGER_POLICY));
     }
+
+    @Test
+    void describesMediaAttachmentsWithUrlForDownload() throws Exception {
+        String content = "{\"msgtype\":\"m.image\",\"body\":\"photo.png\",\"url\":\"mxc://matrix.local/abc\","
+                + "\"info\":{\"mimetype\":\"image/png\",\"size\":2048}}";
+        String event = "{\"event_id\":\"$1\",\"room_id\":\"" + ROOM + "\",\"sender\":\"@huajiang:matrix.local\","
+                + "\"origin_server_ts\":1000,\"type\":\"m.room.message\",\"content\":" + content + "}";
+        String text = TeamHistoryReader.format(JSON.readTree("{\"chunk\":[" + event + "]}"), ROOM, MANAGER_POLICY);
+        assertTrue(text.contains("Human（huajiang）: [图片] photo.png（image/png, 2.0KB） mxc://matrix.local/abc"), text);
+    }
 }

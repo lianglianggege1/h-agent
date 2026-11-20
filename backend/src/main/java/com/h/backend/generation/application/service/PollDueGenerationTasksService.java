@@ -68,7 +68,8 @@ public class PollDueGenerationTasksService implements PollDueGenerationTasksUseC
         Instant now = clock.instant();
         for (GenerationTask stale :
                 taskRepository.findStaleSubmissions(
-                        now.minus(Duration.ofMinutes(2)), properties.getPolling().getBatchSize())) {
+                        now.minus(Duration.ofMinutes(2)), properties.getPolling().getBatchSize(),
+                        properties.getOwner())) {
             try {
                 stale.submissionUnknown("执行中断，创建请求结果待确认，请勿自动重复提交", now);
                 taskRepository.save(stale);
@@ -82,7 +83,7 @@ public class PollDueGenerationTasksService implements PollDueGenerationTasksUseC
             }
         }
         List<GenerationTask> tasks =
-                taskRepository.findDue(now, properties.getPolling().getBatchSize());
+                taskRepository.findDue(now, properties.getPolling().getBatchSize(), properties.getOwner());
         if (tasks.isEmpty()) {
             log.debug("No due generation tasks at {}", now);
             return;

@@ -21,10 +21,10 @@ public class AgentMemoryService implements AgentMemory {
     private static final Set<String> STATUSES = Set.of("ACTIVE","COMPLETED","OBSOLETE","SUPERSEDED","DELETED");
     private final AgentMemoryStore store;
     private final ObjectProvider<Mem0Gateway> gateways;
-    private final MemorySources sources;
+    private final MemorySourcePort sources;
     private final ObjectMapper json;
     public AgentMemoryService(AgentMemoryStore store, ObjectProvider<Mem0Gateway> gateways,
-                              MemorySources sources, ObjectMapper json) {
+                              MemorySourcePort sources, ObjectMapper json) {
         this.store=store; this.gateways=gateways; this.sources=sources; this.json=json;
     }
     public record Mutation(AgentMemoryContext context, String name, Map<String,Object> arguments, List<String> sources) {}
@@ -62,7 +62,7 @@ public class AgentMemoryService implements AgentMemory {
     private Map<String,Object> search(AgentMemoryContext ctx,Map<String,Object> a) {
         String query=text(a,"query");
         String source=option(a,"source","MEM0",Set.of("MEM0","LEGACY"));
-        if(source.equals("LEGACY")) return sources.search(ctx.userId(),query);
+        if(source.equals("LEGACY")) return sources.search(ctx,query);
         Set<String> scopes=options(a,"scopes",Set.of("USER","AGENT","SESSION"),Set.of("USER","AGENT","SESSION"));
         Set<String> statuses=options(a,"statuses",Set.of("ACTIVE"),STATUSES);
         String range=option(a,"sessionRange","CURRENT",Set.of("CURRENT","HISTORICAL","ALL"));

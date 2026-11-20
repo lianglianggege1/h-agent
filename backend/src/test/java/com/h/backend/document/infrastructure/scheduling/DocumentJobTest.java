@@ -130,7 +130,8 @@ class DocumentJobTest {
     }
 
     private JobHandle newJob() {
-        return new JobHandle(new DocumentJob(repository, workflow, chats, runs, sessions));
+        return new JobHandle(new DocumentJob(repository, workflow, chats, runs, sessions,
+                new com.h.backend.document.infrastructure.config.DocumentProperties(), null));
     }
 
     private record JobHandle(DocumentJob job) implements AutoCloseable {

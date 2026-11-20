@@ -22,5 +22,13 @@ public interface GenerationTaskRepository {
     }
     default List<GenerationTask> findStaleSubmissions(Instant before, int limit) { return List.of(); }
 
+    default List<GenerationTask> findStaleSubmissions(Instant before, int limit, String owner) {
+        return findStaleSubmissions(before, limit);
+    }
+
     List<GenerationTask> findDue(Instant now, int limit);
+
+    default List<GenerationTask> findDue(Instant now, int limit, String owner) {
+        return findDue(now, limit);
+    }
 }

@@ -4,9 +4,10 @@ import { safeMarkdownHref } from "@/lib/markdown-links";
 
 type MarkdownContentProps = {
   content: string;
+  resolveMediaUrl?: (url: string) => string | null;
 };
 
-export function MarkdownContent({ content }: MarkdownContentProps) {
+export function MarkdownContent({ content, resolveMediaUrl }: MarkdownContentProps) {
   return (
     <div className="min-w-0 break-words">
       <ReactMarkdown
@@ -14,6 +15,20 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
         skipHtml
         components={{
           a({ children, href }) {
+            if (href?.startsWith("mxc://")) {
+              const resolved = resolveMediaUrl?.(href);
+              const name = href.slice(href.lastIndexOf("/") + 1);
+              if (!resolved) return <span>{children}</span>;
+              return (
+                <a
+                  className="font-medium text-amber-700 underline decoration-amber-300 underline-offset-2 hover:text-amber-800"
+                  href={resolved}
+                  download={name}
+                >
+                  {Array.isArray(children) && children.length === 0 ? name : children}
+                </a>
+              );
+            }
             const safeHref = safeMarkdownHref(href);
             if (!safeHref) {
               return <span>{children}</span>;
@@ -29,6 +44,14 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
                 {children}
               </a>
             );
+          },
+          img({ src, alt }) {
+            if (typeof src === "string" && src.startsWith("mxc://")) {
+              const resolved = resolveMediaUrl?.(src);
+              if (!resolved) return null;
+              return <img src={resolved} alt={alt ?? ""} className="my-2 max-h-72 max-w-full rounded-xl border border-stone-200" loading="lazy" />;
+            }
+            return <img src={src} alt={alt ?? ""} />;
           },
           blockquote({ children }) {
             return <blockquote className="my-2 border-l-4 border-stone-200 pl-3 text-stone-500">{children}</blockquote>;

@@ -4,6 +4,7 @@ import com.h.agent.observability.semantic.ArtifactKind;
 import com.h.agent.observability.semantic.ArtifactReference;
 import com.h.agent.observability.semantic.ArtifactReferenceBlock;
 import com.h.agent.observability.semantic.ArtifactUse;
+import com.h.backend.capability.DeliveredArtifact;
 import com.h.backend.chat.infrastructure.storage.StoredResource;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.generation.domain.model.GeneratedArtifact;
@@ -42,6 +43,26 @@ public final class BusinessArtifactReferenceMapper {
                 .height(dto.height())
                 .fileName(dto.fileName())
                 .applicationViewUrl(dto.viewUrl())
+                .build();
+    }
+
+    /** DeliveredArtifact + ArtifactUse -> ArtifactReference（能力层交付结果，跨产品/团队通用）。 */
+    public static ArtifactReference from(DeliveredArtifact artifact, ArtifactUse use, String sourceResourceId) {
+        if (artifact == null || blank(artifact.resourceId())) {
+            return null;
+        }
+        return ArtifactReference.builder()
+                .resourceId(artifact.resourceId())
+                .sourceResourceId(blankToNull(sourceResourceId))
+                .kind(normalizeKind(artifact.resourceType(), artifact.mimeType()))
+                .use(use)
+                .businessRole("GENERATED")
+                .mimeType(artifact.mimeType())
+                .byteSize(artifact.fileSize())
+                .width(artifact.width())
+                .height(artifact.height())
+                .fileName(artifact.fileName())
+                .applicationViewUrl(blankToNull(artifact.viewUrl()))
                 .build();
     }
 

@@ -60,6 +60,10 @@ public final class TeamHistoryReader {
                 line.append("）");
             }
             String body = message.body();
+            if (message.isMedia()) {
+                body = mediaLabel(message.msgtype()) + " " + body + mediaMeta(message)
+                        + (message.url() != null ? " " + message.url() : "");
+            }
             if (body.length() > BODY_CAP) {
                 body = body.substring(0, BODY_CAP) + "…（已截断）";
             }
@@ -70,6 +74,37 @@ public final class TeamHistoryReader {
         }
         Collections.reverse(lines);
         return String.join("\n", lines);
+    }
+
+    private static String mediaLabel(String msgtype) {
+        return switch (msgtype) {
+            case TeamProtocol.MSG_IMAGE -> "[图片]";
+            case TeamProtocol.MSG_FILE -> "[文件]";
+            case TeamProtocol.MSG_AUDIO -> "[音频]";
+            case TeamProtocol.MSG_VIDEO -> "[视频]";
+            default -> "[媒体]";
+        };
+    }
+
+    private static String mediaMeta(TeamMessage message) {
+        List<String> parts = new ArrayList<>();
+        if (message.mimetype() != null && !message.mimetype().isBlank()) {
+            parts.add(message.mimetype());
+        }
+        if (message.size() > 0) {
+            parts.add(humanSize(message.size()));
+        }
+        return parts.isEmpty() ? "" : "（" + String.join(", ", parts) + "）";
+    }
+
+    private static String humanSize(long size) {
+        if (size < 1024) {
+            return size + "B";
+        }
+        if (size < 1024 * 1024) {
+            return String.format("%.1fKB", size / 1024.0);
+        }
+        return String.format("%.1fMB", size / (1024.0 * 1024));
     }
 
     private static String kindLabel(String kind) {

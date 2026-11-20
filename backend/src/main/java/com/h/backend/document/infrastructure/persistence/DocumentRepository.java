@@ -87,7 +87,11 @@ public class DocumentRepository {
     }
 
     public List<DocumentTask> claim() {
-        return transactions.execute(status -> tasks.claim().stream().map(this::decode).toList());
+        return claim("backend");
+    }
+
+    public List<DocumentTask> claim(String owner) {
+        return transactions.execute(status -> tasks.claim(owner).stream().map(this::decode).toList());
     }
 
     /** 乐观检查点拒绝过期工作线程，保护同时发生的取消或人工确认。 */
@@ -129,7 +133,11 @@ public class DocumentRepository {
     }
 
     public int requeueUnavailable() {
-        return tasks.requeueUnavailable();
+        return requeueUnavailable("backend");
+    }
+
+    public int requeueUnavailable(String owner) {
+        return tasks.requeueUnavailable(owner);
     }
 
     private LambdaQueryWrapper<DocumentTaskEntity> owned(Long user, String session) {

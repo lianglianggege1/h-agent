@@ -36,6 +36,8 @@ class DocumentGeneratorTest {
 
     @Test
     void chineseDocxAndPdfAreRenderedAndPreserveTablesAndContent() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                sofficeAvailable(), "soffice 不在 PATH，跳过 LibreOffice 渲染验收");
         var generator = new DocumentGenerator(config);
         var word = generator.generate(markdown, "docx");
         try (var doc = new XWPFDocument(new ByteArrayInputStream(word.bytes()))) {
@@ -117,5 +119,13 @@ class DocumentGeneratorTest {
                         generator.generate(markdown, "md").bytes(),
                         java.nio.charset.StandardCharsets.UTF_8));
         assertThrows(IllegalArgumentException.class, () -> generator.generate(markdown, "exe"));
+    }
+
+    private static boolean sofficeAvailable() {
+        try {
+            return new ProcessBuilder("soffice", "--version").start().waitFor() == 0;
+        } catch (Exception unavailable) {
+            return false;
+        }
     }
 }

@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.h.backend.capability.AnchorMessage;
+import com.h.backend.capability.port.ArtifactDeliveryPort;
+import com.h.backend.capability.port.ConversationAssetPort;
+import com.h.backend.capability.port.ResourceUrlPort;
 import com.h.backend.chat.application.*;
 import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
-import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
-import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
 import com.h.backend.document.domain.DocumentTask;
 import com.h.backend.document.infrastructure.config.DocumentProperties;
 import com.h.backend.document.infrastructure.generation.DocumentGenerator;
@@ -30,6 +32,9 @@ class DocumentWorkflowTest {
     final ModelBestDocumentClient cloud = mock(ModelBestDocumentClient.class);
     final DocumentTask task = new DocumentTask();
     final ObjectMapper json = new ObjectMapper();
+    final ArtifactDeliveryPort delivery = mock(ArtifactDeliveryPort.class);
+    final ConversationAssetPort conversationAssets = mock(ConversationAssetPort.class);
+    final ResourceUrlPort resourceUrls = mock(ResourceUrlPort.class);
     final DocumentWorkflow workflow =
             new DocumentWorkflow(
                     repository,
@@ -38,10 +43,9 @@ class DocumentWorkflowTest {
                     config,
                     cloud,
                     mock(DocumentGenerator.class),
-                    mock(ChatSessionMessageMapper.class),
-                    mock(ResourceWriteCoordinator.class),
-                    mock(ChatSessionService.class),
-                    new ChatResourceUrls(""),
+                    delivery,
+                    conversationAssets,
+                    resourceUrls,
                     json,
                     new ResourceContentInspector(),
                     new ResourceContentPolicy());
@@ -67,6 +71,11 @@ class DocumentWorkflowTest {
         page.getBlocks().add(block);
         task.getPages().add(page);
         when(repository.find(1L, "chat", "task")).thenReturn(task);
+        // 锚点读取改经 ConversationAssetPort：无 activeAnchor 时取最近用户消息。
+        when(conversationAssets.latestUserMessage("chat")).thenReturn(new AnchorMessage(11L, 1L, "原始用户请求"));
+        when(conversationAssets.messageById(11L)).thenReturn(new AnchorMessage(11L, 1L, "原始用户请求"));
+        when(resourceUrls.download(anyString()))
+                .thenAnswer(call -> "/api/chat/resources/" + call.getArgument(0) + "/download");
         when(repository.change(eq(1L), eq("chat"), eq("task"), any()))
                 .thenAnswer(
                         call -> {
@@ -206,6 +215,7 @@ class DocumentWorkflowTest {
         var response = json.readTree(workflow.toolView(task, 0));
         assertTrue(response.path("deliveredToChat").asBoolean());
         assertEquals("delivered-resource", response.path("outputResourceId").asText());
+        assertEquals("/api/chat/resources/delivered-resource/download", response.path("downloadUrl").asText());
         assertTrue(response.path("nextStep").asText().contains("不要再调用发送工具"));
     }
 

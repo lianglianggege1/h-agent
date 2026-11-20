@@ -23,6 +23,8 @@ public final class GenerationTask {
     private String failureMessage;
     private Instant updatedAt;
     private Instant completedAt;
+    private String owner = "backend";
+    private String actor;
 
     private GenerationTask(String id, Long userId, String sessionId, VideoGenerationSpec spec, Instant now) {
         this.id = requireText(id, "id");
@@ -133,6 +135,10 @@ public final class GenerationTask {
         requireStatus(GenerationStatus.PENDING_SUBMISSION);
         status = GenerationStatus.SUBMISSION_UNKNOWN; failureMessage = message; nextPollAt = null; updatedAt = now; completedAt = now;
     }
+    public void assignTeam(String owner, String actor) {
+        this.owner = owner == null || owner.isBlank() ? "backend" : owner;
+        this.actor = actor;
+    }
     public long version() { return version; }
     public void restoredDetails(String result, long version) { this.resultText = result; this.version = version; }
     public void persisted(long version) { this.version = version; }
@@ -183,4 +189,6 @@ public final class GenerationTask {
     public Instant createdAt() { return createdAt; }
     public Instant updatedAt() { return updatedAt; }
     public Instant completedAt() { return completedAt; }
+    public String owner() { return owner; }
+    public String actor() { return actor; }
 }

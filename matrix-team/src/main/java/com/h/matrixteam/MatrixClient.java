@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 最小 Matrix Client-Server 客户端：登录、/sync、发消息（含 m.mentions 与团队元数据）、加入房间。
- * 只覆盖团队聊天室需要的能力，不做加密与媒体。
+ * 最小 Matrix Client-Server 客户端：登录、/sync、发文本与媒体消息（含 m.mentions 与团队元数据）、
+ * 加入房间、媒体上传/下载。只覆盖团队聊天室需要的能力，不做加密。
  */
 public final class MatrixClient {
 
@@ -118,6 +118,26 @@ public final class MatrixClient {
         ObjectNode content = JSON.createObjectNode();
         content.put("msgtype", "m.text");
         content.put("body", body);
+        return sendContent(roomId, content, mentionIds, kind, taskId);
+    }
+
+    /**
+     * 发送媒体消息（m.image/m.file/m.audio/m.video）。url 为 upload 返回的 mxc:// 地址，
+     * info 携带 mimetype/size/宽高/时长等 Matrix 媒体元信息。
+     */
+    public String sendMedia(String roomId, String msgtype, String url, String body, ObjectNode info,
+                            List<String> mentionIds, String kind, String taskId) {
+        ObjectNode content = JSON.createObjectNode();
+        content.put("msgtype", msgtype);
+        content.put("body", body);
+        content.put("url", url);
+        if (info != null) {
+            content.set("info", info);
+        }
+        return sendContent(roomId, content, mentionIds, kind, taskId);
+    }
+
+    private String sendContent(String roomId, ObjectNode content, List<String> mentionIds, String kind, String taskId) {
         if (mentionIds != null && !mentionIds.isEmpty()) {
             ArrayNode users = content.putObject("m.mentions").putArray("user_ids");
             mentionIds.forEach(users::add);
@@ -136,20 +156,80 @@ public final class MatrixClient {
         return response.path("event_id").asText();
     }
 
+    /** 发送任意类型的房间事件（如执行过程快照 com.h.agent.progress）。 */
+    public String sendEvent(String roomId, String eventType, ObjectNode content) {
+        String txnId = UUID.randomUUID().toString();
+        String path = "/_matrix/client/v3/rooms/" + encode(roomId)
+                + "/send/" + encode(eventType) + "/" + encode(txnId);
+        JsonNode response = request("PUT", path, content, Duration.ofSeconds(30));
+        return response.path("event_id").asText();
+    }
+
+    /** 公开已读回执（m.read）：标记本账号已读到该事件，供房间内其他成员展示已读状态。 */
+    public void sendReadReceipt(String roomId, String eventId) {
+        String path = "/_matrix/client/v3/rooms/" + encode(roomId)
+                + "/receipt/m.read/" + encode(eventId);
+        request("POST", path, JSON.createObjectNode(), Duration.ofSeconds(15));
+    }
+
+    /** 上传媒体到 homeserver，返回 mxc:// 地址。 */
+    public String upload(String filename, String contentType, byte[] data) {
+        String path = "/_matrix/media/v3/upload?filename=" + encode(filename);
+        JsonNode response = requestRaw("POST", path, HttpRequest.BodyPublishers.ofByteArray(data),
+                contentType, Duration.ofSeconds(120));
+        String uri = response.path("content_uri").asText("");
+        if (uri.isBlank()) {
+            throw new IllegalStateException("Matrix upload failed for " + filename + ": " + response);
+        }
+        return uri;
+    }
+
+    /** 下载 mxc:// 媒体内容。 */
+    public byte[] download(String mxcUrl) {
+        if (mxcUrl == null || !mxcUrl.startsWith("mxc://")) {
+            throw new IllegalArgumentException("Not an mxc url: " + mxcUrl);
+        }
+        String rest = mxcUrl.substring("mxc://".length());
+        int slash = rest.indexOf('/');
+        if (slash <= 0 || slash == rest.length() - 1) {
+            throw new IllegalArgumentException("Malformed mxc url: " + mxcUrl);
+        }
+        // Synapse 1.159 已下线 legacy 下载端点（404），鉴权媒体走 client/v1；上传仍保留 media/v3。
+        String path = "/_matrix/client/v1/media/download/" + encode(rest.substring(0, slash))
+                + "/" + encode(rest.substring(slash + 1));
+        try {
+            HttpRequest request = builder("GET", path, HttpRequest.BodyPublishers.noBody(),
+                    "application/octet-stream", Duration.ofSeconds(120)).build();
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException("Matrix GET " + path + " -> " + response.statusCode()
+                        + " " + new String(response.body(), StandardCharsets.UTF_8));
+            }
+            return response.body();
+        } catch (IOException e) {
+            throw new IllegalStateException("Matrix request failed: GET " + path, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Matrix request interrupted: GET " + path, e);
+        }
+    }
+
     private JsonNode request(String method, String path, JsonNode body, Duration timeout) {
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + path))
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
-            if (accessToken != null) {
-                builder.header("Authorization", "Bearer " + accessToken);
-            }
             HttpRequest.BodyPublisher publisher = body == null
                     ? HttpRequest.BodyPublishers.noBody()
                     : HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body));
-            builder.method(method, publisher);
-            HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            return requestRaw(method, path, publisher, "application/json", timeout);
+        } catch (IOException e) {
+            throw new IllegalStateException("Matrix request serialize failed: " + method + " " + path, e);
+        }
+    }
+
+    private JsonNode requestRaw(String method, String path, HttpRequest.BodyPublisher publisher,
+                                String contentType, Duration timeout) {
+        try {
+            HttpRequest request = builder(method, path, publisher, contentType, timeout).build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             JsonNode node = JSON.readTree(response.body());
             if (response.statusCode() / 100 != 2) {
                 throw new IllegalStateException("Matrix " + method + " " + path + " -> "
@@ -162,6 +242,18 @@ public final class MatrixClient {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Matrix request interrupted: " + method + " " + path, e);
         }
+    }
+
+    private HttpRequest.Builder builder(String method, String path, HttpRequest.BodyPublisher publisher,
+                                        String contentType, Duration timeout) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(timeout)
+                .header("Content-Type", contentType);
+        if (accessToken != null) {
+            builder.header("Authorization", "Bearer " + accessToken);
+        }
+        return builder.method(method, publisher);
     }
 
     private static String encode(String value) {

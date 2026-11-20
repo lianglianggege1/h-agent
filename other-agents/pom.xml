@@ -92,6 +92,98 @@
             <artifactId>matrix-team</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
+        <!-- 业务能力直接依赖 backend 普通 jar（fat jar 带 exec classifier，主产物即普通 jar）。
+             排除 backend 应用层专属依赖：本服务是 webflux 响应式应用（MCP server），
+             不引入 servlet web/security/actuator/log4j2/验证码/xxl-job/AG-UI/AgentScope 运行时 -->
+        <dependency>
+            <groupId>com.h</groupId>
+            <artifactId>backend</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-web</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-security</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-actuator</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>micrometer-registry-prometheus</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-log4j2</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>cloud.tianai.captcha</groupId>
+                    <artifactId>tianai-captcha-springboot-starter</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.xuxueli</groupId>
+                    <artifactId>xxl-job-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.ag-ui.community</groupId>
+                    <artifactId>java-server</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.ag-ui.community</groupId>
+                    <artifactId>ag-ui-spring-server-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-extensions-agui</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-harness</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-extensions-model-anthropic</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-extensions-postgresql</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-extensions-mem0</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-extensions-skill-git-repository</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-impl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-jackson</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>dev.langchain4j</groupId>
+                    <artifactId>langchain4j-typesafe</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- minio 传递的 okhttp 5.x 是 KMP 空壳 jar（Maven 无 Gradle 元数据），必须钉 4.12.0 -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
@@ -128,7 +220,7 @@
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
             <version>3.5.16</version>
         </dependency>
 

@@ -9,12 +9,13 @@
  <select id="lockOwned" resultType="com.h.backend.document.infrastructure.persistence.entity.DocumentTaskEntity">
  SELECT * FROM chat_document_tasks WHERE user_id=#{user} AND session_id=#{session} AND id=#{id} FOR UPDATE
  </select>
- <!-- 租约领取与返回在同一 SQL 内完成，多个实例之间不会重复领取。 -->
+ <!-- 租约领取与返回在同一 SQL 内完成，多个实例之间不会重复领取；owner 隔离共享任务表的不同服务。 -->
  <select id="claim" affectData="true" flushCache="true" resultType="com.h.backend.document.infrastructure.persistence.entity.DocumentTaskEntity">
  UPDATE chat_document_tasks SET lease_until=NOW()+INTERVAL '12 minutes'
  WHERE id IN (SELECT id FROM chat_document_tasks
  WHERE (status IN ('PARSING','QUEUED','OCR_RUNNING','VERIFYING','GENERATING')
  OR status IN ('RECOGNIZED','GOOD','LOW','UNSUPPORTED','FAILED','VERIFIED','CONFIRMED') AND state_json::jsonb->>'resumeStatus' IN ('QUEUED','RUNNING'))
+ AND COALESCE(state_json::jsonb->>'owner','backend')=#{owner}
  AND (lease_until IS NULL OR lease_until &lt; NOW())
  ORDER BY CASE WHEN status IN ('PARSING','QUEUED','OCR_RUNNING','VERIFYING','GENERATING') THEN 0 ELSE 1 END,updated_at,created_at
  FOR UPDATE SKIP LOCKED LIMIT 1)
@@ -30,6 +31,7 @@
  SET status='QUEUED', state_json=jsonb_set(jsonb_set(state_json::jsonb,'{status}','"QUEUED"'::jsonb),'{detail}','""'::jsonb)::text,
      revision=revision+1, lease_until=NULL, updated_at=NOW()
  WHERE status IN ('CLOUD_UNAVAILABLE','NEEDS_EXTERNAL_CONSENT')
+   AND COALESCE(state_json::jsonb->>'owner','backend')=#{owner}
    AND COALESCE(state_json::jsonb->>'continuationCancelled','false')='false'
  </update>
 </mapper>

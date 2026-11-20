@@ -41,6 +41,14 @@ public class MemoryExecutionContextResolver {
         if (ctx == null || ctx.getUserId() == null || ctx.getSessionId() == null)
             throw new IllegalArgumentException("Missing trusted execution identity");
         Long user = Long.valueOf(ctx.getUserId());
+        // 团队房间会话（roomId 以 ! 开头）不在产品会话表：身份直接来自 Matrix 房间，
+        // 锚点消息由团队资产端口维护，这里不做产品会话 lineage 解析。
+        if (ctx.getSessionId().startsWith("!")) {
+            AgentMemoryContext base = ctx.get(AgentMemoryContext.class);
+            String executionId = base != null ? base.executionId() : childExecutionId(ctx, null);
+            return new AgentMemoryContext(user, ctx.getSessionId(), ctx.getSessionId(),
+                    "harness-team-manager", "harness-team-manager", null, executionId);
+        }
         AgentSessionEntity actual = sessions.selectBySessionId(ctx.getSessionId());
         if (actual == null || !user.equals(actual.getUserId())) throw new IllegalArgumentException("Session unavailable");
         AgentSessionEntity root = actual;

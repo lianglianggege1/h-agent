@@ -1,9 +1,11 @@
 package com.h.backend.document.application;
 
-import com.h.backend.chat.application.*;
-import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
+import com.h.backend.capability.AnchorMessage;
+import com.h.backend.capability.port.ArtifactDeliveryPort;
+import com.h.backend.capability.port.ConversationAssetPort;
+import com.h.backend.capability.port.ResourceUrlPort;
+import com.h.backend.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.infrastructure.storage.*;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.common.exception.BusinessException;
 import com.h.backend.document.domain.DocumentTask;
 import com.h.backend.document.infrastructure.config.DocumentProperties;
@@ -32,10 +34,9 @@ public class DocumentWorkflow {
     private final DocumentProperties properties;
     private final ModelBestDocumentClient cloud;
     private final DocumentGenerator generator;
-    private final ChatSessionMessageMapper messages;
-    private final ResourceWriteCoordinator writes;
-    private final ChatSessionService sessions;
-    private final ChatResourceUrls urls;
+    private final ArtifactDeliveryPort delivery;
+    private final ConversationAssetPort conversationAssets;
+    private final ResourceUrlPort resourceUrls;
     private final ObjectMapper json;
     private final com.h.backend.chat.infrastructure.content.ResourceContentInspector inspector;
     private final ResourceContentPolicy contentPolicy;
@@ -47,10 +48,9 @@ public class DocumentWorkflow {
             DocumentProperties properties,
             ModelBestDocumentClient cloud,
             DocumentGenerator generator,
-            ChatSessionMessageMapper messages,
-            ResourceWriteCoordinator writes,
-            ChatSessionService sessions,
-            ChatResourceUrls urls,
+            ArtifactDeliveryPort delivery,
+            ConversationAssetPort conversationAssets,
+            ResourceUrlPort resourceUrls,
             ObjectMapper json,
             com.h.backend.chat.infrastructure.content.ResourceContentInspector inspector,
             ResourceContentPolicy contentPolicy) {
@@ -60,10 +60,9 @@ public class DocumentWorkflow {
         this.properties = properties;
         this.cloud = cloud;
         this.generator = generator;
-        this.messages = messages;
-        this.writes = writes;
-        this.sessions = sessions;
-        this.urls = urls;
+        this.delivery = delivery;
+        this.conversationAssets = conversationAssets;
+        this.resourceUrls = resourceUrls;
         this.json = json;
         this.inspector = inspector;
         this.contentPolicy = contentPolicy;
@@ -88,7 +87,7 @@ public class DocumentWorkflow {
         var resource = assets.require(user, session, resourceId);
         var task = fresh(user, session);
         task.setResourceId(resourceId);
-        task.setFileName(resource.getFileName());
+        task.setFileName(resource.fileName());
         task.setStartPage(start == null ? 1 : start);
         task.setEndPage(end == null ? 0 : end);
         task.setRequestKey(
@@ -244,7 +243,7 @@ public class DocumentWorkflow {
     /** 凭据就绪时恢复旧版待开启或服务未配置的任务，历史开关值不再参与判定。 */
     public void recoverAvailableOcr() {
         if (cloud.available()) {
-            int count = repository.requeueUnavailable();
+            int count = repository.requeueUnavailable(properties.getOwner());
             if (count > 0) log.info("Document OCR automatically recovered count={}", count);
         }
     }
@@ -721,7 +720,9 @@ public class DocumentWorkflow {
                 contentPolicy.validateAttachmentForSave(inspection.result(), artifact.mimeType());
         inspection.replayStream().close();
         if (!decision.allowed()) throw new IllegalArgumentException(decision.reason());
-        writes.saveAndAttach(
+        delivery.deliver(
+                task.getUserId(),
+                task.getSessionId(),
                 new ResourceSaveCommand(
                         "FILE",
                         artifact.bytes(),
@@ -729,41 +730,23 @@ public class DocumentWorkflow {
                         artifact.extension(),
                         null,
                         null),
-                stored -> {
-                    repository.change(
-                            task.getUserId(),
-                            task.getSessionId(),
-                            task.getId(),
-                            current -> {
-                                if (current.getRevision() != task.getRevision()
-                                        || !"GENERATING".equals(current.getStatus()))
-                                    throw conflict();
-                                var resource =
-                                        new ChatMessageResourceDto(
-                                                stored.id(),
-                                                "FILE",
-                                                "GENERATED",
-                                                urls.view(stored.id()),
-                                                urls.download(stored.id()),
-                                                task.getFileName(),
-                                                artifact.mimeType(),
-                                                stored.fileSize(),
-                                                null,
-                                                null,
-                                                stored.storageType(),
-                                                stored.storageKey());
-                                sessions.appendResourceMessage(
-                                        task.getUserId(),
-                                        task.getSessionId(),
-                                        "已生成文件：" + task.getFileName(),
-                                        "FILE",
-                                        List.of(resource));
-                                current.setOutputResourceId(stored.id());
-                                current.setStatus("COMPLETED");
-                            });
-                    return stored.id();
-                });
-        // The resource, chat message and task were committed together by the coordinator.
+                "FILE",
+                task.getFileName(),
+                artifact.mimeType(),
+                "已生成文件：" + task.getFileName(),
+                delivered ->
+                        repository.change(
+                                task.getUserId(),
+                                task.getSessionId(),
+                                task.getId(),
+                                current -> {
+                                    if (current.getRevision() != task.getRevision()
+                                            || !"GENERATING".equals(current.getStatus()))
+                                        throw conflict();
+                                    current.setOutputResourceId(delivered.resourceId());
+                                    current.setStatus("COMPLETED");
+                                }));
+        // The resource, chat message and task were committed together by the delivery adapter.
         task.setOutputResourceId(
                 repository
                         .find(task.getUserId(), task.getSessionId(), task.getId())
@@ -787,15 +770,17 @@ public class DocumentWorkflow {
         task.setId(UUID.randomUUID().toString());
         task.setUserId(user);
         task.setSessionId(session);
+        task.setOwner(properties.getOwner());
+        task.setActor(com.h.backend.capability.matrix.TeamActorContext.get());
         task.setThreshold(properties.getThreshold());
         Long activeAnchor = repository.activeAnchor(user, session);
-        var anchor =
+        AnchorMessage anchor =
                 activeAnchor == null
-                        ? messages.selectLatestUser(session)
-                        : messages.selectById(activeAnchor);
-        if (anchor != null && user.equals(anchor.getUserId())) {
-            task.setAnchorMessageId(anchor.getId());
-            task.setOriginalRequest(anchor.getContentText());
+                        ? conversationAssets.latestUserMessage(session)
+                        : conversationAssets.messageById(activeAnchor);
+        if (anchor != null && user.equals(anchor.userId())) {
+            task.setAnchorMessageId(anchor.id());
+            task.setOriginalRequest(anchor.contentText());
         }
         return task;
     }
@@ -845,7 +830,7 @@ public class DocumentWorkflow {
         result.put("continuationCancelled", task.isContinuationCancelled());
         result.put("outputResourceId", task.getOutputResourceId());
         if (task.getOutputResourceId() != null)
-            result.put("downloadUrl", urls.download(task.getOutputResourceId()));
+            result.put("downloadUrl", resourceUrls.download(task.getOutputResourceId()));
         return result;
     }
 

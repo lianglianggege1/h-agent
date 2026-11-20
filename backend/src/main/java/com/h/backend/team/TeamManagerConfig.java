@@ -7,6 +7,11 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.IsolationScope;
+import io.agentscope.harness.agent.filesystem.spec.RemoteFilesystemSpec;
+import io.agentscope.harness.agent.memory.MemoryConfig;
+import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
+import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -18,8 +23,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 团队聊天室 Manager 装配：独立 Matrix 账号 + 受限 Harness 实例。
- * 与主聊天 Harness 隔离：不加载用户 workspace、记忆、技能与子 Agent。
+ * 团队聊天室 Manager 装配：独立 Matrix 账号 + 对齐主聊天 HarnessAgent 能力的实例。
+ * 以人类工作台账号运行，共享其工作区/记忆/技能；不启用 SDK 子 Agent（委派走房间 Worker），
+ * 与主聊天一样禁用 shell（远程模式无沙箱）。能力端口经 TeamCapabilityRoutingConfig 按房间 scope 路由。
  */
 @Configuration
 @ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
@@ -38,6 +44,14 @@ public class TeamManagerConfig {
             - 收到 Worker 回报后，检查结果是否满足要求，再向 Human 汇总；
               不合格就再次委派补充，合格就给出结论。
             - Worker 提问时，能回答就直接回答；需要 Human 决策时向 Human 发起澄清。
+
+            交付能力：
+            - 你拥有工作区文件工具、文档生成/解析、长期记忆与知识库等能力。
+            - 生成文档用 generate_document，成果会自动发送到聊天室；
+              Human 上传的附件可用 list_document_inputs 查看、parse_document 解析。
+            - 生成图片用 generate_image，生成视频用 generate_video（提交后自动发送到聊天室，
+              可用 query_video_task 查询进度）；参考素材传房间媒体的 mxc:// 地址。
+            - 需要交付其他类型文件（音视频、压缩包等）时，委派 Worker 用 send_file_to_chat 发送。
 
             群聊上下文：
             - 你每次只收到触发你的那条消息，不代表群里的全部对话。
@@ -66,7 +80,16 @@ public class TeamManagerConfig {
     public HarnessAgent teamHarnessAgent(
             @Qualifier("harnessModel") Model model,
             @Qualifier("harnessDistributedStore") DistributedStore distributedStore,
+            @Qualifier("harnessCompactionConfig") CompactionConfig compactionConfig,
+            @Qualifier("harnessMemoryConfig") MemoryConfig memoryConfig,
+            @Qualifier("harnessToolResultEvictionConfig") ToolResultEvictionConfig toolResultEvictionConfig,
             MatrixClient teamMatrixClient,
+            com.h.backend.memory.infrastructure.agentscope.MemoryTools memoryTools,
+            com.h.backend.knowledge.interfaces.tool.AgentScopeKnowledgeTools knowledgeTools,
+            com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
+            com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool generationTool,
+            com.h.backend.observability.agentscope.AgentScopeObservationInstaller observationInstaller,
+            @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
@@ -76,6 +99,15 @@ public class TeamManagerConfig {
         workerUserIds.put(springWorkerUsername, "@" + springWorkerUsername + ":" + domain);
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserIds));
+        toolkit.registerTool(documentTool);
+        toolkit.registerTool(generationTool);
+        memoryTools.register(toolkit);
+        knowledgeTools.register(toolkit);
+        // 与主聊天 Harness 相同的远程工作区（PostgreSQL BaseStore，USER 隔离）：
+        // 团队 Manager 以人类工作台账号运行，共享其 MEMORY.md / Skills / artifacts。
+        RemoteFilesystemSpec filesystem = new RemoteFilesystemSpec()
+                .isolationScope(IsolationScope.USER)
+                .addSharedPrefix("artifacts/");
         HarnessAgent agent = HarnessAgent.builder()
                 .agentId("harness-team-manager")
                 .name("harness-team-manager")
@@ -83,33 +115,66 @@ public class TeamManagerConfig {
                 .sysPrompt(MANAGER_PROMPT)
                 .model(model)
                 .toolkit(toolkit)
+                .workspace(workspace)
                 .distributedStore(distributedStore)
-                .disableFilesystemTools()
+                .filesystem(filesystem)
+                .compaction(compactionConfig)
+                .memory(memoryConfig)
+                .toolResultEviction(toolResultEvictionConfig)
+                .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
+                .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
+                .middleware(observationInstaller.middleware())
+                // 与主聊天 Harness 一致：远程模式无 shell；团队委派由 delegate_to_worker 承担，
+                // 不启用 SDK 子 Agent（避免与房间 Worker 双轨）。
                 .disableShellTool()
-                .disableMemoryTools()
-                .disableMemoryHooks()
-                .disableWorkspaceContext()
-                .disableAtPathExpansion()
                 .disableSubagents()
-                .disableDynamicSkills()
-                .disableDefaultWorkspaceSkills()
-                .skillsEnabled(false)
-                .disableCompaction()
-                .disableToolResultEviction()
-                .enableAgentTracingLog(false)
+                .enableSkillManageTool(true)
+                .enablePlanMode(true)
                 .build();
-        for (String toolName : List.copyOf(agent.getDelegate().getToolkit().getToolNames())) {
-            if (!"delegate_to_worker".equals(toolName) && !"read_room_history".equals(toolName)) {
-                agent.getDelegate().getToolkit().removeTool(toolName);
-            }
-        }
         return agent;
+    }
+
+    @Bean
+    public com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool agentScopeTeamGenerationTool(
+            com.h.backend.generation.interfaces.tool.TeamImageGenerationTool images,
+            com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool videos) {
+        return new com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool(images, videos);
+    }
+
+    @Bean
+    public com.h.matrixteam.TeamRunTracker teamRunTracker() {
+        return new com.h.matrixteam.TeamRunTracker();
+    }
+
+    @Bean
+    public TeamManagerHandler teamManagerHandler(
+            @Qualifier("teamHarnessAgent") HarnessAgent teamHarnessAgent,
+            MatrixClient teamMatrixClient,
+            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
+            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId) {
+        return new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId, humanUserId);
+    }
+
+    @Bean
+    public TeamDocumentResumer teamDocumentResumer(
+            com.h.backend.document.infrastructure.persistence.DocumentRepository documentRepository,
+            com.h.backend.document.application.DocumentWorkflow documentWorkflow,
+            com.h.matrixteam.TeamRunTracker teamRunTracker,
+            TeamManagerHandler teamManagerHandler,
+            MatrixClient teamMatrixClient,
+            @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanUsername) {
+        String humanMatrixUserId = "@" + humanUsername + ":" + domainOf(teamMatrixClient.userId());
+        return new TeamDocumentResumer(
+                new com.h.backend.capability.matrix.TeamDocumentContinuation(
+                        documentRepository, documentWorkflow, teamRunTracker),
+                teamManagerHandler, humanMatrixUserId);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
     public TeamRoomBridge teamManagerBridge(
             MatrixClient teamMatrixClient,
-            @Qualifier("teamHarnessAgent") HarnessAgent teamHarnessAgent,
+            TeamManagerHandler teamManagerHandler,
+            com.h.matrixteam.TeamRunTracker teamRunTracker,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
@@ -120,7 +185,7 @@ public class TeamManagerConfig {
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
                 teamMatrixClient.userId(), roomId, workerUserId, springWorkerUserId);
         return new TeamRoomBridge(teamMatrixClient, policy, List.of(roomId),
-                new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId), maxAgentTurns);
+                teamManagerHandler, maxAgentTurns, teamRunTracker);
     }
 
     private static String domainOf(String userId) {

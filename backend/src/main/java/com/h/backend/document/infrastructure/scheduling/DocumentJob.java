@@ -31,6 +31,8 @@ public class DocumentJob {
     private final ObjectProvider<ChatService> chats;
     private final AgentRunService runs;
     private final ChatSessionService sessions;
+    private final com.h.backend.document.infrastructure.config.DocumentProperties properties;
+    private final ObjectProvider<com.h.backend.team.TeamDocumentResumer> teamResumer;
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
                     Thread.ofPlatform().name("document-worker").factory());
@@ -48,12 +50,16 @@ public class DocumentJob {
             DocumentWorkflow workflow,
             ObjectProvider<ChatService> chats,
             AgentRunService runs,
-            ChatSessionService sessions) {
+            ChatSessionService sessions,
+            com.h.backend.document.infrastructure.config.DocumentProperties properties,
+            ObjectProvider<com.h.backend.team.TeamDocumentResumer> teamResumer) {
         this.repository = repository;
         this.workflow = workflow;
         this.chats = chats;
         this.runs = runs;
         this.sessions = sessions;
+        this.properties = properties;
+        this.teamResumer = teamResumer;
     }
 
     @Scheduled(fixedDelayString = "${chat.documents.poll-delay:2s}")
@@ -63,7 +69,7 @@ public class DocumentJob {
                 () -> {
                     try {
                         workflow.recoverAvailableOcr();
-                        for (var task : repository.claim()) {
+                        for (var task : repository.claim(properties.getOwner())) {
                             boolean releaseHere = true;
                             try (var trace =
                                             org.slf4j.MDC.putCloseable(
@@ -120,6 +126,20 @@ public class DocumentJob {
 
     void resume(DocumentTask task) {
         if (task.isContinuationCancelled()) return;
+        // 团队房间任务没有聊天会话/AgentRun 记录，续跑沿 Matrix 房间路由回 Manager。
+        if (task.getSessionId() != null && task.getSessionId().startsWith("!")) {
+            var resumer = teamResumer == null ? null : teamResumer.getIfAvailable();
+            if (resumer != null) {
+                resumer.resume(task);
+            } else {
+                repository.change(task.getUserId(), task.getSessionId(), task.getId(), current -> {
+                    current.setResumeStatus("CANCELLED");
+                    current.setContinuationCancelled(true);
+                    current.setDetail("团队会话未启用，续跑已取消");
+                });
+            }
+            return;
+        }
         try {
             workflow.require(task.getUserId(), task.getSessionId(), task.getId());
         } catch (com.h.backend.common.exception.BusinessException missing) {

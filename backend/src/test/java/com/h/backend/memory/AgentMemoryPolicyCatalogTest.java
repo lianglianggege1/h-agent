@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentMemoryPolicyCatalogTest {
@@ -12,13 +13,13 @@ class AgentMemoryPolicyCatalogTest {
     private final AgentMemoryPolicyCatalog catalog = new AgentMemoryPolicyCatalog();
 
     @Test
-    void standardChatRecallsAllScopesAndCapturesUserScope() {
+    void standardChatUsesExplicitMemoryToolsWithoutAutomaticRecallOrCapture() {
         AgentMemoryPolicy policy = catalog.policyOf(ChatAgentIds.STANDARD_CHAT);
-        assertEquals(java.util.Set.of(MemoryScopeKind.USER, MemoryScopeKind.AGENT, MemoryScopeKind.RUN),
-                policy.recallScopes());
-        assertEquals(MemoryScopeKind.USER, policy.automaticCaptureScope());
+        assertEquals(java.util.Set.of(), policy.recallScopes());
+        assertNull(policy.automaticCaptureScope());
         assertTrue(policy.explicitMemoryToolsEnabled());
-        assertTrue(policy.recallEnabled());
+        assertFalse(policy.recallEnabled());
+        assertFalse(policy.automaticCaptureEnabled());
     }
 
     @Test

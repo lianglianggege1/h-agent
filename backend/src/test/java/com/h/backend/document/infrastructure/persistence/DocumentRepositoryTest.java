@@ -163,7 +163,9 @@ class DocumentRepositoryTest {
             for (var future : futures) ids.add(future.get().getId());
             assertEquals(1, ids.size());
             var claims = new ArrayList<Future<List<DocumentTask>>>();
-            for (int i = 0; i < 8; i++) claims.add(executor.submit(repository::claim));
+            for (int i = 0; i < 8; i++)
+                claims.add(executor.submit(
+                        (java.util.concurrent.Callable<List<DocumentTask>>) repository::claim));
             int leased = 0;
             for (var claim : claims) leased += claim.get().size();
             assertEquals(1, leased);

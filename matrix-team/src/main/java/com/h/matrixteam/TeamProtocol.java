@@ -17,21 +17,37 @@ public final class TeamProtocol {
     public static final String KIND_REPORT = "report";
     public static final String KIND_QUESTION = "question";
 
+    public static final String MSG_IMAGE = "m.image";
+    public static final String MSG_FILE = "m.file";
+    public static final String MSG_AUDIO = "m.audio";
+    public static final String MSG_VIDEO = "m.video";
+
     private TeamProtocol() {
     }
 
-    /** 只解析 m.room.message 文本事件；其他事件返回 null。 */
+    public static boolean isMedia(String msgtype) {
+        return MSG_IMAGE.equals(msgtype) || MSG_FILE.equals(msgtype)
+                || MSG_AUDIO.equals(msgtype) || MSG_VIDEO.equals(msgtype);
+    }
+
+    /** 解析 m.room.message 的文本与媒体事件；其他事件返回 null。 */
     public static TeamMessage parse(String roomId, JsonNode event) {
         if (!"m.room.message".equals(event.path("type").asText())) {
             return null;
         }
         JsonNode content = event.path("content");
-        if (!"m.text".equals(content.path("msgtype").asText())) {
+        String msgtype = content.path("msgtype").asText("");
+        boolean media = isMedia(msgtype);
+        if (!"m.text".equals(msgtype) && !media) {
             return null;
         }
+        String url = media ? content.path("url").asText(null) : null;
         String body = content.path("body").asText("");
         if (body.isBlank()) {
-            return null;
+            if (!media) {
+                return null;
+            }
+            body = url != null && url.contains("/") ? url.substring(url.lastIndexOf('/') + 1) : "附件";
         }
         List<String> mentions = new ArrayList<>();
         for (JsonNode id : content.path("m.mentions").path("user_ids")) {
@@ -39,6 +55,7 @@ public final class TeamProtocol {
         }
         boolean roomMention = content.path("m.mentions").path("room").asBoolean(false);
         JsonNode team = content.path(CONTENT_KEY);
+        JsonNode info = content.path("info");
         return new TeamMessage(
                 event.path("event_id").asText(),
                 roomId,
@@ -47,7 +64,11 @@ public final class TeamProtocol {
                 List.copyOf(mentions),
                 roomMention,
                 team.path("kind").asText(null),
-                team.path("taskId").asText(null)
+                team.path("taskId").asText(null),
+                msgtype,
+                url,
+                info.path("mimetype").asText(null),
+                info.path("size").asLong(0)
         );
     }
 }

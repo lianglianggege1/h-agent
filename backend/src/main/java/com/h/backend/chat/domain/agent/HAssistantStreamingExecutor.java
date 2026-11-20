@@ -124,7 +124,7 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                                         dev.langchain4j.invocation.InvocationParameters.from(java.util.Map.of(
                                                 com.h.backend.memory.domain.MemoryInvocationContext.INVOCATION_KEY, memoryInvocationContext(command),
                                                 com.h.backend.memory.application.AgentMemoryContext.KEY,
-                                                com.h.backend.memory.application.AgentMemoryContext.from(command))))
+                                                AgentMemoryContexts.from(command))))
                                 .onToolExecuted(
                                         toolExecution -> {
                                             if (terminal.get()) return;

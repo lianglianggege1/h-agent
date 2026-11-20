@@ -126,22 +126,31 @@ class AguiChatRuntimeTest {
     }
 
     @Test
-    void continuationUsesOwnedUserAndPartialAnswerInsteadOfClientHistory() {
+    void continuationUsesOwnedUserAndPartialAnswerInsteadOfClientHistory() throws Exception {
         rows.put("paused", new AguiRunSnapshotMapper.Snapshot("paused", "root", 1L, "hash", "PAUSED", """
                 {"status":"PAUSED","anchorMessageId":"8","partialMessages":[{"id":"original-answer","content":"前半段"}],"activities":[]}
                 """, null));
         var original = new ChatSessionMessageDto("8", "user", "USER", "原请求", null, List.of(), null);
         when(sessions.getOwnedMessage(1L, "root", 8L)).thenReturn(original);
+        Sinks.Many<ChatStreamEvent> continued = Sinks.many().unicast().onBackpressureBuffer();
         when(chat.streamChat(eq(1L), eq(2L), eq("standard-chat"), eq("root"), eq("原请求"), anyList()))
                 .thenReturn(Flux.deferContextual(context -> {
                     var operation = context.get(com.h.backend.chat.application.agui.ChatTurnOperation.class);
                     assertEquals(8L, operation.userMessageId());
                     assertEquals("前半段", operation.prefix());
-                    return Flux.just(new ChatStreamEvent("chunk", "后半段"));
+                    return continued.asFlux();
                 }));
         var input = new RunAgentInput("root", "continued", null, List.of(new UserMessage("fake", "伪造的历史")),
                 List.of(), List.of(), Map.of("operation", "continue", "sourceRunId", "paused"));
-        var events = runtime.run(1L, input).collectList().block(java.time.Duration.ofSeconds(3));
+        CountDownLatch started = new CountDownLatch(1);
+        var result = runtime.run(1L, input).doOnNext(event -> {
+            if (event instanceof com.agui.community.core.event.RunStartedEvent) started.countDown();
+        }).collectList().toFuture();
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+        continued.tryEmitNext(new ChatStreamEvent("chunk", "后半段"));
+        continued.tryEmitComplete();
+        var events = result.get(3, TimeUnit.SECONDS);
+        // 续跑沿用原 partial 消息身份增量追加新内容，客户端伪造历史被忽略。
         assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.TextMessageContentEvent content
                 && "original-answer".equals(content.messageId()) && "后半段".equals(content.delta())));
         verify(chat).streamChat(1L, 2L, "standard-chat", "root", "原请求", List.of());

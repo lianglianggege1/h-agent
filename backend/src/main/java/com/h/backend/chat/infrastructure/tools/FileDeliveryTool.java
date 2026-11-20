@@ -1,67 +1,20 @@
 package com.h.backend.chat.infrastructure.tools;
 
-import com.h.agent.observability.semantic.ArtifactUse;
-import com.h.agent.observability.semantic.ToolArtifactCollector;
-import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.application.ChatResourceUrls;
-import com.h.backend.chat.application.ChatStreamEventBridge;
-import com.h.backend.chat.application.ResourceContentPolicy;
-import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage.AssistantSessionFileStream;
-import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
-import com.h.backend.observability.BusinessArtifactReferenceMapper;
+import com.h.backend.chat.application.FileDeliveryService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.util.List;
-import java.util.Locale;
-
-/**
- * Agent 文件交付工具（send_file_to_chat）。
- *
- * <p>内容安全（新计划 §6.3 / §10 任务 4）：Agent 模型生成的会话文件属于
- * 不可信输入——模型可声明任意 MIME，因此保存前必须经签名校验
- * （Inspector 只读有上限的文件头，校验后用回放流继续保存，不二次读源流）；
- * 校验失败返回 Error 文案（Agent 工具协议），不抛异常破坏会话循环。
- */
+/** LangChain4j 文件交付工具入口（主聊天）：业务委托共享 FileDeliveryService。 */
 @Component
 public class FileDeliveryTool {
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.h.backend.document.infrastructure.persistence.DocumentRepository documentTasks;
+    private final FileDeliveryService delivery;
 
-    private final AssistantFileStorage fileStorage;
-    private final ResourceWriteCoordinator writeCoordinator;
-    private final ChatSessionService chatSessionService;
-    private final ChatStreamEventBridge chatStreamEventBridge;
-    private final ChatResourceUrls chatResourceUrls;
-    private final ResourceContentInspector contentInspector;
-    private final ResourceContentPolicy contentPolicy;
-
-    public FileDeliveryTool(
-            AssistantFileStorage fileStorage,
-            ResourceWriteCoordinator writeCoordinator,
-            ChatSessionService chatSessionService,
-            ChatStreamEventBridge chatStreamEventBridge,
-            ChatResourceUrls chatResourceUrls,
-            ResourceContentInspector contentInspector,
-            ResourceContentPolicy contentPolicy
-    ) {
-        this.fileStorage = fileStorage;
-        this.writeCoordinator = writeCoordinator;
-        this.chatSessionService = chatSessionService;
-        this.chatStreamEventBridge = chatStreamEventBridge;
-        this.chatResourceUrls = chatResourceUrls;
-        this.contentInspector = contentInspector;
-        this.contentPolicy = contentPolicy;
+    public FileDeliveryTool(FileDeliveryService delivery) {
+        this.delivery = delivery;
     }
 
     @Tool(name = "send_file_to_chat", value = "把当前会话文件目录中的文件发送到聊天框，用户可预览或下载。generate_document生成的文档已自动发送，不要复制或重复发送。", searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
@@ -72,194 +25,6 @@ public class FileDeliveryTool {
             @P(value = "文件 MIME 类型；为空则自动推断", required = false, defaultValue = "") String mimeType,
             @P(value = "随文件消息显示的文本；为空则使用默认文案", required = false, defaultValue = "") String message
     ) {
-        AssistantSessionFileStream file = fileStorage.openSessionFileStream(memoryId, path);
-        if (!file.success()) {
-            return "Error: " + file.error();
-        }
-
-        FileDeliveryContext context = parseMemoryId(memoryId);
-        String resolvedFileName = safeDisplayName(displayName, file.fileName());
-        // generate_document already commits its file message. A model may create a
-        // slightly different copy and try to send it again; scope reuse to this turn.
-        try {
-            if (documentTasks != null) {
-                Long anchor = documentTasks.activeAnchor(context.userId(), context.sessionId());
-                if (anchor != null) {
-                    var delivered = documentTasks.list(context.userId(), context.sessionId()).stream()
-                            .filter(task -> "GENERATE".equals(task.getKind())
-                                    && "COMPLETED".equals(task.getStatus())
-                                    && anchor.equals(task.getAnchorMessageId())
-                                    && resolvedFileName.equals(task.getFileName())
-                                    && task.getOutputResourceId() != null)
-                            .findFirst();
-                    if (delivered.isPresent()) {
-                        closeQuietly(file.stream());
-                        return "该文档已自动发送到聊天中，请复用已有文件，不要再次复制或发送。resourceId="
-                                + delivered.get().getOutputResourceId();
-                    }
-                }
-            }
-        } catch (RuntimeException failure) {
-            closeQuietly(file.stream());
-            throw failure;
-        }
-        String resolvedMimeType = resolveMimeType(mimeType, file.mimeType(), resolvedFileName);
-        String extension = extensionFromFileName(resolvedFileName);
-        String resourceType = resourceTypeFor(resolvedMimeType);
-        String content = (message == null || message.isBlank()) ? "已发送文件：" + resolvedFileName : message.trim();
-
-        // 内容安全（新计划 §6.3 / §10 任务 4）：模型声明 MIME 只是提示，
-        // 签名校验失败/主动内容一律拒绝交付，不触碰 Coordinator。
-        // 审查修复第 4 项：inspect 抛 IOException 时必须关闭源流（fd 泄漏）。
-        java.io.InputStream sourceStream = file.stream();
-        ResourceContentInspector.Inspection inspection;
-        try {
-            inspection = contentInspector.inspect(sourceStream, resolvedMimeType);
-        } catch (IOException exception) {
-            closeQuietly(sourceStream);
-            return "Error: 读取文件失败: " + file.virtualPath();
-        }
-        ResourceContentPolicy.SaveDecision decision =
-                contentPolicy.validateForSave(inspection.result(), resolvedMimeType);
-        if (!decision.allowed()) {
-            closeQuietly(inspection.replayStream());
-            return "Error: " + decision.reason();
-        }
-
-        // 新计划任务 3：Agent 文件只有 appendResourceMessage 事务提交后才算挂接；
-        // 挂接回调在 Coordinator 事务内（rollback 时对象被补偿），
-        // 流事件在 saveAndAttach 返回（挂接事务已提交）后才发布。
-        // 保存流使用回放流（头字节已缓冲 + 剩余原流），不二次读源。
-        ChatMessageResourceDto[] delivered = new ChatMessageResourceDto[1];
-        ChatSessionMessageDto chatMessage = writeCoordinator.saveAndAttach(
-                ResourceSaveCommand.fromStream(
-                        resourceType,
-                        inspection.replayStream(),
-                        file.size(),
-                        resolvedMimeType,
-                        extension,
-                        0L
-                ),
-                stored -> {
-                    ChatMessageResourceDto resource = new ChatMessageResourceDto(
-                            stored.id(),
-                            resourceType,
-                            "GENERATED",
-                            chatResourceUrls.view(stored.id()),
-                            chatResourceUrls.download(stored.id()),
-                            resolvedFileName,
-                            resolvedMimeType,
-                            stored.fileSize(),
-                            stored.width(),
-                            stored.height(),
-                            stored.storageType(),
-                            stored.storageKey()
-                    );
-                    delivered[0] = resource;
-                    return chatSessionService.appendResourceMessage(
-                            context.userId(),
-                            context.sessionId(),
-                            content,
-                            resourceType,
-                            List.of(resource)
-                    );
-                }
-        );
-        // Artifact 在挂接事务提交后才成立（设计 §9.5）：saveAndAttach 正常返回即提交，
-        // 此处只做已持有业务结果的纯映射，进入所属工具 Observation 的 TOOL_OUTPUT。
-        ToolArtifactCollector.record(BusinessArtifactReferenceMapper.from(
-                delivered[0], ArtifactUse.TOOL_OUTPUT, null));
-        chatStreamEventBridge.publishMessage(memoryId, chatMessage);
-        return "文件已发送到聊天中。";
-    }
-
-    private FileDeliveryContext parseMemoryId(String memoryId) {
-        String[] parts = memoryId == null ? new String[0] : memoryId.split(":", 4);
-        if (parts.length == 3) {
-            return new FileDeliveryContext(Long.valueOf(parts[0]), parts[2]);
-        }
-        if (parts.length == 4 && "agent".equals(parts[1])) {
-            return new FileDeliveryContext(Long.valueOf(parts[0]), parts[3]);
-        }
-        throw new IllegalArgumentException("Invalid chat memory id");
-    }
-
-    private static void closeQuietly(java.io.InputStream stream) {
-        try {
-            if (stream != null) {
-                stream.close();
-            }
-        } catch (IOException ignored) {
-            // 关闭失败不影响拒绝路径
-        }
-    }
-
-    private String safeDisplayName(String displayName, String fallbackName) {
-        String value = displayName == null || displayName.isBlank() ? fallbackName : displayName;
-        if (value == null || value.isBlank()) {
-            value = "file";
-        }
-        return value.replaceAll("[\\r\\n\\\\/]", "_");
-    }
-
-    private String resolveMimeType(String requestedMimeType, String probedMimeType, String fileName) {
-        if (requestedMimeType != null && !requestedMimeType.isBlank()) {
-            return requestedMimeType.trim();
-        }
-        if (probedMimeType != null && !probedMimeType.isBlank()) {
-            return probedMimeType;
-        }
-        return mimeTypeFromExtension(extensionFromFileName(fileName));
-    }
-
-    private String mimeTypeFromExtension(String extension) {
-        return switch (extension.toLowerCase(Locale.ROOT)) {
-            case "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-            case "ppt" -> "application/vnd.ms-powerpoint";
-            case "pdf" -> "application/pdf";
-            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            case "doc" -> "application/msword";
-            case "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-            case "xls" -> "application/vnd.ms-excel";
-            case "txt" -> "text/plain";
-            case "md" -> "text/markdown";
-            case "mp3" -> "audio/mpeg";
-            case "m4a" -> "audio/mp4";
-            case "wav" -> "audio/wav";
-            case "webm" -> "audio/webm";
-            case "mp4" -> "video/mp4";
-            case "png" -> "image/png";
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "webp" -> "image/webp";
-            default -> "application/octet-stream";
-        };
-    }
-
-    private String extensionFromFileName(String fileName) {
-        if (fileName == null) {
-            return "bin";
-        }
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) {
-            return "bin";
-        }
-        return fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
-    }
-
-    private String resourceTypeFor(String mimeType) {
-        String normalized = mimeType == null ? "" : mimeType.toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("image/")) {
-            return "IMAGE";
-        }
-        if (normalized.startsWith("audio/")) {
-            return "AUDIO";
-        }
-        if (normalized.startsWith("video/")) {
-            return "VIDEO";
-        }
-        return "FILE";
-    }
-
-    private record FileDeliveryContext(Long userId, String sessionId) {
+        return delivery.send(memoryId, path, displayName, mimeType, message);
     }
 }

@@ -60,6 +60,13 @@ public class GenerationTaskEntity {
     private LocalDateTime updatedAt;
     @TableField("completed_at")
     private LocalDateTime completedAt;
+    private String owner;
+    private String actor;
+
+    public String getOwner() { return owner; }
+    public void setOwner(String owner) { this.owner = owner; }
+    public String getActor() { return actor; }
+    public void setActor(String actor) { this.actor = actor; }
 
     public String getId() {
         return id;
