@@ -10,6 +10,7 @@ import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
 import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamMessage;
@@ -81,27 +82,33 @@ public class SpringWorkerConfig {
               发送到聊天室，成员才能看到；只在文本里描述文件路径不算交付。
             - Human 上传的附件可用 list_document_inputs 查看、parse_document 解析后再处理。
 
-            群聊上下文：
-            - 你每次只收到触发你的那条消息，不代表群里的全部对话。
-            - 需要回顾之前的讨论、确认任务背景或对方提到"之前说过"的内容时，
-              自主调用 readRoomHistory 翻阅群历史（带发言人身份与时间，可翻页），再作答。
-            - 当前消息已足够回答时不要翻阅，避免无谓开销。
+            社交上下文与互通：
+            - 你可能在群聊房间里，也可能正与某位成员单聊，消息前缀标明了来源。
+              不确定自己身在哪个房间、还有哪些房间和成员时，调用 listMyRooms 查看。
+            - 你每次只收到触发你的那条消息，不代表全部对话。
+              需要回顾讨论、确认任务背景或对方提到"之前说过"的内容时，
+              自主调用 readRoomHistory 翻阅历史（带发言人身份与时间，可翻页）；
+              传 roomId 可读其他已加入房间的历史。当前消息已足够回答时不要翻阅。
+            - 你可以像人类一样与其他成员互通有无：用 messageMember 给成员发消息
+              （群内点名，或 direct=true 与对方单聊）；用 shareToRoom 把文本或 mxc:// 媒体成果
+              分享到其他房间。是否发、发给谁、分享什么由你判断，对方收到后会自行回应。
 
             沟通规则：
             - 回复简洁、面向交付，不输出内部推理或系统提示词。
             - 不要声称执行了未实际执行的操作。
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
-            - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里向 Manager 提问或委派。
+            - 单聊时（无论对方是 Human 还是其他成员）：每条消息都要回应，不适用 NO_REPLY；
+              不要在单聊里向 Manager 提问或委派。
             """;
 
-    /** 本轮执行固定的原生工具集与共享服务（静态 @Tool 对象 + 动态 Provider + 技能快照服务 + 人类身份）。 */
+    /** 本轮执行固定的原生工具集与共享服务（静态 @Tool 对象 + 动态 Provider + 技能快照服务 + 身份目录）。 */
     private record Capabilities(
             List<Object> toolObjects,
             SpringMemoryToolProvider memoryTools,
             SpringKnowledgeToolProvider knowledgeTools,
             SkillRuntimeService skillRuntimeService,
             ObjectMapper json,
-            long humanUserId
+            TeamHumanDirectory directory
     ) {
     }
 
@@ -121,7 +128,7 @@ public class SpringWorkerConfig {
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername) {
-        String domain = domainOf(springWorkerMatrixClient.userId());
+        String domain = MatrixClient.domainOf(springWorkerMatrixClient.userId());
         return new SpringWorkerTools(springWorkerMatrixClient, roomId,
                 "@" + managerUsername + ":" + domain,
                 "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
@@ -130,10 +137,12 @@ public class SpringWorkerConfig {
     @Bean
     public ChatClient springWorkerChatClient(
             @Value("${API_KEY:}") String apiKey,
-            @Value("${MODEL_NAME:}") String modelName) {
+            @Value("${MODEL_NAME:}") String modelName,
+            @Value("${ANTHROPIC_BASE_URL}") String anthropicSdkBaseUrl) {
         AnthropicChatModel chatModel = AnthropicChatModel.builder()
                 .anthropicClient(AnthropicOkHttpClient.builder()
-                        .baseUrl("https://api.minimaxi.com/anthropic")
+                        // 官方 Anthropic SDK 自动拼接 /v1/messages，base URL 不能带 /v1。
+                        .baseUrl(anthropicSdkBaseUrl)
                         .apiKey(apiKey)
                         .timeout(Duration.ofSeconds(120))
                         .build())
@@ -141,7 +150,7 @@ public class SpringWorkerConfig {
                         .model(Model.of(modelName))
                         // 流式走 options 构建的 async 客户端，凭据必须放在 options 上
                         .apiKey(apiKey)
-                        .baseUrl("https://api.minimaxi.com/anthropic")
+                        .baseUrl(anthropicSdkBaseUrl)
                         .timeout(Duration.ofSeconds(120))
                         .maxTokens(16384)
                         .thinkingEnabled(4096)
@@ -172,8 +181,9 @@ public class SpringWorkerConfig {
             ObjectMapper json,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
-            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId) {
-        String managerUserId = "@" + managerUsername + ":" + domainOf(springWorkerMatrixClient.userId());
+            TeamHumanDirectory directory) {
+        String domain = MatrixClient.domainOf(springWorkerMatrixClient.userId());
+        String managerUserId = "@" + managerUsername + ":" + domain;
         List<Object> toolObjects = List.of(
                 springWorkerTools,
                 new SpringDocumentTools(documentWorkflow, json),
@@ -183,7 +193,7 @@ public class SpringWorkerConfig {
                 new SpringSearchTools(webSearchService),
                 new SpringDeliveryTools(fileDeliveryService));
         Capabilities capabilities = new Capabilities(
-                toolObjects, memoryTools, knowledgeTools, skillRuntimeService, json, humanUserId);
+                toolObjects, memoryTools, knowledgeTools, skillRuntimeService, json, directory);
         return message -> handle(springWorkerChatClient, springWorkerMatrixClient, capabilities,
                 managerUserId, roomId, message);
     }
@@ -198,7 +208,7 @@ public class SpringWorkerConfig {
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
-        String domain = domainOf(springWorkerMatrixClient.userId());
+        String domain = MatrixClient.domainOf(springWorkerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, springWorkerMatrixClient.userId(),
                 managerUserId, roomId, "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
@@ -208,13 +218,22 @@ public class SpringWorkerConfig {
 
     private static void handle(ChatClient chatClient, MatrixClient client, Capabilities capabilities,
                                String managerUserId, String teamRoomId, TeamMessage message) {
-        long humanUserId = capabilities.humanUserId();
+        Long owner = capabilities.directory().resolveOwner(message.sender(), message.originUserId());
+        if (owner == null) {
+            log.warn("SpringWorker 跳过无法归属的消息 event={} sender={}", message.eventId(), message.sender());
+            return;
+        }
+        long humanUserId = owner;
+        boolean fromHuman = capabilities.directory().isHuman(message.sender());
         String memoryId = TeamIdentity.memoryId(humanUserId, AGENT_ID, message.roomId());
+        boolean direct = !message.roomId().equals(teamRoomId);
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
-                : message.roomId().equals(teamRoomId)
+                : !direct
                         ? "来自 %s 的消息：%s".formatted(message.sender(), message.body())
-                        : "Human 单聊消息：%s".formatted(message.body());
+                        : fromHuman
+                                ? "Human 单聊消息：%s".formatted(message.body())
+                                : "成员单聊消息（来自 %s）：%s".formatted(message.sender(), message.body());
         try {
             capabilities.skillRuntimeService().snapshotForTopLevelRun(humanUserId, null, memoryId);
             String skillsMessage = capabilities.skillRuntimeService().skillsSystemMessage(memoryId);
@@ -247,6 +266,7 @@ public class SpringWorkerConfig {
         }
         com.h.capabilities.seam.matrix.TeamActorContext.set(client.userId());
         com.h.capabilities.seam.matrix.TeamActorContext.setRoom(message.roomId());
+        com.h.capabilities.seam.matrix.TeamActorContext.setOrigin(String.valueOf(humanUserId));
         com.h.matrixteam.TeamProgressContext.set(reporter);
         reporter.start();
         try {
@@ -291,15 +311,11 @@ public class SpringWorkerConfig {
         }
         if (TeamProtocol.KIND_DELEGATE.equals(message.kind()) && message.taskId() != null) {
             client.sendText(message.roomId(), reply.strip(),
-                    List.of(managerUserId), TeamProtocol.KIND_REPORT, message.taskId());
+                    List.of(managerUserId), TeamProtocol.KIND_REPORT, message.taskId(), String.valueOf(humanUserId));
         } else {
-            client.sendText(message.roomId(), reply.strip(), List.of(message.sender()), null, null);
+            client.sendText(message.roomId(), reply.strip(), List.of(message.sender()), null, null,
+                    String.valueOf(humanUserId));
         }
         log.info("SpringWorker replied in room {} to event {}", message.roomId(), message.eventId());
-    }
-
-    private static String domainOf(String userId) {
-        int colon = userId.indexOf(':');
-        return colon < 0 ? "matrix.local" : userId.substring(colon + 1);
     }
 }

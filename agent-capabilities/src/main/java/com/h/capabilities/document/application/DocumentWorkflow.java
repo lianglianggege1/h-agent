@@ -776,7 +776,7 @@ public class DocumentWorkflow {
         Long activeAnchor = repository.activeAnchor(user, session);
         AnchorMessage anchor =
                 activeAnchor == null
-                        ? conversationAssets.latestUserMessage(session)
+                        ? conversationAssets.latestUserMessage(user, session)
                         : conversationAssets.messageById(activeAnchor);
         if (anchor != null && user.equals(anchor.userId())) {
             task.setAnchorMessageId(anchor.id());

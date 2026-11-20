@@ -63,9 +63,9 @@ public final class TeamPolicy {
             return false;
         }
         boolean fromHuman = !isAgent(sender);
-        // 单聊房间（非团队群）：人类消息无需点名即触发，其余发言不触发。
+        // 单聊房间（非团队群）：人类消息无需点名即触发；成员互通时，被点名的 agent 消息也触发。
         if (!message.roomId().equals(teamRoomId)) {
-            return fromHuman;
+            return fromHuman || message.mentions(selfUserId);
         }
         return switch (role) {
             case MANAGER -> fromHuman

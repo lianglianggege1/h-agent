@@ -39,29 +39,41 @@ public class TeamManagerHandler implements TeamRoomBridge.Handler {
     private final HarnessAgent agent;
     private final MatrixClient client;
     private final String teamRoomId;
-    private final long humanUserId;
+    private final com.h.capabilities.seam.matrix.TeamHumanDirectory directory;
 
-    public TeamManagerHandler(HarnessAgent agent, MatrixClient client, String teamRoomId, long humanUserId) {
+    public TeamManagerHandler(HarnessAgent agent, MatrixClient client, String teamRoomId,
+                              com.h.capabilities.seam.matrix.TeamHumanDirectory directory) {
         this.agent = agent;
         this.client = client;
         this.teamRoomId = teamRoomId;
-        this.humanUserId = humanUserId;
+        this.directory = directory;
     }
 
     @Override
     public void handle(TeamMessage message) {
         boolean direct = !message.roomId().equals(teamRoomId);
+        boolean fromHuman = directory.isHuman(message.sender());
+        Long owner = directory.resolveOwner(message.sender(), message.originUserId());
+        if (owner == null) {
+            log.warn("Manager 跳过无法归属的消息 event={} sender={}", message.eventId(), message.sender());
+            return;
+        }
         String prompt = switch (message.kind() == null ? "" : message.kind()) {
             case TeamProtocol.KIND_REPORT -> "Worker 回报（任务 %s）：%s".formatted(message.taskId(), message.body());
             case TeamProtocol.KIND_QUESTION -> "Worker 提问（任务 %s）：%s".formatted(message.taskId(), message.body());
-            default -> direct
-                    ? "Human 单聊消息：%s".formatted(message.body())
-                    : "Human 消息（来自 %s）：%s".formatted(message.sender(), message.body());
+            default -> {
+                if (!direct) {
+                    yield "Human 消息（来自 %s）：%s".formatted(message.sender(), message.body());
+                }
+                yield fromHuman
+                        ? "Human 单聊消息：%s".formatted(message.body())
+                        : "成员单聊消息（来自 %s）：%s".formatted(message.sender(), message.body());
+            }
         };
-        // 能力数据归属人类工作台账号；sessionId 直接用 roomId（! 前缀），
+        // 能力数据归属真实登录用户（按事件 sender / 委派链解析）；sessionId 直接用 roomId（! 前缀），
         // 能力端口路由与记忆上下文解析据此识别团队 scope。
         RuntimeContext context = RuntimeContext.builder()
-                .userId(String.valueOf(humanUserId))
+                .userId(String.valueOf(owner))
                 .sessionId(message.roomId())
                 .build();
         TeamProgressReporter reporter = new TeamProgressReporter(client, message.roomId());
@@ -70,6 +82,7 @@ public class TeamManagerHandler implements TeamRoomBridge.Handler {
         Map<String, StringBuilder> toolText = new ConcurrentHashMap<>();
         TeamActorContext.set(client.userId());
         TeamActorContext.setRoom(message.roomId());
+        TeamActorContext.setOrigin(String.valueOf(owner));
         reporter.start();
         try {
             agent.streamEvents(prompt, context)
@@ -88,7 +101,9 @@ public class TeamManagerHandler implements TeamRoomBridge.Handler {
         if (text == null || text.isBlank() || "NO_REPLY".equals(text.strip())) {
             return;
         }
-        client.sendText(message.roomId(), text.strip(), List.of(), null, null);
+        // 成员单聊时点名对方，保证对方的单聊触发策略能收到回应；人类单聊无需点名。
+        List<String> mentions = direct && !fromHuman ? List.of(message.sender()) : List.of();
+        client.sendText(message.roomId(), text.strip(), mentions, null, null, String.valueOf(owner));
         log.info("Manager replied in room {} to event {}", message.roomId(), message.eventId());
     }
 

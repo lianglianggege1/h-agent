@@ -111,6 +111,19 @@ class TeamPolicyTest {
     }
 
     @Test
+    void dmPeerMessagesTriggerOnlyTheMentionedMember() {
+        TeamMessage toSpring = new TeamMessage("$dm3", "!dm:matrix.local", WORKER, "帮我查个资料",
+                List.of(SPRING_WORKER), false, null, null);
+        assertTrue(springWorker.shouldRespond(toSpring));
+        assertFalse(manager.shouldRespond(toSpring));
+        assertFalse(worker.shouldRespond(toSpring));
+        TeamMessage toManager = new TeamMessage("$dm4", "!dm:matrix.local", SPRING_WORKER, "进度同步",
+                List.of(MANAGER), false, null, null);
+        assertTrue(manager.shouldRespond(toManager));
+        assertFalse(worker.shouldRespond(toManager));
+    }
+
+    @Test
     void parsesStructuredMentionsAndTeamMetadata() throws Exception {
         ObjectNode event = JSON.createObjectNode();
         event.put("type", "m.room.message");

@@ -35,9 +35,11 @@ public class ChatModelConfig {
         Properties properties = new Properties();
         try (var reader = Files.newBufferedReader(envPath)) {
             properties.load(reader);
+            // LangChain4j 只拼接 messages 路径，base URL 需带 /v1；ANTHROPIC_BASE_URL 为不带 /v1 的 SDK 基址。
+            String sdkBaseUrl = properties.getProperty("ANTHROPIC_BASE_URL", "https://api.minimaxi.com/anthropic");
             ChatModel delegate = AnthropicChatModel.builder()
                     .apiKey(properties.getProperty("API_KEY"))
-                    .baseUrl("https://api.minimaxi.com/anthropic/v1")
+                    .baseUrl(sdkBaseUrl + "/v1")
                     .modelName(properties.getProperty("MODEL_NAME"))
                     .maxTokens(8192)
                     .timeout(Duration.ofSeconds(120))

@@ -24,8 +24,8 @@ public interface ConversationAssetPort {
     /** 当前 scope 可引用的附件清单（文档工具 inputs 视图）。 */
     List<Map<String, Object>> inputs(long userId, String scopeId);
 
-    /** 最近一条用户消息（续跑锚点）；无则 null。 */
-    AnchorMessage latestUserMessage(String scopeId);
+    /** 最近一条该用户消息（续跑锚点）；无则 null。团队 scope 按用户专属 Matrix 身份过滤。 */
+    AnchorMessage latestUserMessage(long userId, String scopeId);
 
     /** 按主键读锚点消息；无则 null。 */
     AnchorMessage messageById(long messageId);

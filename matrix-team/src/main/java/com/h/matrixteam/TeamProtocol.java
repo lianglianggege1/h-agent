@@ -68,7 +68,8 @@ public final class TeamProtocol {
                 msgtype,
                 url,
                 info.path("mimetype").asText(null),
-                info.path("size").asLong(0)
+                info.path("size").asLong(0),
+                team.path("userId").asText(null)
         );
     }
 }

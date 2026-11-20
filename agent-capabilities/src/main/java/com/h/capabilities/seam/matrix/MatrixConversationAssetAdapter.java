@@ -25,14 +25,12 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
     private static final int MAX_PAGES = 6;
 
     private final List<MatrixClient> clients;
-    private final long humanUserId;
-    private final String humanMatrixUsername;
+    private final TeamHumanDirectory directory;
     private final Map<Long, AnchorMessage> anchorCache = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public MatrixConversationAssetAdapter(List<MatrixClient> clients, long humanUserId, String humanMatrixUsername) {
+    public MatrixConversationAssetAdapter(List<MatrixClient> clients, TeamHumanDirectory directory) {
         this.clients = clients;
-        this.humanUserId = humanUserId;
-        this.humanMatrixUsername = humanMatrixUsername;
+        this.directory = directory;
     }
 
     @Override
@@ -48,7 +46,7 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
         if (media == null) {
             throw new BusinessException(40404, "附件不存在或不在当前房间历史中");
         }
-        return new AssetRef(media.url(), humanUserId, media.body(), media.mimetype(), media.size(), media.url());
+        return new AssetRef(media.url(), userId, media.body(), media.mimetype(), media.size(), media.url());
     }
 
     @Override
@@ -89,11 +87,14 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
     }
 
     @Override
-    public AnchorMessage latestUserMessage(String scopeId) {
-        String humanPrefix = "@" + humanMatrixUsername + ":";
+    public AnchorMessage latestUserMessage(long userId, String scopeId) {
+        String matrixUserId = directory.matrixUserIdOf(userId);
+        if (matrixUserId == null) {
+            return null;
+        }
         for (TeamMessage message : history(scopeId)) {
-            if (!message.isMedia() && message.sender() != null && message.sender().startsWith(humanPrefix)) {
-                AnchorMessage anchor = new AnchorMessage(eventHash(message.eventId()), humanUserId, message.body());
+            if (!message.isMedia() && matrixUserId.equals(message.sender())) {
+                AnchorMessage anchor = new AnchorMessage(eventHash(message.eventId()), userId, message.body());
                 if (anchorCache.size() > 4096) {
                     anchorCache.clear();
                 }

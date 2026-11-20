@@ -16,7 +16,7 @@ spring:
       - optional:file:../.env[.properties]
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: ${DB_URL:jdbc:postgresql://169.254.210.181:5432/h_agent_db?currentSchema=skill_platform,public}
+    url: ${DB_URL:jdbc:postgresql://169.254.210.181:5432/h_agent_db?currentSchema=skill_platform}
     username: ${DB_USERNAME:h_agent}
     password: ${DB_PASSWORD:}
   data:

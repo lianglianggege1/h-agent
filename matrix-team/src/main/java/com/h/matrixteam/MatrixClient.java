@@ -12,9 +12,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * 最小 Matrix Client-Server 客户端：登录、/sync、发文本与媒体消息（含 m.mentions 与团队元数据）、
@@ -47,6 +50,18 @@ public final class MatrixClient {
 
     public String deviceId() {
         return deviceId;
+    }
+
+    /**
+     * 从已登录的 Matrix userId（{@code @local:server_name}）解析 server_name。
+     * 登录成功后 userId 必带域名，这里不提供示例域名兜底，缺失即视为装配错误直接抛出。
+     */
+    public static String domainOf(String userId) {
+        int colon = userId == null ? -1 : userId.indexOf(':');
+        if (colon < 0 || colon == userId.length() - 1) {
+            throw new IllegalStateException("Matrix userId missing server_name: " + userId);
+        }
+        return userId.substring(colon + 1);
     }
 
     public void login(String username, String password) {
@@ -83,6 +98,56 @@ public final class MatrixClient {
         }
     }
 
+    /**
+     * 用 Synapse 共享密钥注册新账号（/_synapse/admin/v1/register，nonce + HMAC-SHA1）。
+     * username 为 localpart（如 u116）；成功后返回完整 userId 并填充本客户端会话。
+     * 无需管理员 token，仅依赖 homeserver.yaml 的 registration_shared_secret。
+     */
+    public String register(String sharedSecret, String username, String password) {
+        JsonNode nonceResponse = request("GET", "/_synapse/admin/v1/register", null, Duration.ofSeconds(30));
+        String nonce = nonceResponse.path("nonce").asText();
+        if (nonce.isBlank()) {
+            throw new IllegalStateException("Matrix register nonce missing: " + nonceResponse);
+        }
+        String mac = hmacSha1(sharedSecret, nonce + "\0" + username + "\0" + password + "\0" + "notadmin");
+        ObjectNode body = JSON.createObjectNode();
+        body.put("nonce", nonce);
+        body.put("username", username);
+        body.put("password", password);
+        body.put("mac", mac);
+        body.put("admin", false);
+        JsonNode response = request("POST", "/_synapse/admin/v1/register", body, Duration.ofSeconds(30));
+        this.userId = response.path("user_id").asText();
+        this.accessToken = response.path("access_token").asText();
+        this.deviceId = response.path("device_id").asText();
+        if (userId.isBlank()) {
+            throw new IllegalStateException("Matrix register failed for " + username + ": " + response);
+        }
+        return userId;
+    }
+
+    private static String hmacSha1(String secret, String message) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
+            byte[] raw = mac.doFinal(message.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(raw.length * 2);
+            for (byte b : raw) {
+                hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Matrix register HMAC failed", e);
+        }
+    }
+
+    /** 邀请目标账号加入房间（invite-only 房间须先邀请再 join）。 */
+    public void invite(String roomId, String targetUserId) {
+        ObjectNode body = JSON.createObjectNode();
+        body.put("user_id", targetUserId);
+        request("POST", "/_matrix/client/v3/rooms/" + encode(roomId) + "/invite", body, Duration.ofSeconds(30));
+    }
+
     public JsonNode sync(String since, long timeoutMs) {
         StringBuilder path = new StringBuilder("/_matrix/client/v3/sync?timeout=" + timeoutMs);
         if (since != null && !since.isBlank()) {
@@ -96,6 +161,67 @@ public final class MatrixClient {
 
     public void join(String roomIdOrAlias) {
         request("POST", "/_matrix/client/v3/join/" + encode(roomIdOrAlias), JSON.createObjectNode(), Duration.ofSeconds(30));
+    }
+
+    /** 本账号已加入的房间 ID 列表（{joined_rooms:[...]}）。 */
+    public JsonNode joinedRooms() {
+        return request("GET", "/_matrix/client/v3/joined_rooms", null, Duration.ofSeconds(30));
+    }
+
+    /** 房间成员事件（{chunk:[m.room.member...]}），state_key 为成员 userId。 */
+    public JsonNode roomMembers(String roomId) {
+        return request("GET", "/_matrix/client/v3/rooms/" + encode(roomId) + "/members", null, Duration.ofSeconds(30));
+    }
+
+    /** 房间名称（m.room.name）；未设置或不可读时返回 null。 */
+    public String roomName(String roomId) {
+        String path = "/_matrix/client/v3/rooms/" + encode(roomId) + "/state/m.room.name";
+        try {
+            JsonNode node = request("GET", path, null, Duration.ofSeconds(15));
+            String name = node.path("name").asText(null);
+            return name == null || name.isBlank() ? null : name;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** 与目标成员建立（或复用由调用方判重）单聊房间，返回 roomId；并写 m.direct 便于客户端归类。 */
+    public String createDm(String targetUserId) {
+        ObjectNode body = JSON.createObjectNode();
+        body.put("preset", "trusted_private_chat");
+        body.put("is_direct", true);
+        body.putArray("invite").add(targetUserId);
+        JsonNode response = request("POST", "/_matrix/client/v3/createRoom", body, Duration.ofSeconds(30));
+        String roomId = response.path("room_id").asText();
+        if (roomId.isBlank()) {
+            throw new IllegalStateException("Matrix createRoom failed: " + response);
+        }
+        markDirect(targetUserId, roomId);
+        return roomId;
+    }
+
+    private void markDirect(String targetUserId, String roomId) {
+        String path = "/_matrix/client/v3/user/" + encode(userId) + "/account_data/m.direct";
+        ObjectNode direct;
+        try {
+            JsonNode existing = request("GET", path, null, Duration.ofSeconds(15));
+            direct = existing.isObject() ? (ObjectNode) existing : JSON.createObjectNode();
+        } catch (RuntimeException e) {
+            direct = JSON.createObjectNode();
+        }
+        ArrayNode rooms = direct.has(targetUserId) && direct.get(targetUserId).isArray()
+                ? (ArrayNode) direct.get(targetUserId) : direct.putArray(targetUserId);
+        boolean present = false;
+        for (JsonNode node : rooms) {
+            if (roomId.equals(node.asText())) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            rooms.add(roomId);
+        }
+        request("PUT", path, direct, Duration.ofSeconds(15));
     }
 
     /**
@@ -115,10 +241,16 @@ public final class MatrixClient {
      * 发送文本消息。mentionIds 写入结构化 m.mentions；kind/taskId 写入 com.h.team 团队元数据。
      */
     public String sendText(String roomId, String body, List<String> mentionIds, String kind, String taskId) {
+        return sendText(roomId, body, mentionIds, kind, taskId, null);
+    }
+
+    /** originUserId 为该消息背后的工作台用户 id（委派/汇报/提问的归属链），写入 com.h.team.userId。 */
+    public String sendText(String roomId, String body, List<String> mentionIds, String kind, String taskId,
+                           String originUserId) {
         ObjectNode content = JSON.createObjectNode();
         content.put("msgtype", "m.text");
         content.put("body", body);
-        return sendContent(roomId, content, mentionIds, kind, taskId);
+        return sendContent(roomId, content, mentionIds, kind, taskId, originUserId);
     }
 
     /**
@@ -127,6 +259,11 @@ public final class MatrixClient {
      */
     public String sendMedia(String roomId, String msgtype, String url, String body, ObjectNode info,
                             List<String> mentionIds, String kind, String taskId) {
+        return sendMedia(roomId, msgtype, url, body, info, mentionIds, kind, taskId, null);
+    }
+
+    public String sendMedia(String roomId, String msgtype, String url, String body, ObjectNode info,
+                            List<String> mentionIds, String kind, String taskId, String originUserId) {
         ObjectNode content = JSON.createObjectNode();
         content.put("msgtype", msgtype);
         content.put("body", body);
@@ -134,19 +271,27 @@ public final class MatrixClient {
         if (info != null) {
             content.set("info", info);
         }
-        return sendContent(roomId, content, mentionIds, kind, taskId);
+        return sendContent(roomId, content, mentionIds, kind, taskId, originUserId);
     }
 
-    private String sendContent(String roomId, ObjectNode content, List<String> mentionIds, String kind, String taskId) {
+    private String sendContent(String roomId, ObjectNode content, List<String> mentionIds, String kind, String taskId,
+                               String originUserId) {
         if (mentionIds != null && !mentionIds.isEmpty()) {
             ArrayNode users = content.putObject("m.mentions").putArray("user_ids");
             mentionIds.forEach(users::add);
         }
-        if (kind != null && !kind.isBlank()) {
+        boolean hasKind = kind != null && !kind.isBlank();
+        boolean hasOrigin = originUserId != null && !originUserId.isBlank();
+        if (hasKind || hasOrigin) {
             ObjectNode team = content.putObject(TeamProtocol.CONTENT_KEY);
-            team.put("kind", kind);
-            if (taskId != null && !taskId.isBlank()) {
-                team.put("taskId", taskId);
+            if (hasKind) {
+                team.put("kind", kind);
+                if (taskId != null && !taskId.isBlank()) {
+                    team.put("taskId", taskId);
+                }
+            }
+            if (hasOrigin) {
+                team.put("userId", originUserId);
             }
         }
         String txnId = UUID.randomUUID().toString();

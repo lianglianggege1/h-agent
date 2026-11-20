@@ -31,9 +31,14 @@ public final class TeamHistoryReader {
     }
 
     public String read(Integer limit, String before) {
+        return read(roomId, limit, before);
+    }
+
+    /** 翻阅指定房间（须为本账号已加入的房间）的历史；roomId 缺省由调用方解析为当前房间。 */
+    public String read(String targetRoomId, Integer limit, String before) {
         int size = limit == null ? DEFAULT_LIMIT : Math.clamp(limit, 1, MAX_LIMIT);
-        JsonNode response = client.messages(roomId, size, before);
-        StringBuilder text = new StringBuilder(format(response, roomId, policy));
+        JsonNode response = client.messages(targetRoomId, size, before);
+        StringBuilder text = new StringBuilder(format(response, targetRoomId, policy));
         String end = response.path("end").asText(null);
         if (end != null && !end.isBlank() && !response.path("chunk").isEmpty()) {
             text.append("\n[更早历史翻页令牌: ").append(end).append("]");

@@ -89,7 +89,7 @@ public class ChatConversationAssetAdapter implements ConversationAssetPort {
     }
 
     @Override
-    public AnchorMessage latestUserMessage(String scopeId) {
+    public AnchorMessage latestUserMessage(long userId, String scopeId) {
         return anchor(messages.selectLatestUser(scopeId));
     }
 

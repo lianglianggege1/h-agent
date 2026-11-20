@@ -37,7 +37,6 @@ public class TeamDocumentJob implements AutoCloseable {
     private final TeamRoomBridge.Handler workerHandler;
     private final TeamRoomBridge.Handler springWorkerHandler;
     private final String springWorkerUserId;
-    private final String humanMatrixUserId;
 
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(
@@ -57,8 +56,7 @@ public class TeamDocumentJob implements AutoCloseable {
             TeamDocumentContinuation continuation,
             TeamRoomBridge.Handler workerHandler,
             TeamRoomBridge.Handler springWorkerHandler,
-            String springWorkerUserId,
-            String humanMatrixUserId) {
+            String springWorkerUserId) {
         this.repository = repository;
         this.workflow = workflow;
         this.properties = properties;
@@ -66,7 +64,6 @@ public class TeamDocumentJob implements AutoCloseable {
         this.workerHandler = workerHandler;
         this.springWorkerHandler = springWorkerHandler;
         this.springWorkerUserId = springWorkerUserId;
-        this.humanMatrixUserId = humanMatrixUserId;
     }
 
     public void start() {
@@ -115,8 +112,9 @@ public class TeamDocumentJob implements AutoCloseable {
              var taskContext = MDC.putCloseable("documentTaskId", task.getId())) {
             var handler = springWorkerUserId.equals(task.getActor()) ? springWorkerHandler : workerHandler;
             continuation.resume(task, prompt -> handler.handle(new TeamMessage(
-                    "doc-continuation:" + task.getId(), task.getSessionId(), humanMatrixUserId,
-                    prompt, List.of(), false, null, null)));
+                    "doc-continuation:" + task.getId(), task.getSessionId(), task.getActor(),
+                    prompt, List.of(), false, null, null, "m.text", null, null, 0,
+                    String.valueOf(task.getUserId()))));
         } catch (Exception failure) {
             log.error("Team document continuation worker failed traceId={} taskId={}",
                     task.getTraceId(), task.getId(), failure);

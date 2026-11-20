@@ -72,7 +72,7 @@ class DocumentWorkflowTest {
         task.getPages().add(page);
         when(repository.find(1L, "chat", "task")).thenReturn(task);
         // 锚点读取改经 ConversationAssetPort：无 activeAnchor 时取最近用户消息。
-        when(conversationAssets.latestUserMessage("chat")).thenReturn(new AnchorMessage(11L, 1L, "原始用户请求"));
+        when(conversationAssets.latestUserMessage(1L, "chat")).thenReturn(new AnchorMessage(11L, 1L, "原始用户请求"));
         when(conversationAssets.messageById(11L)).thenReturn(new AnchorMessage(11L, 1L, "原始用户请求"));
         when(resourceUrls.download(anyString()))
                 .thenAnswer(call -> "/api/chat/resources/" + call.getArgument(0) + "/download");

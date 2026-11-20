@@ -7,6 +7,7 @@ import com.h.capabilities.seam.DeliveryResult;
 import com.h.capabilities.seam.matrix.MatrixArtifactDeliveryAdapter;
 import com.h.capabilities.seam.matrix.MatrixConversationAssetAdapter;
 import com.h.capabilities.seam.matrix.MatrixMemorySources;
+import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.capabilities.seam.port.ArtifactDeliveryPort;
 import com.h.capabilities.seam.port.ConversationAssetPort;
 import com.h.capabilities.seam.port.LiveProjectionPort;
@@ -47,9 +48,8 @@ public class TeamCapabilityRoutingConfig {
     @Bean
     public MatrixConversationAssetAdapter teamMatrixAssets(
             MatrixClient teamMatrixClient,
-            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId,
-            @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanMatrixUsername) {
-        return new MatrixConversationAssetAdapter(List.of(teamMatrixClient), humanUserId, humanMatrixUsername);
+            TeamHumanDirectory directory) {
+        return new MatrixConversationAssetAdapter(List.of(teamMatrixClient), directory);
     }
 
     @Bean
@@ -97,8 +97,10 @@ public class TeamCapabilityRoutingConfig {
             }
 
             @Override
-            public AnchorMessage latestUserMessage(String scopeId) {
-                return isTeamScope(scopeId) ? matrix.latestUserMessage(scopeId) : chat.latestUserMessage(scopeId);
+            public AnchorMessage latestUserMessage(long userId, String scopeId) {
+                return isTeamScope(scopeId)
+                        ? matrix.latestUserMessage(userId, scopeId)
+                        : chat.latestUserMessage(userId, scopeId);
             }
 
             @Override

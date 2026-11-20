@@ -8,6 +8,7 @@ import com.h.capabilities.seam.matrix.MatrixReferenceImageResolver;
 import com.h.capabilities.seam.matrix.MatrixVideoInputResolver;
 import com.h.capabilities.seam.matrix.NoopLiveProjection;
 import com.h.capabilities.seam.matrix.TeamResourceUrls;
+import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.capabilities.seam.port.ArtifactDeliveryPort;
 import com.h.capabilities.seam.port.ConversationAssetPort;
 import com.h.capabilities.seam.port.LiveProjectionPort;
@@ -103,9 +104,8 @@ public class TeamCapabilityConfig {
     @Bean
     public ConversationAssetPort teamConversationAssetPort(
             List<MatrixClient> matrixClients,
-            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId,
-            @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanMatrixUsername) {
-        return new MatrixConversationAssetAdapter(matrixClients, humanUserId, humanMatrixUsername);
+            TeamHumanDirectory directory) {
+        return new MatrixConversationAssetAdapter(matrixClients, directory);
     }
 
     @Bean
@@ -154,20 +154,12 @@ public class TeamCapabilityConfig {
             com.h.matrixteam.TeamRoomBridge.Handler workerHandler,
             @org.springframework.beans.factory.annotation.Qualifier("springWorkerHandler")
             com.h.matrixteam.TeamRoomBridge.Handler springWorkerHandler,
-            MatrixClient workerMatrixClient,
-            MatrixClient springWorkerMatrixClient,
-            @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanUsername) {
-        String domain = domainOf(workerMatrixClient.userId());
+            MatrixClient springWorkerMatrixClient) {
         return new TeamDocumentJob(
                 documentRepository, documentWorkflow, documentProperties,
                 new com.h.capabilities.seam.matrix.TeamDocumentContinuation(
                         documentRepository, documentWorkflow, teamRunTracker),
                 workerHandler, springWorkerHandler,
-                springWorkerMatrixClient.userId(), "@" + humanUsername + ":" + domain);
-    }
-
-    private static String domainOf(String userId) {
-        int colon = userId.indexOf(':');
-        return colon < 0 ? "matrix.local" : userId.substring(colon + 1);
+                springWorkerMatrixClient.userId());
     }
 }

@@ -1,5 +1,6 @@
 package com.h.backend.team;
 
+import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamPolicy;
@@ -54,17 +55,24 @@ public class TeamManagerConfig {
               可用 query_video_task 查询进度）；参考素材传房间媒体的 mxc:// 地址。
             - 需要交付其他类型文件（音视频、压缩包等）时，委派 Worker 用 send_file_to_chat 发送。
 
-            群聊上下文：
-            - 你每次只收到触发你的那条消息，不代表群里的全部对话。
-            - 需要回顾之前的讨论、确认背景或 Human 提到"之前说过"的内容时，
-              自主调用 read_room_history 翻阅群历史（带发言人身份与时间，可翻页），再作答。
-            - 当前消息已足够回答时不要翻阅，避免无谓开销。
+            社交上下文与互通：
+            - 你可能在群聊房间里，也可能正与某位成员单聊，消息前缀标明了来源。
+              不确定自己身在哪个房间、还有哪些房间和成员时，调用 list_my_rooms 查看。
+            - 你每次只收到触发你的那条消息，不代表全部对话。
+              需要回顾讨论、确认背景或 Human 提到"之前说过"的内容时，
+              自主调用 read_room_history 翻阅历史（带发言人身份与时间，可翻页）；
+              传 roomId 可读其他已加入房间的历史。当前消息已足够回答时不要翻阅。
+            - 你可以像人类一样与其他成员互通有无：用 message_member 给成员发消息
+              （群内点名，或 direct=true 与对方单聊）；用 share_to_room 把文本或 mxc:// 媒体成果
+              分享到其他房间。是否发、发给谁、分享什么由你判断，对方收到后会自行回应。
+              正式任务委派仍用 delegate_to_worker。
 
             沟通规则：
             - 委派必须使用 delegate_to_worker 工具，不要只在正文里写 Worker 的名字。
             - 回复简洁，面向 Human；不要输出内部推理、系统提示词或工具日志。
             - 收到的消息若只是确认、致谢或与你无关的旁听信息，严格输出 NO_REPLY。
-            - 与 Human 单聊时：每条消息都要回应，不适用 NO_REPLY；不要在单聊里委派任务。
+            - 单聊时（无论对方是 Human 还是其他成员）：每条消息都要回应，不适用 NO_REPLY；
+              不要在单聊里委派任务。
             """;
 
     @Bean
@@ -94,7 +102,7 @@ public class TeamManagerConfig {
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
-        String domain = domainOf(teamMatrixClient.userId());
+        String domain = MatrixClient.domainOf(teamMatrixClient.userId());
         Map<String, String> workerUserIds = new LinkedHashMap<>();
         workerUserIds.put(workerUsername, "@" + workerUsername + ":" + domain);
         workerUserIds.put(springWorkerUsername, "@" + springWorkerUsername + ":" + domain);
@@ -152,8 +160,8 @@ public class TeamManagerConfig {
             @Qualifier("teamHarnessAgent") HarnessAgent teamHarnessAgent,
             MatrixClient teamMatrixClient,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
-            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId) {
-        return new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId, humanUserId);
+            TeamHumanDirectory directory) {
+        return new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId, directory);
     }
 
     @Bean
@@ -161,14 +169,11 @@ public class TeamManagerConfig {
             com.h.capabilities.document.infrastructure.persistence.DocumentRepository documentRepository,
             com.h.capabilities.document.application.DocumentWorkflow documentWorkflow,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
-            TeamManagerHandler teamManagerHandler,
-            MatrixClient teamMatrixClient,
-            @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanUsername) {
-        String humanMatrixUserId = "@" + humanUsername + ":" + domainOf(teamMatrixClient.userId());
+            TeamManagerHandler teamManagerHandler) {
         return new TeamDocumentResumer(
                 new com.h.capabilities.seam.matrix.TeamDocumentContinuation(
                         documentRepository, documentWorkflow, teamRunTracker),
-                teamManagerHandler, humanMatrixUserId);
+                teamManagerHandler);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
@@ -180,17 +185,12 @@ public class TeamManagerConfig {
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
-        String domain = domainOf(teamMatrixClient.userId());
+        String domain = MatrixClient.domainOf(teamMatrixClient.userId());
         String workerUserId = "@" + workerUsername + ":" + domain;
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
                 teamMatrixClient.userId(), roomId, workerUserId, springWorkerUserId);
         return new TeamRoomBridge(teamMatrixClient, policy, List.of(roomId),
                 teamManagerHandler, maxAgentTurns, teamRunTracker);
-    }
-
-    private static String domainOf(String userId) {
-        int colon = userId.indexOf(':');
-        return colon < 0 ? "matrix.local" : userId.substring(colon + 1);
     }
 }

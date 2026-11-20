@@ -11,6 +11,7 @@ import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import com.h.capabilities.memory.application.AgentMemoryContext;
 import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamMessage;
@@ -73,10 +74,12 @@ public class TeamWorkerConfig {
     public ChatModel teamWorkerChatModel(
             com.h.agent.observability.AgentObservability observability,
             @Value("${API_KEY:}") String apiKey,
-            @Value("${MODEL_NAME:}") String modelName) {
+            @Value("${MODEL_NAME:}") String modelName,
+            @Value("${ANTHROPIC_BASE_URL}") String anthropicSdkBaseUrl) {
         AnthropicChatModel delegate = AnthropicChatModel.builder()
                 .apiKey(apiKey)
-                .baseUrl("https://api.minimaxi.com/anthropic/v1")
+                // LangChain4j 只拼接 messages 路径，base URL 需带 /v1；与 backend ChatModelEnvironment 同一约定。
+                .baseUrl(anthropicSdkBaseUrl + "/v1")
                 .modelName(modelName)
                 .maxTokens(16384)
                 .thinkingType("enabled")
@@ -107,7 +110,7 @@ public class TeamWorkerConfig {
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
-        String domain = domainOf(workerMatrixClient.userId());
+        String domain = MatrixClient.domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         return AiServices.builder(WorkerAssistant.class)
@@ -132,10 +135,11 @@ public class TeamWorkerConfig {
             SkillRuntimeService skillRuntimeService,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
-            @Value("${MATRIX_HUMAN_USER_ID:17}") long humanUserId) {
-        String managerUserId = "@" + managerUsername + ":" + domainOf(workerMatrixClient.userId());
+            TeamHumanDirectory directory) {
+        String domain = MatrixClient.domainOf(workerMatrixClient.userId());
+        String managerUserId = "@" + managerUsername + ":" + domain;
         return message -> handle(workerAssistant, workerMatrixClient, skillRuntimeService,
-                humanUserId, managerUserId, roomId, message);
+                directory, managerUserId, roomId, message);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
@@ -148,7 +152,7 @@ public class TeamWorkerConfig {
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
-        String domain = domainOf(workerMatrixClient.userId());
+        String domain = MatrixClient.domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, workerMatrixClient.userId(),
                 managerUserId, roomId, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
@@ -157,14 +161,24 @@ public class TeamWorkerConfig {
     }
 
     private static void handle(WorkerAssistant assistant, MatrixClient client,
-                               SkillRuntimeService skillRuntimeService, long humanUserId,
+                               SkillRuntimeService skillRuntimeService, TeamHumanDirectory directory,
                                String managerUserId, String teamRoomId, TeamMessage message) {
+        Long owner = directory.resolveOwner(message.sender(), message.originUserId());
+        if (owner == null) {
+            log.warn("Worker 跳过无法归属的消息 event={} sender={}", message.eventId(), message.sender());
+            return;
+        }
+        long humanUserId = owner;
+        boolean fromHuman = directory.isHuman(message.sender());
         String memoryId = TeamIdentity.memoryId(humanUserId, AGENT_ID, message.roomId());
+        boolean direct = !message.roomId().equals(teamRoomId);
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
-                : message.roomId().equals(teamRoomId)
+                : !direct
                         ? "来自 %s 的消息：%s".formatted(message.sender(), message.body())
-                        : "Human 单聊消息：%s".formatted(message.body());
+                        : fromHuman
+                                ? "Human 单聊消息：%s".formatted(message.body())
+                                : "成员单聊消息（来自 %s）：%s".formatted(message.sender(), message.body());
         try {
             skillRuntimeService.snapshotForTopLevelRun(humanUserId, null, memoryId);
             String skillsMessage = skillRuntimeService.skillsSystemMessage(memoryId);
@@ -182,6 +196,7 @@ public class TeamWorkerConfig {
         String reply;
         com.h.capabilities.seam.matrix.TeamActorContext.set(client.userId());
         com.h.capabilities.seam.matrix.TeamActorContext.setRoom(message.roomId());
+        com.h.capabilities.seam.matrix.TeamActorContext.setOrigin(String.valueOf(humanUserId));
         com.h.matrixteam.TeamProgressReporter reporter =
                 new com.h.matrixteam.TeamProgressReporter(client, message.roomId());
         com.h.matrixteam.TeamProgressContext.set(reporter);
@@ -201,15 +216,11 @@ public class TeamWorkerConfig {
         }
         if (TeamProtocol.KIND_DELEGATE.equals(message.kind()) && message.taskId() != null) {
             client.sendText(message.roomId(), reply.strip(),
-                    List.of(managerUserId), TeamProtocol.KIND_REPORT, message.taskId());
+                    List.of(managerUserId), TeamProtocol.KIND_REPORT, message.taskId(), String.valueOf(humanUserId));
         } else {
-            client.sendText(message.roomId(), reply.strip(), List.of(message.sender()), null, null);
+            client.sendText(message.roomId(), reply.strip(), List.of(message.sender()), null, null,
+                    String.valueOf(humanUserId));
         }
         log.info("Worker replied in room {} to event {}", message.roomId(), message.eventId());
-    }
-
-    private static String domainOf(String userId) {
-        int colon = userId.indexOf(':');
-        return colon < 0 ? "matrix.local" : userId.substring(colon + 1);
     }
 }
