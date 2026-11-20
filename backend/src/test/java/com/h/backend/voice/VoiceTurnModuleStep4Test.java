@@ -1,14 +1,15 @@
 package com.h.backend.voice;
 
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessagesPageDto;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.voice.application.VoiceCallModule;
 import com.h.backend.voice.application.VoiceReply;
 import com.h.backend.voice.application.VoiceReplyContext;

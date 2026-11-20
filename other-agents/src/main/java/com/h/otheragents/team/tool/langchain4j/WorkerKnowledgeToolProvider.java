@@ -1,9 +1,9 @@
 package com.h.otheragents.team.tool.langchain4j;
 
-import com.h.backend.knowledge.application.KnowledgeToolContract;
-import com.h.backend.knowledge.application.KnowledgeTools;
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.shared.infrastructure.ai.ToolSchemas;
+import com.h.capabilities.knowledge.application.KnowledgeToolContract;
+import com.h.capabilities.knowledge.application.KnowledgeTools;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.shared.infrastructure.ai.ToolSchemas;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolProvider;

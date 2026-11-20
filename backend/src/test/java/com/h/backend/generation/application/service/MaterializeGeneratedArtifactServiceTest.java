@@ -1,14 +1,15 @@
 package com.h.backend.generation.application.service;
 
-import com.h.backend.generation.application.port.out.GeneratedArtifactAttachment;
-import com.h.backend.generation.application.port.out.GeneratedArtifactStoragePort;
-import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
-import com.h.backend.generation.application.port.out.GenerationTaskRepository;
-import com.h.backend.generation.application.port.out.ProviderFilePort;
-import com.h.backend.generation.domain.model.GenerationStatus;
-import com.h.backend.generation.domain.model.GenerationTask;
-import com.h.backend.generation.domain.model.GeneratedArtifact;
-import com.h.backend.generation.domain.model.TextToVideoSpec;
+import com.h.capabilities.generation.application.service.MaterializeGeneratedArtifactService;
+import com.h.capabilities.generation.application.port.out.GeneratedArtifactAttachment;
+import com.h.capabilities.generation.application.port.out.GeneratedArtifactStoragePort;
+import com.h.capabilities.generation.application.port.out.GenerationChatProjectionPort;
+import com.h.capabilities.generation.application.port.out.GenerationTaskRepository;
+import com.h.capabilities.generation.application.port.out.ProviderFilePort;
+import com.h.capabilities.generation.domain.model.GenerationStatus;
+import com.h.capabilities.generation.domain.model.GenerationTask;
+import com.h.capabilities.generation.domain.model.GeneratedArtifact;
+import com.h.capabilities.generation.domain.model.TextToVideoSpec;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;

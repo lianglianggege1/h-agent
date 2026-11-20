@@ -1,13 +1,15 @@
 package com.h.backend.generation.application.service;
 
+import com.h.capabilities.generation.application.service.VideoV2Service;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
-import com.h.backend.generation.application.result.SubmitGenerationResult;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.generation.application.result.SubmitGenerationResult;
 import com.h.backend.generation.interfaces.tool.*;
+import com.h.capabilities.generation.interfaces.tool.*;
 
 import dev.langchain4j.agent.tool.ToolSpecifications;
 

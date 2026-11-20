@@ -1,5 +1,6 @@
 package com.h.backend.chat.domain.agent;
 
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.NoopAgentObservability;
 import com.h.agent.observability.lifecycle.AgentExecutionStart;
@@ -19,7 +20,7 @@ import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
 import com.h.backend.chat.domain.subagentdefinition.model.SubagentTurnSnapshot;
 import com.h.backend.chat.infrastructure.config.SubagentCatalogProperties;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
 import io.agentscope.core.agent.RuntimeContext;
@@ -170,7 +171,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 // 类型化观测阶段载体（设计 7.3 / 12.4）：观测 middleware 与 SDK 子 Agent
                 // 派生上下文据此挂到本轮 trace，并在响应提交后切换 Maintenance。
                 .put(ExecutionObservationCarrier.class, carrier)
-                .put(com.h.backend.memory.application.AgentMemoryContext.class,
+                .put(com.h.capabilities.memory.application.AgentMemoryContext.class,
                         AgentMemoryContexts.from(command));
         if (snapshot != null) {
             contextBuilder.put(SubagentTurnSnapshot.class, snapshot);
@@ -223,7 +224,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 .sessionId(command.sessionId())
                 .put(AgentSpawnTool.CTX_EXPOSE_TO_USER, true)
                 .put(ExecutionObservationCarrier.class, carrier)
-                .put(com.h.backend.memory.application.AgentMemoryContext.class,
+                .put(com.h.capabilities.memory.application.AgentMemoryContext.class,
                         AgentMemoryContexts.from(command))
                 .build();
         Execution execution = new Execution(command, null, carrier);

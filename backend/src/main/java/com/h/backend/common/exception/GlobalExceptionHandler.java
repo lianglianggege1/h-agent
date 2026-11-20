@@ -1,9 +1,10 @@
 package com.h.backend.common.exception;
 
-import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.skill.domain.SkillPlatformErrorKind;
-import com.h.backend.skill.domain.SkillPlatformException;
+import com.h.capabilities.skill.domain.SkillPlatformErrorKind;
+import com.h.capabilities.skill.domain.SkillPlatformException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;

@@ -1,4 +1,4 @@
-package com.h.backend.memory.domain;
+package com.h.capabilities.memory.domain;
 
 import org.junit.jupiter.api.Test;
 

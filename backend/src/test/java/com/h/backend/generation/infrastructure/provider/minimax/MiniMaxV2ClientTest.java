@@ -1,10 +1,12 @@
 package com.h.backend.generation.infrastructure.provider.minimax;
 
+import com.h.capabilities.generation.infrastructure.provider.minimax.MiniMaxVideoClient;
+import com.h.capabilities.generation.infrastructure.provider.minimax.MiniMaxV2Client;
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.h.backend.generation.application.port.out.VideoSubmissionUncertainException;
-import com.h.backend.generation.domain.model.VideoV2Spec;
-import com.h.backend.generation.infrastructure.config.GenerationProperties;
+import com.h.capabilities.generation.application.port.out.VideoSubmissionUncertainException;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.generation.infrastructure.config.GenerationProperties;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.Test;

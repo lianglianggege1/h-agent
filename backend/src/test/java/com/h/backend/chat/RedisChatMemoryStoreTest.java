@@ -1,7 +1,7 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import org.junit.jupiter.api.Test;

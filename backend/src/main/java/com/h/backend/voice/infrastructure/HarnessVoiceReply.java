@@ -1,9 +1,9 @@
 package com.h.backend.voice.infrastructure;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.HarnessRuntime;
 import com.h.backend.chat.infrastructure.config.ChatModelEnvironment;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.voice.application.VoiceReply;
 import com.h.backend.voice.application.VoiceReplyContext;
 import io.agentscope.core.agent.RuntimeContext;

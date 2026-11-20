@@ -1,17 +1,18 @@
 package com.h.backend.generation.infrastructure.storage;
 
-import com.h.backend.chat.application.ResourceContentPolicy;
-import com.h.backend.chat.infrastructure.content.ResourceContentInspector;
-import com.h.backend.chat.infrastructure.storage.ResourceAttachment;
-import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
-import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
-import com.h.backend.chat.infrastructure.storage.StoredResource;
-import com.h.backend.generation.application.port.out.GeneratedArtifactAttachment;
-import com.h.backend.generation.application.port.out.ProviderFilePort;
-import com.h.backend.generation.domain.model.GeneratedArtifact;
-import com.h.backend.generation.infrastructure.config.GenerationProperties;
+import com.h.capabilities.generation.infrastructure.storage.ResourceStorageGeneratedArtifactAdapter;
+import com.h.capabilities.chat.application.ResourceContentPolicy;
+import com.h.capabilities.chat.infrastructure.content.ResourceContentInspector;
+import com.h.capabilities.chat.infrastructure.storage.ResourceAttachment;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceWriteCoordinator;
+import com.h.capabilities.chat.infrastructure.storage.StoredResource;
+import com.h.capabilities.generation.application.port.out.GeneratedArtifactAttachment;
+import com.h.capabilities.generation.application.port.out.ProviderFilePort;
+import com.h.capabilities.generation.domain.model.GeneratedArtifact;
+import com.h.capabilities.generation.infrastructure.config.GenerationProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 

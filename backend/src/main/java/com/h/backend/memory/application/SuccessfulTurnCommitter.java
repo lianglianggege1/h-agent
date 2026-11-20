@@ -1,13 +1,14 @@
 package com.h.backend.memory.application;
 
+import com.h.capabilities.memory.application.LongTermMemoryRuntime;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
-import com.h.backend.memory.domain.AgentMemoryPolicy;
-import com.h.backend.memory.domain.AgentMemoryPolicyCatalog;
-import com.h.backend.memory.domain.CompletedTurn;
-import com.h.backend.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.memory.domain.AgentMemoryPolicy;
+import com.h.capabilities.memory.domain.AgentMemoryPolicyCatalog;
+import com.h.capabilities.memory.domain.CompletedTurn;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

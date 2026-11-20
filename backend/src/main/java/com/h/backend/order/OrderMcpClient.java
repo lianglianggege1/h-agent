@@ -2,7 +2,7 @@ package com.h.backend.order;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
 import dev.langchain4j.mcp.client.McpClient;

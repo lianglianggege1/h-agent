@@ -1,9 +1,11 @@
 package com.h.backend.memory;
 
 import com.h.backend.memory.application.*;
-import com.h.backend.memory.domain.*;
+import com.h.capabilities.memory.application.*;
+import com.h.capabilities.memory.domain.*;
 import com.h.backend.memory.infrastructure.*;
-import com.h.backend.memory.infrastructure.mem0.*;
+import com.h.capabilities.memory.infrastructure.*;
+import com.h.capabilities.memory.infrastructure.mem0.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;

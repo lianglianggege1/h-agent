@@ -8,7 +8,7 @@ import com.h.backend.automation.domain.ExecutionSpec;
 import com.h.backend.automation.infrastructure.execution.AutomationExecutionTimeoutException;
 import com.h.backend.automation.infrastructure.execution.AutomationPolicyRejectionException;
 import com.h.backend.automation.infrastructure.execution.AutomationProperties;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;

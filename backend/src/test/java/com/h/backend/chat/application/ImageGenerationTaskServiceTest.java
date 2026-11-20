@@ -3,7 +3,7 @@ package com.h.backend.chat.application;
 import com.h.backend.chat.application.impl.ImageGenerationTaskService;
 import com.h.backend.chat.domain.model.ChatMessagePayload;
 import com.h.backend.chat.infrastructure.persistence.mapper.ImageGenerationTaskMapper;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -131,7 +131,7 @@ class ImageGenerationTaskServiceTest {
 
     private static ChatSessionMessageDto message(String status) {
         return new ChatSessionMessageDto("501", "assistant", "IMAGE", "白猫",
-                new com.h.backend.chat.interfaces.dto.ChatMessagePayloadDto("白猫", "MINIMAX", null, null, null,
+                new com.h.capabilities.chat.interfaces.dto.ChatMessagePayloadDto("白猫", "MINIMAX", null, null, null,
                         status, "TOOL", "reference-1", null, "GENERATE"), List.of(), LocalDateTime.now());
     }
 

@@ -1,7 +1,8 @@
 package com.h.backend.common.exception;
 
-import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
 import com.h.backend.common.api.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;

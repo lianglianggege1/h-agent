@@ -1,11 +1,11 @@
 package com.h.otheragents.team.capability;
 
-import com.h.backend.capability.matrix.TeamActorContext;
-import com.h.backend.capability.matrix.TeamDocumentContinuation;
-import com.h.backend.document.application.DocumentWorkflow;
-import com.h.backend.document.domain.DocumentTask;
-import com.h.backend.document.infrastructure.config.DocumentProperties;
-import com.h.backend.document.infrastructure.persistence.DocumentRepository;
+import com.h.capabilities.seam.matrix.TeamActorContext;
+import com.h.capabilities.seam.matrix.TeamDocumentContinuation;
+import com.h.capabilities.document.application.DocumentWorkflow;
+import com.h.capabilities.document.domain.DocumentTask;
+import com.h.capabilities.document.infrastructure.config.DocumentProperties;
+import com.h.capabilities.document.infrastructure.persistence.DocumentRepository;
 import com.h.matrixteam.TeamMessage;
 import com.h.matrixteam.TeamRoomBridge;
 import org.slf4j.Logger;

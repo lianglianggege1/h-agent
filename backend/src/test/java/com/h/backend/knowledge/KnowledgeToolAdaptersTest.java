@@ -1,8 +1,8 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.application.*;
+import com.h.capabilities.knowledge.application.*;
 import com.h.backend.knowledge.interfaces.tool.*;
-import com.h.backend.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 import com.h.backend.memory.infrastructure.MemoryExecutionContextResolver;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.*;

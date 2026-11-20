@@ -1,7 +1,8 @@
 package com.h.backend.generation.infrastructure.provider.minimax;
 
-import com.h.backend.generation.application.port.out.ProviderTaskRejectedException;
-import com.h.backend.generation.infrastructure.config.GenerationProperties;
+import com.h.capabilities.generation.infrastructure.provider.minimax.MiniMaxVideoClient;
+import com.h.capabilities.generation.application.port.out.ProviderTaskRejectedException;
+import com.h.capabilities.generation.infrastructure.config.GenerationProperties;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

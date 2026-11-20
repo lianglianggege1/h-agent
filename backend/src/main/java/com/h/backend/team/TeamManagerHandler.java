@@ -1,6 +1,6 @@
 package com.h.backend.team;
 
-import com.h.backend.capability.matrix.TeamActorContext;
+import com.h.capabilities.seam.matrix.TeamActorContext;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamMessage;
 import com.h.matrixteam.TeamProgressReporter;

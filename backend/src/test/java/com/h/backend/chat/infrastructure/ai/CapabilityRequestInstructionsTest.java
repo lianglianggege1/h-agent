@@ -32,8 +32,8 @@ class CapabilityRequestInstructionsTest {
 
     @Test
     void leafMem0GuidanceDoesNotAdvertiseUnavailableNativeMemoryTools() {
-        var tools = com.h.backend.memory.application.MemoryToolContract.harnessDefinitions().stream()
-                .map(com.h.backend.memory.application.MemoryToolContract.Definition::name).toList();
+        var tools = com.h.capabilities.memory.application.MemoryToolContract.mem0Definitions().stream()
+                .map(com.h.capabilities.memory.application.MemoryToolContract.Definition::name).toList();
         String text = CapabilityCatalog.instructions(CapabilityCatalog.Runtime.HARNESS, "memory", tools);
         assertThat(text).contains("mem0_operation", "不要求每轮先检索")
                 .doesNotContain("memory_search", "memory_get", "memory_save");

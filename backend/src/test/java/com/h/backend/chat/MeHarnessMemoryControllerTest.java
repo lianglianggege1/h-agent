@@ -1,9 +1,9 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException.Kind;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException.Kind;
 import com.h.backend.chat.interfaces.web.HarnessMemoryDocumentExceptionAdvisor;
 import com.h.backend.chat.interfaces.web.MeHarnessMemoryController;
 import com.h.backend.common.exception.GlobalExceptionHandler;

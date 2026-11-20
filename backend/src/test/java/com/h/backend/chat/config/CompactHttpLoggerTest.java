@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
-import com.h.backend.common.testsupport.CapturingLogAppender;
+import com.h.capabilities.common.testsupport.CapturingLogAppender;
 import dev.langchain4j.http.client.HttpClient;
 import dev.langchain4j.http.client.HttpMethod;
 import dev.langchain4j.http.client.HttpRequest;

@@ -1,7 +1,7 @@
 package com.h.backend.memory;
 
-import com.h.backend.memory.infrastructure.config.LongTermMemoryProperties;
-import com.h.backend.memory.infrastructure.mem0.Mem0HttpGateway;
+import com.h.capabilities.memory.infrastructure.config.LongTermMemoryProperties;
+import com.h.capabilities.memory.infrastructure.mem0.Mem0HttpGateway;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;

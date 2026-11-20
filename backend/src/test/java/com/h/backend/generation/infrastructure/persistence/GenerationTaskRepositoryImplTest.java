@@ -1,13 +1,14 @@
 package com.h.backend.generation.infrastructure.persistence;
 
+import com.h.capabilities.generation.infrastructure.persistence.GenerationTaskRepositoryImpl;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.h.backend.generation.domain.model.GenerationTask;
-import com.h.backend.generation.domain.model.VideoV2Spec;
-import com.h.backend.generation.infrastructure.persistence.entity.GenerationTaskEntity;
-import com.h.backend.generation.infrastructure.persistence.mapper.GenerationTaskMapper;
+import com.h.capabilities.generation.domain.model.GenerationTask;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.generation.infrastructure.persistence.entity.GenerationTaskEntity;
+import com.h.capabilities.generation.infrastructure.persistence.mapper.GenerationTaskMapper;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.ConcurrencyFailureException;

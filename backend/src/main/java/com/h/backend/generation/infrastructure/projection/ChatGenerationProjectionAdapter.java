@@ -2,11 +2,11 @@ package com.h.backend.generation.infrastructure.projection;
 
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
-import com.h.backend.generation.application.port.out.GenerationChatProjectionPort;
-import com.h.backend.generation.domain.model.GenerationStatus;
-import com.h.backend.generation.domain.model.GenerationTask;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.generation.application.port.out.GenerationChatProjectionPort;
+import com.h.capabilities.generation.domain.model.GenerationStatus;
+import com.h.capabilities.generation.domain.model.GenerationTask;
 
 import org.springframework.stereotype.Component;
 
@@ -29,7 +29,7 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
                 chatSessionService.appendGeneratedMediaMessage(
                         task.userId(),
                         task.sessionId(),
-                        task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec v
+                        task.spec() instanceof com.h.capabilities.generation.domain.model.VideoV2Spec v
                                         && v.taskType().equals("h3_context_ir")
                                 ? "正在增强视频提示词，请继续聊天。"
                                 : "正在生成视频，请继续聊天。");
@@ -41,7 +41,7 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
         if (task.chatMessageId() == null) {
             return;
         }
-        if (task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec) {
+        if (task.spec() instanceof com.h.capabilities.generation.domain.model.VideoV2Spec) {
             chatSessionService.updateGeneratedMediaMessage(
                     task.userId(),
                     task.sessionId(),
@@ -62,7 +62,7 @@ public class ChatGenerationProjectionAdapter implements GenerationChatProjection
         if (task.resultText() != null && task.status() == GenerationStatus.SUCCEEDED)
             return task.resultText();
         boolean enhancement =
-                task.spec() instanceof com.h.backend.generation.domain.model.VideoV2Spec spec
+                task.spec() instanceof com.h.capabilities.generation.domain.model.VideoV2Spec spec
                         && spec.taskType().equals("h3_context_ir");
         return switch (task.status()) {
             case IN_PROGRESS -> enhancement ? "正在增强视频提示词，请继续聊天。" : "视频生成中，请继续聊天。";

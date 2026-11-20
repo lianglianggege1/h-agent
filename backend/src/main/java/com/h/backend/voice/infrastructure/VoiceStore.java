@@ -2,7 +2,7 @@ package com.h.backend.voice.infrastructure;
 
 import com.h.backend.voice.domain.VoiceCall;
 import com.h.backend.voice.domain.VoiceTurn;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.BeanPropertySqlParameterSource;

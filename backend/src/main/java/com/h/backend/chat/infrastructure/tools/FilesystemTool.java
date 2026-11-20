@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.tools;
 
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;

@@ -6,7 +6,7 @@ import com.h.backend.chat.domain.agent.AgentTopologyMapper;
 import com.h.backend.chat.interfaces.dto.AgentSummaryDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;

@@ -3,9 +3,9 @@ package com.h.backend.chat;
 import com.h.backend.chat.application.impl.ChatReferenceImageResolver;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.infrastructure.storage.ResourceContent;
-import com.h.backend.chat.infrastructure.storage.ResourceRange;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.chat.infrastructure.storage.ResourceContent;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;

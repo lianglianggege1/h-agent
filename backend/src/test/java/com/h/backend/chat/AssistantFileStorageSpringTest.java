@@ -1,7 +1,7 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileProperties;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileProperties;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

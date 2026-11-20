@@ -1,7 +1,7 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.knowledge.application.KnowledgeToolContract;
-import com.h.backend.knowledge.application.KnowledgeTools;
+import com.h.capabilities.knowledge.application.KnowledgeToolContract;
+import com.h.capabilities.knowledge.application.KnowledgeTools;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;

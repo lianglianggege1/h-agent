@@ -13,7 +13,7 @@ import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.domain.approval.ApprovalRequestStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.HarnessAgentEventPayload;
 import io.agentscope.core.agent.RuntimeContext;

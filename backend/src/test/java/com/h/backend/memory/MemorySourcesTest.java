@@ -1,9 +1,10 @@
 package com.h.backend.memory;
 
 import com.h.backend.memory.application.*;
+import com.h.capabilities.memory.application.*;
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.common.exception.BusinessException;
 import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;

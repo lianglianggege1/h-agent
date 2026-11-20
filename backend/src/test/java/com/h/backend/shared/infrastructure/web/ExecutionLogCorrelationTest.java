@@ -1,5 +1,6 @@
 package com.h.backend.shared.infrastructure.web;
 
+import com.h.capabilities.shared.infrastructure.web.ExecutionLogContext;
 import com.h.agent.observability.AgentObservabilityConfig;
 import com.h.agent.observability.AgentObservabilityTesting;
 import com.h.agent.observability.HObsKind;

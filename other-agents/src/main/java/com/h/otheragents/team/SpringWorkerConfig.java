@@ -2,15 +2,16 @@ package com.h.otheragents.team;
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.Model;
-import com.h.backend.chat.application.FileDeliveryService;
-import com.h.backend.chat.application.WebSearchService;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
-import com.h.backend.document.application.DocumentWorkflow;
-import com.h.backend.generation.interfaces.tool.TeamImageGenerationTool;
-import com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.chat.application.FileDeliveryService;
+import com.h.capabilities.chat.application.WebSearchService;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.capabilities.chat.infrastructure.tools.ShellExecutionService;
+import com.h.capabilities.document.application.DocumentWorkflow;
+import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.matrixteam.MatrixClient;
+import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamMessage;
 import com.h.matrixteam.TeamPolicy;
 import com.h.matrixteam.TeamProtocol;
@@ -60,7 +61,7 @@ public class SpringWorkerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SpringWorkerConfig.class);
 
-    private static final String AGENT_ID = "spring-worker";
+    private static final String AGENT_ID = TeamAgentIds.SPRING_WORKER;
 
     private static final String SPRING_WORKER_PROMPT = """
             你是团队聊天室中的 SpringWorker，由 Spring AI 框架实现的 Worker Agent，负责执行 Manager 委派的任务。
@@ -244,8 +245,8 @@ public class SpringWorkerConfig {
                 capabilities.skillRuntimeService(), memoryId, capabilities.json())) {
             callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
         }
-        com.h.backend.capability.matrix.TeamActorContext.set(client.userId());
-        com.h.backend.capability.matrix.TeamActorContext.setRoom(message.roomId());
+        com.h.capabilities.seam.matrix.TeamActorContext.set(client.userId());
+        com.h.capabilities.seam.matrix.TeamActorContext.setRoom(message.roomId());
         com.h.matrixteam.TeamProgressContext.set(reporter);
         reporter.start();
         try {
@@ -282,7 +283,7 @@ public class SpringWorkerConfig {
             throw failure;
         } finally {
             com.h.matrixteam.TeamProgressContext.clear();
-            com.h.backend.capability.matrix.TeamActorContext.clear();
+            com.h.capabilities.seam.matrix.TeamActorContext.clear();
         }
         String reply = answer.toString();
         if (reply == null || reply.isBlank() || "NO_REPLY".equals(reply.strip())) {

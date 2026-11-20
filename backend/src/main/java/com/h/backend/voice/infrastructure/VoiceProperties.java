@@ -24,7 +24,7 @@ public class VoiceProperties {
 
     public void requireConfigured() {
         if (!enabled || livekitApiKey.isBlank() || livekitApiSecret.length() < 32 || workerToken.length() < 32) {
-            throw new com.h.backend.common.exception.BusinessException(50300, "语音服务尚未配置");
+            throw new com.h.capabilities.common.exception.BusinessException(50300, "语音服务尚未配置");
         }
     }
 }

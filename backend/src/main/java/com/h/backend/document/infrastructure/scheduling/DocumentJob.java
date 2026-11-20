@@ -3,10 +3,10 @@ package com.h.backend.document.infrastructure.scheduling;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatService;
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.document.application.DocumentWorkflow;
-import com.h.backend.document.domain.DocumentContinuation;
-import com.h.backend.document.domain.DocumentTask;
-import com.h.backend.document.infrastructure.persistence.DocumentRepository;
+import com.h.capabilities.document.application.DocumentWorkflow;
+import com.h.capabilities.document.domain.DocumentContinuation;
+import com.h.capabilities.document.domain.DocumentTask;
+import com.h.capabilities.document.infrastructure.persistence.DocumentRepository;
 
 import jakarta.annotation.PreDestroy;
 
@@ -31,7 +31,7 @@ public class DocumentJob {
     private final ObjectProvider<ChatService> chats;
     private final AgentRunService runs;
     private final ChatSessionService sessions;
-    private final com.h.backend.document.infrastructure.config.DocumentProperties properties;
+    private final com.h.capabilities.document.infrastructure.config.DocumentProperties properties;
     private final ObjectProvider<com.h.backend.team.TeamDocumentResumer> teamResumer;
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
@@ -51,7 +51,7 @@ public class DocumentJob {
             ObjectProvider<ChatService> chats,
             AgentRunService runs,
             ChatSessionService sessions,
-            com.h.backend.document.infrastructure.config.DocumentProperties properties,
+            com.h.capabilities.document.infrastructure.config.DocumentProperties properties,
             ObjectProvider<com.h.backend.team.TeamDocumentResumer> teamResumer) {
         this.repository = repository;
         this.workflow = workflow;
@@ -142,7 +142,7 @@ public class DocumentJob {
         }
         try {
             workflow.require(task.getUserId(), task.getSessionId(), task.getId());
-        } catch (com.h.backend.common.exception.BusinessException missing) {
+        } catch (com.h.capabilities.common.exception.BusinessException missing) {
             log.error("Document resume source unavailable traceId={} taskId={}",
                     task.getTraceId(), task.getId(), missing);
             repository.change(

@@ -1,12 +1,12 @@
 package com.h.backend.chat.application.impl;
 
-import com.h.backend.chat.application.reference.ReferenceImageResolver;
-import com.h.backend.chat.application.reference.ResolvedReferenceImage;
+import com.h.capabilities.chat.application.reference.ReferenceImageResolver;
+import com.h.capabilities.chat.application.reference.ResolvedReferenceImage;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.infrastructure.storage.ResourceContent;
-import com.h.backend.chat.infrastructure.storage.ResourceRange;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.chat.infrastructure.storage.ResourceContent;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;

@@ -1,8 +1,8 @@
 package com.h.backend.chat.infrastructure.capability;
 
-import com.h.backend.capability.port.LiveProjectionPort;
+import com.h.capabilities.seam.port.LiveProjectionPort;
 import com.h.backend.chat.application.ChatStreamEventBridge;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import org.springframework.stereotype.Component;
 
 /** 产品聊天实时投影：把交付挂接返回的消息 DTO 发布到 SSE 流。 */

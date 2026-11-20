@@ -1,5 +1,7 @@
 package com.h.backend.generation.interfaces.tool;
 
+import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;

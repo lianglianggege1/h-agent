@@ -1,6 +1,6 @@
 package com.h.backend.chat.application.impl;
 
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ImageGenerationService;
 import com.h.backend.chat.application.ImageSubAgentService;
 import org.springframework.stereotype.Service;

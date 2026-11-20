@@ -12,17 +12,17 @@ import com.h.agent.observability.semantic.SemanticContent;
 import com.h.agent.observability.semantic.SemanticMessage;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
 import com.h.backend.chat.domain.agent.ChatAgentExecutor;
 import com.h.backend.chat.domain.agent.HAssistantStreamingExecutor;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatService;
 import com.h.backend.chat.application.ChatSessionService;
@@ -34,10 +34,10 @@ import com.h.backend.chat.application.HarnessExecutionSession;
 import com.h.backend.chat.application.HarnessSubagentTurnStart;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
-import com.h.backend.common.exception.BusinessException;
-import com.h.backend.observability.BusinessArtifactReferenceMapper;
-import com.h.backend.skill.application.SkillRuntimeService;
-import com.h.backend.skill.domain.SkillPlatformException;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.observability.BusinessArtifactReferenceMapper;
+import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.skill.domain.SkillPlatformException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -71,7 +71,7 @@ public class ChatServiceImpl implements ChatService {
     @Autowired(required = false)
     private com.h.backend.chat.application.agui.ChatTurnService chatTurns;
     @Autowired(required = false)
-    private com.h.backend.document.infrastructure.persistence.DocumentRepository documentTasks;
+    private com.h.capabilities.document.infrastructure.persistence.DocumentRepository documentTasks;
 
     @Autowired
     public ChatServiceImpl(
@@ -239,8 +239,8 @@ public class ChatServiceImpl implements ChatService {
                         new com.h.backend.memory.application.SuccessfulTurnCommitter(
                                 chatSessionService,
                                 agentRunService,
-                                new com.h.backend.memory.application.NoopLongTermMemoryRuntime(),
-                                new com.h.backend.memory.domain.AgentMemoryPolicyCatalog()
+                                new com.h.capabilities.memory.application.NoopLongTermMemoryRuntime(),
+                                new com.h.capabilities.memory.domain.AgentMemoryPolicyCatalog()
                         ),
                         executors
                 )
@@ -382,7 +382,7 @@ public class ChatServiceImpl implements ChatService {
             var turnOperation = com.h.backend.chat.application.agui.ChatTurnOperation.from(sink);
             if (turnOperation != null && chatTurns == null) throw new IllegalStateException("Chat turn mutations are unavailable");
             String memoryId = buildMemoryId(userId, resolvedPromptId, agent.agentId(), address.sessionId());
-            if (chatTurns != null && !sink.contextView().hasKey(com.h.backend.document.domain.DocumentContinuation.class)) userMessage = chatTurns.prepare(userId, address.sessionId(), memoryId,
+            if (chatTurns != null && !sink.contextView().hasKey(com.h.capabilities.document.domain.DocumentContinuation.class)) userMessage = chatTurns.prepare(userId, address.sessionId(), memoryId,
                     agent, turnOperation, userMessage);
             if (standardChat && turnOperation == null && isImageCommand(userMessage)) {
                 // 图片命令不会交给通用文本 executor；该分支在这里终止，故必须自行归还 permit。
@@ -395,8 +395,8 @@ public class ChatServiceImpl implements ChatService {
             var continuation=sink.contextView().<com.h.backend.order.OrderContinuation>getOrDefault(com.h.backend.order.OrderContinuation.class,null);
             if (turnOperation != null) {
                 userMessageId = turnOperation.userMessageId();
-            } else if (sink.contextView().hasKey(com.h.backend.document.domain.DocumentContinuation.class)) {
-                var document = sink.contextView().get(com.h.backend.document.domain.DocumentContinuation.class);
+            } else if (sink.contextView().hasKey(com.h.capabilities.document.domain.DocumentContinuation.class)) {
+                var document = sink.contextView().get(com.h.capabilities.document.domain.DocumentContinuation.class);
                 var existing = chatSessionService.getOwnedMessage(userId, address.rootSessionId(), document.userMessageId());
                 if (existing == null || !"user".equals(existing.role()) || address.subagent())
                     throw new BusinessException(40300, "文档恢复请求的原消息无效");
@@ -429,8 +429,8 @@ public class ChatServiceImpl implements ChatService {
             emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
             // run 和观测都归属实际执行会话，不能写成 rootSessionId，否则无法区分各子 Agent 的运行记录。
             // 固定顺序（设计 7.1）：先创建 trace_id 为空的 Run，再开始 Observation，最后尽力回写 trace ID。
-            var documentContinuation = sink.contextView().<com.h.backend.document.domain.DocumentContinuation>getOrDefault(
-                    com.h.backend.document.domain.DocumentContinuation.class, null);
+            var documentContinuation = sink.contextView().<com.h.capabilities.document.domain.DocumentContinuation>getOrDefault(
+                    com.h.capabilities.document.domain.DocumentContinuation.class, null);
             if (documentContinuation != null) {
                 if (documentTasks == null) throw new IllegalStateException("Document continuation unavailable");
                 var createdRun = new java.util.concurrent.atomic.AtomicReference<AgentRunService.AgentRunHandle>();

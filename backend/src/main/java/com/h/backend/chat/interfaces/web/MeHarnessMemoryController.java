@@ -1,8 +1,8 @@
 package com.h.backend.chat.interfaces.web;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
 import com.h.backend.chat.interfaces.dto.HarnessMemoryDocumentDto;
 import com.h.backend.chat.interfaces.dto.SaveHarnessMemoryDocumentRequest;
 import com.h.backend.common.api.ApiResponse;

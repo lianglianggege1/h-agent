@@ -1,9 +1,9 @@
 package com.h.backend.chat.interfaces.web;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.interfaces.dto.ChatSessionBootstrapDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessagesPageDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionSummaryDto;

@@ -7,7 +7,7 @@ import com.h.backend.chat.domain.agent.AgentTopologyMapper;
 import com.h.backend.chat.infrastructure.ai.experts.ExpertAssistantWorkflow;
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.planner.AgenticSystemTopology;
 import dev.langchain4j.agentic.AgenticServices;

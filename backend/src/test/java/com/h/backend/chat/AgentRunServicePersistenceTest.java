@@ -6,7 +6,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.AgentRunEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.impl.AgentRunServiceImpl;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;

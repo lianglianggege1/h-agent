@@ -1,6 +1,7 @@
 package com.h.backend.memory;
 
 import com.h.backend.memory.application.*;
+import com.h.capabilities.memory.application.*;
 import com.h.backend.memory.infrastructure.MemoryExecutionContextResolver;
 import com.h.backend.memory.infrastructure.agentscope.MemoryTools;
 import com.h.backend.memory.infrastructure.langchain4j.MemoryToolProvider;
@@ -29,8 +30,8 @@ class MemoryToolAdaptersTest {
         assertEquals(MemoryToolContract.definitions().size(),tools.tools().size());
         verifyNoInteractions(module);
         when(module.execute(ctx,"call-9","memory_save",Map.of("text","remember","scope","USER"))).thenReturn("ok");
-        String result=tools.toolExecutorByName("memory_save").execute(ToolExecutionRequest.builder()
-                .id("call-9").name("memory_save").arguments("{\"text\":\"remember\",\"scope\":\"USER\"}").build(),"untrusted-id");
+        String result=tools.toolExecutorByName("mem0_save").execute(ToolExecutionRequest.builder()
+                .id("call-9").name("mem0_save").arguments("{\"text\":\"remember\",\"scope\":\"USER\"}").build(),"untrusted-id");
         assertEquals("ok",result);
         assertFalse(provider.provideTools(ToolProviderRequest.builder().userMessage(UserMessage.from("hello")).invocationContext(InvocationContext.builder()
                 .userMessage(UserMessage.from("hello")).build()).build()).tools().size()>0);

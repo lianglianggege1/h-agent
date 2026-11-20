@@ -1,7 +1,7 @@
 package com.h.backend.chat.application;
 
-import com.h.backend.chat.infrastructure.storage.ResourceContent;
-import com.h.backend.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceContent;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
 
 public interface ChatResourceService {
 

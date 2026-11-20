@@ -2,8 +2,10 @@ package com.h.backend.chat.agui;
 
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.application.agui.ChatExecutionCancellation;
 import com.h.backend.chat.domain.agent.*;
+import com.h.capabilities.chat.domain.agent.*;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.memory.application.SuccessfulTurnCommitter;

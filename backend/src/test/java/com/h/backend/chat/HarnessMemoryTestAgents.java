@@ -3,7 +3,7 @@ package com.h.backend.chat;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 
 import java.util.List;
 

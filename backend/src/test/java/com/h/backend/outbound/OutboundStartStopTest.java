@@ -1,6 +1,6 @@
 package com.h.backend.outbound;
 
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.outbound.application.OutboundModule;
 import com.h.backend.outbound.domain.Call;
 import com.h.backend.outbound.domain.Task;

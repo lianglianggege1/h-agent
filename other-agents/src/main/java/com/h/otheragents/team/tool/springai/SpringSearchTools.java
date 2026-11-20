@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.chat.application.WebSearchService;
+import com.h.capabilities.chat.application.WebSearchService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 

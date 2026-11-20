@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.document.application.DocumentWorkflow;
+import com.h.capabilities.document.application.DocumentWorkflow;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

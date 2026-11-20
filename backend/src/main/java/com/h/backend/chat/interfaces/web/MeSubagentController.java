@@ -19,7 +19,7 @@ import com.h.backend.chat.interfaces.dto.SubagentVersionDetailDto;
 import com.h.backend.chat.interfaces.dto.SubagentVersionSummaryDto;
 import com.h.backend.chat.interfaces.dto.ValidateSubagentRequest;
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

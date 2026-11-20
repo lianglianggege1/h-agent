@@ -1,5 +1,9 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import com.h.capabilities.chat.infrastructure.storage.TransactionalResourceWriteCoordinator;
+import com.h.capabilities.chat.infrastructure.storage.ResourceWriteCoordinator;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
@@ -21,7 +25,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *       或 {@link ResourceStorage#discard}——绕过 Coordinator 会失去
  *       「对象已写、挂接失败、回滚补偿」的事务语义（计划 §4.3）。</li>
  *   <li>save / discard 的直接调用者白名单收敛为
- *       {@code com.h.backend.chat.infrastructure.storage} 包内部
+ *       {@code com.h.capabilities.chat.infrastructure.storage} 包内部
  *       （Coordinator 实现与存储 Adapter 本体）。</li>
  *   <li>业务层禁止依赖 {@code io.minio.*}：MinIO SDK 是存储基础设施的实现细节，
  *       业务层只能看见 ResourceStorage / ResourceWriteCoordinator seam。</li>
@@ -45,12 +49,14 @@ class ResourceStorageArchitectureTest {
     private static final String[] BUSINESS_PACKAGES = {
             "com.h.backend.chat.interfaces.web..",
             "com.h.backend.chat.infrastructure.tools..",
+            "com.h.capabilities.chat.infrastructure.tools..",
             "com.h.backend.voice..",
             "com.h.backend.generation..",
+            "com.h.capabilities.generation..",
     };
 
     /** 存储基础设施包：ResourceStorage.save / discard 唯一合法调用区域。 */
-    private static final String STORAGE_PACKAGE = "com.h.backend.chat.infrastructure.storage..";
+    private static final String STORAGE_PACKAGE = "com.h.capabilities.chat.infrastructure.storage..";
 
     /**
      * 只导入生产字节码（target/classes），排除测试类——测试代码中

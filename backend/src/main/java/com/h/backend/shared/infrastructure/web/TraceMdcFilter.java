@@ -1,5 +1,6 @@
 package com.h.backend.shared.infrastructure.web;
 
+import com.h.capabilities.shared.infrastructure.web.ExecutionLogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

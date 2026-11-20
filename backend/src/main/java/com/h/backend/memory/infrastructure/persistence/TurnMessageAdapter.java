@@ -4,7 +4,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.AgentRunEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
-import com.h.backend.memory.application.TurnMessagePort;
+import com.h.capabilities.memory.application.TurnMessagePort;
 import org.springframework.stereotype.Component;
 
 @Component

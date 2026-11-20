@@ -32,7 +32,7 @@ public class AnthropicVoiceReply implements VoiceReply {
         this.environment = environment; this.client = client; this.json = json;
     }
     public String modelName() {
-        if (environment == null) throw new com.h.backend.common.exception.BusinessException(50300, "普通 Agent 模型尚未配置");
+        if (environment == null) throw new com.h.capabilities.common.exception.BusinessException(50300, "普通 Agent 模型尚未配置");
         return environment.modelName();
     }
     public Execution prepare(String prompt, List<ChatMessage> history, Consumer<String> output, Consumer<String> terminal) {

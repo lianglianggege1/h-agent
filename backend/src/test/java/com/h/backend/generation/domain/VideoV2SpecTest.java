@@ -2,7 +2,7 @@ package com.h.backend.generation.domain;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.h.backend.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
 
 import org.junit.jupiter.api.Test;
 

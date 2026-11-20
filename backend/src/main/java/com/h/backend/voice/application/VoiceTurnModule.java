@@ -1,10 +1,11 @@
 package com.h.backend.voice.application;
 
 import com.h.backend.chat.application.*;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.application.*;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRegistry;
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.voice.domain.*;
 import com.h.backend.voice.infrastructure.*;
 import dev.langchain4j.data.message.*;

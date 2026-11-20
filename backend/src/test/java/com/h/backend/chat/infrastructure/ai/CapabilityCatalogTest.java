@@ -3,7 +3,7 @@ package com.h.backend.chat.infrastructure.ai;
 import com.h.agent.observability.NoopAgentObservability;
 import com.h.agent.observability.langchain4j.ObservingToolProvider;
 import com.h.backend.chat.application.capability.CapabilityCatalog;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import org.junit.jupiter.api.Test;

@@ -2,10 +2,13 @@ package com.h.backend.order;
 
 import com.h.agent.observability.NoopAgentObservability;
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.application.impl.ChatServiceImpl;
 import com.h.backend.chat.domain.agent.*;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.agent.*;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.interfaces.dto.*;
+import com.h.capabilities.chat.interfaces.dto.*;
 import org.junit.jupiter.api.Test;
 import java.util.*;
 import java.util.concurrent.*;

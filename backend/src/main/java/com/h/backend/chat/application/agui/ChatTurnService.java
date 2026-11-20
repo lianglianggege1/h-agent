@@ -2,10 +2,10 @@ package com.h.backend.chat.application.agui;
 
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.chat.domain.agent.AgentDefinition;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import dev.langchain4j.data.message.*;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -131,7 +131,7 @@ public class ChatTurnService {
             if (!partial.isEmpty()) context.add(AiMessage.from(partial));
             if (memoryScopes != null) for (var scope : memoryScopes.selectAllBySessionId(sessionId)) {
                 if (agent.agentId().equals(scope.getAgentId())) memory.cacheMemory(
-                        new com.h.backend.chat.domain.memory.ChatMemoryContext(userId, scope.getPromptId(),
+                        new com.h.capabilities.chat.domain.memory.ChatMemoryContext(userId, scope.getPromptId(),
                                 sessionId, scope.getAgentId(), scope.getMemoryScope()), context);
             }
             memory.cacheMemory(memoryIds.parse(memoryId), context);

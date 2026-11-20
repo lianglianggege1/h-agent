@@ -1,7 +1,7 @@
 package com.h.backend.document.interfaces.web;
 
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.document.application.DocumentWorkflow;
+import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 
 import org.springframework.http.ResponseEntity;

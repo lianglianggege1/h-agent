@@ -1,11 +1,12 @@
 package com.h.backend.chat.infrastructure.content;
 
-import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.capabilities.chat.infrastructure.content.ResourceContentInspector;
+import com.h.capabilities.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.application.impl.ChatResourceServiceImpl;
 import com.h.backend.chat.application.impl.ImageGenerationServiceImpl;
-import com.h.backend.chat.application.FileDeliveryService;
+import com.h.capabilities.chat.application.FileDeliveryService;
 import com.h.backend.chat.interfaces.web.ChatResourceController;
-import com.h.backend.generation.infrastructure.storage.ResourceStorageGeneratedArtifactAdapter;
+import com.h.capabilities.generation.infrastructure.storage.ResourceStorageGeneratedArtifactAdapter;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,7 @@ class ResourceContentArchitectureTest {
     private static final Class<?>[] SAVE_VALIDATION_GATEKEEPERS = {
             ResourceContentPolicy.class,
             ChatResourceController.class,
-            com.h.backend.document.application.DocumentWorkflow.class,
+            com.h.capabilities.document.application.DocumentWorkflow.class,
             FileDeliveryService.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,
@@ -56,7 +57,7 @@ class ResourceContentArchitectureTest {
     /** Inspector 合法依赖者：四条校验路径 + 策略组件（消费检测结果类型）。 */
     private static final Class<?>[] INSPECTOR_DEPENDENTS = {
             ChatResourceController.class,
-            com.h.backend.document.application.DocumentWorkflow.class,
+            com.h.capabilities.document.application.DocumentWorkflow.class,
             FileDeliveryService.class,
             ImageGenerationServiceImpl.class,
             ResourceStorageGeneratedArtifactAdapter.class,

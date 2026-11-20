@@ -1,5 +1,7 @@
 package com.h.backend.document.infrastructure.config;
 
+import com.h.capabilities.document.infrastructure.config.DocumentProperties;
+import com.h.capabilities.document.infrastructure.config.DocumentEnvironmentPostProcessor;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,7 @@ class DocumentEnvironmentTest {
         assertEquals("/local/soffice", properties.getSofficeCommand());
         assertFalse(properties.toString().contains("synthetic-local-secret"));
         assertTrue(
-                new com.h.backend.document.infrastructure.provider.ModelBestDocumentClient(
+                new com.h.capabilities.document.infrastructure.provider.ModelBestDocumentClient(
                                 properties, new tools.jackson.databind.ObjectMapper())
                         .available());
         env.getPropertySources()

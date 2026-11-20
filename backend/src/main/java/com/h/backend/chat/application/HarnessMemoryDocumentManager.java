@@ -1,12 +1,12 @@
 package com.h.backend.chat.application;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
-import com.h.backend.common.exception.BusinessException;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException.Kind;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException.Kind;
 import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import io.agentscope.harness.agent.filesystem.remote.store.StoreItem;
 import org.slf4j.Logger;

@@ -1,5 +1,14 @@
 package com.h.backend.chat.infrastructure.storage;
 
+import com.h.capabilities.chat.infrastructure.storage.StoredResource;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageProperties;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageMeters;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceContent;
+import com.h.capabilities.chat.infrastructure.storage.MinioResourceStorage;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;

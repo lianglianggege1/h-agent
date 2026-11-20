@@ -1,8 +1,8 @@
 package com.h.backend.chat.infrastructure.memory;
 
 import com.h.backend.chat.application.ChatMemorySnapshotService;
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;

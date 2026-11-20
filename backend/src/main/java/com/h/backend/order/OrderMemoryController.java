@@ -1,8 +1,9 @@
 package com.h.backend.order;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.interfaces.dto.*;
+import com.h.capabilities.chat.interfaces.dto.*;
 import com.h.backend.common.api.ApiResponse;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import jakarta.validation.Valid;

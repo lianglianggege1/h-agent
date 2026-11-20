@@ -9,7 +9,7 @@ import com.h.backend.captcha.application.HumanVerification;
 import com.h.backend.captcha.domain.CaptchaErrors;
 import com.h.backend.captcha.domain.CaptchaException;
 import com.h.backend.captcha.domain.CaptchaPurpose;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
 import com.h.backend.user.infrastructure.persistence.entity.UserEntity;
 import com.h.backend.user.infrastructure.persistence.entity.UserRoleEntity;

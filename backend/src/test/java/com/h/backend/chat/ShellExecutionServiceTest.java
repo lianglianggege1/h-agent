@@ -1,8 +1,8 @@
 package com.h.backend.chat;
 
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
-import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.capabilities.chat.infrastructure.tools.ShellExecutionService;
+import com.h.capabilities.chat.infrastructure.tools.ShellToolProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

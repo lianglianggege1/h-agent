@@ -5,7 +5,7 @@ import com.h.backend.chat.infrastructure.persistence.mapper.AgentRunMapper;
 import com.h.backend.chat.domain.model.AgentRunSummary;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.domain.approval.ApprovalMode;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;

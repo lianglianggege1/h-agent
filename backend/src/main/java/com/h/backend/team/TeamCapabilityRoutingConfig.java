@@ -1,24 +1,24 @@
 package com.h.backend.team;
 
-import com.h.backend.capability.AnchorMessage;
-import com.h.backend.capability.AssetRef;
-import com.h.backend.capability.DeliveredArtifact;
-import com.h.backend.capability.DeliveryResult;
-import com.h.backend.capability.matrix.MatrixArtifactDeliveryAdapter;
-import com.h.backend.capability.matrix.MatrixConversationAssetAdapter;
-import com.h.backend.capability.matrix.MatrixMemorySources;
-import com.h.backend.capability.port.ArtifactDeliveryPort;
-import com.h.backend.capability.port.ConversationAssetPort;
-import com.h.backend.capability.port.LiveProjectionPort;
-import com.h.backend.capability.port.ResourceUrlPort;
+import com.h.capabilities.seam.AnchorMessage;
+import com.h.capabilities.seam.AssetRef;
+import com.h.capabilities.seam.DeliveredArtifact;
+import com.h.capabilities.seam.DeliveryResult;
+import com.h.capabilities.seam.matrix.MatrixArtifactDeliveryAdapter;
+import com.h.capabilities.seam.matrix.MatrixConversationAssetAdapter;
+import com.h.capabilities.seam.matrix.MatrixMemorySources;
+import com.h.capabilities.seam.port.ArtifactDeliveryPort;
+import com.h.capabilities.seam.port.ConversationAssetPort;
+import com.h.capabilities.seam.port.LiveProjectionPort;
+import com.h.capabilities.seam.port.ResourceUrlPort;
 import com.h.backend.chat.infrastructure.capability.ChatArtifactDeliveryAdapter;
 import com.h.backend.chat.infrastructure.capability.ChatConversationAssetAdapter;
 import com.h.backend.chat.infrastructure.capability.ChatLiveProjectionAdapter;
 import com.h.backend.chat.infrastructure.capability.ChatResourceUrlAdapter;
-import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.memory.application.MemorySourcePort;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.capabilities.chat.infrastructure.storage.ResourceWriteCoordinator;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.application.MemorySourcePort;
 import com.h.backend.memory.application.MemorySources;
 import com.h.matrixteam.MatrixClient;
 import org.springframework.beans.factory.annotation.Value;
@@ -177,46 +177,46 @@ public class TeamCapabilityRoutingConfig {
     }
 
     @Bean
-    public com.h.backend.capability.matrix.MatrixVideoInputResolver teamMatrixVideoInputs(
+    public com.h.capabilities.seam.matrix.MatrixVideoInputResolver teamMatrixVideoInputs(
             MatrixClient teamMatrixClient,
-            com.h.backend.generation.infrastructure.provider.minimax.FfprobeMediaValidator validator) {
-        return new com.h.backend.capability.matrix.MatrixVideoInputResolver(List.of(teamMatrixClient), validator);
+            com.h.capabilities.generation.infrastructure.provider.minimax.FfprobeMediaValidator validator) {
+        return new com.h.capabilities.seam.matrix.MatrixVideoInputResolver(List.of(teamMatrixClient), validator);
     }
 
     @Bean
-    public com.h.backend.capability.matrix.MatrixGenerationProjectionAdapter teamMatrixGenerationProjection(
+    public com.h.capabilities.seam.matrix.MatrixGenerationProjectionAdapter teamMatrixGenerationProjection(
             MatrixClient teamMatrixClient,
-            com.h.backend.chat.infrastructure.storage.ResourceStorage storage) {
-        return new com.h.backend.capability.matrix.MatrixGenerationProjectionAdapter(List.of(teamMatrixClient), storage);
+            com.h.capabilities.chat.infrastructure.storage.ResourceStorage storage) {
+        return new com.h.capabilities.seam.matrix.MatrixGenerationProjectionAdapter(List.of(teamMatrixClient), storage);
     }
 
     @Bean
-    public com.h.backend.capability.matrix.MatrixReferenceImageResolver teamMatrixReferenceImages(
+    public com.h.capabilities.seam.matrix.MatrixReferenceImageResolver teamMatrixReferenceImages(
             MatrixClient teamMatrixClient) {
-        return new com.h.backend.capability.matrix.MatrixReferenceImageResolver(List.of(teamMatrixClient));
+        return new com.h.capabilities.seam.matrix.MatrixReferenceImageResolver(List.of(teamMatrixClient));
     }
 
     @Bean
-    public com.h.backend.generation.interfaces.tool.TeamImageGenerationTool teamImageGenerationTool(
-            com.h.backend.chat.infrastructure.image.MiniMaxImageClient imageClient,
-            com.h.backend.chat.infrastructure.config.ImageGenerationProperties imageProperties,
+    public com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool teamImageGenerationTool(
+            com.h.capabilities.chat.infrastructure.image.MiniMaxImageClient imageClient,
+            com.h.capabilities.chat.infrastructure.config.ImageGenerationProperties imageProperties,
             MatrixClient teamMatrixClient) {
-        return new com.h.backend.generation.interfaces.tool.TeamImageGenerationTool(
+        return new com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool(
                 imageClient, imageProperties, List.of(teamMatrixClient));
     }
 
     @Bean
-    public com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool teamVideoGenerationTool(
-            com.h.backend.generation.application.service.VideoV2Service videos,
+    public com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool teamVideoGenerationTool(
+            com.h.capabilities.generation.application.service.VideoV2Service videos,
             tools.jackson.databind.ObjectMapper json) {
-        return new com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool(videos, json);
+        return new com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool(videos, json);
     }
 
     @Bean
     @Primary
-    public com.h.backend.generation.application.port.out.VideoInputResolver routingVideoInputResolver(
+    public com.h.capabilities.generation.application.port.out.VideoInputResolver routingVideoInputResolver(
             com.h.backend.generation.infrastructure.provider.minimax.StoredVideoInputResolver stored,
-            com.h.backend.capability.matrix.MatrixVideoInputResolver matrix) {
+            com.h.capabilities.seam.matrix.MatrixVideoInputResolver matrix) {
         // 团队素材为 mxc:// 房间媒体；产品素材为数据库资源 ID。
         return (userId, spec) ->
                 spec.inputs().stream().anyMatch(input -> input.resourceId().startsWith("mxc://"))
@@ -226,19 +226,19 @@ public class TeamCapabilityRoutingConfig {
 
     @Bean
     @Primary
-    public com.h.backend.generation.application.port.out.GenerationChatProjectionPort routingGenerationProjection(
+    public com.h.capabilities.generation.application.port.out.GenerationChatProjectionPort routingGenerationProjection(
             com.h.backend.generation.infrastructure.projection.ChatGenerationProjectionAdapter chat,
-            com.h.backend.capability.matrix.MatrixGenerationProjectionAdapter matrix) {
-        return new com.h.backend.generation.application.port.out.GenerationChatProjectionPort() {
+            com.h.capabilities.seam.matrix.MatrixGenerationProjectionAdapter matrix) {
+        return new com.h.capabilities.generation.application.port.out.GenerationChatProjectionPort() {
             @Override
-            public Long createPendingMessage(com.h.backend.generation.domain.model.GenerationTask task) {
+            public Long createPendingMessage(com.h.capabilities.generation.domain.model.GenerationTask task) {
                 return isTeamScope(task.sessionId())
                         ? matrix.createPendingMessage(task)
                         : chat.createPendingMessage(task);
             }
 
             @Override
-            public void updateMessage(com.h.backend.generation.domain.model.GenerationTask task) {
+            public void updateMessage(com.h.capabilities.generation.domain.model.GenerationTask task) {
                 if (isTeamScope(task.sessionId())) {
                     matrix.updateMessage(task);
                 } else {
@@ -250,9 +250,9 @@ public class TeamCapabilityRoutingConfig {
 
     @Bean
     @Primary
-    public com.h.backend.chat.application.reference.ReferenceImageResolver routingReferenceImageResolver(
+    public com.h.capabilities.chat.application.reference.ReferenceImageResolver routingReferenceImageResolver(
             com.h.backend.chat.application.impl.ChatReferenceImageResolver chat,
-            com.h.backend.capability.matrix.MatrixReferenceImageResolver matrix) {
+            com.h.capabilities.seam.matrix.MatrixReferenceImageResolver matrix) {
         return (userId, resourceId) ->
                 resourceId != null && resourceId.startsWith("mxc://")
                         ? matrix.resolve(userId, resourceId)

@@ -1,7 +1,7 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.knowledge.application.KnowledgeIngestService;
-import com.h.backend.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.knowledge.application.KnowledgeIngestService;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.rag.content.Content;

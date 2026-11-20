@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.capability;
 
-import com.h.backend.capability.port.ResourceUrlPort;
+import com.h.capabilities.seam.port.ResourceUrlPort;
 import com.h.backend.chat.application.ChatResourceUrls;
 import org.springframework.stereotype.Component;
 

@@ -1,6 +1,6 @@
 package com.h.backend.knowledge.interfaces.tool;
 
-import com.h.backend.knowledge.application.*;
+import com.h.capabilities.knowledge.application.*;
 import com.h.backend.memory.infrastructure.MemoryExecutionContextResolver;
 import io.agentscope.core.tool.*;
 import io.agentscope.core.message.ToolResultBlock;

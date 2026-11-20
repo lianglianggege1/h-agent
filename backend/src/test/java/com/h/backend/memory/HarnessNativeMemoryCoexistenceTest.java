@@ -1,6 +1,6 @@
 package com.h.backend.memory;
 
-import com.h.backend.memory.application.AgentMemory;
+import com.h.capabilities.memory.application.AgentMemory;
 import com.h.backend.memory.infrastructure.MemoryExecutionContextResolver;
 import com.h.backend.memory.infrastructure.agentscope.MemoryTools;
 import io.agentscope.core.model.Model;

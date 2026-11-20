@@ -6,7 +6,7 @@ import com.h.backend.automation.domain.AutomationTask;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;

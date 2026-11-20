@@ -5,7 +5,7 @@ import com.h.backend.automation.application.AutomationTaskCommand;
 import com.h.backend.automation.domain.AutomationProposal;
 import com.h.backend.automation.domain.AutomationProposalAction;
 import com.h.backend.automation.domain.AutomationDeliverySink;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;

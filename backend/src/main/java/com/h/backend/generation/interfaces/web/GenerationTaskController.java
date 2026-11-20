@@ -1,6 +1,6 @@
 package com.h.backend.generation.interfaces.web;
 
-import com.h.backend.generation.application.port.out.GenerationTaskRepository;
+import com.h.capabilities.generation.application.port.out.GenerationTaskRepository;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

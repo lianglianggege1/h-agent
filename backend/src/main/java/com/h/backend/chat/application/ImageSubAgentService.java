@@ -1,6 +1,6 @@
 package com.h.backend.chat.application;
 
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 
 public interface ImageSubAgentService {
 

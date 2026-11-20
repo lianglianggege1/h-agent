@@ -1,7 +1,7 @@
 package com.h.backend.memory.infrastructure;
 
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.AgentSessionMapper;
 import io.agentscope.core.agent.RuntimeContext;
@@ -47,7 +47,7 @@ public class MemoryExecutionContextResolver {
             AgentMemoryContext base = ctx.get(AgentMemoryContext.class);
             String executionId = base != null ? base.executionId() : childExecutionId(ctx, null);
             return new AgentMemoryContext(user, ctx.getSessionId(), ctx.getSessionId(),
-                    "harness-team-manager", "harness-team-manager", null, executionId);
+                    com.h.matrixteam.TeamAgentIds.MANAGER, com.h.matrixteam.TeamAgentIds.MANAGER, null, executionId);
         }
         AgentSessionEntity actual = sessions.selectBySessionId(ctx.getSessionId());
         if (actual == null || !user.equals(actual.getUserId())) throw new IllegalArgumentException("Session unavailable");

@@ -2,9 +2,9 @@ package com.h.backend.generation.interfaces.tool;
 
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
-import com.h.backend.generation.application.command.SubmitImageToVideoCommand;
-import com.h.backend.generation.application.port.in.SubmitImageToVideoUseCase;
-import com.h.backend.generation.application.result.SubmitGenerationResult;
+import com.h.capabilities.generation.application.command.SubmitImageToVideoCommand;
+import com.h.capabilities.generation.application.port.in.SubmitImageToVideoUseCase;
+import com.h.capabilities.generation.application.result.SubmitGenerationResult;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;

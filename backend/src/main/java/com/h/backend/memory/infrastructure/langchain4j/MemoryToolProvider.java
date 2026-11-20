@@ -1,6 +1,7 @@
 package com.h.backend.memory.infrastructure.langchain4j;
 
 import com.h.backend.memory.application.*;
+import com.h.capabilities.memory.application.*;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.*;
 import dev.langchain4j.service.tool.*;
@@ -20,7 +21,8 @@ public class MemoryToolProvider implements ToolProvider {
         Object value=request.invocationParameters().get(AgentMemoryContext.KEY);
         if(!(value instanceof AgentMemoryContext ctx)) return builder.build();
         for(var definition:MemoryToolContract.definitions()) {
-            var spec=ToolSpecification.builder().name(definition.name()).description(definition.description())
+            var spec=ToolSpecification.builder().name(MemoryToolContract.mem0Name(definition.name()))
+                    .description("Mem0：" + definition.description())
                     .parameters((JsonObjectSchema)schema(definition.schema())).build();
             builder.add(spec,(call,id) -> memory.execute(ctx,call.id(),definition.name(),json.readValue(call.arguments(),Map.class)));
         }
@@ -28,6 +30,6 @@ public class MemoryToolProvider implements ToolProvider {
     }
     @Override public boolean isDynamic() {return true;}
     static JsonSchemaElement schema(Map<String,Object> s) {
-        return com.h.backend.shared.infrastructure.ai.ToolSchemas.schema(s);
+        return com.h.capabilities.shared.infrastructure.ai.ToolSchemas.schema(s);
     }
 }

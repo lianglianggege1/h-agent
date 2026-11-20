@@ -1,7 +1,9 @@
 package com.h.backend.memory.application;
 
+import com.h.capabilities.memory.application.MemorySourcePort;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import io.agentscope.harness.agent.filesystem.remote.store.StoreItem;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -64,10 +66,10 @@ public class MemorySources implements MemorySourcePort {
         if (ref.startsWith("chat:")) {
             String[] parts = ref.split(":", 3);
             if (parts.length != 3) throw new IllegalArgumentException("Invalid source reference");
-            com.h.backend.chat.interfaces.dto.ChatSessionMessageDto message;
+            com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto message;
             try {
                 message = chats.getOwnedMessage(user, decode(parts[1]), Long.valueOf(parts[2]));
-            } catch (com.h.backend.common.exception.BusinessException unavailable) {
+            } catch (com.h.capabilities.common.exception.BusinessException unavailable) {
                 return Map.of("status", "SOURCE_UNAVAILABLE");
             }
             body = message.content() == null ? "" : message.content();

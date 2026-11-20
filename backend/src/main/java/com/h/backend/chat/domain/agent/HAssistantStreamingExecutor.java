@@ -9,10 +9,10 @@ import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.agui.ChatExecutionCancellation;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.memory.application.SuccessfulTurnCommitter;
-import com.h.backend.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
 
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.guardrail.OutputGuardrailException;
@@ -122,8 +122,8 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                                         command.memoryId(),
                                         messageForLlm,
                                         dev.langchain4j.invocation.InvocationParameters.from(java.util.Map.of(
-                                                com.h.backend.memory.domain.MemoryInvocationContext.INVOCATION_KEY, memoryInvocationContext(command),
-                                                com.h.backend.memory.application.AgentMemoryContext.KEY,
+                                                com.h.capabilities.memory.domain.MemoryInvocationContext.INVOCATION_KEY, memoryInvocationContext(command),
+                                                com.h.capabilities.memory.application.AgentMemoryContext.KEY,
                                                 AgentMemoryContexts.from(command))))
                                 .onToolExecuted(
                                         toolExecution -> {

@@ -2,9 +2,9 @@ package com.h.backend.generation.interfaces.tool;
 
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
-import com.h.backend.generation.application.service.VideoV2Service;
-import com.h.backend.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.capabilities.generation.application.service.VideoV2Service;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
 
 import org.springframework.stereotype.Component;
 

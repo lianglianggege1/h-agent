@@ -7,7 +7,7 @@ import com.h.backend.chat.domain.agent.HarnessSubagentEventRelay;
 import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.dto.HarnessAgentEventPayload;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;

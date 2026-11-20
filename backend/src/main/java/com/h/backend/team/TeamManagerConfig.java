@@ -1,6 +1,7 @@
 package com.h.backend.team;
 
 import com.h.matrixteam.MatrixClient;
+import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamPolicy;
 import com.h.matrixteam.TeamRoomBridge;
 import io.agentscope.core.model.Model;
@@ -109,8 +110,8 @@ public class TeamManagerConfig {
                 .isolationScope(IsolationScope.USER)
                 .addSharedPrefix("artifacts/");
         HarnessAgent agent = HarnessAgent.builder()
-                .agentId("harness-team-manager")
-                .name("harness-team-manager")
+                .agentId(TeamAgentIds.MANAGER)
+                .name(TeamAgentIds.MANAGER)
                 .description("团队聊天室协调 Manager")
                 .sysPrompt(MANAGER_PROMPT)
                 .model(model)
@@ -136,8 +137,8 @@ public class TeamManagerConfig {
 
     @Bean
     public com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool agentScopeTeamGenerationTool(
-            com.h.backend.generation.interfaces.tool.TeamImageGenerationTool images,
-            com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool videos) {
+            com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool images,
+            com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool videos) {
         return new com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool(images, videos);
     }
 
@@ -157,15 +158,15 @@ public class TeamManagerConfig {
 
     @Bean
     public TeamDocumentResumer teamDocumentResumer(
-            com.h.backend.document.infrastructure.persistence.DocumentRepository documentRepository,
-            com.h.backend.document.application.DocumentWorkflow documentWorkflow,
+            com.h.capabilities.document.infrastructure.persistence.DocumentRepository documentRepository,
+            com.h.capabilities.document.application.DocumentWorkflow documentWorkflow,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
             TeamManagerHandler teamManagerHandler,
             MatrixClient teamMatrixClient,
             @Value("${MATRIX_HUMAN_USERNAME:huajiang}") String humanUsername) {
         String humanMatrixUserId = "@" + humanUsername + ":" + domainOf(teamMatrixClient.userId());
         return new TeamDocumentResumer(
-                new com.h.backend.capability.matrix.TeamDocumentContinuation(
+                new com.h.capabilities.seam.matrix.TeamDocumentContinuation(
                         documentRepository, documentWorkflow, teamRunTracker),
                 teamManagerHandler, humanMatrixUserId);
     }

@@ -1,5 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
+import com.h.capabilities.chat.infrastructure.config.ImageGenerationProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;

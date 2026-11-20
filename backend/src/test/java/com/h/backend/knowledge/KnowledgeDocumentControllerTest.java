@@ -1,9 +1,9 @@
 package com.h.backend.knowledge;
 
 import com.h.backend.knowledge.interfaces.web.KnowledgeDocumentController;
-import com.h.backend.knowledge.application.KnowledgeDocumentService;
-import com.h.backend.knowledge.application.KnowledgeIngestService;
-import com.h.backend.knowledge.infrastructure.persistence.mapper.KnowledgeSegmentMapper;
+import com.h.capabilities.knowledge.application.KnowledgeDocumentService;
+import com.h.capabilities.knowledge.application.KnowledgeIngestService;
+import com.h.capabilities.knowledge.infrastructure.persistence.mapper.KnowledgeSegmentMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -22,7 +22,7 @@ class KnowledgeDocumentControllerTest {
     @Test
     void deleteShouldCheckOwnershipThenRemoveVectorsAndMetadata() {
         var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
-        var doc = new com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity();
+        var doc = new com.h.capabilities.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity();
         doc.setId(5L);
         doc.setUserId(1L);
         Mockito.when(documentService.requireOwned(1L, 5L)).thenReturn(doc);
@@ -40,7 +40,7 @@ class KnowledgeDocumentControllerTest {
         var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
         Mockito.when(ingestService.ingestManual(1L, "标题", "内容")).thenReturn(7L);
 
-        var req = new com.h.backend.knowledge.interfaces.dto.ManualInputRequest( "标题", "内容");
+        var req = new com.h.capabilities.knowledge.interfaces.dto.ManualInputRequest( "标题", "内容");
         var resp = controller.manual(principal, req);
 
         assertEquals(0, resp.code());
@@ -50,7 +50,7 @@ class KnowledgeDocumentControllerTest {
     @Test
     void unsupportedReparsePreservesExistingDocumentsAndVectors() {
         var principal = new com.h.backend.shared.infrastructure.security.AuthUserPrincipal(1L, "a@b.com", "USER");
-        Mockito.when(documentService.requireOwned(1L, 5L)).thenReturn(new com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity());
+        Mockito.when(documentService.requireOwned(1L, 5L)).thenReturn(new com.h.capabilities.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity());
         assertEquals(40005, controller.reparse(principal, 5L).code());
         Mockito.verifyNoInteractions(ingestService);
         Mockito.verify(documentService, Mockito.never()).delete(Mockito.anyLong());

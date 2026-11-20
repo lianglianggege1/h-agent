@@ -1,6 +1,6 @@
-package com.h.backend.memory.domain;
+package com.h.capabilities.memory.domain;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,6 +42,19 @@ class AgentMemoryPolicyCatalogTest {
             AgentMemoryPolicy policy = catalog.policyOf(agentId);
             assertTrue(policy.recallEnabled(), agentId);
             assertFalse(policy.automaticCaptureEnabled(), agentId);
+        }
+    }
+
+    @Test
+    void teamWorkersUseExplicitMem0ToolsWithoutAutomaticCapture() {
+        for (String agentId : java.util.List.of(
+                com.h.matrixteam.TeamAgentIds.WORKER, com.h.matrixteam.TeamAgentIds.SPRING_WORKER)) {
+            AgentMemoryPolicy policy = catalog.policyOf(agentId);
+            assertTrue(policy.explicitMemoryToolsEnabled(), agentId);
+            assertTrue(policy.recallEnabled(), agentId);
+            assertFalse(policy.automaticCaptureEnabled(), agentId);
+            assertEquals(java.util.Set.of(MemoryScopeKind.USER, MemoryScopeKind.AGENT, MemoryScopeKind.SESSION),
+                    policy.recallScopes(), agentId);
         }
     }
 

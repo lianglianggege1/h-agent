@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.tools;
 
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.ImageSubAgentService;
 import dev.langchain4j.agent.tool.SearchBehavior;

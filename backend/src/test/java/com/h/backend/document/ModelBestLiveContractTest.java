@@ -2,10 +2,10 @@ package com.h.backend.document;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.h.backend.document.infrastructure.config.DocumentEnvironmentPostProcessor;
-import com.h.backend.document.infrastructure.config.DocumentProperties;
-import com.h.backend.document.infrastructure.parsing.OcrCoverage;
-import com.h.backend.document.infrastructure.provider.ModelBestDocumentClient;
+import com.h.capabilities.document.infrastructure.config.DocumentEnvironmentPostProcessor;
+import com.h.capabilities.document.infrastructure.config.DocumentProperties;
+import com.h.capabilities.document.infrastructure.parsing.OcrCoverage;
+import com.h.capabilities.document.infrastructure.provider.ModelBestDocumentClient;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;

@@ -1,6 +1,6 @@
 package com.h.backend.chat.domain.approval;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 
 /** 用户为 Harness Agent Session 选择的工具审批策略。 */
 public enum ApprovalMode {

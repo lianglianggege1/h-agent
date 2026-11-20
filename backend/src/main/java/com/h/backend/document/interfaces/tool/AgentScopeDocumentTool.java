@@ -1,6 +1,6 @@
 package com.h.backend.document.interfaces.tool;
 
-import com.h.backend.document.application.DocumentWorkflow;
+import com.h.capabilities.document.application.DocumentWorkflow;
 
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;

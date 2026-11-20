@@ -1,6 +1,6 @@
 package com.h.backend.outbound.application;
 
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.outbound.domain.Call;
 import com.h.backend.outbound.domain.Contact;
 import com.h.backend.outbound.domain.Task;
@@ -12,7 +12,7 @@ import com.h.backend.outbound.infrastructure.FreeswitchDialingProvider;
 import com.h.backend.voice.application.VoiceCallModule;
 import com.h.backend.voice.infrastructure.VoiceStore;
 import com.h.backend.chat.domain.agent.AgentRegistry;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

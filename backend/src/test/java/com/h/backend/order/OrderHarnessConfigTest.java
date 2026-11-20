@@ -2,6 +2,7 @@ package com.h.backend.order;
 
 import com.h.agent.observability.NoopAgentObservability;
 import com.h.backend.chat.domain.agent.*;
+import com.h.capabilities.chat.domain.agent.*;
 import com.h.backend.chat.infrastructure.agentscope.DisabledHarnessModel;
 import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import io.agentscope.core.agent.RuntimeContext;

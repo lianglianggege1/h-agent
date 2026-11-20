@@ -15,7 +15,7 @@ import com.h.backend.automation.interfaces.dto.AutomationTaskDto;
 import com.h.backend.automation.interfaces.dto.AutomationTaskRequest;
 import com.h.backend.automation.interfaces.dto.AutomationTaskStateRequest;
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;

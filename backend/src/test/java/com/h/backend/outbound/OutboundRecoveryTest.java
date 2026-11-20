@@ -11,7 +11,7 @@ import com.h.backend.outbound.infrastructure.PhoneWorkerClient;
 import com.h.backend.voice.application.VoiceCallModule;
 import com.h.backend.voice.domain.VoiceCall;
 import com.h.backend.voice.infrastructure.VoiceStore;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -81,7 +81,7 @@ class OutboundRecoveryTest {
         call.setStage("FINISHED");
         when(store.getOwnedCall(1L, 1L)).thenReturn(call);
 
-        assertThrows(com.h.backend.common.exception.BusinessException.class,
+        assertThrows(com.h.capabilities.common.exception.BusinessException.class,
                 () -> module.resolveUnknown(1L, 1L, "ANSWERED", "note"));
     }
 
@@ -93,7 +93,7 @@ class OutboundRecoveryTest {
         call.setStage("UNKNOWN");
         when(store.getOwnedCall(1L, 1L)).thenReturn(call);
 
-        assertThrows(com.h.backend.common.exception.BusinessException.class,
+        assertThrows(com.h.capabilities.common.exception.BusinessException.class,
                 () -> module.resolveUnknown(1L, 1L, null, "note"));
     }
 
@@ -147,7 +147,7 @@ class OutboundRecoveryTest {
             return fn.apply(task);
         });
 
-        var ex = assertThrows(com.h.backend.common.exception.BusinessException.class,
+        var ex = assertThrows(com.h.capabilities.common.exception.BusinessException.class,
                 () -> module.startTask(1L, 1L));
         assertTrue(ex.getMessage().contains("已完成"));
     }

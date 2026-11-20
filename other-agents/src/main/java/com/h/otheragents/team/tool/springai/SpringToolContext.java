@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 import org.springframework.ai.chat.model.ToolContext;
 
 /**

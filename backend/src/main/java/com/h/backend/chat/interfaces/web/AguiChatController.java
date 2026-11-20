@@ -10,7 +10,7 @@ import com.agui.community.core.event.RunErrorEvent;
 import com.agui.community.core.serialization.Serializer;
 import com.agui.community.server.SseEventEncoder;
 import com.agui.community.server.OutputStreamEventSink;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;

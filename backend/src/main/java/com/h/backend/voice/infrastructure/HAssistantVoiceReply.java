@@ -1,13 +1,13 @@
 package com.h.backend.voice.infrastructure;
 
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.config.ChatModelEnvironment;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
-import com.h.backend.common.exception.BusinessException;
-import com.h.backend.memory.domain.MemoryInvocationContext;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.backend.voice.application.VoiceReply;
 import com.h.backend.voice.application.VoiceReplyContext;
 import dev.langchain4j.data.message.ChatMessage;

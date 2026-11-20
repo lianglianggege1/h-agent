@@ -1,9 +1,9 @@
 package com.h.backend.generation.domain;
 
-import com.h.backend.chat.application.reference.ResolvedReferenceImage;
-import com.h.backend.generation.domain.model.GenerationType;
-import com.h.backend.generation.domain.model.ImageToVideoSpec;
-import com.h.backend.generation.domain.service.ImageToVideoSourceValidator;
+import com.h.capabilities.chat.application.reference.ResolvedReferenceImage;
+import com.h.capabilities.generation.domain.model.GenerationType;
+import com.h.capabilities.generation.domain.model.ImageToVideoSpec;
+import com.h.capabilities.generation.domain.service.ImageToVideoSourceValidator;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -1,7 +1,7 @@
 package com.h.backend.voice.domain;
 
 import lombok.Data;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 
 @Data
 public class VoiceTurn {

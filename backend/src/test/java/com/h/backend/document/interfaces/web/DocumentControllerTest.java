@@ -3,7 +3,7 @@ package com.h.backend.document.interfaces.web;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.h.backend.document.application.DocumentWorkflow;
+import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package com.h.backend.voice;
 import com.h.backend.voice.domain.VoiceTurn;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 

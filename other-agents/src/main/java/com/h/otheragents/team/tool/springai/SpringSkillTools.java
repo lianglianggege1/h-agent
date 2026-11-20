@@ -1,7 +1,7 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.skill.application.SkillRuntimeService;
-import com.h.backend.skill.application.SkillRuntimeService.SkillContent;
+import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.skill.application.SkillRuntimeService.SkillContent;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
 import tools.jackson.databind.ObjectMapper;

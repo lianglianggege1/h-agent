@@ -1,5 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
+import com.h.capabilities.chat.infrastructure.config.ImageGenerationProperties;
 import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.langchain4j.ObservingChatModel;
 import com.h.agent.observability.langchain4j.ObservingStreamingChatModel;
@@ -8,19 +9,19 @@ import com.h.backend.observability.langchain4j.ContextPropagatingHttpClientBuild
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import com.h.backend.chat.application.SystemPromptService;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileProperties;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileProperties;
 import com.h.backend.chat.infrastructure.tools.FileDeliveryTool;
 import com.h.backend.chat.infrastructure.tools.FilesystemTool;
 import com.h.backend.chat.infrastructure.tools.HToolArgumentsErrorHandler;
 import com.h.backend.chat.infrastructure.tools.HToolExecutionErrorHandler;
 import com.h.backend.chat.infrastructure.tools.ImageGenerationTool;
 import com.h.backend.chat.infrastructure.tools.ShellTool;
-import com.h.backend.chat.infrastructure.tools.ShellToolProperties;
+import com.h.capabilities.chat.infrastructure.tools.ShellToolProperties;
 import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import com.h.backend.generation.interfaces.tool.ImageToVideoTool;
 import com.h.backend.automation.interfaces.tool.LangChain4jAutomationTool;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;

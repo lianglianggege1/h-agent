@@ -2,11 +2,11 @@ package com.h.backend.voice;
 
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
-import com.h.backend.memory.domain.MemoryInvocationContext;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.backend.voice.application.VoiceReplyContext;
 import com.h.backend.voice.infrastructure.HAssistantVoiceReply;
 import dev.langchain4j.data.message.*;

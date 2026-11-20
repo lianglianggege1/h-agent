@@ -1,7 +1,7 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.generation.interfaces.tool.TeamImageGenerationTool;
-import com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

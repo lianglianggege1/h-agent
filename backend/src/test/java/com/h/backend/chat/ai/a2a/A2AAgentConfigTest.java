@@ -2,7 +2,7 @@ package com.h.backend.chat.ai.a2a;
 
 import com.h.agent.observability.AgentObservability;
 import com.h.backend.chat.domain.agent.AgentStepListener;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.ai.a2a.A2AAgentConfig;
 import com.h.backend.chat.infrastructure.ai.a2a.A2ARemoteAgents;
 import com.h.backend.chat.infrastructure.ai.a2a.NacosA2AClientFactory;

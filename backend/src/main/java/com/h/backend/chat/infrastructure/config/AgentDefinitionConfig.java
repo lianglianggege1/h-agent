@@ -3,7 +3,7 @@ package com.h.backend.chat.infrastructure.config;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.ai.a2a.A2AStoryAssistant;
 import com.h.backend.chat.infrastructure.ai.Agents;
 import com.h.backend.chat.infrastructure.ai.HAssistant;

@@ -1,9 +1,9 @@
 package com.h.backend.knowledge;
 
-import com.h.backend.common.exception.BusinessException;
-import com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity;
-import com.h.backend.knowledge.infrastructure.persistence.mapper.KnowledgeDocumentMapper;
-import com.h.backend.knowledge.application.impl.KnowledgeDocumentServiceImpl;
+import com.h.capabilities.common.exception.BusinessException;
+import com.h.capabilities.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity;
+import com.h.capabilities.knowledge.infrastructure.persistence.mapper.KnowledgeDocumentMapper;
+import com.h.capabilities.knowledge.application.impl.KnowledgeDocumentServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 

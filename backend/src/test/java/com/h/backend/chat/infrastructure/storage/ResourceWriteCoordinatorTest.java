@@ -1,6 +1,13 @@
 package com.h.backend.chat.infrastructure.storage;
 
-import com.h.backend.common.testsupport.CapturingLogAppender;
+import com.h.capabilities.chat.infrastructure.storage.TransactionalResourceWriteCoordinator;
+import com.h.capabilities.chat.infrastructure.storage.StoredResource;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageMeters;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.capabilities.common.testsupport.CapturingLogAppender;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

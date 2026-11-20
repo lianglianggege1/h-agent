@@ -1,25 +1,25 @@
 package com.h.backend.memory;
 
-import com.h.backend.memory.domain.ExplicitMemoryDelete;
-import com.h.backend.memory.domain.ExplicitMemorySave;
-import com.h.backend.memory.domain.ExplicitMemoryUpdate;
-import com.h.backend.memory.domain.MemoryMutationResult;
-import com.h.backend.memory.domain.MemoryNotFoundException;
-import com.h.backend.memory.domain.MemoryPage;
-import com.h.backend.memory.domain.MemoryScopeKind;
-import com.h.backend.memory.domain.MemoryVersionConflictException;
-import com.h.backend.memory.domain.MemoryView;
-import com.h.backend.memory.domain.OwnedMemoryId;
-import com.h.backend.memory.domain.OwnedMemoryQuery;
-import com.h.backend.memory.domain.OwnedMemorySearch;
-import com.h.backend.memory.infrastructure.UserMemoryCatalogImpl;
-import com.h.backend.memory.infrastructure.mem0.InMemoryMem0Gateway;
-import com.h.backend.memory.infrastructure.mem0.Mem0Gateway;
-import com.h.backend.memory.infrastructure.mem0.Mem0Models;
-import com.h.backend.memory.infrastructure.persistence.entity.LongTermMemoryRecordEntity;
-import com.h.backend.memory.infrastructure.persistence.entity.MemoryOperationEntity;
-import com.h.backend.memory.infrastructure.persistence.mapper.LongTermMemoryRecordMapper;
-import com.h.backend.memory.infrastructure.persistence.mapper.MemoryOperationMapper;
+import com.h.capabilities.memory.domain.ExplicitMemoryDelete;
+import com.h.capabilities.memory.domain.ExplicitMemorySave;
+import com.h.capabilities.memory.domain.ExplicitMemoryUpdate;
+import com.h.capabilities.memory.domain.MemoryMutationResult;
+import com.h.capabilities.memory.domain.MemoryNotFoundException;
+import com.h.capabilities.memory.domain.MemoryPage;
+import com.h.capabilities.memory.domain.MemoryScopeKind;
+import com.h.capabilities.memory.domain.MemoryVersionConflictException;
+import com.h.capabilities.memory.domain.MemoryView;
+import com.h.capabilities.memory.domain.OwnedMemoryId;
+import com.h.capabilities.memory.domain.OwnedMemoryQuery;
+import com.h.capabilities.memory.domain.OwnedMemorySearch;
+import com.h.capabilities.memory.infrastructure.UserMemoryCatalogImpl;
+import com.h.capabilities.memory.infrastructure.mem0.InMemoryMem0Gateway;
+import com.h.capabilities.memory.infrastructure.mem0.Mem0Gateway;
+import com.h.capabilities.memory.infrastructure.mem0.Mem0Models;
+import com.h.capabilities.memory.infrastructure.persistence.entity.LongTermMemoryRecordEntity;
+import com.h.capabilities.memory.infrastructure.persistence.entity.MemoryOperationEntity;
+import com.h.capabilities.memory.infrastructure.persistence.mapper.LongTermMemoryRecordMapper;
+import com.h.capabilities.memory.infrastructure.persistence.mapper.MemoryOperationMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.ResourceAccessException;
@@ -348,9 +348,9 @@ class UserMemoryCatalogImplTest {
                 () -> catalog.list(new OwnedMemoryQuery(1L, null, null, "not-a-cursor", 20)));
     }
 
-    private static com.h.backend.memory.domain.MemoryScopePolicy.MemoryOwnerScope userScope(
+    private static com.h.capabilities.memory.domain.MemoryScopePolicy.MemoryOwnerScope userScope(
             long userId) {
-        return com.h.backend.memory.domain.MemoryScopePolicy.toOwnerScope(
+        return com.h.capabilities.memory.domain.MemoryScopePolicy.toOwnerScope(
                 userId, MemoryScopeKind.USER, null, null);
     }
 
@@ -379,25 +379,25 @@ class UserMemoryCatalogImplTest {
 
         @Override
         public Mem0Models.Mem0Memory get(String remoteMemoryId,
-                                         com.h.backend.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
+                                         com.h.capabilities.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
             return delegate.get(remoteMemoryId, scope);
         }
 
         @Override
         public void update(String remoteMemoryId, String text,
-                           com.h.backend.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
+                           com.h.capabilities.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
             throw new ResourceAccessException("read timed out", new SocketTimeoutException("read timed out"));
         }
 
         @Override
         public void delete(String remoteMemoryId,
-                           com.h.backend.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
+                           com.h.capabilities.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
             delegate.delete(remoteMemoryId, scope);
         }
 
         @Override
         public List<Mem0Models.Mem0HistoryEntry> history(String remoteMemoryId,
-                                                         com.h.backend.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
+                                                         com.h.capabilities.memory.domain.MemoryScopePolicy.MemoryOwnerScope scope) {
             return delegate.history(remoteMemoryId, scope);
         }
     }

@@ -1,13 +1,13 @@
 package com.h.backend.knowledge.interfaces.web;
 
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.knowledge.interfaces.dto.KnowledgeDocumentDto;
-import com.h.backend.knowledge.interfaces.dto.ManualInputRequest;
-import com.h.backend.knowledge.interfaces.dto.SegmentDto;
-import com.h.backend.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity;
-import com.h.backend.knowledge.infrastructure.persistence.mapper.KnowledgeSegmentMapper;
-import com.h.backend.knowledge.application.KnowledgeDocumentService;
-import com.h.backend.knowledge.application.KnowledgeIngestService;
+import com.h.capabilities.knowledge.interfaces.dto.KnowledgeDocumentDto;
+import com.h.capabilities.knowledge.interfaces.dto.ManualInputRequest;
+import com.h.capabilities.knowledge.interfaces.dto.SegmentDto;
+import com.h.capabilities.knowledge.infrastructure.persistence.entity.KnowledgeDocumentEntity;
+import com.h.capabilities.knowledge.infrastructure.persistence.mapper.KnowledgeSegmentMapper;
+import com.h.capabilities.knowledge.application.KnowledgeDocumentService;
+import com.h.capabilities.knowledge.application.KnowledgeIngestService;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

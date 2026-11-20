@@ -1,6 +1,6 @@
 package com.h.backend.chat.interfaces.dto;
 
-import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
 
 public record HarnessMemoryDocumentDto(
         String content,

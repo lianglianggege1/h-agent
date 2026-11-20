@@ -1,6 +1,6 @@
 package com.h.backend.chat.application;
 
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
 import dev.langchain4j.data.message.ChatMessage;
 
 import java.util.List;

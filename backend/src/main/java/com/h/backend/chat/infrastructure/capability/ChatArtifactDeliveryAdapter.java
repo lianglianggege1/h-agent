@@ -1,14 +1,14 @@
 package com.h.backend.chat.infrastructure.capability;
 
-import com.h.backend.capability.DeliveredArtifact;
-import com.h.backend.capability.DeliveryResult;
-import com.h.backend.capability.port.ArtifactDeliveryPort;
+import com.h.capabilities.seam.DeliveredArtifact;
+import com.h.capabilities.seam.DeliveryResult;
+import com.h.capabilities.seam.port.ArtifactDeliveryPort;
 import com.h.backend.chat.application.ChatResourceUrls;
 import com.h.backend.chat.application.ChatSessionService;
-import com.h.backend.chat.infrastructure.storage.ResourceSaveCommand;
-import com.h.backend.chat.infrastructure.storage.ResourceWriteCoordinator;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.infrastructure.storage.ResourceSaveCommand;
+import com.h.capabilities.chat.infrastructure.storage.ResourceWriteCoordinator;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

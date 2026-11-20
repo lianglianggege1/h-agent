@@ -2,7 +2,7 @@ package com.h.backend.order;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
 import com.h.backend.chat.application.agui.AguiRunProjection;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.agui.community.core.event.*;
 import io.agentscope.harness.agent.filesystem.remote.store.InMemoryStore;

@@ -1,4 +1,4 @@
-package com.h.backend.knowledge.infrastructure.config;
+package com.h.capabilities.knowledge.infrastructure.config;
 
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.UserMessage;

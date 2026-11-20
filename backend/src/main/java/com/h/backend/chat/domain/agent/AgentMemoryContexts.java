@@ -1,6 +1,6 @@
 package com.h.backend.chat.domain.agent;
 
-import com.h.backend.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 
 /** 产品聊天执行命令到可信记忆身份的映射（能力层不依赖聊天执行模型）。 */
 public final class AgentMemoryContexts {

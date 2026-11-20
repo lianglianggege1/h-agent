@@ -6,7 +6,7 @@ import com.h.agent.observability.langchain4j.PlatformAgentListener;
 import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.infrastructure.ai.Agents;
 import com.h.backend.chat.infrastructure.ai.carrentalassistant.domain.StoryInfo;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.memory.RedisChatMemoryStore;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;

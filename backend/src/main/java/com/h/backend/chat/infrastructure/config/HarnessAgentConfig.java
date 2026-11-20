@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.automation.interfaces.tool.AgentScopeAutomationTool;
 import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;

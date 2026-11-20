@@ -2,8 +2,8 @@ package com.h.backend.chat.application;
 
 import com.h.backend.chat.interfaces.dto.ChatSessionBootstrapDto;
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceDto;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMessagesPageDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionMetaDto;
 import com.h.backend.chat.interfaces.dto.ChatSessionOpenDto;

@@ -1,15 +1,15 @@
 package com.h.backend.chat.application.impl;
 
 import com.h.backend.chat.application.ChatResourceService;
-import com.h.backend.chat.application.ResourceContentPolicy;
+import com.h.capabilities.chat.application.ResourceContentPolicy;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.infrastructure.storage.ResourceRange;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageErrorKind;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageException;
-import com.h.backend.chat.infrastructure.storage.ResourceStorageType;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageErrorKind;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageException;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorageType;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 
 /**

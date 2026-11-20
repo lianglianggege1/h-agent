@@ -1,8 +1,8 @@
 package com.h.backend.generation.interfaces.tool;
 
-import com.h.backend.generation.application.command.SubmitTextToVideoCommand;
-import com.h.backend.generation.application.port.in.SubmitTextToVideoUseCase;
-import com.h.backend.generation.application.result.SubmitGenerationResult;
+import com.h.capabilities.generation.application.command.SubmitTextToVideoCommand;
+import com.h.capabilities.generation.application.port.in.SubmitTextToVideoUseCase;
+import com.h.capabilities.generation.application.result.SubmitGenerationResult;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import dev.langchain4j.agent.tool.SearchBehavior;

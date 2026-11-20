@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.langchain4j;
 
-import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
+import com.h.capabilities.chat.infrastructure.tools.ShellExecutionService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;

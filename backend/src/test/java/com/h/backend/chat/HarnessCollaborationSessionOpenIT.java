@@ -6,7 +6,7 @@ import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ApprovalRequestService;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.approval.ApprovalDecision;
 import com.h.backend.chat.domain.approval.ApprovalEpisode;
 import com.h.backend.chat.domain.approval.ApprovalMode;

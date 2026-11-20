@@ -1,12 +1,14 @@
 package com.h.backend.chat.agui;
 
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.application.agui.*;
 import com.h.backend.chat.domain.agent.*;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.agent.*;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 import java.util.List;

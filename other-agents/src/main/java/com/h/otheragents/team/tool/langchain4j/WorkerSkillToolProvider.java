@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.langchain4j;
 
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;

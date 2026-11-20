@@ -1,6 +1,6 @@
 package com.h.backend.chat.infrastructure.config;
 
-import com.h.backend.shared.infrastructure.web.ExecutionLogContext;
+import com.h.capabilities.shared.infrastructure.web.ExecutionLogContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

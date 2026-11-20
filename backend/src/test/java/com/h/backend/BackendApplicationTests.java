@@ -2,7 +2,7 @@ package com.h.backend;
 
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.infrastructure.config.ChatModelEnvironment;
 import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
 import io.agentscope.core.model.Model;

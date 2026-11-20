@@ -5,10 +5,11 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.h.backend.chat.application.*;
-import com.h.backend.document.application.DocumentWorkflow;
-import com.h.backend.document.domain.DocumentTask;
-import com.h.backend.document.domain.DocumentContinuation;
-import com.h.backend.document.infrastructure.persistence.DocumentRepository;
+import com.h.capabilities.chat.application.*;
+import com.h.capabilities.document.application.DocumentWorkflow;
+import com.h.capabilities.document.domain.DocumentTask;
+import com.h.capabilities.document.domain.DocumentContinuation;
+import com.h.capabilities.document.infrastructure.persistence.DocumentRepository;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -60,7 +61,7 @@ class DocumentJobTest {
                         0, null, null, false));
         var chat = mock(ChatService.class);
         when(chats.getObject()).thenReturn(chat);
-        var reply = new com.h.backend.chat.interfaces.dto.ChatSessionMessageDto(
+        var reply = new com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto(
                 "874", "assistant", "AI", "识别正文", null, java.util.List.of(), null);
         when(chat.streamChat(eq(1L), isNull(), isNull(), eq("chat"), anyString(), anyList()))
                 .thenReturn(reactor.core.publisher.Flux.deferContextual(context -> {
@@ -131,7 +132,7 @@ class DocumentJobTest {
 
     private JobHandle newJob() {
         return new JobHandle(new DocumentJob(repository, workflow, chats, runs, sessions,
-                new com.h.backend.document.infrastructure.config.DocumentProperties(), null));
+                new com.h.capabilities.document.infrastructure.config.DocumentProperties(), null));
     }
 
     private record JobHandle(DocumentJob job) implements AutoCloseable {

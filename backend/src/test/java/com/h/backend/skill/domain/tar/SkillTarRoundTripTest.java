@@ -1,6 +1,9 @@
 package com.h.backend.skill.domain.tar;
 
-import com.h.backend.skill.domain.SkillFileSet;
+import com.h.capabilities.skill.domain.tar.SkillTarReader;
+import com.h.capabilities.skill.domain.tar.SkillBundleManifest;
+import com.h.capabilities.skill.domain.tar.DeterministicSkillTarBuilder;
+import com.h.capabilities.skill.domain.SkillFileSet;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 

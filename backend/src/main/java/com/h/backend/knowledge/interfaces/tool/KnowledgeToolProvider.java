@@ -1,8 +1,8 @@
 package com.h.backend.knowledge.interfaces.tool;
 
-import com.h.backend.knowledge.application.*;
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.shared.infrastructure.ai.ToolSchemas;
+import com.h.capabilities.knowledge.application.*;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.shared.infrastructure.ai.ToolSchemas;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.*;

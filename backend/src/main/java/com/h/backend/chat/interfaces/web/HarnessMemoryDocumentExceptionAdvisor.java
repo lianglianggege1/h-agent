@@ -1,6 +1,6 @@
 package com.h.backend.chat.interfaces.web;
 
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
 import com.h.backend.common.api.ApiResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;

@@ -1,6 +1,7 @@
 package com.h.backend.chat.domain.agent;
 
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;

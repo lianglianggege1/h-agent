@@ -6,7 +6,7 @@ import com.h.backend.auth.interfaces.dto.LoginResponse;
 import com.h.backend.auth.interfaces.dto.RegisterRequest;
 import com.h.backend.auth.application.AuthService;
 import com.h.backend.captcha.application.HumanVerification;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;

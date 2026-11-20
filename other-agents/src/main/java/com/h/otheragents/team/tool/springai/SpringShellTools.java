@@ -1,6 +1,6 @@
 package com.h.otheragents.team.tool.springai;
 
-import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
+import com.h.capabilities.chat.infrastructure.tools.ShellExecutionService;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;

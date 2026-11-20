@@ -1,8 +1,8 @@
 package com.h.otheragents.team.capability;
 
-import com.h.backend.capability.matrix.MatrixConversationAssetAdapter;
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.seam.matrix.MatrixConversationAssetAdapter;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
 
 /**
  * 团队执行身份：memoryId 采用 legacy 四段式 {humanUserId}:agent:{agentId}:{roomId}。

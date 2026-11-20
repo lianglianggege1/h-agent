@@ -1,9 +1,9 @@
 package com.h.backend.generation.domain;
 
-import com.h.backend.generation.domain.model.GeneratedArtifact;
-import com.h.backend.generation.domain.model.GenerationStatus;
-import com.h.backend.generation.domain.model.GenerationTask;
-import com.h.backend.generation.domain.model.TextToVideoSpec;
+import com.h.capabilities.generation.domain.model.GeneratedArtifact;
+import com.h.capabilities.generation.domain.model.GenerationStatus;
+import com.h.capabilities.generation.domain.model.GenerationTask;
+import com.h.capabilities.generation.domain.model.TextToVideoSpec;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

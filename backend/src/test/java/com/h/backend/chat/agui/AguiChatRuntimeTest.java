@@ -2,13 +2,15 @@ package com.h.backend.chat.agui;
 
 import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.backend.chat.domain.agent.HarnessExecutionRegistry;
 import com.h.backend.chat.domain.agent.HarnessSubagentEventRelay;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
 import com.h.backend.chat.interfaces.dto.*;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.interfaces.dto.*;
+import com.h.capabilities.common.exception.BusinessException;
 import com.agui.community.core.message.UserMessage;
 import com.agui.community.core.agent.RunAgentInput;
 import org.junit.jupiter.api.AfterEach;

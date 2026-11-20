@@ -1,10 +1,10 @@
 package com.h.backend.skill.interfaces.web;
 
 import com.h.backend.common.api.ApiResponse;
-import com.h.backend.skill.application.SkillCatalogService;
-import com.h.backend.skill.domain.SkillPlatformErrorKind;
-import com.h.backend.skill.domain.SkillPlatformException;
-import com.h.backend.skill.interfaces.dto.SkillRequests;
+import com.h.capabilities.skill.application.SkillCatalogService;
+import com.h.capabilities.skill.domain.SkillPlatformErrorKind;
+import com.h.capabilities.skill.domain.SkillPlatformException;
+import com.h.capabilities.skill.interfaces.dto.SkillRequests;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

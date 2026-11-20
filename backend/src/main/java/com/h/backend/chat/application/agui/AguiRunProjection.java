@@ -1,6 +1,7 @@
 package com.h.backend.chat.application.agui;
 
 import com.h.backend.chat.interfaces.dto.*;
+import com.h.capabilities.chat.interfaces.dto.*;
 import com.agui.community.core.event.*;
 import com.agui.community.core.message.AssistantMessage;
 import com.agui.community.core.message.Message;

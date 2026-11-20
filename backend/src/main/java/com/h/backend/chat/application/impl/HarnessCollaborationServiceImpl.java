@@ -6,7 +6,7 @@ import com.h.backend.chat.application.HarnessSubagentCompletion;
 import com.h.backend.chat.application.HarnessSubagentExposure;
 import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.HarnessSubagentTurnStart;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
@@ -19,7 +19,7 @@ import com.h.backend.chat.infrastructure.persistence.mapper.HarnessSubagentMappe
 import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentStatus;
 import com.h.backend.chat.interfaces.dto.HarnessSubagentSummaryDto;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

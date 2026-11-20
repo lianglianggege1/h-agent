@@ -45,7 +45,7 @@ class OrderCommandCoordinatorTest {
         var sessions=mock(ChatSessionService.class);when(sessions.getSessionDetail(1L,"chat")).thenReturn(
                 new ChatSessionMetaDto("chat","",null,"harness-agent","协作","","HARNESS_STREAMING",null,0,null,null,false));
         var mcp=mock(OrderMcpClient.class);var coordinator=new OrderCommandCoordinator(mock(OrderJobMapper.class),mcp,sessions,mock(AguiChatRuntime.class));
-        try{assertThrows(com.h.backend.common.exception.BusinessException.class,()->coordinator.query(1,"chat","ORD-1"));verifyNoInteractions(mcp);}
+        try{assertThrows(com.h.capabilities.common.exception.BusinessException.class,()->coordinator.query(1,"chat","ORD-1"));verifyNoInteractions(mcp);}
         finally{coordinator.close();}
     }
     private ChatSessionMetaDto meta(){return new ChatSessionMetaDto("chat","",null,"order-processing-assistant","订单","","HARNESS_STREAMING",null,0,null,null,false);}

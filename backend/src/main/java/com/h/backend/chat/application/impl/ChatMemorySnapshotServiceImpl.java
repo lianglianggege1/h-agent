@@ -5,7 +5,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.ChatMemorySnapshotEn
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMemorySnapshotMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMapper;
-import com.h.backend.chat.domain.memory.ChatMemoryContext;
+import com.h.capabilities.chat.domain.memory.ChatMemoryContext;
 import com.h.backend.chat.application.ChatMemorySnapshotService;
 import com.h.backend.shared.infrastructure.utils.RedisUtil;
 import com.h.backend.shared.infrastructure.utils.RedissonUtil;

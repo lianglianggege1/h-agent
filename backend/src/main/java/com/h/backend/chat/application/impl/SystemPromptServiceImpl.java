@@ -8,7 +8,7 @@ import com.h.backend.chat.interfaces.dto.UpdateSystemPromptRequest;
 import com.h.backend.chat.infrastructure.persistence.entity.SystemPromptEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.SystemPromptMapper;
 import com.h.backend.chat.application.SystemPromptService;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

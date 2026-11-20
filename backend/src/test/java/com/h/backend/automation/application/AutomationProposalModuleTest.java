@@ -7,7 +7,7 @@ import com.h.backend.automation.domain.AutomationSchedule;
 import com.h.backend.automation.domain.AutomationTask;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.domain.model.AgentRunSummary;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 

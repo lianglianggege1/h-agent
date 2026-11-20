@@ -13,13 +13,13 @@ import com.h.backend.chat.application.HarnessExecutionSession;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.ChatAgentExecutionCommand;
-import com.h.backend.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.HarnessAgentExecutor;
 import com.h.backend.chat.domain.approval.ApprovalDecision;
 import com.h.backend.chat.domain.model.AgentRunSummary;
 import com.h.backend.chat.interfaces.dto.ApprovalRequestDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 

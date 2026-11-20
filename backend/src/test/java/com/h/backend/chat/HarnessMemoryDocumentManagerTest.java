@@ -1,8 +1,8 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocument;
-import com.h.backend.chat.domain.memory.HarnessMemoryDocumentException;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
+import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
 import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import io.agentscope.harness.agent.filesystem.remote.store.InMemoryStore;
 import io.agentscope.harness.agent.filesystem.remote.store.StoreItem;

@@ -1,7 +1,7 @@
 package com.h.otheragents.team.capability;
 
-import com.h.backend.generation.application.port.in.PollDueGenerationTasksUseCase;
-import com.h.backend.generation.infrastructure.config.GenerationProperties;
+import com.h.capabilities.generation.application.port.in.PollDueGenerationTasksUseCase;
+import com.h.capabilities.generation.infrastructure.config.GenerationProperties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

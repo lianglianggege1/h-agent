@@ -30,10 +30,10 @@ public final class SubagentCapabilityPolicy {
             java.util.stream.Stream.concat(
                     java.util.stream.Stream.of("read_file", "grep_files", "glob_files", "list_files"),
                     java.util.stream.Stream.concat(
-                            com.h.backend.memory.application.MemoryToolContract.harnessDefinitions().stream()
-                                    .map(com.h.backend.memory.application.MemoryToolContract.Definition::name),
-                            com.h.backend.knowledge.application.KnowledgeToolContract.definitions().stream()
-                                    .map(com.h.backend.knowledge.application.KnowledgeToolContract.Definition::name)))
+                            com.h.capabilities.memory.application.MemoryToolContract.mem0Definitions().stream()
+                                    .map(com.h.capabilities.memory.application.MemoryToolContract.Definition::name),
+                            com.h.capabilities.knowledge.application.KnowledgeToolContract.definitions().stream()
+                                    .map(com.h.capabilities.knowledge.application.KnowledgeToolContract.Definition::name)))
                     .toList();
 
     /** 用户可显式申请的写工具。 */

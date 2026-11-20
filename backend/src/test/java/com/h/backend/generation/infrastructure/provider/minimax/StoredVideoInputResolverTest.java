@@ -1,5 +1,6 @@
 package com.h.backend.generation.infrastructure.provider.minimax;
 
+import com.h.capabilities.generation.infrastructure.provider.minimax.FfprobeMediaValidator;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -7,8 +8,9 @@ import static org.mockito.Mockito.*;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.storage.*;
-import com.h.backend.generation.domain.model.VideoV2Spec;
-import com.h.backend.generation.infrastructure.config.GenerationProperties;
+import com.h.capabilities.chat.infrastructure.storage.*;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.generation.infrastructure.config.GenerationProperties;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

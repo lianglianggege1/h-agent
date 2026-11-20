@@ -6,7 +6,7 @@ import com.h.backend.automation.domain.AutomationProposalAction;
 import com.h.backend.automation.domain.AutomationProposalStatus;
 import com.h.backend.automation.domain.AutomationTask;
 import com.h.backend.chat.application.AgentRunService;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,8 +1,8 @@
 package com.h.otheragents.team.tool.langchain4j;
 
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
-import com.h.backend.generation.interfaces.tool.TeamImageGenerationTool;
-import com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;

@@ -3,7 +3,7 @@ package com.h.backend.chat.agui;
 import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
 import com.h.backend.chat.infrastructure.config.AguiSdkConfig;
-import com.h.backend.chat.interfaces.dto.ChatSessionMessageDto;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.web.AguiChatController;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
 import com.agui.community.core.event.*;

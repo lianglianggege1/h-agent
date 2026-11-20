@@ -1,7 +1,7 @@
 package com.h.backend.document.interfaces.tool;
 
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
-import com.h.backend.document.application.DocumentWorkflow;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.document.application.DocumentWorkflow;
 
 import dev.langchain4j.agent.tool.*;
 

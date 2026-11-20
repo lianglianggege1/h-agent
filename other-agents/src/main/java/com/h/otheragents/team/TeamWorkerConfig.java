@@ -1,17 +1,18 @@
 package com.h.otheragents.team;
 
-import com.h.backend.chat.application.FileDeliveryService;
-import com.h.backend.chat.application.WebSearchService;
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
-import com.h.backend.chat.infrastructure.filesystem.AssistantFileStorage;
-import com.h.backend.chat.infrastructure.tools.ShellExecutionService;
-import com.h.backend.document.application.DocumentWorkflow;
-import com.h.backend.generation.interfaces.tool.TeamImageGenerationTool;
-import com.h.backend.generation.interfaces.tool.TeamVideoGenerationTool;
-import com.h.backend.memory.application.AgentMemoryContext;
-import com.h.backend.memory.domain.MemoryInvocationContext;
-import com.h.backend.skill.application.SkillRuntimeService;
+import com.h.capabilities.chat.application.FileDeliveryService;
+import com.h.capabilities.chat.application.WebSearchService;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
+import com.h.capabilities.chat.infrastructure.tools.ShellExecutionService;
+import com.h.capabilities.document.application.DocumentWorkflow;
+import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
+import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
+import com.h.capabilities.memory.application.AgentMemoryContext;
+import com.h.capabilities.memory.domain.MemoryInvocationContext;
+import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.matrixteam.MatrixClient;
+import com.h.matrixteam.TeamAgentIds;
 import com.h.matrixteam.TeamMessage;
 import com.h.matrixteam.TeamPolicy;
 import com.h.matrixteam.TeamProtocol;
@@ -55,7 +56,7 @@ public class TeamWorkerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(TeamWorkerConfig.class);
 
-    private static final String AGENT_ID = "worker";
+    private static final String AGENT_ID = TeamAgentIds.WORKER;
 
     @Bean
     public MatrixClient workerMatrixClient(
@@ -179,8 +180,8 @@ public class TeamWorkerConfig {
                 MemoryInvocationContext.INVOCATION_KEY,
                 TeamIdentity.memoryContext(humanUserId, message.roomId(), AGENT_ID, message.eventId())));
         String reply;
-        com.h.backend.capability.matrix.TeamActorContext.set(client.userId());
-        com.h.backend.capability.matrix.TeamActorContext.setRoom(message.roomId());
+        com.h.capabilities.seam.matrix.TeamActorContext.set(client.userId());
+        com.h.capabilities.seam.matrix.TeamActorContext.setRoom(message.roomId());
         com.h.matrixteam.TeamProgressReporter reporter =
                 new com.h.matrixteam.TeamProgressReporter(client, message.roomId());
         com.h.matrixteam.TeamProgressContext.set(reporter);
@@ -193,7 +194,7 @@ public class TeamWorkerConfig {
             throw failure;
         } finally {
             com.h.matrixteam.TeamProgressContext.clear();
-            com.h.backend.capability.matrix.TeamActorContext.clear();
+            com.h.capabilities.seam.matrix.TeamActorContext.clear();
         }
         if (reply == null || reply.isBlank() || "NO_REPLY".equals(reply.strip())) {
             return;

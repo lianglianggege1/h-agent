@@ -1,8 +1,8 @@
 package com.h.backend.chat.application.capability;
 
-import com.h.backend.document.domain.DocumentInstructions;
-import com.h.backend.knowledge.application.KnowledgeToolContract;
-import com.h.backend.memory.application.MemoryToolContract;
+import com.h.capabilities.document.domain.DocumentInstructions;
+import com.h.capabilities.knowledge.application.KnowledgeToolContract;
+import com.h.capabilities.memory.application.MemoryToolContract;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -43,9 +43,9 @@ public final class CapabilityCatalog {
         common.add(capability("automation", "创建定时或周期任务的待确认提案", AUTOMATION,
                 "create_automation_task"));
         common.add(new Capability("memory", "自主回忆、保存、修正和遗忘历史信息",
-                (runtime == Runtime.HARNESS ? MemoryToolContract.harnessDefinitions() : MemoryToolContract.definitions())
-                        .stream().map(MemoryToolContract.Definition::name).collect(Collectors.toSet()),
-                runtime == Runtime.HARNESS ? MemoryToolContract.harnessInstructions() : MemoryToolContract.INSTRUCTIONS));
+                MemoryToolContract.mem0Definitions().stream().map(MemoryToolContract.Definition::name)
+                        .collect(Collectors.toSet()),
+                runtime == Runtime.HARNESS ? MemoryToolContract.harnessInstructions() : MemoryToolContract.mem0Instructions()));
         common.add(new Capability("knowledge", "自主查询用户资料和沉淀可复用知识",
                 KnowledgeToolContract.definitions().stream().map(KnowledgeToolContract.Definition::name)
                         .collect(Collectors.toSet()), KnowledgeToolContract.INSTRUCTIONS));

@@ -1,15 +1,15 @@
 package com.h.backend.chat.infrastructure.capability;
 
-import com.h.backend.capability.AnchorMessage;
-import com.h.backend.capability.AssetRef;
-import com.h.backend.capability.port.ConversationAssetPort;
+import com.h.capabilities.seam.AnchorMessage;
+import com.h.capabilities.seam.AssetRef;
+import com.h.capabilities.seam.port.ConversationAssetPort;
 import com.h.backend.chat.application.ChatResourceService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatMessageResourceEntity;
 import com.h.backend.chat.infrastructure.persistence.entity.ChatSessionMessageEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatSessionMessageMapper;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.document.infrastructure.persistence.mapper.DocumentResourceMapper;
 import org.springframework.stereotype.Component;
 

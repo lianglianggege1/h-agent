@@ -1,6 +1,7 @@
 package com.h.backend.memory.infrastructure.agentscope;
 
 import com.h.backend.memory.application.*;
+import com.h.capabilities.memory.application.*;
 import com.h.backend.memory.infrastructure.MemoryExecutionContextResolver;
 import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.tool.*;
@@ -17,7 +18,7 @@ public class MemoryTools {
     public MemoryTools(AgentMemory memory,MemoryExecutionContextResolver contexts) {this.memory=memory;this.contexts=contexts;}
     public void register(Toolkit toolkit) {
         for(var definition:MemoryToolContract.definitions()) toolkit.registerAgentTool(new AgentTool() {
-            public String getName() {return MemoryToolContract.harnessName(definition.name());}
+            public String getName() {return MemoryToolContract.mem0Name(definition.name());}
             public String getDescription() {return "Mem0：" + definition.description();}
             public Map<String,Object> getParameters() {return definition.schema();}
             public boolean isReadOnly() {return definition.readOnly();}

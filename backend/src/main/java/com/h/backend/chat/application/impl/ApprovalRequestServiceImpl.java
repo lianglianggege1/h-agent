@@ -9,7 +9,7 @@ import com.h.backend.chat.infrastructure.persistence.entity.ApprovalRequestEntit
 import com.h.backend.chat.infrastructure.persistence.mapper.ApprovalRequestMapper;
 import com.h.backend.chat.interfaces.dto.ApprovalActionDto;
 import com.h.backend.chat.interfaces.dto.ApprovalRequestDto;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.common.exception.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;

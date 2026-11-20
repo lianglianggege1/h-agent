@@ -1,6 +1,6 @@
 package com.h.backend.generation.interfaces.tool;
 
-import com.h.backend.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;

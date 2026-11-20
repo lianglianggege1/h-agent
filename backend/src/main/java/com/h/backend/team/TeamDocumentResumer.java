@@ -1,7 +1,7 @@
 package com.h.backend.team;
 
-import com.h.backend.capability.matrix.TeamDocumentContinuation;
-import com.h.backend.document.domain.DocumentTask;
+import com.h.capabilities.seam.matrix.TeamDocumentContinuation;
+import com.h.capabilities.document.domain.DocumentTask;
 import com.h.matrixteam.TeamMessage;
 
 import java.util.List;

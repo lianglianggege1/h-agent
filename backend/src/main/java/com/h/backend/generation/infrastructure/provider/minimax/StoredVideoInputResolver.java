@@ -1,10 +1,11 @@
 package com.h.backend.generation.infrastructure.provider.minimax;
 
+import com.h.capabilities.generation.infrastructure.provider.minimax.FfprobeMediaValidator;
 import com.h.backend.chat.infrastructure.persistence.mapper.ChatMessageResourceMapper;
-import com.h.backend.chat.infrastructure.storage.ResourceRange;
-import com.h.backend.chat.infrastructure.storage.ResourceStorage;
-import com.h.backend.generation.application.port.out.VideoInputResolver;
-import com.h.backend.generation.domain.model.VideoV2Spec;
+import com.h.capabilities.chat.infrastructure.storage.ResourceRange;
+import com.h.capabilities.chat.infrastructure.storage.ResourceStorage;
+import com.h.capabilities.generation.application.port.out.VideoInputResolver;
+import com.h.capabilities.generation.domain.model.VideoV2Spec;
 
 import org.springframework.stereotype.Component;
 

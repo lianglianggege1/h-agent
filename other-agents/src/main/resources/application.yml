@@ -55,7 +55,7 @@ spring:
         shutdown-timeout: 100ms
   flyway:
     enabled: true
-    # 独立目录：backend jar 内含 db/migration 全量迁移脚本，本服务不能扫到它们
+    # 独立目录：避免扫到依赖 jar（如 backend）内 db/migration 的迁移脚本
     locations: classpath:db/team-migration
     # Isolate this service from backend's public.flyway_schema_history in a shared database.
     default-schema: other_agents
@@ -91,7 +91,7 @@ chat:
     max-output-bytes: 100000
     inherit-environment: false
 
-# 以下配置块与 backend 对齐（业务能力已并入 backend 普通 jar），凭据均来自仓库根 .env。
+# 以下配置块与 backend 对齐（agent-capabilities 共享模块），凭据均来自仓库根 .env。
 resource-storage:
   absolute-max-bytes: 524288000
   minio:

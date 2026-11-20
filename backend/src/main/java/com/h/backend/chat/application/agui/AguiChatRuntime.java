@@ -3,12 +3,14 @@ package com.h.backend.chat.application.agui;
 import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.interfaces.dto.AutomationProposalDto;
 import com.h.backend.chat.application.*;
+import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.domain.approval.ApprovalDecision;
 import com.h.backend.chat.domain.agent.HarnessExecutionRegistry;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
 import com.h.backend.chat.infrastructure.persistence.mapper.*;
 import com.h.backend.chat.interfaces.dto.*;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.interfaces.dto.*;
+import com.h.capabilities.common.exception.BusinessException;
 import com.agui.community.core.event.*;
 import com.agui.community.core.message.*;
 import com.agui.community.core.agent.RunAgentInput;
@@ -76,7 +78,7 @@ public class AguiChatRuntime {
 
     public Flux<Event> continueOrder(Long userId,RunAgentInput input,Long userMessageId){
         var session=owned(userId,input.threadId());
-        if(!com.h.backend.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId()))
+        if(!com.h.capabilities.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId()))
             throw new BusinessException(40300,"订单恢复会话不匹配");
         var message=sessions.getOwnedMessage(userId,input.threadId(),userMessageId);
         if(message==null || !"user".equals(message.role()))throw new BusinessException(40300,"恢复消息不属于当前用户会话");
@@ -187,7 +189,7 @@ public class AguiChatRuntime {
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(40901, "当前会话已有运行中任务，请刷新进度");
         }
-        if(orderJobs!=null && com.h.backend.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId())
+        if(orderJobs!=null && com.h.capabilities.chat.domain.agent.ChatAgentIds.ORDER_PROCESSING.equals(session.getAgentId())
                 && approvalId==null && !input.runId().startsWith("order-notify-")){
             orderJobs.supersedeRecoveries(userId,input.threadId());
             orderJobs.registerRun(input.runId(),userId,input.threadId(),message.trim());

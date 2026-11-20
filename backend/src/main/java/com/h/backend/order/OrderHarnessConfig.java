@@ -1,6 +1,7 @@
 package com.h.backend.order;
 
 import com.h.backend.chat.domain.agent.*;
+import com.h.capabilities.chat.domain.agent.*;
 import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;

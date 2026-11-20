@@ -1,7 +1,8 @@
 package com.h.backend.voice.application;
 
 import com.h.backend.chat.application.*;
-import com.h.backend.common.exception.BusinessException;
+import com.h.capabilities.chat.application.*;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.voice.domain.*;
 import com.h.backend.voice.infrastructure.*;
 import lombok.extern.slf4j.Slf4j;

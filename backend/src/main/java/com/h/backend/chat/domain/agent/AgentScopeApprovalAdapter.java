@@ -67,8 +67,8 @@ public class AgentScopeApprovalAdapter {
         }
         // User-scoped memory maintenance is autonomous; Explore still denies mutations.
         for (var tool : java.util.stream.Stream.concat(
-                com.h.backend.memory.application.MemoryToolContract.definitions().stream(),
-                com.h.backend.memory.application.MemoryToolContract.harnessDefinitions().stream()).toList()) {
+                com.h.capabilities.memory.application.MemoryToolContract.definitions().stream(),
+                com.h.capabilities.memory.application.MemoryToolContract.mem0Definitions().stream()).toList()) {
             if (mode == ApprovalMode.EXPLORE && !tool.readOnly()) {
                 builder.addDenyRule(tool.name(), new PermissionRule(tool.name(), null,
                         io.agentscope.core.permission.PermissionBehavior.DENY, "read-only-mode"));
@@ -77,7 +77,7 @@ public class AgentScopeApprovalAdapter {
                         io.agentscope.core.permission.PermissionBehavior.ALLOW, "owned-memory-policy"));
             }
         }
-        for (var tool : com.h.backend.knowledge.application.KnowledgeToolContract.definitions()) {
+        for (var tool : com.h.capabilities.knowledge.application.KnowledgeToolContract.definitions()) {
             var behavior = mode == ApprovalMode.EXPLORE && !tool.readOnly()
                     ? io.agentscope.core.permission.PermissionBehavior.DENY
                     : io.agentscope.core.permission.PermissionBehavior.ALLOW;

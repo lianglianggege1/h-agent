@@ -1,5 +1,6 @@
 package com.h.backend.chat.interfaces.dto;
 
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
