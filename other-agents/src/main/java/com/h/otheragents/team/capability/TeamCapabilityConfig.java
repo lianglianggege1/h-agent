@@ -104,8 +104,9 @@ public class TeamCapabilityConfig {
     @Bean
     public ConversationAssetPort teamConversationAssetPort(
             List<MatrixClient> matrixClients,
-            TeamHumanDirectory directory) {
-        return new MatrixConversationAssetAdapter(matrixClients, directory);
+            TeamHumanDirectory directory,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+        return new MatrixConversationAssetAdapter(matrixClients, directory, roomAuthorizer);
     }
 
     @Bean
@@ -125,8 +126,9 @@ public class TeamCapabilityConfig {
     }
 
     @Bean
-    public MemorySourcePort teamMemorySourcePort(List<MatrixClient> matrixClients) {
-        return new MatrixMemorySources(matrixClients);
+    public MemorySourcePort teamMemorySourcePort(List<MatrixClient> matrixClients,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+        return new MatrixMemorySources(matrixClients, roomAuthorizer);
     }
 
     /**

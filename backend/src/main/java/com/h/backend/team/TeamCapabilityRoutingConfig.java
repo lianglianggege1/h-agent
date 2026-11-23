@@ -48,8 +48,9 @@ public class TeamCapabilityRoutingConfig {
     @Bean
     public MatrixConversationAssetAdapter teamMatrixAssets(
             MatrixClient teamMatrixClient,
-            TeamHumanDirectory directory) {
-        return new MatrixConversationAssetAdapter(List.of(teamMatrixClient), directory);
+            TeamHumanDirectory directory,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+        return new MatrixConversationAssetAdapter(List.of(teamMatrixClient), directory, roomAuthorizer);
     }
 
     @Bean
@@ -59,8 +60,9 @@ public class TeamCapabilityRoutingConfig {
     }
 
     @Bean
-    public MatrixMemorySources teamMatrixMemorySources(MatrixClient teamMatrixClient) {
-        return new MatrixMemorySources(List.of(teamMatrixClient));
+    public MatrixMemorySources teamMatrixMemorySources(MatrixClient teamMatrixClient,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+        return new MatrixMemorySources(List.of(teamMatrixClient), roomAuthorizer);
     }
 
     @Bean

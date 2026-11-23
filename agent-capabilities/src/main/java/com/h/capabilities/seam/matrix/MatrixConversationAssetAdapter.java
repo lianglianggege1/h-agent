@@ -26,11 +26,14 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
 
     private final List<MatrixClient> clients;
     private final TeamHumanDirectory directory;
+    private final TeamRoomAuthorizer authorizer;
     private final Map<Long, AnchorMessage> anchorCache = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public MatrixConversationAssetAdapter(List<MatrixClient> clients, TeamHumanDirectory directory) {
+    public MatrixConversationAssetAdapter(List<MatrixClient> clients, TeamHumanDirectory directory,
+                                          TeamRoomAuthorizer authorizer) {
         this.clients = clients;
         this.directory = directory;
+        this.authorizer = authorizer;
     }
 
     @Override
@@ -38,10 +41,14 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
         if (scopeId == null || scopeId.isBlank() || !scopeId.startsWith("!")) {
             throw new BusinessException(40000, "无效的团队房间");
         }
+        if (!authorizer.canAccess(userId, scopeId)) {
+            throw new BusinessException(40300, "无权访问该团队房间：它不属于当前用户");
+        }
     }
 
     @Override
     public AssetRef requireAsset(long userId, String scopeId, String resourceId) {
+        requireScope(userId, scopeId);
         TeamMessage media = findMedia(scopeId, resourceId);
         if (media == null) {
             throw new BusinessException(40404, "附件不存在或不在当前房间历史中");
@@ -71,6 +78,7 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
 
     @Override
     public List<Map<String, Object>> inputs(long userId, String scopeId) {
+        requireScope(userId, scopeId);
         List<Map<String, Object>> result = new ArrayList<>();
         for (TeamMessage message : history(scopeId)) {
             if (!message.isMedia() || message.url() == null) {
@@ -88,6 +96,7 @@ public class MatrixConversationAssetAdapter implements ConversationAssetPort {
 
     @Override
     public AnchorMessage latestUserMessage(long userId, String scopeId) {
+        requireScope(userId, scopeId);
         String matrixUserId = directory.matrixUserIdOf(userId);
         if (matrixUserId == null) {
             return null;

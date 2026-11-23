@@ -38,20 +38,18 @@ public class TeamManagerHandler implements TeamRoomBridge.Handler {
 
     private final HarnessAgent agent;
     private final MatrixClient client;
-    private final String teamRoomId;
     private final com.h.capabilities.seam.matrix.TeamHumanDirectory directory;
 
-    public TeamManagerHandler(HarnessAgent agent, MatrixClient client, String teamRoomId,
+    public TeamManagerHandler(HarnessAgent agent, MatrixClient client,
                               com.h.capabilities.seam.matrix.TeamHumanDirectory directory) {
         this.agent = agent;
         this.client = client;
-        this.teamRoomId = teamRoomId;
         this.directory = directory;
     }
 
     @Override
     public void handle(TeamMessage message) {
-        boolean direct = !message.roomId().equals(teamRoomId);
+        boolean direct = !directory.isTeamRoom(message.roomId());
         boolean fromHuman = directory.isHuman(message.sender());
         Long owner = directory.resolveOwner(message.sender(), message.originUserId());
         if (owner == null) {

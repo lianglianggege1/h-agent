@@ -200,6 +200,25 @@ public final class MatrixClient {
         return roomId;
     }
 
+    /**
+     * 创建某用户专属的私密团队房间（invite-only），邀请三个 bot 账号加入；创建者（用户）自动成为成员。
+     * 返回 roomId。bot 经各自桥接的 /sync 自动接受邀请后进房，房间消息天然按用户隔离。
+     */
+    public String createTeamRoom(String name, List<String> inviteUserIds) {
+        ObjectNode body = JSON.createObjectNode();
+        body.put("preset", "private_chat");
+        body.put("visibility", "private");
+        body.put("name", name);
+        ArrayNode invite = body.putArray("invite");
+        inviteUserIds.forEach(invite::add);
+        JsonNode response = request("POST", "/_matrix/client/v3/createRoom", body, Duration.ofSeconds(30));
+        String roomId = response.path("room_id").asText();
+        if (roomId.isBlank()) {
+            throw new IllegalStateException("Matrix createTeamRoom failed: " + response);
+        }
+        return roomId;
+    }
+
     private void markDirect(String targetUserId, String roomId) {
         String path = "/_matrix/client/v3/user/" + encode(userId) + "/account_data/m.direct";
         ObjectNode direct;

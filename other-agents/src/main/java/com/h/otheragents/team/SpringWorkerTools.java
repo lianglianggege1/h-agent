@@ -1,5 +1,6 @@
 package com.h.otheragents.team;
 
+import com.h.capabilities.seam.matrix.TeamRoomAuthorizer;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamCollaboration;
 import com.h.matrixteam.TeamPolicy;
@@ -11,6 +12,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -25,11 +27,14 @@ public class SpringWorkerTools {
     private final String roomId;
     private final String managerUserId;
     private final TeamCollaboration collaboration;
+    private final TeamRoomAuthorizer authorizer;
 
-    public SpringWorkerTools(MatrixClient client, String roomId, String managerUserId, String... workerUserIds) {
+    public SpringWorkerTools(MatrixClient client, String roomId, String managerUserId, TeamRoomAuthorizer authorizer,
+                             String... workerUserIds) {
         this.client = client;
         this.roomId = roomId;
         this.managerUserId = managerUserId;
+        this.authorizer = authorizer;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, roomId, workerUserIds);
         this.collaboration = new TeamCollaboration(client, policy, roomId,
                 TeamCollaboration.rosterOf(Stream.concat(Stream.of(managerUserId), Arrays.stream(workerUserIds))
@@ -45,6 +50,26 @@ public class SpringWorkerTools {
     private static String originOf(ToolContext toolContext) {
         SpringToolContext identity = toolContext == null ? null : SpringToolContext.from(toolContext);
         return identity == null ? null : String.valueOf(identity.userId());
+    }
+
+    /** 本轮归属用户的房间访问谓词：当前房间恒允许，跨房间按归属用户成员身份判定。 */
+    private Predicate<String> scope(ToolContext toolContext) {
+        String current = currentRoom(toolContext);
+        Long origin = originLong(toolContext);
+        return target -> target != null
+                && (target.equals(current) || (origin != null && authorizer.canAccess(origin, target)));
+    }
+
+    private static Long originLong(ToolContext toolContext) {
+        String origin = originOf(toolContext);
+        if (origin == null || origin.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(origin.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @Tool(description = "当任务缺少必要信息、无法继续时，向 Manager 提出一个具体问题。不要猜测缺失的需求。")
@@ -66,13 +91,13 @@ public class SpringWorkerTools {
             @ToolParam(required = false, description = "目标房间 ID（listMyRooms 可查）；缺省当前房间") String roomId,
             ToolContext toolContext) {
         String target = roomId == null || roomId.isBlank() ? currentRoom(toolContext) : roomId;
-        return collaboration.readRoom(target, limit, before);
+        return collaboration.readRoom(target, limit, before, scope(toolContext));
     }
 
     @Tool(description = "列出我加入的所有房间（群聊/单聊）、房间名称、成员与角色，并标记当前所在房间。"
             + "想知道自己身在哪个群/单聊、还有哪些房间和成员可互通时调用。")
     public String listMyRooms(ToolContext toolContext) {
-        return collaboration.listRooms(currentRoom(toolContext));
+        return collaboration.listRooms(currentRoom(toolContext), scope(toolContext));
     }
 
     @Tool(description = "给团队另一位成员发消息，互通有无。target 用名字（manager/worker/spring-worker，或 Human 的 Matrix 用户名）或完整 userId。"
@@ -85,7 +110,7 @@ public class SpringWorkerTools {
             @ToolParam(required = false, description = "群内发送时的目标房间 ID；缺省当前房间") String roomId,
             ToolContext toolContext) {
         return collaboration.messageMember(currentRoom(toolContext), target, text, roomId, Boolean.TRUE.equals(direct),
-                originOf(toolContext));
+                originOf(toolContext), scope(toolContext));
     }
 
     @Tool(description = "把文本或媒体成果分享到另一个房间（跨房间互通有无）。"
@@ -97,6 +122,6 @@ public class SpringWorkerTools {
             @ToolParam(required = false, description = "分享的媒体 mxc:// 地址") String mxcUrl,
             @ToolParam(required = false, description = "媒体文件名（用于判断消息类型与展示）") String filename,
             ToolContext toolContext) {
-        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, originOf(toolContext));
+        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, originOf(toolContext), scope(toolContext));
     }
 }

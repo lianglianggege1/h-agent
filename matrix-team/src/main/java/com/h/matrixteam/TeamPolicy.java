@@ -2,11 +2,13 @@ package com.h.matrixteam;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Manager–Worker 触发策略。人类消息默认由 Manager 接待；
  * Worker 只认结构化点名（委派与点名都带 m.mentions），多 Worker 房间不会抢答同一条委派；
  * 确认、旁听与自发消息不触发执行。
+ * 团队房间由 isTeamRoom 谓词判定（每用户专属团队房间皆视为团队群聊），其余房间按单聊规则路由。
  */
 public final class TeamPolicy {
 
@@ -15,14 +17,21 @@ public final class TeamPolicy {
     private final Role role;
     private final String selfUserId;
     private final String managerUserId;
-    private final String teamRoomId;
+    private final Predicate<String> isTeamRoom;
     private final Set<String> agentUserIds;
 
+    /** 单一团队房间便捷构造（测试与工具内部名册用）；房间相等即视为团队房间。 */
     public TeamPolicy(Role role, String selfUserId, String managerUserId, String teamRoomId, String... workerUserIds) {
+        this(role, selfUserId, managerUserId, roomId -> roomId != null && roomId.equals(teamRoomId), workerUserIds);
+    }
+
+    /** 多团队房间构造：isTeamRoom 判定某房间是否按团队群聊规则路由（每用户独立房间场景）。 */
+    public TeamPolicy(Role role, String selfUserId, String managerUserId, Predicate<String> isTeamRoom,
+                      String... workerUserIds) {
         this.role = role;
         this.selfUserId = selfUserId;
         this.managerUserId = managerUserId;
-        this.teamRoomId = teamRoomId;
+        this.isTeamRoom = isTeamRoom;
         Set<String> agents = new HashSet<>();
         agents.add(selfUserId);
         agents.add(managerUserId);
@@ -64,7 +73,7 @@ public final class TeamPolicy {
         }
         boolean fromHuman = !isAgent(sender);
         // 单聊房间（非团队群）：人类消息无需点名即触发；成员互通时，被点名的 agent 消息也触发。
-        if (!message.roomId().equals(teamRoomId)) {
+        if (!isTeamRoom.test(message.roomId())) {
             return fromHuman || message.mentions(selfUserId);
         }
         return switch (role) {

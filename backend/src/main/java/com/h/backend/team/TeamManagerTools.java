@@ -1,5 +1,6 @@
 package com.h.backend.team;
 
+import com.h.capabilities.seam.matrix.TeamRoomAuthorizer;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamCollaboration;
 import com.h.matrixteam.TeamPolicy;
@@ -11,6 +12,7 @@ import io.agentscope.core.tool.ToolParam;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -25,11 +27,14 @@ public class TeamManagerTools {
     private final String roomId;
     private final Map<String, String> workerUserIds;
     private final TeamCollaboration collaboration;
+    private final TeamRoomAuthorizer authorizer;
 
-    public TeamManagerTools(MatrixClient client, String roomId, Map<String, String> workerUserIds) {
+    public TeamManagerTools(MatrixClient client, String roomId, Map<String, String> workerUserIds,
+                            TeamRoomAuthorizer authorizer) {
         this.client = client;
         this.roomId = roomId;
         this.workerUserIds = Map.copyOf(workerUserIds);
+        this.authorizer = authorizer;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, client.userId(), client.userId(), roomId,
                 workerUserIds.values().toArray(String[]::new));
         this.collaboration = new TeamCollaboration(client, policy, roomId,
@@ -40,6 +45,26 @@ public class TeamManagerTools {
     private String currentRoom(RuntimeContext context) {
         return context == null || context.getSessionId() == null || context.getSessionId().isBlank()
                 ? roomId : context.getSessionId();
+    }
+
+    /** 本轮归属用户的房间访问谓词：当前房间恒允许，跨房间按归属用户成员身份判定。 */
+    private Predicate<String> scope(RuntimeContext context) {
+        String current = currentRoom(context);
+        Long origin = originLong(context);
+        return target -> target != null
+                && (target.equals(current) || (origin != null && authorizer.canAccess(origin, target)));
+    }
+
+    private static Long originLong(RuntimeContext context) {
+        String origin = originOf(context);
+        if (origin == null || origin.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(origin.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @Tool(
@@ -85,7 +110,7 @@ public class TeamManagerTools {
             @ToolParam(name = "before", required = false, description = "更早历史的翻页令牌，来自上次调用结果末尾；缺省从最新开始") String before,
             @ToolParam(name = "roomId", required = false, description = "目标房间 ID（list_my_rooms 可查）；缺省当前房间") String roomId) {
         String target = roomId == null || roomId.isBlank() ? currentRoom(context) : roomId;
-        return collaboration.readRoom(target, limit, before);
+        return collaboration.readRoom(target, limit, before, scope(context));
     }
 
     @Tool(
@@ -95,7 +120,7 @@ public class TeamManagerTools {
             concurrencySafe = true
     )
     public String listMyRooms(RuntimeContext context) {
-        return collaboration.listRooms(currentRoom(context));
+        return collaboration.listRooms(currentRoom(context), scope(context));
     }
 
     @Tool(
@@ -112,7 +137,7 @@ public class TeamManagerTools {
             @ToolParam(name = "direct", required = false, description = "true=与对方单聊；缺省 false=在房间内点名") Boolean direct,
             @ToolParam(name = "roomId", required = false, description = "群内发送时的目标房间 ID；缺省当前房间") String roomId) {
         return collaboration.messageMember(currentRoom(context), target, text, roomId, Boolean.TRUE.equals(direct),
-                originOf(context));
+                originOf(context), scope(context));
     }
 
     @Tool(
@@ -128,6 +153,6 @@ public class TeamManagerTools {
             @ToolParam(name = "text", required = false, description = "分享的文本内容") String text,
             @ToolParam(name = "mxcUrl", required = false, description = "分享的媒体 mxc:// 地址") String mxcUrl,
             @ToolParam(name = "filename", required = false, description = "媒体文件名（用于判断消息类型与展示）") String filename) {
-        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, originOf(context));
+        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, originOf(context), scope(context));
     }
 }

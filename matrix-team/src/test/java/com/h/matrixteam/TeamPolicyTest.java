@@ -100,6 +100,27 @@ class TeamPolicyTest {
     }
 
     @Test
+    void predicateClassifierTreatsEveryPerUserTeamRoomAsGroup() {
+        java.util.Set<String> teamRooms = java.util.Set.of("!teamA:matrix.local", "!teamB:matrix.local");
+        TeamPolicy managerMulti = new TeamPolicy(TeamPolicy.Role.MANAGER, MANAGER, MANAGER,
+                teamRooms::contains, WORKER, SPRING_WORKER);
+        TeamPolicy workerMulti = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER,
+                teamRooms::contains, WORKER, SPRING_WORKER);
+        // 两个不同用户的专属团队房间都按群聊规则：未点名人类消息只由 Manager 接待，Worker 不抢答。
+        for (String room : teamRooms) {
+            TeamMessage unmentioned = new TeamMessage("$e", room, HUMAN, "帮我看看", List.of(), false, null, null);
+            assertTrue(managerMulti.shouldRespond(unmentioned));
+            assertFalse(workerMulti.shouldRespond(unmentioned));
+            TeamMessage toWorker = new TeamMessage("$d", room, MANAGER, "请执行", List.of(WORKER),
+                    false, TeamProtocol.KIND_DELEGATE, "task-x");
+            assertTrue(workerMulti.shouldRespond(toWorker));
+        }
+        // 非团队房间（单聊）仍按单聊规则：人类消息无需点名即触发 Worker。
+        TeamMessage dm = new TeamMessage("$dm", "!dm:matrix.local", HUMAN, "在吗", List.of(), false, null, null);
+        assertTrue(workerMulti.shouldRespond(dm));
+    }
+
+    @Test
     void dmRoomsTriggerOnAnyHumanMessageWithoutMentions() {
         TeamMessage dmHuman = new TeamMessage("$dm1", "!dm:matrix.local", HUMAN, "在吗", List.of(), false, null, null);
         assertTrue(manager.shouldRespond(dmHuman));

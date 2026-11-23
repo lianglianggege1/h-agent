@@ -23,9 +23,11 @@ public class MatrixMemorySources implements MemorySourcePort {
     private static final int MAX_PAGES = 4;
 
     private final List<MatrixClient> clients;
+    private final TeamRoomAuthorizer authorizer;
 
-    public MatrixMemorySources(List<MatrixClient> clients) {
+    public MatrixMemorySources(List<MatrixClient> clients, TeamRoomAuthorizer authorizer) {
         this.clients = clients;
+        this.authorizer = authorizer;
     }
 
     @Override
@@ -46,6 +48,10 @@ public class MatrixMemorySources implements MemorySourcePort {
         }
         String roomId = parts[1];
         String eventId = parts[2];
+        // 来源 ref 的 roomId 由调用方（agent）提供，须校验归属用户确为该房间成员，杜绝跨用户读取。
+        if (user == null || !authorizer.canAccess(user, roomId)) {
+            return Map.of("status", "SOURCE_UNAVAILABLE");
+        }
         for (TeamMessage message : history(roomId)) {
             if (eventId.equals(message.eventId()) && !message.isMedia()) {
                 String body = message.body() == null ? "" : message.body();

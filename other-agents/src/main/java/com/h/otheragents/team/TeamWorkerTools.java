@@ -1,6 +1,7 @@
 package com.h.otheragents.team;
 
 import com.h.capabilities.seam.matrix.TeamActorContext;
+import com.h.capabilities.seam.matrix.TeamRoomAuthorizer;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamCollaboration;
 import com.h.matrixteam.TeamPolicy;
@@ -10,6 +11,7 @@ import dev.langchain4j.agent.tool.Tool;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -23,11 +25,14 @@ public class TeamWorkerTools {
     private final String roomId;
     private final String managerUserId;
     private final TeamCollaboration collaboration;
+    private final TeamRoomAuthorizer authorizer;
 
-    public TeamWorkerTools(MatrixClient client, String roomId, String managerUserId, String... workerUserIds) {
+    public TeamWorkerTools(MatrixClient client, String roomId, String managerUserId, TeamRoomAuthorizer authorizer,
+                           String... workerUserIds) {
         this.client = client;
         this.roomId = roomId;
         this.managerUserId = managerUserId;
+        this.authorizer = authorizer;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, roomId, workerUserIds);
         this.collaboration = new TeamCollaboration(client, policy, roomId,
                 TeamCollaboration.rosterOf(Stream.concat(Stream.of(managerUserId), Arrays.stream(workerUserIds))
@@ -37,6 +42,26 @@ public class TeamWorkerTools {
     private String currentRoom() {
         String room = TeamActorContext.getRoom();
         return room == null || room.isBlank() ? roomId : room;
+    }
+
+    /** 本轮归属用户的房间访问谓词：当前房间恒允许，跨房间按归属用户成员身份判定。 */
+    private Predicate<String> scope() {
+        String current = currentRoom();
+        Long origin = originLong();
+        return target -> target != null
+                && (target.equals(current) || (origin != null && authorizer.canAccess(origin, target)));
+    }
+
+    private static Long originLong() {
+        String origin = TeamActorContext.getOrigin();
+        if (origin == null || origin.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(origin.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @Tool("当任务缺少必要信息、无法继续时，向 Manager 提出一个具体问题。不要猜测缺失的需求。")
@@ -56,13 +81,13 @@ public class TeamWorkerTools {
             @P(value = "更早历史的翻页令牌，来自上次调用结果末尾；缺省从最新开始", required = false) String before,
             @P(value = "目标房间 ID（listMyRooms 可查）；缺省当前房间", required = false) String roomId) {
         String target = roomId == null || roomId.isBlank() ? currentRoom() : roomId;
-        return collaboration.readRoom(target, limit, before);
+        return collaboration.readRoom(target, limit, before, scope());
     }
 
     @Tool("列出我加入的所有房间（群聊/单聊）、房间名称、成员与角色，并标记当前所在房间。"
             + "想知道自己身在哪个群/单聊、还有哪些房间和成员可互通时调用。")
     public String listMyRooms() {
-        return collaboration.listRooms(currentRoom());
+        return collaboration.listRooms(currentRoom(), scope());
     }
 
     @Tool("给团队另一位成员发消息，互通有无。target 用名字（manager/worker/spring-worker，或 Human 的 Matrix 用户名）或完整 userId。"
@@ -74,7 +99,7 @@ public class TeamWorkerTools {
             @P(value = "true=与对方单聊；缺省 false=在房间内点名", required = false) Boolean direct,
             @P(value = "群内发送时的目标房间 ID；缺省当前房间", required = false) String roomId) {
         return collaboration.messageMember(currentRoom(), target, text, roomId, Boolean.TRUE.equals(direct),
-                TeamActorContext.getOrigin());
+                TeamActorContext.getOrigin(), scope());
     }
 
     @Tool("把文本或媒体成果分享到另一个房间（跨房间互通有无）。"
@@ -85,6 +110,6 @@ public class TeamWorkerTools {
             @P(value = "分享的文本内容", required = false) String text,
             @P(value = "分享的媒体 mxc:// 地址", required = false) String mxcUrl,
             @P(value = "媒体文件名（用于判断消息类型与展示）", required = false) String filename) {
-        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, TeamActorContext.getOrigin());
+        return collaboration.shareToRoom(roomId, text, mxcUrl, filename, null, TeamActorContext.getOrigin(), scope());
     }
 }

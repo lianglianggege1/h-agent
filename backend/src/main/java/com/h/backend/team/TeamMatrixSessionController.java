@@ -36,7 +36,6 @@ public class TeamMatrixSessionController {
 
     private final TeamMatrixProvisioner provisioner;
     private final String homeserverUrl;
-    private final String roomId;
     private final String managerUsername;
     private final String workerUsername;
     private final String springWorkerUsername;
@@ -45,13 +44,11 @@ public class TeamMatrixSessionController {
     public TeamMatrixSessionController(
             TeamMatrixProvisioner provisioner,
             @Value("${MATRIX_HOMESERVER_URL:http://localhost:8008}") String homeserverUrl,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
         this.provisioner = provisioner;
         this.homeserverUrl = homeserverUrl;
-        this.roomId = roomId;
         this.managerUsername = managerUsername;
         this.workerUsername = workerUsername;
         this.springWorkerUsername = springWorkerUsername;
@@ -68,10 +65,11 @@ public class TeamMatrixSessionController {
     }
 
     private TeamMatrixSession provision(long userId) {
-        MatrixClient client = provisioner.loginFor(userId);
+        TeamMatrixProvisioner.TeamAccess access = provisioner.loginFor(userId);
+        MatrixClient client = access.client();
         String domain = MatrixClient.domainOf(client.userId());
         return new TeamMatrixSession(
-                homeserverUrl, roomId,
+                homeserverUrl, access.roomId(),
                 "@" + managerUsername + ":" + domain,
                 "@" + workerUsername + ":" + domain,
                 "@" + springWorkerUsername + ":" + domain,

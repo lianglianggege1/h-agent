@@ -109,14 +109,15 @@ public class TeamWorkerConfig {
             WorkerSkillToolProvider skillToolProvider,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
-            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
         String domain = MatrixClient.domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         return AiServices.builder(WorkerAssistant.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(1000))
-                .tools(new TeamWorkerTools(workerMatrixClient, roomId, managerUserId,
+                .tools(new TeamWorkerTools(workerMatrixClient, roomId, managerUserId, roomAuthorizer,
                                 workerMatrixClient.userId(), springWorkerUserId),
                         new WorkerDocumentTools(documentWorkflow, memoryIds, json),
                         new WorkerDeliveryTools(fileDeliveryService),
@@ -133,13 +134,12 @@ public class TeamWorkerConfig {
             WorkerAssistant workerAssistant,
             MatrixClient workerMatrixClient,
             SkillRuntimeService skillRuntimeService,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             TeamHumanDirectory directory) {
         String domain = MatrixClient.domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         return message -> handle(workerAssistant, workerMatrixClient, skillRuntimeService,
-                directory, managerUserId, roomId, message);
+                directory, managerUserId, message);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
@@ -148,6 +148,7 @@ public class TeamWorkerConfig {
             @org.springframework.beans.factory.annotation.Qualifier("workerHandler")
             TeamRoomBridge.Handler workerHandler,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
+            TeamHumanDirectory directory,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
@@ -155,14 +156,15 @@ public class TeamWorkerConfig {
         String domain = MatrixClient.domainOf(workerMatrixClient.userId());
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, workerMatrixClient.userId(),
-                managerUserId, roomId, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
-        return new TeamRoomBridge(workerMatrixClient, policy, List.of(roomId),
+                managerUserId, directory::isTeamRoom, workerMatrixClient.userId(), "@" + springWorkerUsername + ":" + domain);
+        List<String> initialRooms = roomId == null || roomId.isBlank() ? List.of() : List.of(roomId);
+        return new TeamRoomBridge(workerMatrixClient, policy, initialRooms,
                 workerHandler, maxAgentTurns, teamRunTracker);
     }
 
     private static void handle(WorkerAssistant assistant, MatrixClient client,
                                SkillRuntimeService skillRuntimeService, TeamHumanDirectory directory,
-                               String managerUserId, String teamRoomId, TeamMessage message) {
+                               String managerUserId, TeamMessage message) {
         Long owner = directory.resolveOwner(message.sender(), message.originUserId());
         if (owner == null) {
             log.warn("Worker 跳过无法归属的消息 event={} sender={}", message.eventId(), message.sender());
@@ -171,7 +173,7 @@ public class TeamWorkerConfig {
         long humanUserId = owner;
         boolean fromHuman = directory.isHuman(message.sender());
         String memoryId = TeamIdentity.memoryId(humanUserId, AGENT_ID, message.roomId());
-        boolean direct = !message.roomId().equals(teamRoomId);
+        boolean direct = !directory.isTeamRoom(message.roomId());
         String prompt = TeamProtocol.KIND_DELEGATE.equals(message.kind())
                 ? "Manager 委派（任务 %s）：%s".formatted(message.taskId(), message.body())
                 : !direct

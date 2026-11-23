@@ -101,13 +101,14 @@ public class TeamManagerConfig {
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
-            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername) {
+            @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
         String domain = MatrixClient.domainOf(teamMatrixClient.userId());
         Map<String, String> workerUserIds = new LinkedHashMap<>();
         workerUserIds.put(workerUsername, "@" + workerUsername + ":" + domain);
         workerUserIds.put(springWorkerUsername, "@" + springWorkerUsername + ":" + domain);
         Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserIds));
+        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserIds, roomAuthorizer));
         toolkit.registerTool(documentTool);
         toolkit.registerTool(generationTool);
         memoryTools.register(toolkit);
@@ -159,9 +160,8 @@ public class TeamManagerConfig {
     public TeamManagerHandler teamManagerHandler(
             @Qualifier("teamHarnessAgent") HarnessAgent teamHarnessAgent,
             MatrixClient teamMatrixClient,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             TeamHumanDirectory directory) {
-        return new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, roomId, directory);
+        return new TeamManagerHandler(teamHarnessAgent, teamMatrixClient, directory);
     }
 
     @Bean
@@ -181,6 +181,7 @@ public class TeamManagerConfig {
             MatrixClient teamMatrixClient,
             TeamManagerHandler teamManagerHandler,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
+            TeamHumanDirectory directory,
             @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
@@ -189,8 +190,10 @@ public class TeamManagerConfig {
         String workerUserId = "@" + workerUsername + ":" + domain;
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
-                teamMatrixClient.userId(), roomId, workerUserId, springWorkerUserId);
-        return new TeamRoomBridge(teamMatrixClient, policy, List.of(roomId),
+                teamMatrixClient.userId(), directory::isTeamRoom, workerUserId, springWorkerUserId);
+        // 每用户专属房间经邀请动态加入；旧全局房间（若配置）仍在启动时加入以兼容遗留。
+        List<String> initialRooms = roomId == null || roomId.isBlank() ? List.of() : List.of(roomId);
+        return new TeamRoomBridge(teamMatrixClient, policy, initialRooms,
                 teamManagerHandler, maxAgentTurns, teamRunTracker);
     }
 }
