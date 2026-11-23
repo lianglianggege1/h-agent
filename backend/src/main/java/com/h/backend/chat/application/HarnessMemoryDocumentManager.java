@@ -1,8 +1,10 @@
 package com.h.backend.chat.application;
 
+import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.matrixteam.TeamAgentIds;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
@@ -14,12 +16,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,35 +58,57 @@ public class HarnessMemoryDocumentManager {
     private final Clock clock;
     private final Supplier<AgentRegistry> registry;
     private final String namespaceAgentId;
+    private final boolean teamManagerEnabled;
 
     public List<AgentDefinition> listAgents() {
-        return registry.get().listEnabled().stream().filter(AgentDefinition::supportsHarnessMemory).toList();
+        List<AgentDefinition> agents = new ArrayList<>(
+                registry.get().listEnabled().stream().filter(AgentDefinition::supportsHarnessMemory).toList());
+        if (teamManagerEnabled) {
+            // 团队 Manager 不是产品聊天 Agent（不进 AgentRegistry，避免混入聊天选择器），
+            // 但其原生 MEMORY.md 与主聊天同库同隔离规则，这里按同一门面暴露给用户。
+            agents.add(new AgentDefinition(TeamAgentIds.MANAGER, "团队 Manager", "团队协作", List.of(),
+                    "团队聊天室 Manager 的跨会话长期记忆", null,
+                    AgentRuntimeType.HARNESS_STREAMING, true, true));
+        }
+        return List.copyOf(agents);
     }
 
     public HarnessMemoryDocumentManager forAssistant(String agentId) {
+        if (teamManagerEnabled && TeamAgentIds.MANAGER.equals(agentId)) {
+            return new HarnessMemoryDocumentManager(store, clock, registry, agentId, teamManagerEnabled);
+        }
         AgentDefinition definition = registry.get().requireEnabled(agentId);
         if (!definition.supportsHarnessMemory()) {
             throw new BusinessException(41003, "该 Agent 未启用长期记忆");
         }
-        return new HarnessMemoryDocumentManager(store, clock, registry, agentId);
+        return new HarnessMemoryDocumentManager(store, clock, registry, agentId, teamManagerEnabled);
     }
 
     @Autowired
     public HarnessMemoryDocumentManager(@Qualifier("harnessWorkspaceStore") BaseStore store,
-                                        ObjectProvider<AgentRegistry> registry) {
+                                        ObjectProvider<AgentRegistry> registry,
+                                        @Value("${MATRIX_TEAM_ENABLED:false}")
+                                        boolean teamManagerEnabled) {
         // Agent 构建时也会依赖本门面，延迟解析注册表以避免启动依赖环。
-        this(store, Clock.systemUTC(), registry::getObject, ChatAgentIds.HARNESS);
+        this(store, Clock.systemUTC(), registry::getObject, ChatAgentIds.HARNESS, teamManagerEnabled);
     }
 
     public HarnessMemoryDocumentManager(BaseStore store, Clock clock, AgentRegistry registry) {
-        this(store, clock, () -> registry, ChatAgentIds.HARNESS);
+        this(store, clock, registry, false);
     }
 
-    private HarnessMemoryDocumentManager(BaseStore store, Clock clock, Supplier<AgentRegistry> registry, String agentId) {
+    public HarnessMemoryDocumentManager(BaseStore store, Clock clock, AgentRegistry registry,
+                                        boolean teamManagerEnabled) {
+        this(store, clock, () -> registry, ChatAgentIds.HARNESS, teamManagerEnabled);
+    }
+
+    private HarnessMemoryDocumentManager(BaseStore store, Clock clock, Supplier<AgentRegistry> registry,
+                                         String agentId, boolean teamManagerEnabled) {
         this.store = store;
         this.clock = clock;
         this.registry = registry;
         this.namespaceAgentId = agentId;
+        this.teamManagerEnabled = teamManagerEnabled;
     }
 
     public HarnessMemoryDocument view(long userId) {

@@ -3,6 +3,7 @@ package com.h.backend.chat;
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
+import com.h.matrixteam.TeamAgentIds;
 import io.agentscope.harness.agent.filesystem.remote.store.BaseStore;
 import io.agentscope.harness.agent.filesystem.remote.store.InMemoryStore;
 import io.agentscope.harness.agent.filesystem.remote.store.StoreItem;
@@ -276,6 +277,58 @@ class HarnessMemoryDocumentManagerTest {
         assertEquals("用户一的记忆", manager.view(USER_ID).content());
         assertEquals("用户二的记忆", manager.view(2L).content());
         assertEquals(2, store.size());
+    }
+
+    @Test
+    void listAgentsIncludesTeamManagerOnlyWhenTeamEnabled() {
+        assertFalse(manager.listAgents().stream()
+                .anyMatch(agent -> agent.agentId().equals(TeamAgentIds.MANAGER)));
+
+        HarnessMemoryDocumentManager teamEnabled = new HarnessMemoryDocumentManager(
+                store, clock, HarnessMemoryTestAgents.registry(), true);
+
+        assertTrue(teamEnabled.listAgents().stream()
+                .anyMatch(agent -> agent.agentId().equals(TeamAgentIds.MANAGER)
+                        && agent.supportsHarnessMemory()));
+    }
+
+    @Test
+    void teamManagerReadsAndWritesItsOwnNamespaceWithoutTouchingMainChat() {
+        HarnessMemoryDocumentManager teamEnabled = new HarnessMemoryDocumentManager(
+                store, clock, HarnessMemoryTestAgents.registry(), true);
+        HarnessMemoryDocumentManager teamManager = teamEnabled.forAssistant(TeamAgentIds.MANAGER);
+
+        assertFalse(teamManager.view(USER_ID).exists());
+        teamManager.save(USER_ID, "团队记忆", 0L);
+
+        List<String> teamNamespace =
+                List.of("agents", TeamAgentIds.MANAGER, "users", String.valueOf(USER_ID), "root");
+        assertEquals("团队记忆", store.get(teamNamespace, ITEM_KEY).value().get("content"));
+        assertEquals("团队记忆", teamManager.view(USER_ID).content());
+        // 主聊天命名空间不受影响。
+        assertNull(store.get(NAMESPACE, ITEM_KEY));
+        assertFalse(manager.view(USER_ID).exists());
+    }
+
+    @Test
+    void teamManagerMemoryIsIsolatedPerUser() {
+        HarnessMemoryDocumentManager teamEnabled = new HarnessMemoryDocumentManager(
+                store, clock, HarnessMemoryTestAgents.registry(), true);
+        HarnessMemoryDocumentManager teamManager = teamEnabled.forAssistant(TeamAgentIds.MANAGER);
+
+        teamManager.save(USER_ID, "用户一的团队记忆", 0L);
+
+        assertFalse(teamManager.view(2L).exists());
+        assertEquals("用户一的团队记忆", teamManager.view(USER_ID).content());
+    }
+
+    @Test
+    void forAssistantRejectsTeamManagerWhenTeamDisabled() {
+        com.h.capabilities.common.exception.BusinessException exception = assertThrows(
+                com.h.capabilities.common.exception.BusinessException.class,
+                () -> manager.forAssistant(TeamAgentIds.MANAGER));
+
+        assertEquals(41001, exception.getCode());
     }
 
     private void seedStoredFile(String content, String modifiedAt) {

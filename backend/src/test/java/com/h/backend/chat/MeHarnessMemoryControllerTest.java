@@ -1,6 +1,9 @@
 package com.h.backend.chat;
 
 import com.h.backend.chat.application.HarnessMemoryDocumentManager;
+import com.h.backend.chat.domain.agent.AgentDefinition;
+import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.capabilities.chat.domain.agent.ChatAgentIds;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocument;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException;
 import com.h.capabilities.chat.domain.memory.HarnessMemoryDocumentException.Kind;
@@ -8,6 +11,7 @@ import com.h.backend.chat.interfaces.web.HarnessMemoryDocumentExceptionAdvisor;
 import com.h.backend.chat.interfaces.web.MeHarnessMemoryController;
 import com.h.backend.common.exception.GlobalExceptionHandler;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
+import com.h.matrixteam.TeamAgentIds;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -202,5 +206,32 @@ class MeHarnessMemoryControllerTest {
     void rejectsUnknownSubRoutes() throws Exception {
         mockMvc.perform(MockMvcRequestBuilders.post("/api/me/memory/versions"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void agentsEndpointReturnsCatalogIncludingTeamManager() throws Exception {
+        when(manager.listAgents()).thenReturn(List.of(
+                HarnessMemoryTestAgents.agent(ChatAgentIds.HARNESS),
+                new AgentDefinition(TeamAgentIds.MANAGER, "团队 Manager", "团队协作", List.of(), "",
+                        null, AgentRuntimeType.HARNESS_STREAMING, true, true)));
+
+        mockMvc.perform(get("/api/me/memory/agents"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[1].agentId").value(TeamAgentIds.MANAGER))
+                .andExpect(jsonPath("$.data[1].displayName").value("团队 Manager"));
+    }
+
+    @Test
+    void getWithAgentIdRoutesThroughForAssistant() throws Exception {
+        when(manager.view(USER_ID)).thenReturn(new HarnessMemoryDocument(
+                "团队记忆", 3L, true, null));
+
+        mockMvc.perform(get("/api/me/memory").param("agentId", TeamAgentIds.MANAGER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("团队记忆"));
+
+        verify(manager).forAssistant(TeamAgentIds.MANAGER);
     }
 }
