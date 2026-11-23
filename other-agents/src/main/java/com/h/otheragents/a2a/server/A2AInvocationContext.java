@@ -13,7 +13,7 @@ public record A2AInvocationContext(
     static final ScopedValue<A2AInvocationContext> ACTIVE = ScopedValue.newInstance();
 
     public static A2AInvocationContext current() {
-        return ACTIVE.orElse(null);
+        return ACTIVE.isBound() ? ACTIVE.get() : null;
     }
 
     public static A2AInvocationContext fromMetadata(

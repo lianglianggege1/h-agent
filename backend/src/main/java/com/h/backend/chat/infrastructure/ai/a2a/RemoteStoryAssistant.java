@@ -8,6 +8,7 @@ import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.backend.chat.domain.agent.AgentStepEventBridge;
+import com.h.backend.chat.domain.agent.AgentStepListener;
 import com.h.backend.chat.domain.agent.AgentTopologyProvider;
 import com.h.backend.chat.infrastructure.ai.a2a.StoryIntentRouter.Decision;
 import com.h.backend.chat.infrastructure.ai.a2a.StoryIntentRouter.Intent;
@@ -16,6 +17,7 @@ import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
 import dev.langchain4j.agentic.planner.AgentInstance;
+import dev.langchain4j.agentic.scope.AgenticScope;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import dev.langchain4j.invocation.InvocationParameters;
 import io.jsonwebtoken.Jwts;
@@ -77,10 +79,17 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
     }
 
     private UntypedAgent buildWorkflow() {
+        var listener = new AgentStepListener(events) {
+            @Override
+            protected Object executionMemoryId(AgenticScope scope) {
+                // Keep the planner scope turn-local, while publishing to the owning chat stream.
+                return scope.readState(INVOCATION) instanceof Invocation run ? run.memoryId() : null;
+            }
+        };
         var classifier = AgenticServices.nonAiAgentBuilder(scope -> classify((Invocation) scope.readState(INVOCATION)))
                 .name("识别用户意图").description("结合当前任务状态理解自然语言请求")
                 .inputKey(String.class, "message").inputKey(Invocation.class, INVOCATION)
-                .outputKey("intent").outputType(Decision.class).build();
+                .outputKey("intent").outputType(Decision.class).listener(listener).build();
         var routes = List.of(
                 new Route(Intent.SKILLS, "了解可用技能", "读取授权技能", "通过 A2A 获取当前用户的扩展卡片",
                         (run, decision) -> skills(run)),
@@ -103,7 +112,7 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
                 .name("委派远端操作").description("按识别出的意图执行对应操作").outputKey("reply");
         for (Route route : routes) {
             router.subAgents(route.condition(), scope -> ((Decision) scope.readState("intent")).intent() == route.intent(),
-                    route.agent());
+                    route.agent(listener));
         }
         return AgenticServices.sequenceBuilder()
                 .name("A2A 远端故事助手").description("识别自然语言意图并委派远端操作")
@@ -127,12 +136,12 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
 
     private record Route(Intent intent, String condition, String name, String description,
                          BiFunction<Invocation, Decision, String> execute) {
-        AgenticServices.AgenticScopeFunction<String> agent() {
+        AgenticServices.AgenticScopeFunction<String> agent(AgentStepListener listener) {
             return AgenticServices.nonAiAgentBuilder(scope ->
                             execute.apply((Invocation) scope.readState(INVOCATION), (Decision) scope.readState("intent")))
                     .name(name).description(description).inputKey(String.class, "message")
                     .inputKey(Decision.class, "intent").inputKey(Invocation.class, INVOCATION)
-                    .outputKey("reply").outputType(String.class).build();
+                    .outputKey("reply").outputType(String.class).listener(listener).build();
         }
     }
 

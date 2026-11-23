@@ -1,14 +1,20 @@
 package com.h.backend.chat.infrastructure.ai.a2a;
 
+import com.agui.community.core.event.ActivitySnapshotEvent;
+import com.agui.community.core.event.Event;
+import com.agui.community.core.event.StepFinishedEvent;
+import com.agui.community.core.event.StepStartedEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.agent.observability.AgentObservation;
 import com.h.agent.observability.AgentObservability;
-import com.h.backend.chat.domain.agent.AgentStepEventBridge;
+import com.h.backend.chat.application.agui.AguiRunProjection;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.agent.AgentStepEventBridge;
 import com.h.backend.chat.domain.agent.AgentTopologyMapper;
+import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.chat.interfaces.web.AgentController;
 import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import com.sun.net.httpserver.HttpServer;
@@ -20,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -193,6 +200,41 @@ class RemoteStoryAssistantTest {
 
     private static StoryIntentRouter.Decision storyIntent(String request) {
         return new StoryIntentRouter.Decision(StoryIntentRouter.Intent.STORY, false);
+    }
+
+    @Test
+    void exposesTheExecutedScoringStepsToAguiAndItsSnapshot() {
+        var events = new AgentStepEventBridge();
+        var wire = new ArrayList<Event>();
+        var projection = new AguiRunProjection("session-1", "run-1", wire::add);
+        events.register("memory", step -> projection.accept(new ChatStreamEvent("agent_step", "", null, step)));
+        var reviewer = mock(NacosStoryReview.class);
+        String request = "给这段稿子打个分：月球基地的孩子用一盏旧灯找回了机器人";
+        when(reviewer.run(request, "style-score")).thenReturn("评分 85 分");
+        var assistant = new RemoteStoryAssistant(() -> { throw new AssertionError("unexpected story task"); },
+                Keys.hmacShaKeyFor(new byte[32]), new SessionReferences(), ignored -> false, reviewer, null,
+                events, mock(AgentObservability.class),
+                input -> new StoryIntentRouter.Decision(StoryIntentRouter.Intent.SCORE, false));
+        var invocation = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
+
+        assertEquals("评分 85 分", assistant.chat("memory", request, invocation.toInvocationParameters()).result());
+        projection.refreshProgress();
+        var snapshot = (ActivitySnapshotEvent) wire.getLast();
+        var steps = (List<?>) ((Map<?, ?>) snapshot.content()).get("steps");
+        var recorded = steps.stream().map(step -> (Map<?, ?>) step).toList();
+        assertEquals(List.of("识别用户意图", "远端稿件评分"), recorded.stream().map(step -> step.get("name")).toList());
+        assertEquals(List.of("completed", "completed"), recorded.stream().map(step -> step.get("status")).toList());
+        assertEquals(List.of(StepStartedEvent.class, StepFinishedEvent.class,
+                        StepStartedEvent.class, StepFinishedEvent.class),
+                wire.stream().filter(event -> event instanceof StepStartedEvent || event instanceof StepFinishedEvent)
+                        .map(Object::getClass).toList());
+
+        var restoredWire = new ArrayList<Event>();
+        var restored = new AguiRunProjection("session-1", "run-1", restoredWire::add);
+        restored.restore(projection.snapshot());
+        restored.refreshProgress();
+        var restoredSnapshot = (ActivitySnapshotEvent) restoredWire.getLast();
+        assertEquals(steps, ((Map<?, ?>) restoredSnapshot.content()).get("steps"));
     }
 
     private static final class SessionReferences implements RemoteStoryAssistant.References {

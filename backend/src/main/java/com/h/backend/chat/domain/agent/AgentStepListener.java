@@ -31,23 +31,33 @@ public class AgentStepListener implements AgentListener {
 
     @Override
     public void beforeAgentInvocation(AgentRequest request) {
-        bridge.checkpoint(request.agenticScope().memoryId());
+        Object memoryId = executionMemoryId(request.agenticScope());
+        if (memoryId == null) return;
+        bridge.checkpoint(memoryId);
         InvocationKey key = key(request.agenticScope(), request.agent(), request.inputs());
         String invocationId = newInvocationId(request.agent());
         invocationIds.put(key, invocationId);
-        bridge.emit(request.agenticScope().memoryId(), payload(request.agent(), "running", invocationId));
+        bridge.emit(memoryId, payload(request.agent(), "running", invocationId));
     }
 
     @Override
     public void afterAgentInvocation(AgentResponse response) {
+        Object memoryId = executionMemoryId(response.agenticScope());
+        if (memoryId == null) return;
         String invocationId = removeInvocationId(response.agenticScope(), response.agent(), response.inputs());
-        bridge.emit(response.agenticScope().memoryId(), payload(response.agent(), "completed", invocationId));
+        bridge.emit(memoryId, payload(response.agent(), "completed", invocationId));
     }
 
     @Override
     public void onAgentInvocationError(AgentInvocationError error) {
+        Object memoryId = executionMemoryId(error.agenticScope());
+        if (memoryId == null) return;
         String invocationId = removeInvocationId(error.agenticScope(), error.agent(), error.inputs());
-        bridge.emit(error.agenticScope().memoryId(), payload(error.agent(), "failed", invocationId));
+        bridge.emit(memoryId, payload(error.agent(), "failed", invocationId));
+    }
+
+    protected Object executionMemoryId(AgenticScope scope) {
+        return scope.memoryId();
     }
 
     @Override
@@ -57,7 +67,7 @@ public class AgentStepListener implements AgentListener {
 
     @Override
     public void beforeAgentToolExecution(BeforeAgentToolExecution execution) {
-        Object memoryId = execution.agenticScope().memoryId();
+        Object memoryId = executionMemoryId(execution.agenticScope());
         bridge.checkpoint(memoryId);
         var request = execution.toolExecution().request();
         bridge.emitTool(memoryId, new ChatStreamEvent("tool_start", "", null,
@@ -68,7 +78,7 @@ public class AgentStepListener implements AgentListener {
     @Override
     public void afterAgentToolExecution(AfterAgentToolExecution execution) {
         var tool = execution.toolExecution();
-        bridge.emitTool(execution.agenticScope().memoryId(), new ChatStreamEvent("tool_result", "", null,
+        bridge.emitTool(executionMemoryId(execution.agenticScope()), new ChatStreamEvent("tool_result", "", null,
                 Map.of("id", tool.request().id(), "name", tool.request().name(),
                         "result", java.util.Objects.toString(tool.result(), ""), "failed", tool.hasFailed())));
     }

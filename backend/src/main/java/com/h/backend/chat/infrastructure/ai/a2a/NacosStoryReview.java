@@ -12,6 +12,8 @@ import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.registry.NacosA2AConstants;
 import com.h.registry.NacosRegistryProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -25,6 +27,8 @@ import java.util.Properties;
 import java.util.UUID;
 
 final class NacosStoryReview {
+    private static final Logger log = LoggerFactory.getLogger(NacosStoryReview.class);
+    private static final String REGISTERED_REVIEWER = "story-review";
     private final AiService runtime;
     private final NacosRegistryProperties properties;
     private final AgentObservability observability;
@@ -64,6 +68,8 @@ final class NacosStoryReview {
             String text = task.at("/artifacts/0/parts/0/text").asText();
             if (reply.statusCode() != 200 || text.isBlank()
                     || !"TASK_STATE_COMPLETED".equals(task.at("/status/state").asText())) {
+                log.warn("Review agent did not deliver an artifact skill={} httpStatus={} taskState={}",
+                        skill, reply.statusCode(), task.at("/status/state").asText());
                 throw new IllegalStateException("Review did not deliver a result");
             }
             span.attribute("a2a.task_id", task.path("id").asText());
@@ -72,41 +78,56 @@ final class NacosStoryReview {
             return text;
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("A2A review failed skill={} errorType={}", skill, failure.getClass().getSimpleName());
             span.fail(failure);
             return "远端审稿暂时失败，请稍后重试。";
         }
     }
 
     private URI discover(String skill) throws Exception {
+        // The service lookup does not require access to the administrative AgentCard catalog.
+        URI registered = endpoint(REGISTERED_REVIEWER, null, skill);
+        if (registered != null) return registered;
         for (int page = 1; page <= 20; page++) {
-            var result = catalog().listAgentCards(properties.namespace(), "SERVICE", page, 50);
+            var result = catalog().listAgentCards(properties.namespace(), "", page, 50);
             if (result == null || result.getPageItems() == null) return null;
             for (var listing : result.getPageItems()) {
                 if (listing.getSkills() != null && !listing.getSkills().isEmpty()
                         && listing.getSkills().stream().noneMatch(candidate -> skill.equals(candidate.getId()))) continue;
-                AgentCardDetailInfo card;
-                try {
-                    card = runtime.getAgentCard(listing.getName(), listing.getLatestPublishedVersion(), "SERVICE");
-                } catch (NacosException unavailable) {
-                    continue;
-                }
-                if (!offers(card, skill)) continue;
-                String address = card.getUrl();
-                if ((address == null || address.isBlank()) && card.getSupportedInterfaces() != null) {
-                    address = card.getSupportedInterfaces().stream()
-                            .filter(binding -> "JSONRPC".equals(binding.getProtocolBinding())
-                                    || "JSONRPC".equals(binding.getTransport()))
-                            .map(binding -> binding.getUrl()).filter(url -> url != null && !url.isBlank())
-                            .findFirst().orElse(null);
-                }
-                if (address == null) continue;
-                URI uri = URI.create(address);
-                if (uri.getHost() != null && !NacosA2AConstants.UNRESOLVED_HOST.equals(uri.getHost())
-                        && List.of("http", "https").contains(uri.getScheme()) && uri.getUserInfo() == null) {
-                    return uri;
-                }
+                URI candidate = endpoint(listing.getName(), listing.getLatestPublishedVersion(), skill);
+                if (candidate != null) return candidate;
             }
             if (page >= result.getPagesAvailable()) break;
+        }
+        return null;
+    }
+
+    private URI endpoint(String name, String version, String skill) {
+        AgentCardDetailInfo card;
+        try {
+            card = runtime.getAgentCard(name, version, "SERVICE");
+        } catch (NacosException unavailable) {
+            log.debug("Nacos review card unavailable agent={} code={}", name, unavailable.getErrCode());
+            return null;
+        }
+        if (!offers(card, skill)) return null;
+        String address = card.getUrl();
+        if ((address == null || address.isBlank()) && card.getSupportedInterfaces() != null) {
+            address = card.getSupportedInterfaces().stream()
+                    .filter(binding -> "JSONRPC".equals(binding.getProtocolBinding())
+                            || "JSONRPC".equals(binding.getTransport()))
+                    .map(binding -> binding.getUrl()).filter(url -> url != null && !url.isBlank())
+                    .findFirst().orElse(null);
+        }
+        if (address == null) return null;
+        try {
+            URI uri = URI.create(address);
+            if (uri.getHost() != null && !NacosA2AConstants.UNRESOLVED_HOST.equals(uri.getHost())
+                    && ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) && uri.getUserInfo() == null) {
+                return uri;
+            }
+        } catch (IllegalArgumentException malformedAddress) {
+            log.debug("Nacos review card has an invalid endpoint agent={}", name);
         }
         return null;
     }

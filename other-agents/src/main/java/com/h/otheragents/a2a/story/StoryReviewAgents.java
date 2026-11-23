@@ -57,12 +57,7 @@ public class StoryReviewAgents {
                     %s
                     """.formatted(manuscript));
         }
-        final String evidence;
-        try {
-            evidence = delegate(manuscript);
-        } catch (RuntimeException failure) {
-            return "事实核查服务未完成，请稍后重试。稿件未获得事实核查结论。";
-        }
+        String evidence = delegate(manuscript);
         return model.chat("""
                 根据稿件和远端核查报告编辑文章。只有报告给出明确证据的事实才可据此更正。
                 对缺乏证据的主张明确标记，给出简要审核说明和编辑后的全文。
@@ -113,7 +108,7 @@ public class StoryReviewAgents {
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
             span.fail(failure);
-            throw new IllegalStateException("Fact checking failed", failure);
+            throw new IllegalStateException("事实核查服务未完成，请稍后重试。稿件未获得事实核查结论。", failure);
         }
     }
 
