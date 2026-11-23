@@ -19,7 +19,6 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -60,11 +59,12 @@ public class McpObservabilityWebFilter implements WebFilter {
                 || !isConfiguredMcpPath(exchange.getRequest().getPath().value())) {
             return chain.filter(exchange);
         }
-        ObservationContext parent = observability.extract(headersOf(exchange));
-        AgentObservation server = observability.span(
+        ObservationContext parent = observability.extract(A2AObservabilityWebFilter.headersOf(exchange));
+        AgentObservation server = observability.serverSpan(
                 ObservationSpec.of("remote_call mcp.server", HObsKind.REMOTE_CALL, "mcp-server",
                         Map.of(HAttrs.AGENT_ID, exchange.getRequest().getPath().value())),
                 parent);
+        exchange.getResponse().getHeaders().set(A2AObservabilityWebFilter.TRACE_HEADER, server.traceId());
         exchange.getAttributes().put(McpObservability.EXCHANGE_ATTRIBUTE, server.context());
         return Mono.using(
                         () -> observability.scope(server.context()),
@@ -88,13 +88,4 @@ public class McpObservabilityWebFilter implements WebFilter {
         return false;
     }
 
-    private static Map<String, String> headersOf(ServerWebExchange exchange) {
-        Map<String, String> headers = new HashMap<>();
-        exchange.getRequest().getHeaders().forEach((name, values) -> {
-            if (!values.isEmpty()) {
-                headers.put(name, values.get(0));
-            }
-        });
-        return headers;
-    }
 }

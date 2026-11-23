@@ -6,13 +6,33 @@ import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.agent.observability.lifecycle.ObservationScope;
 import com.h.agent.observability.semantic.SemanticContent;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.sdk.trace.IdGenerator;
+
 import java.util.Map;
 
 public final class NoopAgentObservability implements AgentObservability {
 
     private static final NoopAgentObservability INSTANCE =
             new NoopAgentObservability(LangfuseRuntimeStatus.DISABLED_NOT_CONFIGURED);
-    private static final ObservationScope NOOP_SCOPE = () -> {
+    private static final IdGenerator IDS = IdGenerator.random();
+    private static final W3CTraceContextPropagator PROPAGATOR = W3CTraceContextPropagator.getInstance();
+    private static final TextMapGetter<Map<String, String>> HEADERS = new TextMapGetter<>() {
+        @Override
+        public Iterable<String> keys(Map<String, String> carrier) {
+            return carrier.keySet();
+        }
+
+        @Override
+        public String get(Map<String, String> carrier, String key) {
+            return carrier == null ? null : carrier.get(key);
+        }
     };
 
     private final LangfuseRuntimeStatus status;
@@ -30,11 +50,11 @@ public final class NoopAgentObservability implements AgentObservability {
     }
 
     static AgentExecutionObservation noopExecution() {
-        return new NoopExecution();
+        return new NoopExecution(ObservationContext.root());
     }
 
     static AgentObservation noopObservation() {
-        return new NoopObservation();
+        return new NoopObservation(ObservationContext.root());
     }
 
     @Override
@@ -49,7 +69,7 @@ public final class NoopAgentObservability implements AgentObservability {
 
     @Override
     public AgentExecutionObservation start(AgentExecutionStart start) {
-        return noopExecution();
+        return new NoopExecution(child(currentContext(), false));
     }
 
     @Override
@@ -59,47 +79,59 @@ public final class NoopAgentObservability implements AgentObservability {
 
     @Override
     public AgentObservation span(ObservationSpec spec, ObservationContext parent) {
-        return noopObservation();
+        return new NoopObservation(child(parent == null ? currentContext() : parent, false));
+    }
+
+    @Override
+    public AgentObservation serverSpan(ObservationSpec spec, ObservationContext parent) {
+        return new NoopObservation(child(parent == null ? currentContext() : parent, true));
     }
 
     @Override
     public ObservationContext currentContext() {
-        return ObservationContext.root();
+        return ObservationContext.of(Context.current(), null);
     }
 
     @Override
     public ObservationScope scope(ObservationContext context) {
-        return NOOP_SCOPE;
+        if (context == null) return () -> { };
+        var scope = context.otelContext().makeCurrent();
+        return scope::close;
     }
 
     @Override
     public ObservationContext extract(Map<String, String> headers) {
-        return ObservationContext.root();
+        return ObservationContext.of(PROPAGATOR.extract(Context.root(), headers, HEADERS), null);
     }
 
     @Override
     public void inject(ObservationContext context, Map<String, String> headers) {
+        if (context != null) PROPAGATOR.inject(context.otelContext(), headers, Map::put);
+    }
+
+    private static ObservationContext child(ObservationContext parent, boolean newRoot) {
+        var existing = Span.fromContext(parent.otelContext()).getSpanContext();
+        if (!existing.isValid() && !newRoot) return parent;
+        var ids = SpanContext.create(existing.isValid() ? existing.getTraceId() : IDS.generateTraceId(),
+                IDS.generateSpanId(), existing.isValid() ? existing.getTraceFlags() : TraceFlags.getDefault(),
+                existing.isValid() ? existing.getTraceState() : TraceState.getDefault());
+        return ObservationContext.of(Span.wrap(ids).storeInContext(parent.otelContext()), parent.metadata());
     }
 
     @Override
     public void close() {
     }
 
-    private static final class NoopExecution implements AgentExecutionObservation {
+    private record NoopExecution(ObservationContext observationContext) implements AgentExecutionObservation {
 
         @Override
         public String traceId() {
-            return null;
-        }
-
-        @Override
-        public ObservationContext observationContext() {
-            return ObservationContext.root();
+            return traceIdOf(observationContext);
         }
 
         @Override
         public ObservationScope scope() {
-            return NOOP_SCOPE;
+            return INSTANCE.scope(observationContext);
         }
 
         @Override
@@ -119,21 +151,22 @@ public final class NoopAgentObservability implements AgentObservability {
         }
     }
 
-    private static final class NoopObservation implements AgentObservation {
+    private static String traceIdOf(ObservationContext context) {
+        var span = Span.fromContext(context.otelContext()).getSpanContext();
+        return span.isValid() ? span.getTraceId() : null;
+    }
+
+    private record NoopObservation(ObservationContext context) implements AgentObservation {
 
         @Override
         public String traceId() {
-            return null;
+            return traceIdOf(context);
         }
 
         @Override
         public String spanId() {
-            return null;
-        }
-
-        @Override
-        public ObservationContext context() {
-            return ObservationContext.root();
+            var span = Span.fromContext(context.otelContext()).getSpanContext();
+            return span.isValid() ? span.getSpanId() : null;
         }
 
         @Override

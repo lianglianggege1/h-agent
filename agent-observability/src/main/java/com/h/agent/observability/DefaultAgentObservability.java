@@ -231,12 +231,22 @@ final class DefaultAgentObservability implements AgentObservability {
 
     @Override
     public AgentObservation span(ObservationSpec spec, ObservationContext parent) {
+        return span(spec, parent, spec != null && spec.kind() == HObsKind.REMOTE_CALL
+                ? SpanKind.CLIENT : SpanKind.INTERNAL);
+    }
+
+    @Override
+    public AgentObservation serverSpan(ObservationSpec spec, ObservationContext parent) {
+        return span(spec, parent, SpanKind.SERVER);
+    }
+
+    private AgentObservation span(ObservationSpec spec, ObservationContext parent, SpanKind kind) {
         if (spec == null) {
             return NoopAgentObservability.noopObservation();
         }
         ObservationContext effectiveParent = parent != null ? parent : currentContext();
         SpanBuilder builder = tracer.spanBuilder(spec.name())
-                .setSpanKind(spec.kind() == HObsKind.REMOTE_CALL ? SpanKind.CLIENT : SpanKind.INTERNAL);
+                .setSpanKind(kind);
         if (effectiveParent != null && effectiveParent.otelContext() != null) {
             builder.setParent(effectiveParent.otelContext());
         }

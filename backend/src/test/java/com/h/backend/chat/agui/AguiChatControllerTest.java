@@ -1,11 +1,13 @@
 package com.h.backend.chat.agui;
 
+import com.h.agent.observability.NoopAgentObservability;
 import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.backend.chat.infrastructure.config.ChatStreamProperties;
 import com.h.backend.chat.infrastructure.config.AguiSdkConfig;
 import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.web.AguiChatController;
 import com.h.backend.shared.infrastructure.security.AuthUserPrincipal;
+import com.h.backend.shared.infrastructure.web.TraceMdcFilter;
 import com.agui.community.core.event.*;
 import com.agui.community.core.message.Role;
 import com.agui.community.core.agent.RunAgentInput;
@@ -71,12 +73,15 @@ class AguiChatControllerTest {
                                                     NativeWebRequest request, WebDataBinderFactory factory) {
                 return new AuthUserPrincipal(1L, "fixture@example.com", "USER");
             }
-        }).build();
+        }).addFilters(new TraceMdcFilter(NoopAgentObservability.getInstance())).build();
+        String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
         var pending = mvc.perform(post("/api/chat/agui").contentType("application/json")
+                .header("traceparent", "00-" + traceId + "-00f067aa0ba902b7-01")
                 .content("{\"threadId\":\"thread\",\"runId\":\"run\",\"messages\":[]}"))
                 .andExpect(request().asyncStarted()).andReturn();
         var response = mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith("text/event-stream")).andReturn().getResponse();
+                .andExpect(content().contentTypeCompatibleWith("text/event-stream"))
+                .andExpect(header().string("X-Trace-Id", traceId)).andReturn().getResponse();
         assertEquals("""
                 : keepalive
 

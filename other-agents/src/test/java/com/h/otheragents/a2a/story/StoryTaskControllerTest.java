@@ -2,7 +2,6 @@ package com.h.otheragents.a2a.story;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.agent.observability.NoopAgentObservability;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -171,8 +170,7 @@ class StoryTaskControllerTest {
     private static WebTestClient client(StoryTaskWorkflow.Store store, StoryTaskWorkflow.StoryModel model) {
         return WebTestClient.bindToController(new StoryTaskController(
                 new OtherAgentsA2AProperties(), new StoryTaskWorkflow(store, model),
-                token -> Optional.of(new StoryTaskController.Caller(token, "editor".equals(token))),
-                NoopAgentObservability.getInstance())).build();
+                token -> Optional.of(new StoryTaskController.Caller(token, "editor".equals(token))))).build();
     }
 
     @Test

@@ -1,6 +1,9 @@
 package com.h.otheragents.a2a.story;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
+import com.h.agent.observability.lifecycle.ObservationContext;
+import com.h.otheragents.observability.A2AObservabilityWebFilter;
 import com.h.capabilities.chat.infrastructure.config.ImageGenerationProperties;
 import com.h.capabilities.chat.infrastructure.image.MiniMaxHttpImageClient;
 import com.h.capabilities.chat.infrastructure.image.MiniMaxImageClient;
@@ -66,9 +69,15 @@ public final class StoryIllustratorController {
 
     @PostMapping(value = PATH, produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<String>> illustrate(@RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false)
-                                                   String header, @RequestBody String body) {
+                                                   String header, @RequestBody String body,
+                                               @RequestAttribute(name = A2AObservabilityWebFilter.EXCHANGE_ATTRIBUTE, required = false)
+                                               ObservationContext observation) {
         if (!authorized(header)) return Mono.just(ResponseEntity.status(401).build());
-        return Mono.fromCallable(() -> ResponseEntity.ok(handle(body))).subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(() -> {
+            try (var scope = ExecutionContextSnapshot.forObservation(observation).scope()) {
+                return ResponseEntity.ok(handle(body));
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     private boolean authorized(String header) {

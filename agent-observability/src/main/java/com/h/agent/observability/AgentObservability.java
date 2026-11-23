@@ -25,6 +25,10 @@ public interface AgentObservability extends AgentObservationLifecycle {
 
     AgentObservation span(ObservationSpec spec, ObservationContext parent);
 
+    default AgentObservation serverSpan(ObservationSpec spec, ObservationContext parent) {
+        return span(spec, parent);
+    }
+
     ObservationContext currentContext();
 
     ObservationScope scope(ObservationContext context);

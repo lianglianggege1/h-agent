@@ -7,7 +7,10 @@ import com.h.agent.observability.AgentObservation;
 import com.h.agent.observability.HAttrs;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.agent.observability.lifecycle.ObservationContext;
+import io.opentelemetry.api.trace.SpanKind;
+import org.slf4j.MDC;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.data.SpanData;
@@ -80,17 +83,23 @@ class A2AObservabilityWebFilterTest {
 
         AtomicReference<ObservationContext> contextInsideChain = new AtomicReference<>();
         AtomicReference<AgentObservation> agentInsideChain = new AtomicReference<>();
-        WebFilterChain chain = ignored -> Mono.fromRunnable(() -> {
-            contextInsideChain.set(observability.currentContext());
-            agentInsideChain.set(observability.span(
-                    ObservationSpec.of("agent creative-writer", HObsKind.AGENT, "langchain4j"),
-                    observability.currentContext()));
-        });
+        WebFilterChain chain = requestExchange -> Mono.<Void>fromRunnable(() -> {
+            ObservationContext context = requestExchange.getRequiredAttribute(A2AObservabilityWebFilter.EXCHANGE_ATTRIBUTE);
+            try (var scope = ExecutionContextSnapshot.forObservation(context).scope()) {
+                assertEquals(clientCall.traceId(), MDC.get("traceId"));
+                contextInsideChain.set(observability.currentContext());
+                agentInsideChain.set(observability.span(
+                        ObservationSpec.of("agent creative-writer", HObsKind.AGENT, "langchain4j"),
+                        observability.currentContext()));
+            }
+        }).subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
         filter.filter(exchange, chain).block();
         agentInsideChain.get().succeed();
         AgentObservabilityTesting.flush(observability);
 
         SpanData server = spanByName("remote_call a2a.server");
+        assertEquals(SpanKind.SERVER, server.getKind());
+        assertEquals(clientCall.traceId(), exchange.getResponse().getHeaders().getFirst("X-Trace-Id"));
         assertEquals(clientCall.traceId(), server.getTraceId(),
                 "server span must continue the client's trace");
         assertEquals(clientCall.spanId(), server.getParentSpanId(),
@@ -158,6 +167,7 @@ class A2AObservabilityWebFilterTest {
 
         assertTrue(exporter.getFinishedSpanItems().isEmpty(),
                 "AgentCard startup queries must not create business traces");
+        assertTrue(exchange.getResponse().getHeaders().getFirst("X-Trace-Id").matches("[0-9a-f]{32}"));
     }
 
     @Test

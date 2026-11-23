@@ -36,6 +36,7 @@ test("Runtime authenticates discovery endpoints too", async (t) => {
   globalThis.fetch = async () => new Response("unauthorized", { status: 401 });
   const response = await handleCopilotRequest(new Request("http://localhost/api/copilotkit/info"));
   assert.equal(response.status, 401);
+  assert.match(response.headers.get("X-Trace-Id"), /^[0-9a-f]{32}$/);
 });
 
 test("official SDK relays Java events and submits only new user text with owned credentials", async (t) => {
@@ -67,6 +68,7 @@ test("official SDK relays Java events and submits only new user text with owned 
   assert.deepEqual(submitted.input.messages, [{ id: "new", role: "user", content: "hello" }]);
   assert.deepEqual(submitted.input.state, {});
   assert.deepEqual(submitted.input.forwardedProps.resources, [{ resourceId: "history-image", role: "REFERENCE", source: "HISTORY" }]);
+  assert.equal(submitted.headers.get("traceparent").split("-")[1], response.headers.get("X-Trace-Id"));
   assert.equal(submitted.headers.get("cookie"), "access_token=alice");
   assert.equal(submitted.headers.get("x-user-id"), null);
 });

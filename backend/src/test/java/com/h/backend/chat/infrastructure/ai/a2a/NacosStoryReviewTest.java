@@ -5,9 +5,12 @@ import com.alibaba.nacos.api.ai.model.a2a.AgentCardDetailInfo;
 import com.alibaba.nacos.api.ai.model.a2a.AgentSkill;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.agent.observability.NoopAgentObservability;
+import com.h.backend.shared.infrastructure.web.TraceMdcFilter;
 import com.h.registry.NacosRegistryProperties;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -23,10 +26,12 @@ class NacosStoryReviewTest {
     @Test
     void scoresThroughTheRegisteredAgentWithoutAnAdminCatalog() throws Exception {
         var request = new AtomicReference<String>();
+        var traceparent = new AtomicReference<String>();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/score", exchange -> {
             try (exchange) {
                 request.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                traceparent.set(exchange.getRequestHeaders().getFirst("traceparent"));
                 byte[] body = """
                         {"result":{"task":{"id":"task-1","contextId":"context-1",
                         "status":{"state":"TASK_STATE_COMPLETED"},"artifacts":[{"parts":[{"text":"评分 85 分"}]}]}}}
@@ -49,9 +54,13 @@ class NacosStoryReviewTest {
             when(runtime.getAgentCard("story-review", null, "SERVICE")).thenReturn(card);
             var properties = new NacosRegistryProperties("127.0.0.1:1", "public", "DEFAULT_GROUP", "DEFAULT",
                     "", "", "", 0, 100, Map.of());
-            var review = new NacosStoryReview(runtime, properties, NoopAgentObservability.getInstance());
-
-            assertEquals("评分 85 分", review.run("月球基地的孩子用一盏旧灯找回了机器人", "style-score"));
+            var observability = NoopAgentObservability.getInstance();
+            var review = new NacosStoryReview(runtime, properties, observability);
+            var response = new MockHttpServletResponse();
+            new TraceMdcFilter(observability).doFilter(new MockHttpServletRequest("POST", "/api/chat/agui"),
+                    response, (req, res) -> assertEquals("评分 85 分",
+                            review.run("月球基地的孩子用一盏旧灯找回了机器人", "style-score")));
+            assertEquals(response.getHeader("X-Trace-Id"), traceparent.get().split("-")[1]);
             var payload = new ObjectMapper().readTree(request.get());
             assertEquals("style-score", payload.at("/params/message/parts/1/text").asText());
         } finally {

@@ -37,7 +37,7 @@ public class RemoteStoryAssistantConfig {
                           WHERE user_id = ? AND role_code IN ('ADMIN', 'A2A_LONG_FORM'))
                         """).param(owner).query(Boolean.class).single(),
                 new NacosStoryReview(aiService, registry, observability),
-                new RemoteStoryIllustration(nacos, key, images, events), events, observability,
+                new RemoteStoryIllustration(nacos, key, images, events, observability), events, observability,
                 AiServices.create(StoryIntentRouter.class, chatModel));
         return new AgentDefinition("a2a-remote-story", "A2A 远端故事助手", "跨服务协作",
                 List.of("A2A", "故事创作"), "用自然语言发起远端创作、修订、配图或审稿", assistant,

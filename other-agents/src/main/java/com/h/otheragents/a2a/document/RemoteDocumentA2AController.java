@@ -2,6 +2,12 @@ package com.h.otheragents.a2a.document;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.HObsKind;
+import com.h.agent.observability.ObservationSpec;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
+import com.h.agent.observability.lifecycle.ObservationContext;
+import com.h.otheragents.observability.A2AObservabilityWebFilter;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.document.domain.DocumentTask;
@@ -52,6 +58,7 @@ public class RemoteDocumentA2AController {
     private static final Set<String> NOTIFIABLE = Set.of("TASK_STATE_COMPLETED", "TASK_STATE_FAILED",
             "TASK_STATE_CANCELED", "TASK_STATE_INPUT_REQUIRED");
     private final RemoteDocumentWork documents;
+    private final AgentObservability observability;
     private final OtherAgentsA2AProperties properties;
     private final io.jsonwebtoken.JwtParser authorization;
     private final SecretKey signingKey;
@@ -63,9 +70,11 @@ public class RemoteDocumentA2AController {
     private boolean waitingForMigration;
 
     RemoteDocumentA2AController(RemoteDocumentWork documents, OtherAgentsA2AProperties properties,
+            AgentObservability observability,
             @Value("${other-agents.a2a.story.signing-key}") String secret,
             @Value("${other-agents.a2a.documents.callback-url:}") String callback) {
         this.documents = documents;
+        this.observability = observability;
         this.properties = properties;
         this.callback = callback;
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
@@ -99,7 +108,9 @@ public class RemoteDocumentA2AController {
 
     @PostMapping(value = ROOT, produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<String>> request(@RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false)
-                                               String header, @RequestBody String body) {
+                                               String header, @RequestBody String body,
+                                               @RequestAttribute(name = A2AObservabilityWebFilter.EXCHANGE_ATTRIBUTE, required = false)
+                                               ObservationContext observation) {
         final long owner;
         final String allowedTask;
         try {
@@ -112,7 +123,11 @@ public class RemoteDocumentA2AController {
         } catch (JwtException | IllegalArgumentException failure) {
             return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
         }
-        return Mono.fromCallable(() -> ResponseEntity.ok(handle(owner, allowedTask, body))).subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(() -> {
+            try (var scope = ExecutionContextSnapshot.forObservation(observation).scope()) {
+                return ResponseEntity.ok(handle(owner, allowedTask, body));
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     private String handle(long owner, String allowedTask, String raw) {
@@ -194,33 +209,48 @@ public class RemoteDocumentA2AController {
                         ORDER BY available_at, task_id, revision FOR UPDATE SKIP LOCKED LIMIT 1
                     )
                     UPDATE a2a_document_steps s SET lease_token=?, lease_until=NOW()+INTERVAL '45 seconds'
-                    FROM picked WHERE s.task_id=picked.task_id AND s.revision=picked.revision
-                    RETURNING s.task_id, s.revision, s.user_id, s.callback_requested, s.notification_json, s.attempts
+                    FROM picked JOIN chat_document_tasks d ON d.id=picked.task_id
+                    WHERE s.task_id=picked.task_id AND s.revision=picked.revision
+                    RETURNING s.task_id, s.revision, s.user_id, s.callback_requested, s.notification_json, s.attempts,
+                              d.state_json::jsonb->>'traceId'
                     """).param(lease).query((row, index) -> new Step(row.getString(1), row.getLong(2),
-                            row.getLong(3), row.getBoolean(4), row.getString(5), row.getInt(6))).optional();
+                            row.getLong(3), row.getBoolean(4), row.getString(5), row.getInt(6), row.getString(7))).optional();
             if (pending.isEmpty()) return;
             Step step = pending.get();
-            var heartbeat = worker.scheduleAtFixedRate(() -> renew(step, lease), 10, 10, TimeUnit.SECONDS);
-            try {
-                if (step.notification() == null) process(step, lease);
-                else {
-                    sendNotification(step);
-                    settle(step, lease, "DONE", null, 0);
-                }
-            } catch (BusinessException removed) {
-                settle(step, lease, "DONE", null, 0);
-            } catch (InterruptedException stopped) {
-                settle(step, lease, step.notification() == null ? "PENDING" : "NOTIFY", step.notification(), 0);
-                Thread.currentThread().interrupt();
-            } catch (Exception failure) {
-                LOG.warn("Document A2A step failed task={} revision={}", step.id(), step.revision(), failure);
-                String state = step.notification() == null ? "PENDING" : "NOTIFY";
-                settle(step, lease, state, step.notification(), Math.min(300, 5 * (1 + step.attempts())));
-            } finally {
-                heartbeat.cancel(false);
+            var parent = ObservationContext.recoverTraceId(step.traceId() == null
+                    ? step.id().replace("-", "") : step.traceId());
+            var snapshot = ExecutionContextSnapshot.forObservation(parent);
+            try (var scope = snapshot.scope()) {
+                work(step, lease, snapshot);
             }
         } catch (RuntimeException failure) {
             LOG.warn("Document A2A queue unavailable", failure);
+        }
+    }
+
+    private void work(Step step, String lease, ExecutionContextSnapshot snapshot) {
+        var heartbeat = worker.scheduleAtFixedRate(() -> {
+            try (var scope = snapshot.scope()) {
+                renew(step, lease);
+            }
+        }, 10, 10, TimeUnit.SECONDS);
+        try {
+            if (step.notification() == null) process(step, lease);
+            else {
+                sendNotification(step);
+                settle(step, lease, "DONE", null, 0);
+            }
+        } catch (BusinessException removed) {
+            settle(step, lease, "DONE", null, 0);
+        } catch (InterruptedException stopped) {
+            settle(step, lease, step.notification() == null ? "PENDING" : "NOTIFY", step.notification(), 0);
+            Thread.currentThread().interrupt();
+        } catch (Exception failure) {
+            LOG.warn("Document A2A step failed task={} revision={}", step.id(), step.revision(), failure);
+            String state = step.notification() == null ? "PENDING" : "NOTIFY";
+            settle(step, lease, state, step.notification(), Math.min(300, 5 * (1 + step.attempts())));
+        } finally {
+            heartbeat.cancel(false);
         }
     }
 
@@ -273,15 +303,30 @@ public class RemoteDocumentA2AController {
                 .audience().add(CALLBACK_AUDIENCE).and().claim("task_id", step.id())
                 .issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(60)))
                 .signWith(signingKey, Jwts.SIG.HS256).compact();
-        var reply = http.send(HttpRequest.newBuilder(URI.create(callback)).timeout(Duration.ofSeconds(3))
-                .header("Content-Type", "application/a2a+json")
-                .header("Authorization", "Bearer " + token)
-                .POST(HttpRequest.BodyPublishers.ofString(step.notification())).build(),
-                HttpResponse.BodyHandlers.discarding());
-        if (reply.statusCode() < 200 || reply.statusCode() >= 300) throw new java.io.IOException("Document callback rejected");
+        var span = observability.span(ObservationSpec.of("remote_call a2a.document-callback", HObsKind.REMOTE_CALL,
+                "a2a-client", Map.of("a2a.task_id", step.id())), observability.currentContext());
+        try {
+            var request = HttpRequest.newBuilder(URI.create(callback)).timeout(Duration.ofSeconds(3))
+                    .header("Content-Type", "application/a2a+json")
+                    .header("Authorization", "Bearer " + token)
+                    .POST(HttpRequest.BodyPublishers.ofString(step.notification()));
+            var headers = new java.util.HashMap<String, String>();
+            observability.inject(span.context(), headers);
+            headers.forEach(request::header);
+            var reply = http.send(request.build(), HttpResponse.BodyHandlers.discarding());
+            if (reply.statusCode() < 200 || reply.statusCode() >= 300) throw new java.io.IOException("Document callback rejected");
+            span.succeed();
+            LOG.info("A2A document notification delivered taskId={} revision={}", step.id(), step.revision());
+        } catch (InterruptedException failure) {
+            span.cancel("interrupted");
+            throw failure;
+        } catch (java.io.IOException | RuntimeException failure) {
+            span.fail(failure);
+            throw failure;
+        }
     }
 
-    private record Step(String id, long revision, long owner, boolean callbackRequested, String notification, int attempts) {}
+    private record Step(String id, long revision, long owner, boolean callbackRequested, String notification, int attempts, String traceId) {}
 
     private ObjectNode task(DocumentTask document) throws Exception {
         String state = switch (document.getStatus()) {

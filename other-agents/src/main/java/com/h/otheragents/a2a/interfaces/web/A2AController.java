@@ -3,12 +3,16 @@ package com.h.otheragents.a2a.interfaces.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
+import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.otheragents.a2a.server.A2AAgentServer;
+import com.h.otheragents.observability.A2AObservabilityWebFilter;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,8 +39,15 @@ public class A2AController {
     }
 
     @PostMapping(value = "/a2a/agents/{agentId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public String jsonRpc(@PathVariable String agentId, @RequestBody String request)
-            throws JsonProcessingException {
+    public String jsonRpc(@PathVariable String agentId, @RequestBody String request,
+                          @RequestAttribute(name = A2AObservabilityWebFilter.EXCHANGE_ATTRIBUTE, required = false)
+                          ObservationContext observation) throws JsonProcessingException {
+        try (var scope = ExecutionContextSnapshot.forObservation(observation).scope()) {
+            return jsonRpc(agentId, request);
+        }
+    }
+
+    public String jsonRpc(String agentId, String request) throws JsonProcessingException {
         JsonNode jsonRpcRequest = objectMapper.readTree(request);
         return objectMapper.writeValueAsString(agentServer.handle(agentId, jsonRpcRequest));
     }

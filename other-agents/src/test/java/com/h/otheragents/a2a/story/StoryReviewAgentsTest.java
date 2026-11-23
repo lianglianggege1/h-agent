@@ -8,13 +8,18 @@ import com.h.agent.observability.NoopAgentObservability;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
 import com.h.otheragents.a2a.export.A2AAgentExportRegistry;
 import com.h.otheragents.a2a.export.A2AAgentExports;
+import com.h.otheragents.a2a.interfaces.web.A2AController;
 import com.h.otheragents.a2a.server.A2AAgentServer;
 import com.h.otheragents.a2a.server.A2AMessageMapper;
 import com.h.otheragents.a2a.server.InMemoryA2ATaskStore;
 import com.h.otheragents.a2a.server.LangChain4jAgentMethodInvoker;
+import com.h.otheragents.observability.A2AObservabilityWebFilter;
 import com.sun.net.httpserver.HttpServer;
 import dev.langchain4j.model.chat.ChatModel;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,26 +47,37 @@ class StoryReviewAgentsTest {
         properties.setPublicUrl("http://127.0.0.1:" + http.getAddress().getPort());
         card.setUrl(properties.agentUrl("fact-checker"));
         when(registry.getAgentCard("fact-checker", null, "SERVICE")).thenReturn(card);
+        String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
         when(model.chat(anyString())).thenAnswer(call -> {
+            assertThat(MDC.get("traceId")).isEqualTo(traceId);
             String prompt = call.getArgument(0);
             if (prompt.startsWith("根据输入中提供的参考资料")) return EVIDENCE;
             assertThat(prompt).contains(EVIDENCE);
             return "审核结论：" + EVIDENCE;
         });
-        var server = server(properties);
+        var client = WebTestClient.bindToController(new A2AController(server(properties)))
+                .webFilter(new A2AObservabilityWebFilter(NoopAgentObservability.getInstance())).build();
         var delegated = new AtomicReference<JsonNode>();
         http.createContext("/a2a/agents/fact-checker", exchange -> {
             try (exchange) {
                 var request = JSON.readTree(exchange.getRequestBody());
                 delegated.set(request);
-                byte[] response = JSON.writeValueAsBytes(server.handle("fact-checker", request));
+                String traceparent = exchange.getRequestHeaders().getFirst("traceparent");
+                byte[] response = client.post().uri("/a2a/agents/fact-checker").contentType(MediaType.APPLICATION_JSON)
+                        .header("traceparent", traceparent).bodyValue(request.toString()).exchange().expectStatus().isOk()
+                        .expectHeader().valueEquals("X-Trace-Id", traceId)
+                        .expectBody().returnResult().getResponseBody();
                 exchange.sendResponseHeaders(200, response.length);
                 exchange.getResponseBody().write(response);
             }
         });
         http.start();
         try {
-            var task = reviewTask(server);
+            byte[] review = client.post().uri("/a2a/agents/story-review").contentType(MediaType.APPLICATION_JSON)
+                    .header("traceparent", "00-" + traceId + "-00f067aa0ba902b7-01").bodyValue(reviewRequest().toString())
+                    .exchange().expectStatus().isOk().expectHeader().valueEquals("X-Trace-Id", traceId)
+                    .expectBody().returnResult().getResponseBody();
+            var task = JSON.readTree(review).at("/result/task");
             assertThat(task.at("/status/state").asText()).isEqualTo("TASK_STATE_COMPLETED");
             assertThat(task.at("/artifacts/0/parts/0/text").asText()).isEqualTo("审核结论：" + EVIDENCE);
             assertThat(delegated.get().at("/params/message/contextId").asText()).isEqualTo(task.path("contextId").asText());
@@ -74,7 +90,7 @@ class StoryReviewAgentsTest {
 
     @Test
     void failsTheReviewTaskWhenTheFactCheckerIsUnavailable() {
-        var task = reviewTask(server(new OtherAgentsA2AProperties()));
+        var task = server(new OtherAgentsA2AProperties()).handle("story-review", reviewRequest()).at("/result/task");
         assertThat(task.at("/status/state").asText()).isEqualTo("TASK_STATE_FAILED");
         assertThat(task.at("/status/message/parts/0/text").asText()).contains("事实核查服务未完成");
         assertThat(task.has("artifacts")).isFalse();
@@ -89,12 +105,12 @@ class StoryReviewAgentsTest {
                 new A2AMessageMapper(), new InMemoryA2ATaskStore());
     }
 
-    private JsonNode reviewTask(A2AAgentServer server) {
+    private JsonNode reviewRequest() {
         var request = JSON.createObjectNode().put("jsonrpc", "2.0").put("id", "review").put("method", "SendMessage");
         var message = request.putObject("params").putObject("message").put("messageId", "review").put("role", "ROLE_USER");
         var parts = message.putArray("parts");
         parts.addObject().put("text", MANUSCRIPT);
         parts.addObject().put("text", "style-review");
-        return server.handle("story-review", request).at("/result/task");
+        return request;
     }
 }

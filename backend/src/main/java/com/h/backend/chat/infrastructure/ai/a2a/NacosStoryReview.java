@@ -75,6 +75,7 @@ final class NacosStoryReview {
             span.attribute("a2a.task_id", task.path("id").asText());
             span.attribute("a2a.context_id", task.path("contextId").asText());
             span.succeed();
+            log.info("A2A review completed skill={} taskId={}", skill, task.path("id").asText());
             return text;
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();

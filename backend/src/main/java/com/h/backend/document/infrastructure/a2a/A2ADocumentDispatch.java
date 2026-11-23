@@ -1,11 +1,19 @@
 package com.h.backend.document.infrastructure.a2a;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.HObsKind;
+import com.h.agent.observability.ObservationSpec;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
+import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.backend.chat.infrastructure.ai.a2a.NacosA2AClientFactory;
 import com.h.capabilities.document.domain.DocumentTask;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import io.opentelemetry.api.trace.Span;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -19,23 +27,28 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 @Component
 @ConditionalOnProperty(prefix = "agents.a2a.other-agents", name = {"enabled", "documents.enabled"}, havingValue = "true")
 public class A2ADocumentDispatch {
+    private static final Logger log = LoggerFactory.getLogger(A2ADocumentDispatch.class);
     public static final String READER = "document-reader";
     public static final String CALLBACK_AUDIENCE = "h-agent-document-notification";
     private final NacosA2AClientFactory registry;
     private final SecretKey key;
+    private final AgentObservability observability;
     private final String callback;
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-    public A2ADocumentDispatch(NacosA2AClientFactory registry,
+    public A2ADocumentDispatch(NacosA2AClientFactory registry, AgentObservability observability,
             @Value("${agents.a2a.other-agents.story.signing-key}") String secret,
             @Value("${agents.a2a.other-agents.documents.callback-url:}") String callback) {
         this.registry = registry;
+        this.observability = observability;
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.callback = callback;
     }
@@ -88,23 +101,40 @@ public class A2ADocumentDispatch {
     }
 
     private JsonNode call(DocumentTask task, String body) {
-        try {
-            var response = http.send(HttpRequest.newBuilder(URI.create(registry.endpoint(READER)))
+        var parent = observability.currentContext();
+        if (!Span.fromContext(parent.otelContext()).getSpanContext().isValid()) {
+            parent = ObservationContext.recoverTraceId(task.getTraceId() == null
+                    ? task.getId().replace("-", "") : task.getTraceId());
+        }
+        var span = observability.span(ObservationSpec.of("remote_call a2a.document-reader",
+                HObsKind.REMOTE_CALL, "a2a-client", Map.of("a2a.task_id", task.getId())), parent);
+        try (var scope = ExecutionContextSnapshot.forObservation(span.context()).scope()) {
+            var request = HttpRequest.newBuilder(URI.create(registry.endpoint(READER)))
                     .timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/json").header("A2A-Version", "1.0")
                     .header("Authorization", "Bearer " + token(task, READER, 30))
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
-                    HttpResponse.BodyHandlers.ofString());
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
+            var headers = new HashMap<String, String>();
+            observability.inject(span.context(), headers);
+            headers.forEach(request::header);
+            var response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
             var result = json.readTree(response.body());
             if (response.statusCode() != 200 || result == null || result.has("error")) {
                 throw new IllegalStateException("A2A document step failed");
             }
+            span.succeed();
+            log.debug("A2A document request completed taskId={} revision={}", task.getId(), task.getRevision());
             return result;
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
+            span.cancel("interrupted");
             throw new IllegalStateException("A2A document step interrupted", failure);
         } catch (java.io.IOException failure) {
+            span.fail(failure);
             throw new IllegalStateException("A2A document agent temporarily unavailable", failure);
+        } catch (RuntimeException failure) {
+            span.fail(failure);
+            throw failure;
         }
     }
 

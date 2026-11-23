@@ -77,15 +77,27 @@ export async function handleCopilotRequest(request: Request) {
     const value = request.headers.get(name);
     if (value) authHeaders[name] = value;
   }
+  const upstream = request.headers.get("traceparent")?.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/);
+  const validUpstream = upstream && !/^0+$/.test(upstream[1]) && !/^0+$/.test(upstream[2]);
+  const traceId = validUpstream ? upstream[1] : crypto.randomUUID().replaceAll("-", "");
+  const spanId = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+  authHeaders.traceparent = ["00", traceId, spanId, validUpstream ? upstream[3] : "01"].join("-");
+  const traceState = validUpstream ? request.headers.get("tracestate") : null;
+  if (traceState) authHeaders.tracestate = traceState;
+
   // /info, /connect and /stop require authentication too. Never cache one user's agent or cookie globally.
-  const authenticated = await fetch(backend + "/api/auth/me", { headers: authHeaders, cache: "no-store" });
-  if (!authenticated.ok) return new Response(await authenticated.text(), {
+  const authenticated = await fetch(backend + "/api/auth/me", { headers: authHeaders, cache: "no-store" })
+    .catch(() => Response.json({ code: 50200, message: "无法连接聊天服务", data: null, traceId }, { status: 502 }));
+  if (!authenticated.ok) return new Response(authenticated.body, {
     status: authenticated.status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Trace-Id": traceId },
   });
   const runtime = new CopilotRuntime({
     agents: { default: new HttpAgent({ url: backend + "/api/chat/agui", headers: authHeaders }) },
     runner: new JavaAgentRunner(authHeaders),
   });
-  return createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })(request);
+  const response = await createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })(request);
+  const headers = new Headers(response.headers);
+  headers.set("X-Trace-Id", traceId);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

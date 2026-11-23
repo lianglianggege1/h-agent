@@ -1,26 +1,26 @@
 package com.h.backend.shared.infrastructure.web;
 
+import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.HObsKind;
+import com.h.agent.observability.ObservationSpec;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.capabilities.shared.infrastructure.web.ExecutionLogContext;
+import io.opentelemetry.api.trace.SpanId;
+import io.opentelemetry.api.trace.TraceId;
+import io.opentelemetry.sdk.trace.IdGenerator;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.security.SecureRandom;
-import java.util.regex.Pattern;
+import java.util.HashMap;
+import java.util.Map;
 
-/**
- * 请求级 traceId/spanId 注入 MDC，与 log4j2-spring.xml 日志格式中的
- * [SpanId:%X{spanId}] [TraceId:%X{traceId}] 对应。
- * 支持上游通过 X-Trace-Id / X-Span-Id 请求头透传（网关/前端拿同一 traceId 串联跨服务调用链），
- * 缺省时本地生成：traceId 32 位 hex、spanId 16 位 hex（对齐 OpenTelemetry ID 规格）。
- */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class TraceMdcFilter extends OncePerRequestFilter {
@@ -30,40 +30,42 @@ public class TraceMdcFilter extends OncePerRequestFilter {
     public static final String TRACE_ID_KEY = ExecutionLogContext.TRACE_ID_KEY;
     public static final String SPAN_ID_KEY = ExecutionLogContext.SPAN_ID_KEY;
 
-    /** 仅允许安全字符，防止日志伪造（换行注入伪造日志行） */
-    private static final Pattern SAFE_ID = Pattern.compile("^[A-Za-z0-9._-]{1,128}$");
+    private final AgentObservability observability;
 
-    private static final SecureRandom RANDOM = new SecureRandom();
-
-    @Override
-    protected void doFilterInternal(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            FilterChain filterChain
-    ) throws ServletException, IOException {
-        String traceId = resolveId(request.getHeader(TRACE_ID_HEADER), 32);
-        String spanId = resolveId(request.getHeader(SPAN_ID_HEADER), 16);
-        MDC.put(TRACE_ID_KEY, traceId);
-        MDC.put(SPAN_ID_KEY, spanId);
-        response.setHeader(TRACE_ID_HEADER, traceId);
-        try {
-            filterChain.doFilter(request, response);
-        } finally {
-            MDC.remove(TRACE_ID_KEY);
-            MDC.remove(SPAN_ID_KEY);
-        }
+    public TraceMdcFilter(AgentObservability observability) {
+        this.observability = observability;
     }
 
-    private String resolveId(String header, int hexLength) {
-        if (header != null && SAFE_ID.matcher(header).matches()) {
-            return header;
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        var headers = new HashMap<String, String>();
+        for (String name : new String[]{"traceparent", "tracestate"}) {
+            String value = request.getHeader(name);
+            if (value != null) headers.put(name, value);
         }
-        byte[] bytes = new byte[hexLength / 2];
-        RANDOM.nextBytes(bytes);
-        StringBuilder sb = new StringBuilder(hexLength);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
+        var parent = observability.extract(headers);
+        if (!headers.containsKey("traceparent")) {
+            String traceId = request.getHeader(TRACE_ID_HEADER);
+            if (traceId != null && TraceId.isValid(traceId)) {
+                String spanId = request.getHeader(SPAN_ID_HEADER);
+                if (spanId == null || !SpanId.isValid(spanId)) spanId = IdGenerator.random().generateSpanId();
+                parent = observability.extract(Map.of("traceparent", "00-" + traceId + "-" + spanId + "-01"));
+            }
         }
-        return sb.toString();
+
+        var server = observability.serverSpan(ObservationSpec.of("http " + request.getMethod(), HObsKind.REMOTE_CALL,
+                "http-server"), parent);
+        response.setHeader(TRACE_ID_HEADER, server.traceId());
+        try (var scope = ExecutionContextSnapshot.forObservation(server.context()).scope()) {
+            try {
+                chain.doFilter(request, response);
+                server.attribute("http.response.status_code", response.getStatus());
+                server.succeed();
+            } catch (ServletException | IOException | RuntimeException failure) {
+                server.fail(failure);
+                throw failure;
+            }
+        }
     }
 }

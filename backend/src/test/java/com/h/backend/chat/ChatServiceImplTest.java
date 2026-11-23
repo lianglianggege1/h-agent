@@ -17,6 +17,9 @@ import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.NoopAgentObservability;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
+import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatStreamConcurrencyGuard;
@@ -49,6 +52,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -100,6 +104,41 @@ class ChatServiceImplTest {
         verify(sessions).appendAssistantMessage(1L, "session-edit", "新回复");
     }
 
+
+    @Test
+    void retainsTheRequestTraceAcrossTheDetachedChatSubscriptionAndWorker() {
+        var assistant = mock(HAssistant.class);
+        var prompts = mock(SystemPromptService.class);
+        var sessions = mock(ChatSessionService.class);
+        var runs = mock(AgentRunService.class);
+        String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        var observability = NoopAgentObservability.getInstance();
+        when(prompts.resolvePromptId(1L, 2L)).thenReturn(22L);
+        when(sessions.appendUserMessage(eq(1L), eq("session"), eq("hello"), any())).thenReturn(121L);
+        when(sessions.getOwnedMessage(1L, "session", 121L)).thenReturn(
+                new ChatSessionMessageDto("121", "user", "TEXT", "hello", null, List.of(), null));
+        when(runs.createRun("session", 1L, 22L, 121L, "standard-chat", null))
+                .thenReturn(new AgentRunService.AgentRunHandle(88L));
+        when(assistant.streamChat(eq("1:22:session"), eq("hello"), any()))
+                .thenAnswer(call -> {
+                    assertEquals(traceId, org.slf4j.MDC.get("traceId"));
+                    assertEquals(traceId, io.opentelemetry.api.trace.Span.current().getSpanContext().getTraceId());
+                    return new FakeTokenStream().emitText("reply");
+                });
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var service = createChatService(assistant, prompts, sessions, runs, observability, pool,
+                    (session, user) -> new RecordingPermit());
+            reactor.core.publisher.Flux<ChatStreamEvent> stream;
+            try (var scope = ExecutionContextSnapshot.forObservation(ObservationContext.recoverTraceId(traceId)).scope()) {
+                stream = service.streamChat(1L, 2L, "standard-chat", "session", "hello", List.of());
+            }
+            var events = stream.subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                    .collectList().block(java.time.Duration.ofSeconds(5));
+            assertNotNull(events);
+            assertTrue(events.stream().anyMatch(event -> "done".equals(event.type())));
+            verify(runs).updateTraceId(88L, traceId);
+        }
+    }
 
     @Test
     void shouldEmitErrorAndSkipAssistantWhenConcurrencyGuardRejects() {

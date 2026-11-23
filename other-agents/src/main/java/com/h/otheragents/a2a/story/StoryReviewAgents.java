@@ -10,6 +10,8 @@ import com.h.registry.NacosA2AConstants;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.V;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -26,6 +28,7 @@ import java.util.UUID;
 @Component
 @ConditionalOnProperty(prefix = "other-agents.a2a.story", name = "enabled", havingValue = "true")
 public class StoryReviewAgents {
+    private static final Logger log = LoggerFactory.getLogger(StoryReviewAgents.class);
     private final AiService registry;
     private final AgentObservability observability;
     private final ChatModel model;
@@ -72,6 +75,7 @@ public class StoryReviewAgents {
     private String delegate(String manuscript) {
         var span = observability.span(ObservationSpec.of("remote_call a2a.fact-check", HObsKind.REMOTE_CALL,
                 "a2a-client", Map.of("agent.id", "fact-checker")), observability.currentContext());
+        var parent = A2AInvocationContext.current();
         try {
             var card = registry.getAgentCard("fact-checker", null, "SERVICE");
             URI uri = card == null || card.getUrl() == null ? null : URI.create(card.getUrl());
@@ -81,7 +85,6 @@ public class StoryReviewAgents {
             String id = UUID.randomUUID().toString();
             var rpc = json.createObjectNode().put("jsonrpc", "2.0").put("id", id).put("method", "SendMessage");
             var message = rpc.putObject("params").putObject("message").put("messageId", id).put("role", "ROLE_USER");
-            var parent = A2AInvocationContext.current();
             if (parent != null) {
                 message.put("contextId", parent.contextId());
                 message.putArray("referenceTaskIds").add(parent.taskId());
@@ -104,10 +107,14 @@ public class StoryReviewAgents {
             }
             span.attribute("a2a.task_id", task.path("id").asText());
             span.succeed();
+            log.info("A2A fact check completed parentTaskId={} taskId={}",
+                    parent == null ? null : parent.taskId(), task.path("id").asText());
             return evidence;
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
             span.fail(failure);
+            log.warn("A2A fact check failed parentTaskId={} errorType={}",
+                    parent == null ? null : parent.taskId(), failure.getClass().getSimpleName());
             throw new IllegalStateException("事实核查服务未完成，请稍后重试。稿件未获得事实核查结论。", failure);
         }
     }

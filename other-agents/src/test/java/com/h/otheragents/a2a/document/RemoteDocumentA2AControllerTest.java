@@ -1,6 +1,7 @@
 package com.h.otheragents.a2a.document;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.h.agent.observability.NoopAgentObservability;
 import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.capabilities.document.domain.DocumentTask;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
@@ -47,15 +48,19 @@ class RemoteDocumentA2AControllerTest {
             String separator = database.contains("?") ? "&" : "?";
             var dataSource = new DriverManagerDataSource(database + separator + "currentSchema=" + schema, "postgres", "");
             var jdbc = JdbcClient.create(dataSource);
-            jdbc.sql("CREATE TABLE chat_document_tasks(id VARCHAR(64) PRIMARY KEY, user_id BIGINT, session_id VARCHAR(64))").update();
+            jdbc.sql("CREATE TABLE chat_document_tasks(id VARCHAR(64) PRIMARY KEY, user_id BIGINT, session_id VARCHAR(64), state_json TEXT)").update();
             jdbc.sql(Files.readString(Path.of("../backend/src/main/resources/db/migration/V20261120_08__document_a2a_steps.sql"))).update();
-            jdbc.sql("INSERT INTO chat_document_tasks VALUES('task',42,'session')").update();
+            String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+            jdbc.sql("INSERT INTO chat_document_tasks VALUES('task',42,'session',?)")
+                    .param(JSON.createObjectNode().put("traceId", traceId).toString()).update();
             var attempts = new AtomicInteger();
             var payload = new AtomicReference<String>();
             var auth = new AtomicReference<String>();
+            var traceparent = new AtomicReference<String>();
             remote.createContext("/notify", request -> {
                 payload.set(new String(request.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
                 auth.set(request.getRequestHeaders().getFirst("Authorization"));
+                traceparent.set(request.getRequestHeaders().getFirst("traceparent"));
                 request.sendResponseHeaders(attempts.incrementAndGet() == 1 ? 503 : 204, -1);
                 request.close();
             });
@@ -76,8 +81,9 @@ class RemoteDocumentA2AControllerTest {
                 return null;
             }).when(workflow).process(task);
             var work = new RemoteDocumentWork(workflow, jdbc, null);
-            var first = new RemoteDocumentA2AController(work, new OtherAgentsA2AProperties(), SECRET, callback);
-            var replacement = new RemoteDocumentA2AController(work, new OtherAgentsA2AProperties(), SECRET, callback);
+            var observability = NoopAgentObservability.getInstance();
+            var first = new RemoteDocumentA2AController(work, new OtherAgentsA2AProperties(), observability, SECRET, callback);
+            var replacement = new RemoteDocumentA2AController(work, new OtherAgentsA2AProperties(), observability, SECRET, callback);
             try {
                 var key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
                 String token = "Bearer " + Jwts.builder().issuer("h-agent").subject("42")
@@ -100,6 +106,7 @@ class RemoteDocumentA2AControllerTest {
                 jdbc.sql("UPDATE a2a_document_steps SET available_at=NOW()").update();
                 replacement.work();
                 assertEquals(2, attempts.get());
+                assertEquals(traceId, traceparent.get().split("-")[1]);
                 assertEquals("DONE", jdbc.sql("SELECT state FROM a2a_document_steps").query(String.class).single());
                 assertEquals("TASK_STATE_COMPLETED", JSON.readTree(payload.get()).at("/statusUpdate/status/state").asText());
                 assertEquals("task", Jwts.parser().verifyWith(key).requireAudience("h-agent-document-notification")
@@ -118,7 +125,7 @@ class RemoteDocumentA2AControllerTest {
     }
 
     private static String call(RemoteDocumentA2AController controller, String token, String request) {
-        var result = controller.request(token, request).block(Duration.ofSeconds(5));
+        var result = controller.request(token, request, null).block(Duration.ofSeconds(5));
         assertNotNull(result);
         return result.getBody();
     }

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.agent.observability.lifecycle.AgentExecutionStart;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.agent.observability.lifecycle.ObservationScope;
 import com.h.agent.observability.semantic.ArtifactReferenceBlock;
 import com.h.agent.observability.semantic.ArtifactUse;
@@ -256,6 +257,7 @@ public class ChatServiceImpl implements ChatService {
             String userMessage,
             List<ChatMessageResourceUseDto> resources
     ) {
+        var requestTrace = ExecutionContextSnapshot.capture();
         return Flux.deferContextual(context -> {
             if (!context.hasKey(com.h.backend.chat.application.agui.ChatTurnOperation.class)
                     && isStandardImageCommand(agentId, userMessage)) {
@@ -264,8 +266,11 @@ public class ChatServiceImpl implements ChatService {
                 return Flux.create(sink -> {
                     try {
                         chatStreamExecutor.submit(() -> {
-                            try { runImageCommandStream(sink, userId, promptId, sessionId, userMessage, resources); }
-                            finally { imagePermit.release(); }
+                            try (var scope = requestTrace.scope()) {
+                                runImageCommandStream(sink, userId, promptId, sessionId, userMessage, resources);
+                            } finally {
+                                imagePermit.release();
+                            }
                         });
                     } catch (RuntimeException ex) {
                         imagePermit.release();
@@ -288,9 +293,11 @@ public class ChatServiceImpl implements ChatService {
             }
             return Flux.create(sink -> {
                 try {
-                    chatStreamExecutor.submit(() ->
-                            runChatStream(sink, permit, userId, promptId, agentId, address,
-                                    userMessage, resources));
+                    chatStreamExecutor.submit(() -> {
+                        try (var scope = requestTrace.scope()) {
+                            runChatStream(sink, permit, userId, promptId, agentId, address, userMessage, resources);
+                        }
+                    });
                 } catch (RuntimeException ex) {
                     log.error("Failed to submit chat stream task", ex);
                     permit.release();

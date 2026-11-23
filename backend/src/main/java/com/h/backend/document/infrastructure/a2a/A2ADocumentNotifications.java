@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +21,7 @@ import java.util.Set;
 @RestController
 @ConditionalOnProperty(prefix = "agents.a2a.other-agents", name = {"enabled", "documents.enabled"}, havingValue = "true")
 public class A2ADocumentNotifications {
+    private static final Logger log = LoggerFactory.getLogger(A2ADocumentNotifications.class);
     public static final String PATH = "/api/internal/a2a/document-updates";
     private final JdbcClient jdbc;
     private final io.jsonwebtoken.JwtParser auth;
@@ -56,6 +59,7 @@ public class A2ADocumentNotifications {
                     ON CONFLICT (task_id) DO UPDATE SET revision=EXCLUDED.revision, state=EXCLUDED.state, received_at=NOW()
                     WHERE a2a_document_notifications.revision < EXCLUDED.revision
                     """).params(revision, state, owner, id, revision).update();
+            log.info("A2A document notification received taskId={} revision={} state={}", id, revision, state);
             return ResponseEntity.noContent().build();
         } catch (JwtException | IllegalArgumentException failure) {
             return ResponseEntity.status(401).build();

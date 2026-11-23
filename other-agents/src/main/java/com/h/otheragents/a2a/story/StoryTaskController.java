@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.h.agent.observability.AgentObservability;
+import com.h.agent.observability.lifecycle.ExecutionContextSnapshot;
 import com.h.agent.observability.lifecycle.ObservationContext;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
 import com.h.otheragents.observability.A2AObservabilityWebFilter;
@@ -48,14 +48,12 @@ public final class StoryTaskController {
     private final OtherAgentsA2AProperties properties;
     private final StoryTaskWorkflow workflow;
     private final CallerIdentity identity;
-    private final AgentObservability observability;
 
     StoryTaskController(OtherAgentsA2AProperties properties, StoryTaskWorkflow workflow,
-                        CallerIdentity identity, AgentObservability observability) {
+                        CallerIdentity identity) {
         this.properties = properties;
         this.workflow = workflow;
         this.identity = identity;
-        this.observability = observability;
     }
 
     @GetMapping(value = PATH + "/.well-known/agent-card.json", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -167,12 +165,16 @@ public final class StoryTaskController {
         // The Task outlives its observers. Every subsequent subscriber reads the same persisted progress.
         Mono.fromCallable(() -> withObservation(observation, () -> workflow.run(submission.task())))
                 .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(ignored -> {}, failure ->
-                        LoggerFactory.getLogger(StoryTaskController.class).error("A2A story worker failed", failure));
+                .subscribe(ignored -> { }, failure -> {
+                    try (var scope = ExecutionContextSnapshot.forObservation(observation).scope()) {
+                        LoggerFactory.getLogger(StoryTaskController.class).error("A2A story worker failed task={}",
+                                submission.task().id(), failure);
+                    }
+                });
     }
 
     private <T> T withObservation(ObservationContext observation, Supplier<T> action) {
-        try (var scope = observation == null ? null : observability.scope(observation)) {
+        try (var scope = ExecutionContextSnapshot.forObservation(observation).scope()) {
             return action.get();
         }
     }
