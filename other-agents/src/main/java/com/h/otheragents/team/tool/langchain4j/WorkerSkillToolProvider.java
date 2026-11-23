@@ -5,6 +5,7 @@ import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;
 import dev.langchain4j.skills.Skills;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * 直接用框架 Skills API 暴露 activate_skill / read_skill_resource；无快照返回空。
  */
 @Component
+@ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class WorkerSkillToolProvider implements ToolProvider {
 
     private final SkillRuntimeService skillRuntimeService;

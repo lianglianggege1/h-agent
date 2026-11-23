@@ -9,6 +9,7 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -16,6 +17,7 @@ import java.util.Map;
 
 /** LangChain4j 原生知识库工具集：每次调用固定可信身份，把共享契约构建为 ToolSpecification。 */
 @Component
+@ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class WorkerKnowledgeToolProvider implements ToolProvider {
 
     private final KnowledgeTools knowledge;

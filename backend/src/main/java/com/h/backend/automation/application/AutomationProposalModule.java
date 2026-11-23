@@ -85,8 +85,8 @@ public class AutomationProposalModule {
             }
             case UPDATE -> {
                 AutomationTask current = taskService.requireOwned(userId, requireTaskId(taskId));
-                AutomationTaskService.ValidatedCommand validated = taskService.validateCommand(command);
-                payload = writePayload(validated, sourceSessionId);
+                AutomationTaskService.ValidatedCommand validated = taskService.validateCommandForSession(userId, current.sessionId(), command);
+                payload = writePayload(validated, current.sessionId());
                 baseRevision = current.revision();
             }
             case ENABLE, DISABLE, DELETE -> {
@@ -120,6 +120,11 @@ public class AutomationProposalModule {
 
     @Transactional
     public AutomationProposal confirm(Long userId, String proposalId) {
+        return confirm(userId, proposalId, null);
+    }
+
+    @Transactional
+    public AutomationProposal confirm(Long userId, String proposalId, Instant revision) {
         Instant now = clock.instant();
         AutomationProposal proposal = repository.findOwnedForUpdate(userId, proposalId)
                 .orElseThrow(() -> new BusinessException(40404, "自动化提案不存在"));
@@ -132,6 +137,9 @@ public class AutomationProposalModule {
         if (proposal.expiresAt().isBefore(now)) {
             repository.markExpired(now);
             throw new BusinessException(40937, "提案已过期，请重新生成");
+        }
+        if (revision != null && !revision.equals(proposal.updatedAt())) {
+            throw new BusinessException(40938, "提案已更新，请检查最新版本后重新确认");
         }
         AutomationProposalAction action = AutomationProposalAction.valueOf(proposal.action());
         String resultTaskId = apply(userId, action, proposal, now);
@@ -225,7 +233,7 @@ public class AutomationProposalModule {
             case CREATE -> {
                 AutomationTaskCommand command = readCommand(proposal.payloadJson());
                 AutomationTask created = taskService.create(
-                        userId, command, "PROPOSAL:" + proposal.createdVia(), proposal.sourceSessionId());
+                        userId, command, "PROPOSAL:" + proposal.createdVia(), executionSession(proposal));
                 return taskService.enable(userId, created.id(), created.revision()).id();
             }
             case UPDATE -> {
@@ -269,7 +277,7 @@ public class AutomationProposalModule {
         return taskId;
     }
 
-    private String writePayload(AutomationTaskService.ValidatedCommand validated, String sourceSessionId) {
+    String writePayload(AutomationTaskService.ValidatedCommand validated, String sourceSessionId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("name", validated.name());
         payload.put("instruction", validated.instruction());
@@ -277,6 +285,7 @@ public class AutomationProposalModule {
         payload.put("runtime", validated.runtime().name());
         payload.put("cronExpression", validated.schedule().cronExpression());
         payload.put("zoneId", validated.schedule().zoneId());
+        payload.put("executionSessionId", sourceSessionId);
         String sink = validated.deliverySessionId() != null
                 ? AutomationDeliverySink.SESSION.name() : validated.deliverySink();
         payload.put("deliverySink", sink);
@@ -289,7 +298,31 @@ public class AutomationProposalModule {
         }
     }
 
-    private AutomationTaskCommand readCommand(String payloadJson) {
+    public String executionSession(AutomationProposal proposal) {
+        if (proposal.payloadJson() == null) return proposal.sourceSessionId();
+        try {
+            String session = objectMapper.readTree(proposal.payloadJson()).path("executionSessionId").asString("");
+            return session.isBlank() ? proposal.sourceSessionId() : session;
+        } catch (RuntimeException invalidLegacyPayload) {
+            return proposal.sourceSessionId();
+        }
+    }
+
+    public List<ProposalSnapshot> pendingInSession(long user, String session) {
+        return listForSession(user, session).stream().filter(proposal -> "PENDING".equals(proposal.status()))
+                .map(this::snapshot).toList();
+    }
+
+    ProposalSnapshot snapshot(AutomationProposal proposal) {
+        var view = describe(proposal);
+        return new ProposalSnapshot(proposal.id(), proposal.updatedAt().toString(), proposal.action(),
+                view.name(), view.instruction(), view.cronExpression(), view.zoneId(), executionSession(proposal));
+    }
+
+    public record ProposalSnapshot(String id, String revision, String action, String name, String instruction,
+                                   String cronExpression, String zoneId, String executionSessionId) {}
+
+    AutomationTaskCommand readCommand(String payloadJson) {
         try {
             Map<?, ?> payload = objectMapper.readValue(payloadJson, Map.class);
             return new AutomationTaskCommand(

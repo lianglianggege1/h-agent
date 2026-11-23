@@ -117,6 +117,58 @@ class AguiRunProjectionTest {
     }
 
     @Test
+    void exposesOnlyDisplayableSearchArgumentsAndKeepsThemAfterToolCompletion() {
+        List<Event> events = new ArrayList<>();
+        var projection = new AguiRunProjection("thread", "run", events::add);
+        projection.accept(new ChatStreamEvent("tool_start", "", null, Map.of(
+                "id", "first", "name", "web_search",
+                "arguments", "{\"query\":\"moon missions\",\"apiKey\":\"hidden-credential\"}")));
+        projection.accept(new ChatStreamEvent("tool_start", "", null, Map.of(
+                "id", "second", "name", "web_search",
+                "arguments", "{\"query\":\"lunar launch\"}")));
+        projection.accept(new ChatStreamEvent("tool_result", "", null,
+                Map.of("id", "second", "name", "web_search", "result", "launch result", "failed", false)));
+        projection.accept(new ChatStreamEvent("tool_result", "", null,
+                Map.of("id", "first", "name", "web_search", "result", "mission result", "failed", true)));
+        projection.refreshProgress();
+
+        var arguments = events.stream().filter(com.agui.community.core.event.ToolCallArgsEvent.class::isInstance)
+                .map(com.agui.community.core.event.ToolCallArgsEvent.class::cast).toList();
+        assertEquals(List.of(
+                new com.agui.community.core.event.ToolCallArgsEvent("first", "{\"query\":\"moon missions\"}"),
+                new com.agui.community.core.event.ToolCallArgsEvent("second", "{\"query\":\"lunar launch\"}")), arguments);
+        String wire = events.stream().map(new SseEventEncoder(new JacksonSerializer())::encode)
+                .reduce("", String::concat);
+        assertFalse(wire.contains("hidden-credential"));
+        var snapshot = (com.agui.community.core.event.ActivitySnapshotEvent) events.getLast();
+        var steps = (List<?>) ((Map<?, ?>) snapshot.content()).get("steps");
+        assertEquals("mission result", ((Map<?, ?>) steps.get(0)).get("result"));
+        assertEquals("failed", ((Map<?, ?>) steps.get(0)).get("status"));
+        assertEquals(Map.of("query", "moon missions"), ((Map<?, ?>) steps.get(0)).get("arguments"));
+        assertEquals(Map.of("query", "lunar launch"), ((Map<?, ?>) steps.get(1)).get("arguments"));
+    }
+
+    @Test
+    void showsCompleteAllowedFieldsWhileHarnessArgumentsAreStillStreaming() {
+        List<Event> events = new ArrayList<>();
+        var projection = new AguiRunProjection("thread", "run", events::add);
+        projection.accept(new ChatStreamEvent("agent_event", "", null, new ToolCallStartEvent("reply", "call", "web_search")));
+        projection.accept(new ChatStreamEvent("agent_event", "", null,
+                new ToolCallDeltaEvent("reply", "call", "web_search", "{\"query\":\"moon\",")));
+        String partialWire = events.stream().map(new SseEventEncoder(new JacksonSerializer())::encode).reduce("", String::concat);
+        assertTrue(partialWire.contains("moon"));
+        assertFalse(partialWire.contains("TOOL_CALL_ARGS"));
+        projection.accept(new ChatStreamEvent("agent_event", "", null,
+                new ToolCallDeltaEvent("reply", "call", "web_search", "\"apiKey\":\"private-key\",\"maxResults\":5}")));
+        projection.accept(new ChatStreamEvent("agent_event", "", null,
+                new io.agentscope.core.event.ToolCallEndEvent("reply", "call", "web_search")));
+        String finalWire = events.stream().map(new SseEventEncoder(new JacksonSerializer())::encode).reduce("", String::concat);
+        assertTrue(finalWire.contains("maxResults"));
+        assertTrue(finalWire.contains("TOOL_CALL_ARGS"));
+        assertFalse(finalWire.contains("private-key"));
+    }
+
+    @Test
     void toolArgumentsEndingDoesNotMeanExecutionSucceeded() {
         List<Event> events = new ArrayList<>();
         AguiRunProjection projection = new AguiRunProjection("thread", "run", events::add);

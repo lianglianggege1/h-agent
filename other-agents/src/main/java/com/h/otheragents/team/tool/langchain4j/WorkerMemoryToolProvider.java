@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -21,6 +22,7 @@ import java.util.Map;
  * 是否提供由 {@link AgentMemoryPolicyCatalog} 按逻辑 Agent 身份集中裁定。
  */
 @Component
+@ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class WorkerMemoryToolProvider implements ToolProvider {
 
     private final AgentMemory memory;

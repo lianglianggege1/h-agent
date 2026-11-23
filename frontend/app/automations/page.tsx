@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ProposalControls } from "@/components/automation/proposal-controls";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
@@ -239,7 +240,7 @@ export default function AutomationsPage() {
     setError("");
     try {
       if (confirm) {
-        await confirmAutomationProposal(proposal.id);
+        await confirmAutomationProposal(proposal.id, proposal.updatedAt);
         setTasks(await listAutomations());
       } else {
         await discardAutomationProposal(proposal.id);
@@ -318,6 +319,8 @@ export default function AutomationsPage() {
                       <p>投递：{proposal.deliverySink === "SESSION" ? "原会话" : "不投递，仅管理页可见"}</p>
                     </div>
                   ) : null}
+                  <ProposalControls key={proposal.id + (proposal.updatedAt ?? "")} proposal={proposal}
+                    onSaved={(updated) => setProposals((items) => items.map((item) => item.id === updated.id ? updated : item))} />
                   <div className="mt-4 flex gap-2">
                     <button type="button" disabled={busyTaskId === proposal.id} onClick={() => resolveProposal(proposal, true)} className="rounded-lg bg-stone-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">确认</button>
                     <button type="button" disabled={busyTaskId === proposal.id} onClick={() => resolveProposal(proposal, false)} className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-semibold text-stone-600 disabled:opacity-50">取消</button>

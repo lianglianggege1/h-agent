@@ -1,6 +1,7 @@
 package com.h.backend.automation.interfaces.tool;
 
 import com.h.backend.automation.application.AutomationProposalModule;
+import com.h.backend.automation.application.AutomationProposalActions;
 import com.h.backend.automation.application.AutomationTaskCommand;
 import com.h.backend.automation.domain.AutomationProposal;
 import com.h.backend.automation.domain.AutomationProposalAction;
@@ -16,9 +17,11 @@ import org.springframework.stereotype.Component;
 public class AgentScopeAutomationTool {
 
     private final AutomationProposalModule proposalModule;
+    private final AutomationProposalActions proposalActions;
 
-    public AgentScopeAutomationTool(@Lazy AutomationProposalModule proposalModule) {
+    public AgentScopeAutomationTool(@Lazy AutomationProposalModule proposalModule, @Lazy AutomationProposalActions proposalActions) {
         this.proposalModule = proposalModule;
+        this.proposalActions = proposalActions;
     }
 
     @Tool(
@@ -52,5 +55,27 @@ public class AgentScopeAutomationTool {
         return "已生成自动化任务提案「%s」（提案编号：%s，24 小时内有效）。"
                 .formatted(name, proposal.id())
                 + "请提示用户直接使用当前会话中的确认卡片，确认前可继续讨论或取消。";
+    }
+    @Tool(name = "list_automation_proposals", description = "列出当前会话等待确认的提案及用户最新修改。", concurrencySafe = true)
+    public java.util.List<AutomationProposalModule.ProposalSnapshot> list(RuntimeContext context) {
+        if (context == null || context.getUserId() == null || context.getSessionId() == null) {
+            throw new IllegalStateException("自动化工具缺少当前用户会话");
+        }
+        return proposalModule.pendingInSession(Long.valueOf(context.getUserId()), context.getSessionId());
+    }
+
+    @Tool(name = "edit_automation_proposal", description = "用户要求修改提案时调用。先读取当前版本，保留用户未要求修改的字段。只更新提案，不会启用任务。", concurrencySafe = false)
+    public AutomationProposalModule.ProposalSnapshot edit(RuntimeContext context,
+            @ToolParam(name = "id", description = "待确认提案编号") String id,
+            @ToolParam(name = "revision", description = "列表返回的 revision") String revision,
+            @ToolParam(name = "instruction", description = "每次执行的完整指令") String instruction,
+            @ToolParam(name = "cron_expression", description = "Spring 六段 Cron") String cronExpression,
+            @ToolParam(name = "zone_id", description = "IANA 时区") String zoneId,
+            @ToolParam(name = "execution_session_id", description = "已有执行会话 ID，未改则省略", required = false) String executionSessionId) {
+        if (context == null || context.getUserId() == null || context.getSessionId() == null) {
+            throw new IllegalStateException("自动化工具缺少当前用户会话");
+        }
+        return proposalActions.editInSession(Long.valueOf(context.getUserId()), context.getSessionId(), id,
+                new AutomationProposalActions.Edit(java.time.Instant.parse(revision), instruction, cronExpression, zoneId, executionSessionId));
     }
 }

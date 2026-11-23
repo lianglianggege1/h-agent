@@ -322,6 +322,30 @@ public class DocumentWorkflow {
         throw new BusinessException(40404, "待确认区域不存在");
     }
 
+    /** Re-read just the reviewed crop. The suggestion never releases document text. */
+    public String reocrBlock(Long user, String session, String id, String blockId, long revision) throws Exception {
+        var task = require(user, session, id);
+        if (task.getRevision() != revision || task.released()
+                || !List.of("WAITING_CONFIRMATION", "VERIFICATION_FAILED").contains(task.getStatus())) throw conflict();
+        if (!cloud.available()) throw new BusinessException(50300, "文档识别服务暂不可用");
+        var image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(blockImage(user, session, id, blockId)));
+        if (image == null) throw new BusinessException(40000, "待重识别区域不可用");
+        String job = cloud.submit(cloud.upload(image), hash("region-reocr", id, blockId, Long.toString(revision)));
+        for (int attempt = 0; attempt < 12; attempt++) {
+            var result = cloud.query(job);
+            String status = result.path("status").asText();
+            if ("Success".equals(status)) {
+                if (require(user, session, id).getRevision() != revision) throw conflict();
+                return OcrCoverage.blocks(result, image, 1, properties.getReadCharacters()).stream()
+                        .map(DocumentTask.Block::getText).filter(text -> text != null && !text.isBlank())
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+            }
+            if (!"Running".equals(status)) throw new BusinessException(40000, "选中区域识别失败，请人工核对");
+            Thread.sleep(java.time.Duration.ofSeconds(2));
+        }
+        throw new BusinessException(40901, "选中区域仍在识别，请稍后重试");
+    }
+
     public record BlockDecision(String blockId, String action, String text) {}
 
     public record Decision(long revision, List<BlockDecision> blocks) {}

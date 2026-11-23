@@ -200,6 +200,12 @@ agents:
     other-agents:
       enabled: ${OTHER_AGENTS_A2A_ENABLED:true}
       version: ${OTHER_AGENTS_A2A_VERSION:0.1.0}
+      story:
+        enabled: ${A2A_STORY_ENABLED:false}
+        signing-key: ${A2A_STORY_SIGNING_KEY:}
+      documents:
+        enabled: ${A2A_DOCUMENTS_ENABLED:false}
+        callback-url: ${A2A_DOCUMENT_CALLBACK_URL:}
   mcp:
     other-agents:
       enabled: ${OTHER_AGENTS_MCP_ENABLED:false}

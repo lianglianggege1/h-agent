@@ -10,6 +10,11 @@ public record A2AInvocationContext(
         String sessionId,
         String memoryId
 ) {
+    static final ScopedValue<A2AInvocationContext> ACTIVE = ScopedValue.newInstance();
+
+    public static A2AInvocationContext current() {
+        return ACTIVE.orElse(null);
+    }
 
     public static A2AInvocationContext fromMetadata(
             String agentId,

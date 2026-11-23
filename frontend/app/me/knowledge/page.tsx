@@ -416,6 +416,8 @@ export default function KnowledgePage() {
                           {segmentsOpenDocId === document.id ? "收起切片" : "查看切片"}
                         </button>
                       ) : null}
+                      {document.sourceType === "AGENT" && document.status === "COMPLETED"
+                        ? <Link href={"/me/knowledge/" + document.id} className="agui-button">修订条目</Link> : null}
                       <button
                         className="rounded-2xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 disabled:text-red-300"
                         type="button"

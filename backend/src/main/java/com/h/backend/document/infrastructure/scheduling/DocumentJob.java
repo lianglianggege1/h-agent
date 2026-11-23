@@ -45,6 +45,9 @@ public class DocumentJob {
                     Thread.ofPlatform().name("document-continuation-", 0).factory());
     private final AtomicBoolean running = new AtomicBoolean();
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.h.backend.document.infrastructure.a2a.A2ADocumentDispatch remote;
+
     public DocumentJob(
             DocumentRepository repository,
             DocumentWorkflow workflow,
@@ -80,8 +83,10 @@ public class DocumentJob {
                                     var taskContext =
                                             org.slf4j.MDC.putCloseable(
                                                     "documentTaskId", task.getId())) {
-                                if (RUNNABLE.contains(task.getStatus())) workflow.process(task);
-                                else {
+                                if (RUNNABLE.contains(task.getStatus())) {
+                                    if (remote != null && remote.accepts(task)) remote.process(task);
+                                    else workflow.process(task);
+                                } else {
                                     continuationWorker.submit(() -> resumeClaimed(task));
                                     // The continuation owns this task's lease until its stream settles.
                                     releaseHere = false;

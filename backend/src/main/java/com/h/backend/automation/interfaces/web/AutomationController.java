@@ -2,6 +2,7 @@ package com.h.backend.automation.interfaces.web;
 
 import com.h.backend.automation.application.AnchoredProposalView;
 import com.h.backend.automation.application.AutomationProposalModule;
+import com.h.backend.automation.application.AutomationProposalActions;
 import com.h.backend.automation.application.AutomationRunCoordinator;
 import com.h.backend.automation.application.AutomationTaskCommand;
 import com.h.backend.automation.application.AutomationTaskService;
@@ -39,6 +40,9 @@ public class AutomationController {
     private final AutomationProposalModule proposalModule;
     private final DeliveryModule deliveryModule;
     private final SchedulerProjectionRepository schedulerProjectionRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private AutomationProposalActions proposalActions;
 
     public AutomationController(
             AutomationTaskService taskService,
@@ -193,12 +197,40 @@ public class AutomationController {
         return ApiResponse.ok(views);
     }
 
+    @PutMapping("/proposals/{proposalId}")
+    public ApiResponse<AutomationProposalDto> editProposal(
+            @AuthenticationPrincipal AuthUserPrincipal principal, @PathVariable String proposalId,
+            @RequestBody AutomationProposalActions.Edit edit) {
+        var updated = proposalActions.edit(principal.userId(), proposalId, edit);
+        var view = proposalModule.describe(updated);
+        return ApiResponse.ok(AutomationProposalDto.from(updated, view.name(), view.instruction(), view.agentId(),
+                view.cronExpression(), view.zoneId(), view.deliverySink(), view.upcomingFires()));
+    }
+
+    @PostMapping("/proposals/{proposalId}/trials")
+    public ApiResponse<AutomationProposalActions.Trial> trialProposal(
+            @AuthenticationPrincipal AuthUserPrincipal principal, @PathVariable String proposalId,
+            @RequestBody TrialRequest request) {
+        return ApiResponse.ok(proposalActions.trial(principal.userId(), proposalId, request.revision()));
+    }
+
+    @GetMapping("/proposal-trials/{id}")
+    public ApiResponse<AutomationProposalActions.Trial> trialResult(
+            @AuthenticationPrincipal AuthUserPrincipal principal, @PathVariable String id) {
+        return ApiResponse.ok(proposalActions.result(principal.userId(), id));
+    }
+
+    public record TrialRequest(java.time.Instant revision) {}
+
     @PostMapping("/proposals/{proposalId}/confirm")
     public ApiResponse<AutomationProposalDto> confirmProposal(
             @AuthenticationPrincipal AuthUserPrincipal principal,
-            @PathVariable String proposalId
+            @PathVariable String proposalId,
+            @RequestBody(required = false) TrialRequest expected
     ) {
-        AutomationProposal confirmed = proposalModule.confirm(principal.userId(), proposalId);
+        AutomationProposal confirmed = expected == null
+                ? proposalModule.confirm(principal.userId(), proposalId)
+                : proposalModule.confirm(principal.userId(), proposalId, expected.revision());
         AutomationProposalModule.ProposalView view = proposalModule.describe(confirmed);
         return ApiResponse.ok(AutomationProposalDto.from(confirmed, view.name(), view.instruction(), view.agentId(),
                 view.cronExpression(), view.zoneId(), view.deliverySink(), view.upcomingFires()));

@@ -61,7 +61,8 @@ public class AgentStepListener implements AgentListener {
         bridge.checkpoint(memoryId);
         var request = execution.toolExecution().request();
         bridge.emitTool(memoryId, new ChatStreamEvent("tool_start", "", null,
-                Map.of("id", request.id(), "name", request.name())));
+                Map.of("id", request.id(), "name", request.name(),
+                        "arguments", java.util.Objects.toString(request.arguments(), ""))));
     }
 
     @Override

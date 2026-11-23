@@ -58,9 +58,19 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
             // agent 调用链在当前线程同步执行；执行观测作用域把 Agent/Generation/Tool Span
             // 挂到本次运行。
             ResultWithAgenticScope<String> result;
+            StringBuilder streamed = new StringBuilder();
             try (ObservationScope ignored = command.observation().scope()) {
                 com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink());
-                result = executeSelectedAgent(command);
+                if (command.agent().agentBean() instanceof StreamingAgenticChat streaming) {
+                    result = streaming.chatStreaming(command.memoryId(), command.userMessage(),
+                            memoryInvocationContext(command).toInvocationParameters(), chunk -> {
+                                com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink());
+                                streamed.append(chunk);
+                                emitIfActive(command.sink(), new ChatStreamEvent("chunk", chunk));
+                            });
+                } else {
+                    result = executeSelectedAgent(command);
+                }
             }
             com.h.backend.chat.application.agui.ChatExecutionCancellation.check(command.sink());
             String reply = result == null || result.result() == null ? "" : result.result();
@@ -71,7 +81,9 @@ public class AgenticSyncExecutor implements ChatAgentExecutor {
                 emitAndCompleteIfActive(command.sink(), new ChatStreamEvent("error", "AI 未返回有效内容"));
                 return;
             }
-            emitIfActive(command.sink(), new ChatStreamEvent("chunk", reply));
+            if (reply.startsWith(streamed.toString()) && streamed.length() < reply.length()) {
+                emitIfActive(command.sink(), new ChatStreamEvent("chunk", reply.substring(streamed.length())));
+            }
             // assistant message、run success 与 memory capture outbox 同一事务提交
             ChatSessionMessageDto assistantMessage = successfulTurnCommitter.commit(command, reply);
             command.observation().succeed(SemanticContent.ofMessages(

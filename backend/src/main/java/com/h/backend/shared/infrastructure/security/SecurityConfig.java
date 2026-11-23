@@ -36,6 +36,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers("/api/captcha/challenges", "/api/captcha/verifications").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                com.h.backend.document.infrastructure.a2a.A2ADocumentNotifications.PATH).permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 )

@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
 @EnabledIfEnvironmentVariable(named = "NACOS_A2A_TEST_ADDR", matches = ".+")
 class NacosA2ARegistryIntegrationTest {
     @Test
-    void publishesThreeAgentsDiscoversAndCallsThemThenDeregisters() throws Exception {
+    void publishesAgentsDiscoversTheirSkillsAndDeregistersEndpoints() throws Exception {
         Properties client = new Properties();
         client.setProperty(PropertyKeyConst.SERVER_ADDR, System.getenv("NACOS_A2A_TEST_ADDR"));
         client.setProperty(PropertyKeyConst.NAMESPACE, "public");
@@ -46,10 +46,13 @@ class NacosA2ARegistryIntegrationTest {
             Agents.CreativeWriter writer = topic -> "draft:" + topic;
             Agents.AudienceEditor audience = (story, target) -> story + ":" + target;
             Agents.StyleEditor style = (story, target) -> story + ":" + target;
+            com.h.otheragents.a2a.story.StoryReviewAgents.Review review = (story, skill) -> skill + ":" + story;
             var exports = new A2AAgentExportRegistry(A2AAgentExports.builder()
                     .export("creative-writer", writer, Agents.CreativeWriter.class, "generateStory")
                     .export("audience-editor", audience, Agents.AudienceEditor.class, "editStory")
-                    .export("style-editor", style, Agents.StyleEditor.class, "editStory").build());
+                    .export("style-editor", style, Agents.StyleEditor.class, "editStory")
+                    .export("story-review", review, com.h.otheragents.a2a.story.StoryReviewAgents.Review.class, "assess")
+                    .build());
             var server = A2AAgentServer.create(properties, exports, new LangChain4jAgentMethodInvoker(),
                     new A2AMessageMapper(), new InMemoryA2ATaskStore());
             var controller = new A2AController(server);
@@ -68,7 +71,9 @@ class NacosA2ARegistryIntegrationTest {
             var context = mock(ReactiveWebServerApplicationContext.class);
             var webServer = mock(WebServer.class);
             when(webServer.getPort()).thenReturn(http.getAddress().getPort());
-            registration = new NacosA2ARegistration(publisher, registry, properties, exports, server, context);
+            registration = new NacosA2ARegistration(publisher, registry, properties, exports, server, context,
+                new org.springframework.context.support.StaticApplicationContext()
+                        .getBeanProvider(com.h.otheragents.a2a.story.StoryTaskController.class));
             registration.onApplicationEvent(new ReactiveWebServerInitializedEvent(webServer, context));
             // A second process can publish the same immutable definition on restart.
             publisher.releaseAgentCard(new com.fasterxml.jackson.databind.ObjectMapper()
@@ -80,6 +85,9 @@ class NacosA2ARegistryIntegrationTest {
                 assertEquals("SERVICE", card.getRegistrationType());
                 assertEquals(properties.agentUrl(export.id()), card.getSupportedInterfaces().getFirst().getUrl());
             }
+            var reviewCard = consumer.getAgentCard("story-review", properties.getVersion(), "SERVICE");
+            assertEquals(java.util.List.of("style-score", "style-review"),
+                    reviewCard.getSkills().stream().map(skill -> skill.getId()).toList());
             var writerClient = AgenticServices.a2aBuilder(
                     consumer.getAgentCard("creative-writer", properties.getVersion(), "SERVICE").getUrl(), Writer.class).build();
             assertEquals("draft:moon", writerClient.write("moon"));

@@ -26,8 +26,10 @@ public class LangChain4jAgentMethodInvoker {
         try {
             Method method = export.method().method();
             method.setAccessible(true);
-            Object result = method.invoke(export.agentBean(), args);
-            return result == null ? "" : result.toString();
+            return ScopedValue.where(A2AInvocationContext.ACTIVE, context).call(() -> {
+                Object result = method.invoke(export.agentBean(), args);
+                return result == null ? "" : result.toString();
+            });
         } catch (IllegalAccessException e) {
             throw new IllegalStateException("A2A agent method is not accessible: " + export.id(), e);
         } catch (InvocationTargetException e) {
@@ -36,6 +38,8 @@ public class LangChain4jAgentMethodInvoker {
                 throw runtimeException;
             }
             throw new IllegalStateException("A2A agent method failed: " + export.id(), target);
+        } catch (Exception e) {
+            throw new IllegalStateException("A2A agent method failed: " + export.id(), e);
         }
     }
 }

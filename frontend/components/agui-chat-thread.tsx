@@ -28,8 +28,8 @@ type ThreadActions = {
   uploading: boolean;
   removeFile: (id: string) => void;
   addOrder?: () => void;
-  orderReference: OrderReference | null;
-  removeOrder: () => void;
+  orderReferences: OrderReference[];
+  removeOrder: (id: string) => void;
   paused: boolean;
   pause: () => void;
   resume: () => void;
@@ -56,13 +56,13 @@ function ThreadInput(props: CopilotChatInputProps) {
   const continuing = actions?.paused && !props.value?.trim();
   const label = props.isRunning ? "暂停回答" : continuing ? "继续回答" : "发送消息";
   return <>
-    {actions?.orderReference ? <div className="mx-auto mb-2 w-full max-w-[1000px] px-4" aria-label="待发送引用">
+    {actions?.orderReferences.map((reference) => <div key={reference.ticketId ?? reference.id} className="mx-auto mb-2 w-full max-w-[1000px] px-4" aria-label="待发送引用">
       <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
-        <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{actions.orderReference.ticketId ? "工单" : "订单"}</span>
-        <div className="min-w-0 flex-1"><p className="truncate text-sm">{actions.orderReference.title}</p><p className="truncate text-xs text-stone-500">{actions.orderReference.ticketId ?? actions.orderReference.id}</p></div>
-        <button type="button" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-stone-500 hover:bg-stone-100" aria-label="移除引用" onClick={actions.removeOrder}>×</button>
+        <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{reference.ticketId ? "工单" : "订单"}</span>
+        <div className="min-w-0 flex-1"><p className="truncate text-sm">{reference.title}</p><p className="truncate text-xs text-stone-500">{reference.ticketId ?? reference.id}</p></div>
+        <button type="button" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-stone-500 hover:bg-stone-100" aria-label="移除引用" onClick={() => actions.removeOrder(reference.ticketId ?? reference.id)}>×</button>
       </div>
-    </div> : null}
+    </div>)}
     {actions && (actions.attachments.length > 0 || actions.uploading) ? <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[1000px] flex-wrap gap-2 px-4" aria-label="待发送附件">
       {actions.attachments.map((item) => <span key={item.resourceId} title={item.fileName} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
         <button type="button" className="inline-flex min-w-0 items-center gap-2 text-left" aria-label={"预览 " + item.fileName} onClick={() => preview?.open(actions.attachments.map(({ resourceId, ...resource }) => ({ ...resource, id: resourceId })), item.resourceId)}>
@@ -103,7 +103,10 @@ function ThreadView(props: CopilotChatViewProps) {
   />;
 }
 
-function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { threadId: string; onChanged?: () => void; orderAssistant?: boolean }) {
+function ChatThreadContent({ threadId, onChanged, orderAssistant = false, retryAssignment, canvasReference, onClearCanvasReference }: {
+  threadId: string; onChanged?: () => void; orderAssistant?: boolean; retryAssignment?: string;
+  canvasReference?: string; onClearCanvasReference?: () => void;
+}) {
   const localAgentId = "thread-" + threadId;
   const { agent, isReady } = useAgent({ agentId: localAgentId, runtimeAgentId: "default", threadId, throttleMs: 40 });
   const { copilotkit } = useCopilotKit();
@@ -119,7 +122,11 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
   const [retryEdit, setRetryEdit] = useState<{ messageId: string; text: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [orderPickerOpen, setOrderPickerOpen] = useState(false);
-  const [orderReference, setOrderReference] = useState<OrderReference | null>(null);
+  const [orderReferences, setOrderReferences] = useState<OrderReference[]>([]);
+  const addOrderReferences = useCallback((values: OrderReference[]) => {
+    setOrderReferences((current) => [...new Map([...current, ...values].map((item) =>
+      [item.ticketId ?? item.id, item] as const)).values()].slice(0, 20));
+  }, []);
   const threadElement = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const historyMessages = useRef<ChatSessionMessage[]>([]);
@@ -145,8 +152,8 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
     };
   }, []);
   useEffect(() => {
-    if (orderReference) threadElement.current?.querySelector("textarea")?.focus();
-  }, [orderReference]);
+    if (orderReferences.length) threadElement.current?.querySelector("textarea")?.focus();
+  }, [orderReferences]);
 
   useRenderTool({ name: "*", render: ToolResult }, []);
 
@@ -183,14 +190,18 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
     setError("");
     setPausedRunId(null);
     setRetryEdit(null);
+    const content = text.trim() + (canvasReference ? "\n\n画布选区：\n" + canvasReference : "") + orderReferences.map((reference) =>
+      `\n\n关联订单：${reference.id}${reference.ticketId ? `；关联工单：${reference.ticketId}` : ""}`).join("");
+    if (content.length > 4000) { setError("消息与引用合计最多 4000 字，请缩短后重试。"); return; }
     const resources = attachments.map(({ resourceId, role, source }) => ({ resourceId, role, source }));
     const message: ChatSessionMessage = {
       id: crypto.randomUUID(), role: "user", messageType: "USER", createdAt: new Date().toISOString(),
-      content: text.trim() + (orderReference ? `\n\n关联订单：${orderReference.id}${orderReference.ticketId ? `；关联工单：${orderReference.ticketId}` : ""}` : ""),
+      content,
       resources: attachments.map(({ resourceId, ...resource }) => ({ ...resource, id: resourceId, width: null, height: null })),
     };
     agent.addMessages(productHistoryMessages([message]));
-    setOrderReference(null);
+    setOrderReferences([]);
+    onClearCanvasReference?.();
     setAttachments([]);
     try { await copilotkit.runAgent({ agent, forwardedProps: { resources } }); }
     catch (failure) { setError(failure instanceof Error ? failure.message : "发送失败，请重试"); }
@@ -376,8 +387,15 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
       onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
       onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
       onClose={() => setPickerOpen(false)} /> : null}
-    {orderPickerOpen ? <OrderPicker threadId={threadId} onClose={() => setOrderPickerOpen(false)} onReference={setOrderReference} /> : null}
-    <OrderReferenceContext.Provider value={setOrderReference}>
+    {canvasReference ? <div className="m-2 flex items-center justify-between gap-2 rounded border border-stone-200 p-2 text-sm">
+      <span className="truncate">画布引用 · {canvasReference}</span>
+      <button type="button" className="agui-button" onClick={onClearCanvasReference}>移除</button>
+    </div> : null}
+    {retryAssignment ? <button type="button" className="agui-button m-2 self-start"
+      disabled={!isReady || agent.isRunning || waiting || busy}
+      onClick={() => void submit("请重试此分支原委托：\n" + retryAssignment)}>重试分支</button> : null}
+    {orderPickerOpen ? <OrderPicker threadId={threadId} onClose={() => setOrderPickerOpen(false)} onReference={addOrderReferences} /> : null}
+    <OrderReferenceContext.Provider value={(value) => addOrderReferences([value])}>
     <ResourceReferenceContext.Provider value={{
       selectedIds: new Set(attachments.map((item) => item.resourceId)),
       toggle: (resource) => {
@@ -391,7 +409,8 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
     <Actions.Provider value={{ submit: (value) => void submit(value), addFile: () => setPickerOpen(true),
       disabled: !isReady || agent.isRunning || uploading || waiting || busy, attachments, uploading,
       removeFile: (id) => setAttachments((current) => current.filter((resource) => resource.resourceId !== id)),
-      addOrder: orderAssistant ? () => setOrderPickerOpen(true) : undefined, orderReference, removeOrder: () => setOrderReference(null),
+      addOrder: orderAssistant ? () => setOrderPickerOpen(true) : undefined, orderReferences,
+      removeOrder: (id) => setOrderReferences((current) => current.filter((item) => (item.ticketId ?? item.id) !== id)),
       paused: pausedRunId !== null, pause: () => void pause(), resume: () => void resume(), busy }}>
     <UserMessageEditContext.Provider value={{
       latestId: latestUser && /^\d+$/.test(latestUser.id) ? latestUser.id : null,
@@ -409,6 +428,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false }: { th
   </section>;
 }
 
-export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean }) {
+export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean; retryAssignment?: string;
+  canvasReference?: string; onClearCanvasReference?: () => void }) {
   return <FilePreviewProvider key={props.threadId}><ChatThreadContent {...props} /></FilePreviewProvider>;
 }

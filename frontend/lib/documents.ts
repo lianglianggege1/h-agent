@@ -80,3 +80,7 @@ export const documentAction = (
       }),
     },
   );
+
+export const reocrDocumentBlock = (session: string, task: DocumentTask, block: string) =>
+  apiFetch<string>(root(session) + "/tasks/" + encodeURIComponent(task.taskId) + "/blocks/" +
+    encodeURIComponent(block) + "/reocr", { method: "POST", body: JSON.stringify({ revision: task.revision }) });

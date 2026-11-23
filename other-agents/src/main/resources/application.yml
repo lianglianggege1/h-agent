@@ -11,6 +11,14 @@ other-agents:
   a2a:
     public-url: ${OTHER_AGENTS_A2A_PUBLIC_URL:}
     version: ${OTHER_AGENTS_A2A_VERSION:0.1.0}
+    story:
+      enabled: ${A2A_STORY_ENABLED:false}
+      review-enabled: ${A2A_STORY_REVIEW_ENABLED:true}
+      fact-check-enabled: ${A2A_STORY_FACT_CHECK_ENABLED:true}
+      signing-key: ${A2A_STORY_SIGNING_KEY:}
+    documents:
+      enabled: ${A2A_DOCUMENTS_ENABLED:false}
+      callback-url: ${A2A_DOCUMENT_CALLBACK_URL:}
   mcp:
     endpoints:
       test1:
@@ -56,7 +64,7 @@ spring:
   flyway:
     enabled: true
     # 独立目录：避免扫到依赖 jar（如 backend）内 db/migration 的迁移脚本
-    locations: classpath:db/team-migration
+    locations: classpath:db/team-migration,classpath:db/a2a-migration
     # Isolate this service from backend's public.flyway_schema_history in a shared database.
     default-schema: other_agents
     schemas: other_agents
@@ -72,6 +80,7 @@ chat:
   documents:
     # 共享 chat_document_tasks 任务表的归属标识，backend 只领取 owner=backend 的任务。
     owner: other-agents
+    modelbest-api-key: ${MODELBEST_API_KEY:}
   stream:
     heartbeat-interval: 15s
     max-concurrent-per-user: 2

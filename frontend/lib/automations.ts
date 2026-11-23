@@ -62,9 +62,11 @@ export type AutomationProposal = {
   taskId: string | null;
   status: "PENDING" | "CONFIRMED" | "DISCARDED" | "EXPIRED";
   createdAt: string;
+  updatedAt?: string;
   expiresAt: string;
   resultTaskId: string | null;
   sourceSessionId: string | null;
+  executionSessionId?: string | null;
   name: string | null;
   instruction: string | null;
   agentId: string | null;
@@ -86,10 +88,10 @@ export function listAutomationProposals(sessionId?: string) {
   return apiFetch<AutomationProposal[]>(`/api/automations/proposals${query}`);
 }
 
-export function confirmAutomationProposal(proposalId: string) {
+export function confirmAutomationProposal(proposalId: string, revision?: string) {
   return apiFetch<AutomationProposal>(
     `/api/automations/proposals/${encodeURIComponent(proposalId)}/confirm`,
-    { method: "POST" },
+    { method: "POST", body: revision ? JSON.stringify({ revision }) : undefined },
   );
 }
 
@@ -144,4 +146,24 @@ export function listAutomationRuns(taskId: string, limit = 20) {
 
 export function runtimeForAgent(runtimeType: string): AutomationRuntime {
   return runtimeType === "HARNESS_STREAMING" ? "AGENTSCOPE" : "LANGCHAIN4J";
+}
+
+export type AutomationTrial = { id: string; status: string; output: string | null; failure: string | null };
+
+export function editAutomationProposal(id: string, edit: {
+  revision: string; instruction: string; cronExpression: string; zoneId: string; executionSessionId?: string;
+}) {
+  return apiFetch<AutomationProposal>("/api/automations/proposals/" + encodeURIComponent(id), {
+    method: "PUT", body: JSON.stringify(edit),
+  });
+}
+
+export function tryAutomationProposal(id: string, revision: string) {
+  return apiFetch<AutomationTrial>("/api/automations/proposals/" + encodeURIComponent(id) + "/trials", {
+    method: "POST", body: JSON.stringify({ revision }),
+  });
+}
+
+export function getAutomationTrial(id: string, signal?: AbortSignal) {
+  return apiFetch<AutomationTrial>("/api/automations/proposal-trials/" + encodeURIComponent(id), { signal });
 }

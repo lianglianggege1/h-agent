@@ -37,7 +37,9 @@ class NacosA2ARegistrationTest {
         var registry = new NacosRegistryProperties("localhost:8848", "test", "DEFAULT_GROUP", "DEFAULT",
                 "", "", "192.0.2.10", advertisedPort, 5000, Map.of());
         when(webServer.getPort()).thenReturn(18982);
-        return new NacosA2ARegistration(ai, registry, properties, exports, server, context);
+        return new NacosA2ARegistration(ai, registry, properties, exports, server, context,
+                new org.springframework.context.support.StaticApplicationContext()
+                        .getBeanProvider(com.h.otheragents.a2a.story.StoryTaskController.class));
     }
 
     @Test

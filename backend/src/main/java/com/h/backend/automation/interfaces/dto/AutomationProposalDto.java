@@ -17,8 +17,10 @@ public record AutomationProposalDto(
         String taskId,
         String status,
         String sourceSessionId,
+        String executionSessionId,
         String createdVia,
         Instant createdAt,
+        Instant updatedAt,
         Instant expiresAt,
         Instant confirmedAt,
         String resultTaskId,
@@ -33,10 +35,23 @@ public record AutomationProposalDto(
         String anchorMessageId,
         String anchorPlacement
 ) {
+    private static String executionSession(AutomationProposal proposal) {
+        if (proposal.payloadJson() != null) {
+            try {
+                String session = new tools.jackson.databind.ObjectMapper().readTree(proposal.payloadJson())
+                        .path("executionSessionId").asString("");
+                if (!session.isBlank()) return session;
+            } catch (RuntimeException ignored) {
+                // Older status-only proposals have no execution parameters.
+            }
+        }
+        return proposal.sourceSessionId();
+    }
+
     public static AutomationProposalDto from(AutomationProposal proposal, List<Instant> upcomingFires) {
         return new AutomationProposalDto(
                 proposal.id(), proposal.action(), proposal.taskId(), proposal.status(),
-                proposal.sourceSessionId(), proposal.createdVia(), proposal.createdAt(),
+                proposal.sourceSessionId(), executionSession(proposal), proposal.createdVia(), proposal.createdAt(), proposal.updatedAt(),
                 proposal.expiresAt(), proposal.confirmedAt(), proposal.resultTaskId(),
                 null, null, null, null, null, null, upcomingFires,
                 proposal.sourceAgentRunId(), null, AnchoredProposalView.PLACEMENT_AFTER
@@ -55,7 +70,7 @@ public record AutomationProposalDto(
     ) {
         return new AutomationProposalDto(
                 proposal.id(), proposal.action(), proposal.taskId(), proposal.status(),
-                proposal.sourceSessionId(), proposal.createdVia(), proposal.createdAt(),
+                proposal.sourceSessionId(), executionSession(proposal), proposal.createdVia(), proposal.createdAt(), proposal.updatedAt(),
                 proposal.expiresAt(), proposal.confirmedAt(), proposal.resultTaskId(),
                 name, instruction, agentId, cronExpression, zoneId, deliverySink, upcomingFires,
                 proposal.sourceAgentRunId(), null, AnchoredProposalView.PLACEMENT_AFTER
@@ -75,7 +90,7 @@ public record AutomationProposalDto(
         AutomationProposal proposal = view.proposal();
         return new AutomationProposalDto(
                 proposal.id(), proposal.action(), proposal.taskId(), proposal.status(),
-                proposal.sourceSessionId(), proposal.createdVia(), proposal.createdAt(),
+                proposal.sourceSessionId(), executionSession(proposal), proposal.createdVia(), proposal.createdAt(), proposal.updatedAt(),
                 proposal.expiresAt(), proposal.confirmedAt(), proposal.resultTaskId(),
                 name, instruction, agentId, cronExpression, zoneId, deliverySink, upcomingFires,
                 view.sourceAgentRunId(), view.anchorMessageId(), view.anchorPlacement()

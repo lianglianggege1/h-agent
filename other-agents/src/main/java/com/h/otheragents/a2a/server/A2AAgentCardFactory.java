@@ -33,16 +33,26 @@ public class A2AAgentCardFactory {
                         .build())
                 .defaultInputModes(List.of("text/plain"))
                 .defaultOutputModes(List.of("text/plain"))
-                .skills(List.of(AgentSkill.builder()
-                        .id(export.id())
-                        .name(export.method().publicName())
-                        .description(export.method().publicDescription())
-                        .tags(List.of("langchain4j", "a2a"))
-                        .examples(List.of(String.join(", ", export.method().inputKeys())))
-                        .inputModes(List.of("text/plain"))
-                        .outputModes(List.of("text/plain"))
-                        .build()))
+                .skills(skills(export))
                 .supportedInterfaces(List.of(new AgentInterface("JSONRPC", properties.agentUrl(export.id()), null, AgentInterface.CURRENT_PROTOCOL_VERSION)))
                 .build();
+    }
+    private List<AgentSkill> skills(A2AAgentExport export) {
+        if ("story-review".equals(export.id())) {
+            return List.of(
+                    reviewSkill("style-score", "稿件评分", "按目标文风提供分数和具体理由"),
+                    reviewSkill("style-review", "稿件审核", "依据事实核查和文风要求编辑稿件"));
+        }
+        return List.of(AgentSkill.builder()
+                .id(export.id()).name(export.method().publicName())
+                .description(export.method().publicDescription()).tags(List.of("langchain4j", "a2a"))
+                .examples(List.of(String.join(", ", export.method().inputKeys())))
+                .inputModes(List.of("text/plain")).outputModes(List.of("text/plain")).build());
+    }
+
+    private AgentSkill reviewSkill(String id, String label, String description) {
+        return AgentSkill.builder().id(id).name(label).description(description)
+                .tags(List.of("writing", "review")).inputModes(List.of("text/plain"))
+                .outputModes(List.of("text/plain")).build();
     }
 }
