@@ -5,6 +5,7 @@ import com.h.backend.auth.interfaces.dto.LoginRequest;
 import com.h.backend.auth.interfaces.dto.LoginResponse;
 import com.h.backend.auth.interfaces.dto.RegisterRequest;
 import com.h.backend.auth.application.AuthService;
+import com.h.backend.auth.application.UserRegisteredEvent;
 import com.h.backend.captcha.application.HumanVerification;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.backend.shared.infrastructure.security.JwtTokenProvider;
@@ -13,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -23,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * 验证密码、重复邮箱与 JWT 的既有服务行为保持不变。
  */
 @SpringBootTest
+@RecordApplicationEvents
 class AuthServiceTest {
 
     @Autowired
@@ -30,6 +34,9 @@ class AuthServiceTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private ApplicationEvents applicationEvents;
 
     @MockitoBean
     private HumanVerification humanVerification;
@@ -43,6 +50,15 @@ class AuthServiceTest {
         assertNotNull(response.userId());
         assertEquals(request.email(), response.email());
         assertEquals("USER", response.role());
+    }
+
+    @Test
+    void shouldPublishUserRegisteredEventOnRegister() {
+        AuthUserResponse response = authService.register(new RegisterRequest(uniqueEmail(), "Password123", null));
+
+        assertEquals(1, applicationEvents.stream(UserRegisteredEvent.class).count());
+        assertEquals(response.userId(),
+                applicationEvents.stream(UserRegisteredEvent.class).findFirst().orElseThrow().userId());
     }
 
     @Test

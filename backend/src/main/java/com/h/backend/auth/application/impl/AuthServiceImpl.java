@@ -1,6 +1,7 @@
 package com.h.backend.auth.application.impl;
 
 import com.h.backend.auth.application.AuthService;
+import com.h.backend.auth.application.UserRegisteredEvent;
 import com.h.backend.auth.interfaces.dto.AuthUserResponse;
 import com.h.backend.auth.interfaces.dto.LoginRequest;
 import com.h.backend.auth.interfaces.dto.LoginResponse;
@@ -16,6 +17,7 @@ import com.h.backend.user.infrastructure.persistence.entity.UserRoleEntity;
 import com.h.backend.user.infrastructure.persistence.mapper.UserMapper;
 import com.h.backend.user.infrastructure.persistence.mapper.UserRoleMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final HumanVerification humanVerification;
+    private final ApplicationEventPublisher events;
     private final long expirationSeconds;
 
     public AuthServiceImpl(
@@ -41,6 +44,7 @@ public class AuthServiceImpl implements AuthService {
             PasswordEncoder passwordEncoder,
             JwtTokenProvider jwtTokenProvider,
             HumanVerification humanVerification,
+            ApplicationEventPublisher events,
             @Value("${jwt.expiration-seconds}") long expirationSeconds
     ) {
         this.userMapper = userMapper;
@@ -48,6 +52,7 @@ public class AuthServiceImpl implements AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.humanVerification = humanVerification;
+        this.events = events;
         this.expirationSeconds = expirationSeconds;
     }
 
@@ -75,6 +80,9 @@ public class AuthServiceImpl implements AuthService {
         role.setRoleCode(DEFAULT_ROLE);
         role.setCreatedAt(now);
         userRoleMapper.insert(role);
+
+        // 事务内发布；团队模块在提交后为新用户开通专属 Matrix 身份与团队房间（失败不阻断注册）。
+        events.publishEvent(new UserRegisteredEvent(user.getId()));
 
         return new AuthUserResponse(user.getId(), user.getEmail(), DEFAULT_ROLE);
     }
