@@ -21,17 +21,11 @@ public final class TeamHistoryReader {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
     private final MatrixClient client;
-    private final String roomId;
     private final TeamPolicy policy;
 
-    public TeamHistoryReader(MatrixClient client, String roomId, TeamPolicy policy) {
+    public TeamHistoryReader(MatrixClient client, TeamPolicy policy) {
         this.client = client;
-        this.roomId = roomId;
         this.policy = policy;
-    }
-
-    public String read(Integer limit, String before) {
-        return read(roomId, limit, before);
     }
 
     /** 翻阅指定房间（须为本账号已加入的房间）的历史；roomId 缺省由调用方解析为当前房间。 */

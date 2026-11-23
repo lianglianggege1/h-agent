@@ -24,27 +24,25 @@ import java.util.stream.Stream;
 public class TeamManagerTools {
 
     private final MatrixClient client;
-    private final String roomId;
     private final Map<String, String> workerUserIds;
     private final TeamCollaboration collaboration;
     private final TeamRoomAuthorizer authorizer;
 
-    public TeamManagerTools(MatrixClient client, String roomId, Map<String, String> workerUserIds,
-                            TeamRoomAuthorizer authorizer) {
+    public TeamManagerTools(MatrixClient client, Map<String, String> workerUserIds,
+                            TeamRoomAuthorizer authorizer,
+                            com.h.capabilities.seam.matrix.TeamHumanDirectory directory) {
         this.client = client;
-        this.roomId = roomId;
         this.workerUserIds = Map.copyOf(workerUserIds);
         this.authorizer = authorizer;
-        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, client.userId(), client.userId(), roomId,
-                workerUserIds.values().toArray(String[]::new));
-        this.collaboration = new TeamCollaboration(client, policy, roomId,
+        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, client.userId(), client.userId(),
+                directory::isTeamRoom, workerUserIds.values().toArray(String[]::new));
+        this.collaboration = new TeamCollaboration(client, policy,
                 TeamCollaboration.rosterOf(Stream.concat(Stream.of(client.userId()), workerUserIds.values().stream())
                         .toArray(String[]::new)));
     }
 
     private String currentRoom(RuntimeContext context) {
-        return context == null || context.getSessionId() == null || context.getSessionId().isBlank()
-                ? roomId : context.getSessionId();
+        return context == null ? null : context.getSessionId();
     }
 
     /** 本轮归属用户的房间访问谓词：当前房间恒允许，跨房间按归属用户成员身份判定。 */
@@ -83,7 +81,11 @@ public class TeamManagerTools {
             return "未知 Worker：" + name + "，可选 " + String.join(" / ", workerUserIds.keySet());
         }
         String taskId = "task-" + UUID.randomUUID().toString().substring(0, 8);
-        client.sendText(currentRoom(context), "[委派 " + taskId + "] " + task,
+        String room = currentRoom(context);
+        if (room == null || room.isBlank()) {
+            return "无法确定当前房间，未委派。";
+        }
+        client.sendText(room, "[委派 " + taskId + "] " + task,
                 List.of(workerUserId), TeamProtocol.KIND_DELEGATE, taskId, originOf(context));
         return "已委派 " + taskId + " 给 " + name + "，等待 Worker 回报。可以先向 Human 简短说明安排。";
     }

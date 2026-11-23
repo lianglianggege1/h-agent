@@ -28,7 +28,6 @@ public final class TeamRoomBridge implements AutoCloseable {
 
     private final MatrixClient client;
     private final TeamPolicy policy;
-    private final List<String> roomIds;
     private final Handler handler;
     private final int maxAgentTurns;
     private final TeamRunTracker tracker;
@@ -44,28 +43,24 @@ public final class TeamRoomBridge implements AutoCloseable {
     private volatile boolean running;
     private Thread syncThread;
 
-    public TeamRoomBridge(MatrixClient client, TeamPolicy policy, List<String> roomIds,
+    public TeamRoomBridge(MatrixClient client, TeamPolicy policy,
                           Handler handler, int maxAgentTurns) {
-        this(client, policy, roomIds, handler, maxAgentTurns, null);
+        this(client, policy, handler, maxAgentTurns, null);
     }
 
-    public TeamRoomBridge(MatrixClient client, TeamPolicy policy, List<String> roomIds,
+    public TeamRoomBridge(MatrixClient client, TeamPolicy policy,
                           Handler handler, int maxAgentTurns, TeamRunTracker tracker) {
         this.client = client;
         this.policy = policy;
-        this.roomIds = List.copyOf(roomIds);
         this.handler = handler;
         this.maxAgentTurns = maxAgentTurns;
         this.tracker = tracker;
     }
 
     public void start() {
-        for (String roomId : roomIds) {
-            client.join(roomId);
-        }
         running = true;
         syncThread = Thread.ofVirtual().name("matrix-sync-" + client.userId()).start(this::runLoop);
-        log.info("Team room bridge started user={} rooms={}", client.userId(), roomIds);
+        log.info("Team room bridge started user={}", client.userId());
     }
 
     private void runLoop() {

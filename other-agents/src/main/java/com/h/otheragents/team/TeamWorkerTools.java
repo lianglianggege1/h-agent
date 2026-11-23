@@ -22,26 +22,24 @@ import java.util.stream.Stream;
 public class TeamWorkerTools {
 
     private final MatrixClient client;
-    private final String roomId;
     private final String managerUserId;
     private final TeamCollaboration collaboration;
     private final TeamRoomAuthorizer authorizer;
 
-    public TeamWorkerTools(MatrixClient client, String roomId, String managerUserId, TeamRoomAuthorizer authorizer,
-                           String... workerUserIds) {
+    public TeamWorkerTools(MatrixClient client, String managerUserId, TeamRoomAuthorizer authorizer,
+                           com.h.capabilities.seam.matrix.TeamHumanDirectory directory, String... workerUserIds) {
         this.client = client;
-        this.roomId = roomId;
         this.managerUserId = managerUserId;
         this.authorizer = authorizer;
-        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, roomId, workerUserIds);
-        this.collaboration = new TeamCollaboration(client, policy, roomId,
+        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId,
+                directory::isTeamRoom, workerUserIds);
+        this.collaboration = new TeamCollaboration(client, policy,
                 TeamCollaboration.rosterOf(Stream.concat(Stream.of(managerUserId), Arrays.stream(workerUserIds))
                         .toArray(String[]::new)));
     }
 
     private String currentRoom() {
-        String room = TeamActorContext.getRoom();
-        return room == null || room.isBlank() ? roomId : room;
+        return TeamActorContext.getRoom();
     }
 
     /** 本轮归属用户的房间访问谓词：当前房间恒允许，跨房间按归属用户成员身份判定。 */
@@ -66,7 +64,11 @@ public class TeamWorkerTools {
 
     @Tool("当任务缺少必要信息、无法继续时，向 Manager 提出一个具体问题。不要猜测缺失的需求。")
     public String askManager(@P("需要 Manager 澄清的具体问题") String question) {
-        client.sendText(currentRoom(), "[提问] " + question,
+        String room = currentRoom();
+        if (room == null || room.isBlank()) {
+            return "无法确定当前房间，未提问。";
+        }
+        client.sendText(room, "[提问] " + question,
                 List.of(managerUserId), TeamProtocol.KIND_QUESTION, null, TeamActorContext.getOrigin());
         return "已向 Manager 提问，等待澄清。当前可先输出已完成的部分或说明阻塞原因。";
     }

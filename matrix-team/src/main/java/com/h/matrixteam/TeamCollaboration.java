@@ -22,10 +22,10 @@ public final class TeamCollaboration {
     private final TeamHistoryReader history;
     private final Map<String, String> roster;
 
-    public TeamCollaboration(MatrixClient client, TeamPolicy policy, String teamRoomId, Map<String, String> roster) {
+    public TeamCollaboration(MatrixClient client, TeamPolicy policy, Map<String, String> roster) {
         this.client = client;
         this.policy = policy;
-        this.history = new TeamHistoryReader(client, teamRoomId, policy);
+        this.history = new TeamHistoryReader(client, policy);
         this.roster = Map.copyOf(roster);
     }
 
@@ -85,6 +85,9 @@ public final class TeamCollaboration {
             targetRoom = findOrCreateDm(userId);
         } else {
             targetRoom = roomId == null || roomId.isBlank() ? currentRoomId : roomId;
+            if (targetRoom == null || targetRoom.isBlank()) {
+                return "缺少目标房间，未发送。";
+            }
             if (!allowed(targetRoom, currentRoomId, roomAllowed)) {
                 return denied(targetRoom);
             }

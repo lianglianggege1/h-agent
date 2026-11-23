@@ -21,7 +21,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -99,16 +98,16 @@ public class TeamManagerConfig {
             com.h.backend.generation.interfaces.tool.AgentScopeTeamGenerationTool generationTool,
             com.h.backend.observability.agentscope.AgentScopeObservationInstaller observationInstaller,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
-            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer,
+            TeamHumanDirectory directory) {
         String domain = MatrixClient.domainOf(teamMatrixClient.userId());
         Map<String, String> workerUserIds = new LinkedHashMap<>();
         workerUserIds.put(workerUsername, "@" + workerUsername + ":" + domain);
         workerUserIds.put(springWorkerUsername, "@" + springWorkerUsername + ":" + domain);
         Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, roomId, workerUserIds, roomAuthorizer));
+        toolkit.registerTool(new TeamManagerTools(teamMatrixClient, workerUserIds, roomAuthorizer, directory));
         toolkit.registerTool(documentTool);
         toolkit.registerTool(generationTool);
         memoryTools.register(toolkit);
@@ -182,7 +181,6 @@ public class TeamManagerConfig {
             TeamManagerHandler teamManagerHandler,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
             TeamHumanDirectory directory,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
@@ -191,9 +189,8 @@ public class TeamManagerConfig {
         String springWorkerUserId = "@" + springWorkerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.MANAGER, teamMatrixClient.userId(),
                 teamMatrixClient.userId(), directory::isTeamRoom, workerUserId, springWorkerUserId);
-        // 每用户专属房间经邀请动态加入；旧全局房间（若配置）仍在启动时加入以兼容遗留。
-        List<String> initialRooms = roomId == null || roomId.isBlank() ? List.of() : List.of(roomId);
-        return new TeamRoomBridge(teamMatrixClient, policy, initialRooms,
+        // 每用户专属房间经邀请动态加入（建房时邀请 bot，桥接自动接受）。
+        return new TeamRoomBridge(teamMatrixClient, policy,
                 teamManagerHandler, maxAgentTurns, teamRunTracker);
     }
 }

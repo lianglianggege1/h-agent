@@ -20,7 +20,7 @@ public final class TeamPolicy {
     private final Predicate<String> isTeamRoom;
     private final Set<String> agentUserIds;
 
-    /** 单一团队房间便捷构造（测试与工具内部名册用）；房间相等即视为团队房间。 */
+    /** 单一团队房间便捷构造（测试用）；房间相等即视为团队房间。 */
     public TeamPolicy(Role role, String selfUserId, String managerUserId, String teamRoomId, String... workerUserIds) {
         this(role, selfUserId, managerUserId, roomId -> roomId != null && roomId.equals(teamRoomId), workerUserIds);
     }

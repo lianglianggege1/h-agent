@@ -45,7 +45,7 @@ class TeamCollaborationTest {
         client = mock(MatrixClient.class);
         when(client.userId()).thenReturn(WORKER);
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, WORKER, MANAGER, ROOM, WORKER, SPRING_WORKER);
-        collaboration = new TeamCollaboration(client, policy, ROOM,
+        collaboration = new TeamCollaboration(client, policy,
                 TeamCollaboration.rosterOf(MANAGER, WORKER, SPRING_WORKER));
     }
 

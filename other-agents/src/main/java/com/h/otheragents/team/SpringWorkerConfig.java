@@ -125,13 +125,13 @@ public class SpringWorkerConfig {
     @Bean
     public SpringWorkerTools springWorkerTools(
             MatrixClient springWorkerMatrixClient,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
-            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer) {
+            com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer,
+            com.h.capabilities.seam.matrix.TeamHumanDirectory directory) {
         String domain = MatrixClient.domainOf(springWorkerMatrixClient.userId());
-        return new SpringWorkerTools(springWorkerMatrixClient, roomId,
-                "@" + managerUsername + ":" + domain, roomAuthorizer,
+        return new SpringWorkerTools(springWorkerMatrixClient,
+                "@" + managerUsername + ":" + domain, roomAuthorizer, directory,
                 "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
     }
 
@@ -205,7 +205,6 @@ public class SpringWorkerConfig {
             TeamRoomBridge.Handler springWorkerHandler,
             com.h.matrixteam.TeamRunTracker teamRunTracker,
             TeamHumanDirectory directory,
-            @Value("${MATRIX_TEAM_ROOM_ID:}") String roomId,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_WORKER_USERNAME:worker}") String workerUsername,
             @Value("${MATRIX_MAX_AGENT_TURNS:12}") int maxAgentTurns) {
@@ -213,8 +212,8 @@ public class SpringWorkerConfig {
         String managerUserId = "@" + managerUsername + ":" + domain;
         TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, springWorkerMatrixClient.userId(),
                 managerUserId, directory::isTeamRoom, "@" + workerUsername + ":" + domain, springWorkerMatrixClient.userId());
-        List<String> initialRooms = roomId == null || roomId.isBlank() ? List.of() : List.of(roomId);
-        return new TeamRoomBridge(springWorkerMatrixClient, policy, initialRooms,
+        // 每用户专属房间经邀请动态加入（建房时邀请 bot，桥接自动接受）。
+        return new TeamRoomBridge(springWorkerMatrixClient, policy,
                 springWorkerHandler, maxAgentTurns, teamRunTracker);
     }
 

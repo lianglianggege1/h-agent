@@ -1,6 +1,5 @@
 package com.h.capabilities.seam.matrix;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -27,17 +26,14 @@ public class TeamHumanDirectory {
     }
 
     private final JdbcTemplate jdbc;
-    private final String legacyTeamRoom;
     private final Map<String, Long> byMatrix = new ConcurrentHashMap<>();
     private final Map<Long, String> byUser = new ConcurrentHashMap<>();
     private final Map<Long, MatrixAccount> accounts = new ConcurrentHashMap<>();
     private final Map<Long, String> roomByUser = new ConcurrentHashMap<>();
     private final Map<String, Boolean> teamRooms = new ConcurrentHashMap<>();
 
-    public TeamHumanDirectory(JdbcTemplate jdbc,
-                              @Value("${MATRIX_TEAM_ROOM_ID:}") String legacyTeamRoom) {
+    public TeamHumanDirectory(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.legacyTeamRoom = legacyTeamRoom;
     }
 
     /** Matrix userId → 工作台用户 id；未映射（bot 或遗留账号）返回 null。 */
@@ -156,15 +152,12 @@ public class TeamHumanDirectory {
 
     /**
      * 该房间是否为团队群聊房间（按团队规则路由：Manager 默认接待、Worker 只认点名/委派）。
-     * 每用户专属团队房间（users.matrix_room_id）与兼容保留的旧全局房间均视为团队房间；
+     * 以 users.matrix_room_id 为准：每用户专属团队房间皆视为团队房间；
      * 单聊房间（仅 1 bot + 1 人类）不在其中，按单聊规则路由。两服务共享 DB，分类跨进程一致。
      */
     public boolean isTeamRoom(String roomId) {
         if (roomId == null || roomId.isBlank()) {
             return false;
-        }
-        if (roomId.equals(legacyTeamRoom)) {
-            return true;
         }
         Boolean cached = teamRooms.get(roomId);
         if (cached != null) {

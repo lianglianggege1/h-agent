@@ -24,27 +24,25 @@ import java.util.stream.Stream;
 public class SpringWorkerTools {
 
     private final MatrixClient client;
-    private final String roomId;
     private final String managerUserId;
     private final TeamCollaboration collaboration;
     private final TeamRoomAuthorizer authorizer;
 
-    public SpringWorkerTools(MatrixClient client, String roomId, String managerUserId, TeamRoomAuthorizer authorizer,
-                             String... workerUserIds) {
+    public SpringWorkerTools(MatrixClient client, String managerUserId, TeamRoomAuthorizer authorizer,
+                             com.h.capabilities.seam.matrix.TeamHumanDirectory directory, String... workerUserIds) {
         this.client = client;
-        this.roomId = roomId;
         this.managerUserId = managerUserId;
         this.authorizer = authorizer;
-        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId, roomId, workerUserIds);
-        this.collaboration = new TeamCollaboration(client, policy, roomId,
+        TeamPolicy policy = new TeamPolicy(TeamPolicy.Role.WORKER, client.userId(), managerUserId,
+                directory::isTeamRoom, workerUserIds);
+        this.collaboration = new TeamCollaboration(client, policy,
                 TeamCollaboration.rosterOf(Stream.concat(Stream.of(managerUserId), Arrays.stream(workerUserIds))
                         .toArray(String[]::new)));
     }
 
     private String currentRoom(ToolContext toolContext) {
         SpringToolContext identity = toolContext == null ? null : SpringToolContext.from(toolContext);
-        return identity == null || identity.roomId() == null || identity.roomId().isBlank()
-                ? roomId : identity.roomId();
+        return identity == null ? null : identity.roomId();
     }
 
     private static String originOf(ToolContext toolContext) {
@@ -75,7 +73,11 @@ public class SpringWorkerTools {
     @Tool(description = "当任务缺少必要信息、无法继续时，向 Manager 提出一个具体问题。不要猜测缺失的需求。")
     public String askManager(@ToolParam(description = "需要 Manager 澄清的具体问题") String question,
                              ToolContext toolContext) {
-        client.sendText(currentRoom(toolContext), "[提问] " + question,
+        String room = currentRoom(toolContext);
+        if (room == null || room.isBlank()) {
+            return "无法确定当前房间，未提问。";
+        }
+        client.sendText(room, "[提问] " + question,
                 List.of(managerUserId), TeamProtocol.KIND_QUESTION, null, originOf(toolContext));
         return "已向 Manager 提问，等待澄清。当前可先输出已完成的部分或说明阻塞原因。";
     }
