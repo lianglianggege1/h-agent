@@ -31,7 +31,7 @@ class ChatStreamConcurrencyGuardTest {
     void shouldDefaultPermitTtlToShortCrashRecoveryWindow() {
         ChatStreamProperties properties = new ChatStreamProperties();
 
-        assertEquals(Duration.ofMinutes(10), properties.getPermitTtl());
+        assertEquals(Duration.ofSeconds(60), properties.getPermitTtl());
     }
 
     @Test

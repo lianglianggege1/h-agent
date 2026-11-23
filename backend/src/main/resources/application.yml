@@ -120,7 +120,8 @@ chat:
     heartbeat-interval: 15s
     max-concurrent-per-user: 100
     max-concurrent-global: 100
-    permit-ttl: 10m
+    # Running streams renew the lease, so this bounds recovery after a process exits.
+    permit-ttl: 60s
   resources:
     public-base-url: ""
     upload:
