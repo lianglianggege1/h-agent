@@ -12,6 +12,7 @@ export const progressSchema = z.object({
   })).default([]),
   steps: z.array(z.object({
     id: z.string(), name: z.string(), status: z.string(), result: z.string().optional(), kind: z.string().optional(),
+    arguments: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
   })),
 });
 
@@ -80,10 +81,14 @@ export function ProgressCard({ content }: { content: ProgressContent }) {
           if (!step) return null;
           const phase = step.status.toLowerCase();
           const label = running(phase) ? "进行中" : failed(phase) ? "失败" : phase === "waiting" ? "等待确认"
-            : phase === "cancelled" || phase === "interrupted" ? "已停止" : "完成";
+            : phase === "waiting_input" ? "等待补充" : phase === "cancelled" || phase === "interrupted" ? "已停止" : "完成";
           return <li key={entry.id} className="agui-progress-step" data-failed={failed(phase)}>
             <details>
               <summary><span>{toolNames[step.name] ?? step.name}</span><span className="agui-progress-meta">{label}</span></summary>
+              {step.arguments && Object.keys(step.arguments).length > 0 ? <>
+                <p className="agui-progress-meta">调用参数</p>
+                <pre className="agui-progress-result">{JSON.stringify(step.arguments, null, 2)}</pre>
+              </> : null}
               {step.result ? <pre className="agui-progress-result">{step.result}</pre> : <p className="agui-progress-meta">{running(phase) ? "等待执行结果…" : "无额外结果"}</p>}
             </details>
           </li>;

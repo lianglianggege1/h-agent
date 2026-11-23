@@ -6,6 +6,7 @@ import {
   documentTasks,
   reviewDocument,
   decideDocument,
+  reocrDocumentBlock,
   documentAction,
   type DocumentTask,
   type DocumentDecision,
@@ -47,6 +48,8 @@ function ReviewCard({
 }) {
   const preview = useFilePreview();
   const [review, setReview] = useState<DocumentTask | null>(null);
+  const [regionSuggestions, setRegionSuggestions] = useState<Record<string, string>>({});
+  const [regionRunning, setRegionRunning] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<Record<string, DocumentDecision>>(
     {},
   );
@@ -212,6 +215,15 @@ function ReviewCard({
                         接受原识别
                       </button>
                     ) : null}
+                    <button type="button" className="agui-button" disabled={busy || !!regionRunning}
+                      onClick={() => {
+                        setRegionRunning(block.id);
+                        void reocrDocumentBlock(session, review, block.id).then((text) => {
+                          if (!text.trim()) { setError("此区域未识别到文字"); return; }
+                          setRegionSuggestions((previous) => ({ ...previous, [block.id]: text }));
+                        }).catch((failure) => setError(failure instanceof Error ? failure.message : "区域识别失败"))
+                          .finally(() => setRegionRunning(null));
+                      }}>{regionRunning === block.id ? "区域识别中…" : "重新识别这一区域"}</button>
                     <button
                       type="button"
                       className="agui-button"
@@ -230,6 +242,14 @@ function ReviewCard({
                     >
                       提交为人工修正
                     </button>
+                    {regionSuggestions[block.id] ? <div className="w-full rounded border border-stone-200 p-2">
+                      <p className="text-xs">重新识别结果，请对照原文</p>
+                      <p className="whitespace-pre-wrap text-sm">{regionSuggestions[block.id]}</p>
+                      <button type="button" className="agui-button" onClick={() =>
+                        setDecisions((current) => ({ ...current, [block.id]: {
+                          blockId: block.id, action: "CORRECT", text: regionSuggestions[block.id],
+                        } }))}>采用为人工修正</button>
+                    </div> : null}
                     {decisions[block.id] ? (
                       <span className="self-center text-xs text-emerald-700">
                         已选择

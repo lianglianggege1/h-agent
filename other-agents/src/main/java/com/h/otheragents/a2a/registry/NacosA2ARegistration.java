@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
 import com.h.otheragents.a2a.export.A2AAgentExportRegistry;
 import com.h.otheragents.a2a.server.A2AAgentServer;
+import com.h.otheragents.a2a.story.StoryTaskController;
 import com.h.registry.NacosRegistrationAddress;
 import com.h.registry.NacosA2AConstants;
 import com.h.registry.NacosRegistryProperties;
@@ -15,6 +16,7 @@ import org.a2aproject.sdk.spec.AgentInterface;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.context.ApplicationContext;
@@ -37,19 +39,21 @@ public class NacosA2ARegistration implements ApplicationListener<WebServerInitia
     private final A2AAgentExportRegistry exports;
     private final A2AAgentServer server;
     private final ApplicationContext context;
+    private final ObjectProvider<StoryTaskController> storyTasks;
     private final Map<String, AgentEndpoint> endpoints = new LinkedHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     public NacosA2ARegistration(AiService aiService, NacosRegistryProperties registryProperties,
             OtherAgentsA2AProperties properties, A2AAgentExportRegistry exports,
-            A2AAgentServer server, ApplicationContext context) {
+            A2AAgentServer server, ApplicationContext context, ObjectProvider<StoryTaskController> storyTasks) {
         this.aiService = aiService;
         this.registryProperties = registryProperties;
         this.properties = properties;
         this.exports = exports;
         this.server = server;
         this.context = context;
+        this.storyTasks = storyTasks;
     }
 
     @Override
@@ -62,8 +66,16 @@ public class NacosA2ARegistration implements ApplicationListener<WebServerInitia
                 var address = NacosRegistrationAddress.resolve(registryProperties, event.getWebServer().getPort());
                 properties.setPublicUrl(new URI("http", null, address.ip(), address.port(), null, null, null).toString());
             }
-            for (var export : exports.list()) {
-                AgentCard card = mapper.convertValue(server.card(export.id()), AgentCard.class);
+            var cards = new LinkedHashMap<String, org.a2aproject.sdk.spec.AgentCard>();
+            for (var export : exports.list()) cards.put(export.id(), server.card(export.id()));
+            storyTasks.ifAvailable(story -> cards.put(StoryTaskController.AGENT_ID, story.card()));
+            context.getBeansOfType(com.h.otheragents.a2a.document.RemoteDocumentA2AController.class).values()
+                    .forEach(documents -> cards.put(com.h.otheragents.a2a.document.RemoteDocumentA2AController.ID, documents.card()));
+            context.getBeansOfType(com.h.otheragents.a2a.story.StoryIllustratorController.class).values()
+                    .forEach(illustrator -> cards.put(com.h.otheragents.a2a.story.StoryIllustratorController.ID, illustrator.card()));
+            for (var registration : cards.entrySet()) {
+                String agentId = registration.getKey();
+                AgentCard card = mapper.convertValue(registration.getValue(), AgentCard.class);
                 card.setProtocolVersion(AgentInterface.CURRENT_PROTOCOL_VERSION);
                 URI url = URI.create(card.getUrl());
                 if (url.getHost() == null || !("http".equals(url.getScheme()) || "https".equals(url.getScheme()))
@@ -72,7 +84,7 @@ public class NacosA2ARegistration implements ApplicationListener<WebServerInitia
                 }
                 // Definitions are immutable per version and must not retain an instance address.
                 // Nacos 3.2 returns this marker if there are no runtime endpoints to inject.
-                String unresolved = "http://" + NacosA2AConstants.UNRESOLVED_HOST + "/a2a/agents/" + export.id();
+                String unresolved = "http://" + NacosA2AConstants.UNRESOLVED_HOST + "/a2a/agents/" + agentId;
                 card.setUrl(unresolved);
                 card.getSupportedInterfaces().forEach(i -> i.setUrl(unresolved));
                 card.setAdditionalInterfaces(List.of());
@@ -87,9 +99,9 @@ public class NacosA2ARegistration implements ApplicationListener<WebServerInitia
                 endpoint.setVersion(card.getVersion());
                 endpoint.setSupportTls("https".equals(url.getScheme()));
                 // Retain before the RPC so teardown also cleans up partially accepted registrations.
-                endpoints.put(export.id(), endpoint);
-                aiService.registerAgentEndpoint(export.id(), endpoint);
-                log.info("Registered A2A agent {} version {} at {}", export.id(), card.getVersion(), url);
+                endpoints.put(agentId, endpoint);
+                aiService.registerAgentEndpoint(agentId, endpoint);
+                log.info("Registered A2A agent {} version {} at {}", agentId, card.getVersion(), url);
             }
         } catch (Exception error) {
             throw new IllegalStateException("Nacos A2A registration failed; refusing to start", error);

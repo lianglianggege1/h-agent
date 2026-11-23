@@ -36,7 +36,7 @@ public class NacosA2AClientFactory {
                                 A2AHttpClientFactory.create(), () -> endpoint(agentName)))));
     }
 
-    String endpoint(String agentName) {
+    public String endpoint(String agentName) {
         try {
             var card = aiService.getAgentCard(agentName, properties.getVersion(), "SERVICE");
             String url = card == null ? null : card.getUrl();

@@ -17,6 +17,9 @@ import java.util.Map;
 public class DocumentController {
     private final DocumentWorkflow workflow;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.h.backend.document.infrastructure.a2a.A2ADocumentDispatch remote;
+
     public DocumentController(DocumentWorkflow workflow) {
         this.workflow = workflow;
     }
@@ -58,6 +61,17 @@ public class DocumentController {
             @PathVariable String session,
             @PathVariable String id,
             @RequestBody Action request) {
+        if (remote != null && "CANCEL".equals(request.action())) {
+            var task = workflow.require(user.userId(), session, id);
+            if (remote.accepts(task)) {
+                try {
+                    remote.cancel(task);
+                    return ApiResponse.ok(workflow.review(user.userId(), session, id));
+                } catch (IllegalStateException unavailable) {
+                    // The local and remote actions share the task row. Cancellation is idempotent.
+                }
+            }
+        }
         return ApiResponse.ok(
                 workflow.action(
                         user.userId(),
@@ -68,6 +82,15 @@ public class DocumentController {
                         request.hint(),
                         request.allowUnchanged()));
     }
+
+    @PostMapping("/tasks/{id}/blocks/{block}/reocr")
+    public ApiResponse<String> reocrBlock(@AuthenticationPrincipal AuthUserPrincipal user,
+            @PathVariable String session, @PathVariable String id, @PathVariable String block,
+            @RequestBody RegionRequest request) throws Exception {
+        return ApiResponse.ok(workflow.reocrBlock(user.userId(), session, id, block, request.revision()));
+    }
+
+    public record RegionRequest(long revision) {}
 
     @GetMapping("/tasks/{id}/blocks/{block}/image")
     public ResponseEntity<byte[]> image(

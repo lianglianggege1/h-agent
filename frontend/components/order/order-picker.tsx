@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { getOrders, referenceOrder, type DemoOrder, type OrderReference, orderLabel, orderMoney } from "@/lib/orders";
 
-export function OrderPicker({ threadId, onClose, onReference }: { threadId: string; onClose: () => void; onReference: (value: OrderReference) => void }) {
+export function OrderPicker({ threadId, onClose, onReference }: { threadId: string; onClose: () => void; onReference: (value: OrderReference[]) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [orders, setOrders] = useState<DemoOrder[]>([]);
@@ -12,6 +12,7 @@ export function OrderPicker({ threadId, onClose, onReference }: { threadId: stri
   const [sending, setSending] = useState<string | null>(null);
   const [kind, setKind] = useState<"orders" | "tickets">("orders");
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<OrderReference[]>([]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -37,9 +38,12 @@ export function OrderPicker({ threadId, onClose, onReference }: { threadId: stri
     finally { setSending(null); }
   }
 
-  function reference(value: OrderReference) {
-    onReference(value);
-    onClose();
+  function toggle(value: OrderReference) {
+    setSelected((current) => {
+      const index = current.findIndex((item) => (item.ticketId ?? item.id) === (value.ticketId ?? value.id));
+      if (index >= 0) return current.filter((_, itemIndex) => itemIndex !== index);
+      return current.length < 20 ? [...current, value] : current;
+    });
   }
 
   const keyword = query.trim().toLocaleLowerCase();
@@ -68,16 +72,24 @@ export function OrderPicker({ threadId, onClose, onReference }: { threadId: stri
             <div className="flex items-start justify-between gap-3"><h3 className="min-w-0 text-sm font-medium">{order.title}</h3><span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{orderLabel(order.stage)}</span></div>
             <p className="mt-1 break-all text-xs text-stone-400">{order.id}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500"><span className="font-medium text-stone-700">{orderMoney(order.amountCents)}</span><span>{orderLabel(order.payment)}</span>{order.tickets.length ? <span>关联工单 {order.tickets.length}</span> : null}</div>
-            <div className="mt-4 flex items-center justify-end gap-3"><button type="button" className="text-xs text-stone-500 hover:text-stone-900 disabled:opacity-40" disabled={sending !== null} onClick={() => void send(order)}>{sending === order.id ? "正在发送…" : "发送订单卡片"}</button><button type="button" className="agui-button agui-button-primary" disabled={sending !== null} onClick={() => reference({ id: order.id, title: order.title })}>引用订单</button></div>
+            <div className="mt-4 flex items-center justify-end gap-3"><button type="button" className="text-xs text-stone-500 hover:text-stone-900 disabled:opacity-40" disabled={sending !== null} onClick={() => void send(order)}>{sending === order.id ? "正在发送…" : "发送订单卡片"}</button><button type="button" className="agui-button agui-button-primary" disabled={sending !== null} aria-pressed={selected.some((item) => !item.ticketId && item.id === order.id)}
+              onClick={() => toggle({ id: order.id, title: order.title })}>
+              {selected.some((item) => !item.ticketId && item.id === order.id) ? "已选订单" : "选择订单"}</button></div>
           </article>) : visibleTickets.map(({ order, ticket }) => <article className="rounded-xl border border-stone-200 p-4" key={ticket.id} aria-label={`工单 ${ticket.id}`}>
             <div className="flex items-start justify-between gap-3"><h3 className="text-sm font-medium">{ticket.title}</h3><span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{orderLabel(ticket.status)}</span></div>
             <p className="mt-1 break-all text-xs text-stone-400">{ticket.id}</p>
             <p className="mt-3 text-xs text-stone-500">关联订单 · {order.id}</p>
-            <div className="mt-4 flex items-center justify-between gap-3"><span className="text-xs text-stone-500">负责人：{ticket.owner}</span><button type="button" className="agui-button agui-button-primary" disabled={sending !== null} onClick={() => reference({ id: order.id, title: ticket.title, ticketId: ticket.id })}>引用工单</button></div>
+            <div className="mt-4 flex items-center justify-between gap-3"><span className="text-xs text-stone-500">负责人：{ticket.owner}</span><button type="button" className="agui-button agui-button-primary" disabled={sending !== null} aria-pressed={selected.some((item) => item.ticketId === ticket.id)}
+              onClick={() => toggle({ id: order.id, title: ticket.title, ticketId: ticket.id })}>
+              {selected.some((item) => item.ticketId === ticket.id) ? "已选工单" : "选择工单"}</button></div>
           </article>)}
         </div>}
       </div>
-      <footer className="shrink-0 border-t border-stone-100 px-5 py-3 text-xs text-stone-400 sm:px-6">引用后可在输入框中补充问题，再一起发送。</footer>
+      <footer className="flex shrink-0 items-center justify-between border-t border-stone-100 px-5 py-3 sm:px-6">
+        <span className="text-sm text-stone-500">已选 {selected.length} 项</span>
+        <button type="button" className="agui-button agui-button-primary" disabled={!selected.length || sending !== null}
+          onClick={() => { onReference(selected); onClose(); }}>引用所选</button>
+      </footer>
     </div>
   </dialog>;
 }

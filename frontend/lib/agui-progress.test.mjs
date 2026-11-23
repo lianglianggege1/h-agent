@@ -92,8 +92,13 @@ test("process streams expanded, collapses on answer, and preserves the reader's 
     await render({ steps: [{ id: "s1", name: "web_search", kind: "tool", status: "running" }] });
     assert.equal(toggle().getAttribute("aria-expanded"), "false", "Later tools do not reopen the process");
     await React.act(async () => toggle().click());
-    await render({ status: "COMPLETED", steps: [{ id: "s1", name: "web_search", kind: "tool", status: "completed" }] });
+    await render({ status: "COMPLETED", steps: [{ id: "s1", name: "web_search", kind: "tool", status: "completed",
+      arguments: { query: "月球任务" }, result: "返回两条结果" }] });
     assert.equal(toggle().getAttribute("aria-expanded"), "true", "Manual expansion survives completion");
+    const tool = dom.window.document.querySelector("details");
+    assert.match(tool.textContent, /调用参数/);
+    assert.match(tool.textContent, /月球任务/);
+    assert.match(tool.textContent, /返回两条结果/);
     await render({ runId: "next", answerStarted: false, status: "RUNNING", processEndedAt: undefined });
     await React.act(async () => toggle().click());
     await render({ entries: [{ id: "r1", type: "reasoning", chunks: ["下一轮"] }] });

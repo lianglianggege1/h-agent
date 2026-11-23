@@ -110,11 +110,27 @@ public class ImageGenerationServiceImpl implements ImageGenerationService {
         payload.setParentImageMessageId(command.parentImageMessageId());
         payload.setOperationType(command.operationType());
 
+        return persist(command, pendingMessageId, prompt, payload, generationResult.images());
+    }
+
+    @Override
+    public ChatSessionMessageDto attachRemoteIllustration(ImageGenerationCommand command, byte[] image, String mimeType) {
+        var payload = new ChatMessagePayload();
+        payload.setPrompt(command.prompt());
+        payload.setProvider("A2A");
+        payload.setStatus(READY_STATUS);
+        payload.setTriggerSource(command.triggerSource());
+        return persist(command, null, command.prompt(), payload,
+                List.of(new MiniMaxImageGenerationResult.GeneratedImage(mimeType, image, null, null)));
+    }
+
+    private ChatSessionMessageDto persist(ImageGenerationCommand command, Long pendingMessageId, String prompt,
+            ChatMessagePayload payload, List<MiniMaxImageGenerationResult.GeneratedImage> generated) {
         // 新计划任务 3：provider HTTP 调用留在事务外；所有对象写入与消息挂接
         // 在同一事务内（Coordinator 加入本事务，rollback 时每张图被补偿删除）。
         return transactionTemplate.execute(status -> {
             List<ChatMessageResourceDto> resources = new ArrayList<>();
-            for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generationResult.images()) {
+            for (MiniMaxImageGenerationResult.GeneratedImage generatedImage : generated) {
                 // 审查修复第 3 项（计划 §6.2/§6.3）：图片生成调用方在保存前完成
                 // 内容校验——provider 声明的 MIME 只是提示，签名冲突即拒绝；
                 // 校验失败抛明确业务异常，事务 rollback 补偿已保存图片。

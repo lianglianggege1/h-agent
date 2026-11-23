@@ -228,7 +228,10 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                                                                 "id",
                                                                 before.request().id(),
                                                                 "name",
-                                                                before.request().name())));
+                                                                before.request().name(),
+                                                                "arguments",
+                                                                java.util.Objects.toString(
+                                                                        before.request().arguments(), ""))));
                                     });
                 }
                 ChatExecutionCancellation.check(command.sink());

@@ -7,6 +7,7 @@ import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.model.chat.ChatModel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 public class A2AAgentConfig {
@@ -42,13 +43,22 @@ public class A2AAgentConfig {
     public com.h.otheragents.a2a.export.A2AAgentExports a2aAgentExports(
             Agents.CreativeWriter creativeWriter,
             Agents.AudienceEditor audienceEditor,
-            Agents.StyleEditor styleEditor
+            Agents.StyleEditor styleEditor,
+            org.springframework.beans.factory.ObjectProvider<com.h.otheragents.a2a.story.StoryReviewAgents> reviewAgents,
+            @Value("${other-agents.a2a.story.review-enabled:true}") boolean reviewEnabled,
+            @Value("${other-agents.a2a.story.fact-check-enabled:true}") boolean factCheckEnabled
     ) {
-        return com.h.otheragents.a2a.export.A2AAgentExports.builder()
+        var exports = com.h.otheragents.a2a.export.A2AAgentExports.builder()
                 .export("creative-writer", creativeWriter, Agents.CreativeWriter.class, "generateStory")
                 .export("audience-editor", audienceEditor, Agents.AudienceEditor.class, "editStory")
-                .export("style-editor", styleEditor, Agents.StyleEditor.class, "editStory")
-                .build();
+                .export("style-editor", styleEditor, Agents.StyleEditor.class, "editStory");
+        reviewAgents.ifAvailable(agents -> {
+            if (reviewEnabled) exports.export("story-review", agents.reviewer(),
+                    com.h.otheragents.a2a.story.StoryReviewAgents.Review.class, "assess");
+            if (factCheckEnabled) exports.export("fact-checker", agents.checker(),
+                    com.h.otheragents.a2a.story.StoryReviewAgents.FactCheck.class, "check");
+        });
+        return exports.build();
     }
 
     @Bean

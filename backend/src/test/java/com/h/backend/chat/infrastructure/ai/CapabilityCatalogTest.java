@@ -35,8 +35,8 @@ class CapabilityCatalogTest {
             ToolSpecifications.toolSpecificationsFrom(instance).forEach(spec -> actual.add(spec.name()));
         }
         Set<String> names = CapabilityCatalog.toolNames(CapabilityCatalog.Runtime.STANDARD_CHAT);
-        assertThat(actual).hasSize(24);
-        assertThat(names).containsAll(actual).hasSize(40);
+        assertThat(actual).hasSize(26);
+        assertThat(names).containsAll(actual).hasSize(42);
     }
 
     @Test

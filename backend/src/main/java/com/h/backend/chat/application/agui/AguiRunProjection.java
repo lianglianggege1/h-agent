@@ -21,6 +21,7 @@ public final class AguiRunProjection {
     private final Set<String> openText = new LinkedHashSet<>();
     private final Map<String, Map<String, Object>> steps = new LinkedHashMap<>();
     private final Map<String, String> toolPhases = new HashMap<>();
+    private final Map<String, HarnessArguments> harnessToolArguments = new HashMap<>();
     private final Map<String, Map<String, Object>> activities = new LinkedHashMap<>();
     private final Map<String, StringBuilder> text = new LinkedHashMap<>();
     private final List<Map<String, Object>> entries = new ArrayList<>();
@@ -76,6 +77,7 @@ public final class AguiRunProjection {
                     });
                 }
                 if (harnessAdapter == null) harnessAdapter = new HarnessAguiAdapter(threadId, runId);
+                collectHarnessToolArguments(source);
                 harnessAdapter.accept(source).forEach(this::publish);
             }
             case "chunk" -> {
@@ -102,7 +104,7 @@ public final class AguiRunProjection {
                 String name = Objects.toString(tool.get("name"));
                 if ("tool_start".equals(event.type())) {
                     publish(new ToolCallStartEvent(id, name));
-                    publish(new ToolCallArgsEvent(id, "{}"));
+                    publishToolArguments(id, name, Objects.toString(tool.get("arguments"), ""));
                     publish(new ToolCallEndEvent(id));
                 } else {
                     output.accept(new ToolCallResultEvent("result-" + id, id,
@@ -125,6 +127,14 @@ public final class AguiRunProjection {
                 ApprovalRequestDto approval = (ApprovalRequestDto) event.payload();
                 activity("approval-" + approval.approvalId(), "h-agent.approval", Map.of("approval", approval));
                 status = "WAITING_APPROVAL";
+            }
+            case "a2a_story_waiting", "a2a_story_working", "a2a_story_completed" -> {
+                String phase = switch (event.type()) {
+                    case "a2a_story_waiting" -> "waiting_input";
+                    case "a2a_story_working" -> "running";
+                    default -> "completed";
+                };
+                step("a2a-story-" + event.payload(), "远端故事创作", phase, null);
             }
             case "blocked" -> {
                 step("blocked", "请求未通过检查", "failed", event.content());
@@ -183,6 +193,51 @@ public final class AguiRunProjection {
         output.accept(event);
     }
 
+    private void collectHarnessToolArguments(AgentEvent source) {
+        if (source.getSource() != null && !source.getSource().isBlank()) return;
+        if (source instanceof io.agentscope.core.event.ToolCallStartEvent start
+                && DisplayableToolArguments.supports(start.getToolCallName())) {
+            harnessToolArguments.put(start.getToolCallId(), new HarnessArguments(start.getToolCallName(), new StringBuilder()));
+        } else if (source instanceof io.agentscope.core.event.ToolCallDeltaEvent delta) {
+            var args = harnessToolArguments.get(delta.getToolCallId());
+            if (args == null || delta.getDelta() == null) return;
+            var collected = args.text();
+            if (delta.getDelta().length() > DisplayableToolArguments.MAX_INPUT - collected.length()) {
+                harnessToolArguments.remove(delta.getToolCallId());
+                showToolArguments(delta.getToolCallId(), Map.of());
+            } else {
+                collected.append(delta.getDelta());
+                if (!collected.isEmpty() && ",}\"".indexOf(collected.charAt(collected.length() - 1)) >= 0) {
+                    showToolArguments(delta.getToolCallId(), DisplayableToolArguments.selectPartial(
+                            args.name(), collected.toString()));
+                }
+            }
+        } else if (source instanceof io.agentscope.core.event.ToolCallEndEvent end) {
+            var args = harnessToolArguments.remove(end.getToolCallId());
+            if (args != null) {
+                publishToolArguments(end.getToolCallId(), args.name(), args.text().toString());
+            }
+        }
+    }
+
+    private record HarnessArguments(String name, StringBuilder text) {}
+
+    private void publishToolArguments(String id, String name, String rawArguments) {
+        var arguments = DisplayableToolArguments.select(name, rawArguments);
+        showToolArguments(id, arguments);
+        if (!arguments.isEmpty()) publish(new ToolCallArgsEvent(id, DisplayableToolArguments.toJson(arguments)));
+    }
+
+    private void showToolArguments(String id, Map<String, Object> arguments) {
+        Map<String, Object> step = steps.get("tool-" + id);
+        if (step != null && !(arguments.isEmpty() && !step.containsKey("arguments"))
+                && !arguments.equals(step.get("arguments"))) {
+            step.put("arguments", arguments);
+            progressDelta(List.of(new JsonPatchOperation("replace", "/steps",
+                    steps.values().stream().map(Map::copyOf).toList())));
+        }
+    }
+
     private void orderResult(String content) {
         if (content == null || !content.contains("order-demo")) return;
         try {
@@ -224,6 +279,10 @@ public final class AguiRunProjection {
         value.put("status", phase);
         value.put("kind", id.startsWith("tool-") ? "tool" : "step");
         if (result != null && !result.isBlank()) value.put("result", result);
+        Map<String, Object> previous = steps.get(id);
+        if (previous != null && previous.containsKey("arguments")) {
+            value.put("arguments", previous.get("arguments"));
+        }
         steps.put(id, value);
         List<JsonPatchOperation> patch = new ArrayList<>();
         if (added) {

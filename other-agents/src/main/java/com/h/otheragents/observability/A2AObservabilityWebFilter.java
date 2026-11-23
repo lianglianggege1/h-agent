@@ -33,6 +33,8 @@ import java.util.Map;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class A2AObservabilityWebFilter implements WebFilter {
 
+    public static final String EXCHANGE_ATTRIBUTE = "h-agent.a2a.observation-context";
+
     private static final String AGENT_PATH_PREFIX = "/a2a/agents/";
 
     private final AgentObservability observability;
@@ -52,6 +54,8 @@ public class A2AObservabilityWebFilter implements WebFilter {
                 ObservationSpec.of("remote_call a2a.server", HObsKind.REMOTE_CALL, "a2a-server",
                         Map.of(HAttrs.AGENT_ID, agentIdOf(exchange))),
                 parent);
+        ObservationContext serverContext = server.context();
+        if (serverContext != null) exchange.getAttributes().put(EXCHANGE_ATTRIBUTE, serverContext);
         return Mono.using(
                         () -> observability.scope(server.context()),
                         scope -> chain.filter(exchange),

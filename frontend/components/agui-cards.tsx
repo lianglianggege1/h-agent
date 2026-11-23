@@ -15,6 +15,7 @@ import { ProgressCard, progressSchema, HistoricalReasoning } from "@/components/
 import { MarkdownContent } from "@/components/markdown-content";
 import { OrderCard, type OrderCardContent } from "@/components/order/order-card";
 
+import { ProposalControls } from "@/components/automation/proposal-controls";
 import { useFilePreview } from "./file-preview";
 import type { PreviewResource } from "@/lib/file-preview";
 import { DocumentTaskCard } from "@/components/document-panel";
@@ -44,7 +45,7 @@ export function AutomationCard({ content }: { content: { proposal: AutomationPro
 
   async function decide(confirm: boolean) {
     setBusy(true); setError("");
-    try { setProposal(await (confirm ? confirmAutomationProposal(proposal.id) : discardAutomationProposal(proposal.id))); }
+    try { setProposal(await (confirm ? confirmAutomationProposal(proposal.id, proposal.updatedAt) : discardAutomationProposal(proposal.id))); }
     catch (failure) { setError(failure instanceof Error ? failure.message : "操作失败，请重试"); }
     finally { setBusy(false); }
   }
@@ -59,6 +60,7 @@ export function AutomationCard({ content }: { content: { proposal: AutomationPro
       {proposal.upcomingFires?.length ? <p>下次执行：{new Date(proposal.upcomingFires[0]).toLocaleString("zh-CN", { timeZone: proposal.zoneId ?? "Asia/Shanghai" })}</p> : null}
     </div>
     {error ? <p role="alert" className="mt-2 text-red-700">{error}</p> : null}
+    <ProposalControls key={proposal.id + (proposal.updatedAt ?? "")} proposal={proposal} onSaved={setProposal} />
     {proposal.status === "PENDING" ? <div className="mt-3 flex gap-2">
       <button className="agui-button" disabled={busy} onClick={() => void decide(false)}>放弃</button>
       <button className="agui-button agui-button-primary" disabled={busy} onClick={() => void decide(true)}>{busy ? "处理中…" : "确认"}</button>

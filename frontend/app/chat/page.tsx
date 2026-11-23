@@ -19,6 +19,7 @@ import { getHarnessSubagents } from "@/lib/harness-subagent-api";
 import type { HarnessSubagentSummary } from "@/lib/harness-subagent-types";
 import { approvalModeOptions, type ApprovalMode } from "@/lib/harness-approval";
 import { buildCallHref } from "@/lib/voice-call";
+import { DocumentCanvas } from "@/components/document-canvas";
 
 const standardId = "standard-chat";
 const harnessId = "harness-agent";
@@ -50,6 +51,8 @@ function ChatWorkspace() {
   const [deleting, setDeleting] = useState(false);
   const [children, setChildren] = useState<HarnessSubagentSummary[]>([]);
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
+  const [canvasSession, setCanvasSession] = useState<string | null>(null);
+  const [canvasReference, setCanvasReference] = useState<{ session: string; text: string } | null>(null);
   const currentSession = useRef<ChatSessionOpen | null>(null);
   const sessionId = open?.session.sessionId ?? null;
   const harness = open?.session.runtimeType === "HARNESS_STREAMING";
@@ -215,6 +218,8 @@ function ChatWorkspace() {
         <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{open?.session.title ?? "H Agent"}</h1><p className="mt-0.5 text-xs text-stone-500">{open?.session.agentDisplayName ?? "选择会话开始"}</p></div>
         {open && !standard ? <Link className="hidden text-xs text-amber-800 sm:block" href={"/me/agents/" + encodeURIComponent(open.session.agentId)}>拓扑详情</Link> : null}
         {standard && sessionId ? <Link className="agui-button" href={buildCallHref(sessionId)}>语音</Link> : null}
+        {sessionId && open?.session.agentId !== orderId ? <button className="agui-button"
+          onClick={() => setCanvasSession(sessionId)}>文档画布</button> : null}
         <button className="agui-button agui-button-primary" onClick={() => setPickerOpen(true)}>新会话</button>
       </div>
       {standard ? <div className="mx-auto mt-3 flex w-full items-center gap-3 text-xs">
@@ -241,8 +246,15 @@ function ChatWorkspace() {
       </section>
     </div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
-      : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn} orderAssistant={open?.session.agentId === orderId} /></div>
+      : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn}
+        canvasReference={canvasReference?.session === sessionId ? canvasReference.text : undefined}
+        onClearCanvasReference={() => setCanvasReference(null)} orderAssistant={open?.session.agentId === orderId} /></div>
       : <div className="grid flex-1 place-items-center"><button className="agui-button agui-button-primary" disabled={creating} onClick={() => setPickerOpen(true)}>新建会话</button></div>}
+
+    {sessionId && canvasSession === sessionId ? <DocumentCanvas key={sessionId} session={sessionId}
+      onClose={() => setCanvasSession(null)} onReference={(text) => {
+        setCanvasReference({ session: sessionId, text }); setCanvasSession(null);
+      }} /> : null}
 
     {selected && sessionId ? <div className="fixed inset-0 z-30 flex justify-end bg-stone-950/25">
       <button className="absolute inset-0" aria-label="关闭子 Agent 对话" onClick={() => setSelectedChild(null)} />
@@ -252,7 +264,9 @@ function ChatWorkspace() {
           {selected.parentSessionId !== sessionId ? <button className="mt-2 text-xs text-amber-800 underline" onClick={() => setSelectedChild(selected.parentSessionId)}>返回上级 Agent</button> : null}
           <div className="mt-3 flex gap-2 overflow-auto">{children.filter((child) => child.parentSessionId === selected.sessionId).map((child) => <button key={child.sessionId} className="agui-button shrink-0" onClick={() => setSelectedChild(child.sessionId)}>{child.displayName} · {childStatus[child.status]}</button>)}</div>
         </header>
-        <AguiChatThread key={selected.sessionId} threadId={selected.sessionId} onChanged={afterTurn} />
+        <p className="px-4 pt-3 text-sm text-stone-600">{selected.assignment}</p>
+        <AguiChatThread key={selected.sessionId} threadId={selected.sessionId} onChanged={afterTurn}
+          retryAssignment={selected.status === "FAILED" ? selected.assignment : undefined} />
       </aside>
     </div> : null}
 

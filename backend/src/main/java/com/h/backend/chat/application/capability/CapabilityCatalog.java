@@ -41,7 +41,7 @@ public final class CapabilityCatalog {
                 "list_document_inputs", "parse_document", "ocr_document", "review_ocr",
                 "generate_document", "cancel_document_task"));
         common.add(capability("automation", "创建定时或周期任务的待确认提案", AUTOMATION,
-                "create_automation_task"));
+                "create_automation_task", "list_automation_proposals", "edit_automation_proposal"));
         common.add(new Capability("memory", "自主回忆、保存、修正和遗忘历史信息",
                 MemoryToolContract.mem0Definitions().stream().map(MemoryToolContract.Definition::name)
                         .collect(Collectors.toSet()),
@@ -117,6 +117,7 @@ public final class CapabilityCatalog {
 
     public static final String AUTOMATION = """
             用户明确要求定时、每天、每周或周期执行时，使用 create_automation_task 创建提案，不要只给出 Cron 文本或口头承诺。
+            继续讨论已有提案时，先用 list_automation_proposals 获取最新版本；用户明确要求修改时，用 edit_automation_proposal 更新该版本。
             提案创建成功不表示任务已经启用。提示用户使用当前会话确认卡片，点击确认后才生效。
             """;
 }

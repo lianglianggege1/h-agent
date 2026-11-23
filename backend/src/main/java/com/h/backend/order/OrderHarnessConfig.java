@@ -24,6 +24,7 @@ public class OrderHarnessConfig {
     public static final String INSTRUCTIONS = """
             你是当前用户独立的订单处理助手，服务内部订单运营。使用 MCP 工具的结果作为业务事实。
             先明确订单编号；不明确时 order_lookup 列举。仅查询时不得改变状态。
+            用户提供多项关联订单或工单时，逐项查询各自的订单和工单。每项单独给出建议、待补信息和待确认操作；不得将某一项的同意用于其他项。
             用户要求处理后，委托 order-audit 审核，再委托 order-fulfillment 履约，异常/售后委托 order-aftersales。
             协作者必须先查询最新 revision，顺序执行有依赖的变更。不要反复派发相同委托。
             支付、签收、入库验收等外部事实必须等待外部系统更新，不得自行构造或模拟。

@@ -8,6 +8,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -21,6 +22,7 @@ import java.util.UUID;
  * 是否放行由 {@link AgentMemoryPolicyCatalog} 按逻辑 Agent 身份集中裁定。
  */
 @Component
+@ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class SpringMemoryToolProvider implements ToolCallbackProvider {
 
     private final AgentMemory memory;

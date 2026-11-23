@@ -6,6 +6,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -17,6 +18,7 @@ import java.util.UUID;
  * 可信身份在调用时从 ToolContext 取出。
  */
 @Component
+@ConditionalOnProperty(name = "MATRIX_TEAM_ENABLED", havingValue = "true")
 public class SpringKnowledgeToolProvider implements ToolCallbackProvider {
 
     private final KnowledgeTools knowledge;
