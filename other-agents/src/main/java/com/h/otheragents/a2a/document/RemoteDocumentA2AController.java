@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.document.domain.DocumentTask;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -14,6 +13,8 @@ import io.jsonwebtoken.security.Keys;
 import org.a2aproject.sdk.spec.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -58,6 +59,8 @@ public class RemoteDocumentA2AController {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     private final java.util.concurrent.ScheduledExecutorService worker = Executors.newScheduledThreadPool(2,
             Thread.ofPlatform().name("a2a-document-worker").daemon(true).factory());
+    private boolean queueReady;
+    private boolean waitingForMigration;
 
     RemoteDocumentA2AController(RemoteDocumentWork documents, OtherAgentsA2AProperties properties,
             @Value("${other-agents.a2a.story.signing-key}") String secret,
@@ -70,7 +73,7 @@ public class RemoteDocumentA2AController {
                 .requireIssuer("h-agent").requireAudience(ID).build();
     }
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     void start() { worker.scheduleWithFixedDelay(this::work, 1, 1, TimeUnit.SECONDS); }
 
     @PreDestroy
@@ -171,6 +174,17 @@ public class RemoteDocumentA2AController {
 
     void work() {
         try {
+            if (!queueReady) {
+                // The backend owns this migration and may start after other-agents.
+                queueReady = documents.jdbc().sql("SELECT to_regclass('a2a_document_steps') IS NOT NULL")
+                        .query(Boolean.class).single();
+                if (!queueReady) {
+                    if (!waitingForMigration) LOG.info("Document A2A queue waiting for backend database migration");
+                    waitingForMigration = true;
+                    return;
+                }
+                LOG.info("Document A2A queue ready");
+            }
             String lease = UUID.randomUUID().toString();
             var pending = documents.jdbc().sql("""
                     WITH picked AS (

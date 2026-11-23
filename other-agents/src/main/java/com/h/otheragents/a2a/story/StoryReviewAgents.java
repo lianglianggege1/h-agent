@@ -10,6 +10,7 @@ import com.h.registry.NacosA2AConstants;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.V;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -31,7 +32,8 @@ public class StoryReviewAgents {
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-    public StoryReviewAgents(AiService registry, AgentObservability observability, ChatModel model) {
+    public StoryReviewAgents(AiService registry, AgentObservability observability,
+                             @Qualifier("chatModel") ChatModel model) {
         this.registry = registry;
         this.observability = observability;
         this.model = model;

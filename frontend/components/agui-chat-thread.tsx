@@ -103,8 +103,8 @@ function ThreadView(props: CopilotChatViewProps) {
   />;
 }
 
-function ChatThreadContent({ threadId, onChanged, orderAssistant = false, retryAssignment, canvasReference, onClearCanvasReference }: {
-  threadId: string; onChanged?: () => void; orderAssistant?: boolean; retryAssignment?: string;
+function ChatThreadContent({ threadId, onChanged, orderAssistant = false, documentTools = false, retryAssignment, canvasReference, onClearCanvasReference }: {
+  threadId: string; onChanged?: () => void; orderAssistant?: boolean; documentTools?: boolean; retryAssignment?: string;
   canvasReference?: string; onClearCanvasReference?: () => void;
 }) {
   const localAgentId = "thread-" + threadId;
@@ -372,7 +372,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, retryA
       {retryEdit ? <button type="button" className="ml-3 underline" disabled={agent.isRunning || busy}
         onClick={() => void revise(retryEdit.messageId, retryEdit.text)}>重新回答</button> : null}
     </div> : null}
-    {!orderAssistant ? <DocumentTaskSync session={threadId} chatRunning={agent.isRunning} onUpdated={updateDocuments} /> : null}
+    {documentTools ? <DocumentTaskSync session={threadId} chatRunning={agent.isRunning} onUpdated={updateDocuments} /> : null}
     {waiting ? <p className="mx-4 mb-2 text-xs text-amber-800">等待批准，请在批准卡片中选择。</p> : null}
     <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => {
       const files = Array.from(event.target.files ?? []);
@@ -428,7 +428,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, retryA
   </section>;
 }
 
-export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean; retryAssignment?: string;
+export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean; documentTools?: boolean; retryAssignment?: string;
   canvasReference?: string; onClearCanvasReference?: () => void }) {
   return <FilePreviewProvider key={props.threadId}><ChatThreadContent {...props} /></FilePreviewProvider>;
 }

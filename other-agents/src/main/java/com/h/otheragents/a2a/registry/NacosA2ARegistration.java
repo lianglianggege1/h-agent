@@ -5,6 +5,7 @@ import com.alibaba.nacos.api.ai.model.a2a.AgentCard;
 import com.alibaba.nacos.api.ai.model.a2a.AgentEndpoint;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.h.otheragents.a2a.config.OtherAgentsA2AProperties;
 import com.h.otheragents.a2a.export.A2AAgentExportRegistry;
 import com.h.otheragents.a2a.server.A2AAgentServer;
@@ -13,6 +14,7 @@ import com.h.registry.NacosRegistrationAddress;
 import com.h.registry.NacosA2AConstants;
 import com.h.registry.NacosRegistryProperties;
 import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.SecurityRequirement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -75,7 +77,15 @@ public class NacosA2ARegistration implements ApplicationListener<WebServerInitia
                     .forEach(illustrator -> cards.put(com.h.otheragents.a2a.story.StoryIllustratorController.ID, illustrator.card()));
             for (var registration : cards.entrySet()) {
                 String agentId = registration.getKey();
-                AgentCard card = mapper.convertValue(registration.getValue(), AgentCard.class);
+                var sourceCard = registration.getValue();
+                ObjectNode cardFields = mapper.valueToTree(sourceCard);
+                // Nacos expects each requirement to be the scheme map itself.
+                cardFields.remove("securityRequirements");
+                AgentCard card = mapper.convertValue(cardFields, AgentCard.class);
+                if (sourceCard.securityRequirements() != null) {
+                    card.setSecurityRequirements(sourceCard.securityRequirements().stream()
+                            .map(SecurityRequirement::schemes).toList());
+                }
                 card.setProtocolVersion(AgentInterface.CURRENT_PROTOCOL_VERSION);
                 URI url = URI.create(card.getUrl());
                 if (url.getHost() == null || !("http".equals(url.getScheme()) || "https".equals(url.getScheme()))

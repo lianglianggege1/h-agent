@@ -55,6 +55,29 @@ class StoryTaskControllerTest {
     }
 
     @Test
+    void inferredStyleAndAudienceCannotSkipTheClarification() throws Exception {
+        var client = client(new TestTaskStore(), new StoryTaskWorkflow.StoryModel() {
+            @Override
+            public StoryTaskWorkflow.StoryBrief extract(String conversation) {
+                return new StoryTaskWorkflow.StoryBrief("月球基地", "轻松幽默的科幻风格", "8–12 岁儿童");
+            }
+
+            @Override
+            public String write(StoryTaskWorkflow.StoryBrief brief) {
+                return "月球故事";
+            }
+        });
+        var first = send(client, "alice", "写一个发生在月球基地的故事", "grounded-1", null).path("task");
+        assertEquals("TASK_STATE_INPUT_REQUIRED", first.at("/status/state").asText());
+        assertEquals("请补充故事风格、目标受众。", first.at("/status/message/parts/0/text").asText());
+
+        var second = send(client, "alice", "面向 8–12 岁儿童，轻松幽默的科幻风格", "grounded-2",
+                first.path("id").asText()).path("task");
+        assertEquals(first.path("id"), second.path("id"));
+        assertEquals("TASK_STATE_COMPLETED", second.at("/status/state").asText());
+    }
+
+    @Test
     void extendedCardAndPrivateSkillUseTheSameAuthorizationBoundary() {
         var client = client(new TestTaskStore());
         client.get().uri(ROOT + "/.well-known/agent-card.json")
@@ -75,7 +98,7 @@ class StoryTaskControllerTest {
         String novel = """
                 {"jsonrpc":"2.0","id":"send","method":"SendMessage",
                  "params":{"message":{"role":"ROLE_USER","messageId":"novel",
-                 "parts":[{"text":"写一个科幻儿童故事"}],"metadata":{"skillId":"write-novel"}}}}
+                 "parts":[{"text":"写一个月球科幻儿童故事"}],"metadata":{"skillId":"write-novel"}}}}
                 """;
         client.post().uri(ROOT).contentType(MediaType.APPLICATION_JSON).bodyValue(novel)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer alice")
@@ -95,7 +118,7 @@ class StoryTaskControllerTest {
                 .bodyValue("""
                         {"jsonrpc":"2.0","id":"stream","method":"SendStreamingMessage",
                          "params":{"message":{"role":"ROLE_USER","messageId":"stream-one",
-                         "parts":[{"text":"写一个科幻儿童故事"}]}}}
+                         "parts":[{"text":"写一个月球科幻儿童故事"}]}}}
                         """)
                 .exchange().expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
@@ -142,6 +165,10 @@ class StoryTaskControllerTest {
                 return prior + "，" + instruction;
             }
         };
+        return client(store, model);
+    }
+
+    private static WebTestClient client(StoryTaskWorkflow.Store store, StoryTaskWorkflow.StoryModel model) {
         return WebTestClient.bindToController(new StoryTaskController(
                 new OtherAgentsA2AProperties(), new StoryTaskWorkflow(store, model),
                 token -> Optional.of(new StoryTaskController.Caller(token, "editor".equals(token))),
@@ -151,7 +178,7 @@ class StoryTaskControllerTest {
     @Test
     void revisionReferencesTheCompletedDraftWithoutReplacingIt() throws Exception {
         var client = client(new TestTaskStore());
-        var original = send(client, "author", "儿童科幻故事", "draft", null).path("task");
+        var original = send(client, "author", "儿童科幻月球故事", "draft", null).path("task");
         var request = JSON.createObjectNode().put("jsonrpc", "2.0").put("id", "revise").put("method", "SendMessage");
         var message = request.putObject("params").putObject("message").put("messageId", "revision").put("role", "ROLE_USER")
                 .put("contextId", original.path("contextId").asText());

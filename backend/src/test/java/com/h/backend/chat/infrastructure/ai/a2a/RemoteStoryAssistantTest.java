@@ -5,6 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.h.agent.observability.AgentObservation;
 import com.h.agent.observability.AgentObservability;
 import com.h.backend.chat.domain.agent.AgentStepEventBridge;
+import com.h.backend.chat.domain.agent.AgentDefinition;
+import com.h.backend.chat.domain.agent.AgentRegistry;
+import com.h.backend.chat.domain.agent.AgentRuntimeType;
+import com.h.backend.chat.domain.agent.AgentTopologyMapper;
+import com.h.backend.chat.interfaces.web.AgentController;
 import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import com.sun.net.httpserver.HttpServer;
 import io.jsonwebtoken.Jwts;
@@ -14,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -23,8 +29,33 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 class RemoteStoryAssistantTest {
+    @Test
+    void topologyEndpointMapsTheSameWorkflowThatRoutesChat() {
+        var assistant = new RemoteStoryAssistant(() -> { throw new AssertionError("unexpected network discovery"); },
+                Keys.hmacShaKeyFor(new byte[32]), new SessionReferences(), ignored -> false, null, null,
+                mock(AgentStepEventBridge.class), mock(AgentObservability.class),
+                request -> new StoryIntentRouter.Decision(StoryIntentRouter.Intent.REVISION, false));
+        var definition = new AgentDefinition("a2a-remote-story", "A2A 远端故事助手", "跨服务协作", List.of("A2A"),
+                "远端故事创作", assistant, AgentRuntimeType.AGENTIC_SYNC, true);
+        var controller = new AgentController(new AgentRegistry(List.of(definition)), new AgentTopologyMapper());
+
+        var topology = controller.topology(definition.agentId()).data();
+        assertEquals("SEQUENCE", topology.root().topology());
+        assertEquals(assistant.executionGraph().subagents().stream().map(node -> node.name()).toList(),
+                topology.root().children().stream().map(node -> node.name()).toList());
+        var delegation = topology.root().children().get(1);
+        assertEquals("ROUTER", delegation.topology());
+        assertEquals(List.of("了解可用技能", "请求插画", "请求评分", "请求审稿或事实核查", "修改已完成故事",
+                        "明确请求长篇创作", "请求文档处理", "发起创作或补充信息"),
+                delegation.children().stream().map(node -> node.condition()).toList());
+        var run = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
+        assertEquals("请先完成一篇故事，再发起修订。",
+                assistant.chat("memory", "请把刚才的故事结尾改得更温暖一点", run.toInvocationParameters()).result());
+    }
+
     @Test
     void chatSendsTheSameRemoteTaskAfterReopeningTheAssistant() throws Exception {
         var json = new ObjectMapper();
@@ -66,7 +97,7 @@ class RemoteStoryAssistantTest {
             events.registerExecution("memory", event -> transitions.add(event.type()), () -> {});
             var references = new SessionReferences();
             String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
-            var writer = new RemoteStoryAssistant(() -> endpoint, key, references, ignored -> false, null, null, events, observability);
+            var writer = new RemoteStoryAssistant(() -> endpoint, key, references, ignored -> false, null, null, events, observability, RemoteStoryAssistantTest::storyIntent);
 
             var first = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
             assertEquals("故事风格是什么？", writer.chat("memory", "写个月球故事", first.toInvocationParameters()).result());
@@ -74,7 +105,7 @@ class RemoteStoryAssistantTest {
             assertEquals("chat-run-33", request.get().path("messageId").asText());
             assertEquals(java.util.List.of("a2a_story_waiting"), transitions);
 
-            var reopened = new RemoteStoryAssistant(() -> endpoint, key, references, ignored -> false, null, null, events, observability);
+            var reopened = new RemoteStoryAssistant(() -> endpoint, key, references, ignored -> false, null, null, events, observability, RemoteStoryAssistantTest::storyIntent);
             var followUp = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 34L, "session-1", null);
             assertEquals("月球故事", reopened.chat("memory", "科幻", followUp.toInvocationParameters()).result());
             assertEquals("task-1", request.get().path("taskId").asText());
@@ -128,7 +159,7 @@ class RemoteStoryAssistantTest {
             String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
             var assistant = new RemoteStoryAssistant(() -> endpoint, key, new SessionReferences(),
                     ignored -> false, null, null, new AgentStepEventBridge(),
-                    com.h.agent.observability.NoopAgentObservability.getInstance());
+                    com.h.agent.observability.NoopAgentObservability.getInstance(), RemoteStoryAssistantTest::storyIntent);
             var invocation = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
             var chunks = new ArrayList<String>();
             String result = assistant.chatStreaming("memory", "写故事", invocation.toInvocationParameters(), chunks::add).result();
@@ -138,6 +169,30 @@ class RemoteStoryAssistantTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void dispatchesIllustrationAndReviewFromNaturalLanguageWithoutACommand() {
+        var illustrator = mock(RemoteStoryIllustration.class);
+        var reviewer = mock(NacosStoryReview.class);
+        var invocation = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
+        String imageRequest = "请画一张机器人在月球基地看日出的插画";
+        String reviewRequest = "帮我查这段稿子的事实：登记册上写着基地有 20 人";
+        when(illustrator.run(any(), any(), any())).thenReturn("插画完成");
+        when(reviewer.run(any(), any())).thenReturn("核查完成");
+        var assistant = new RemoteStoryAssistant(() -> { throw new AssertionError("unexpected story task"); },
+                Keys.hmacShaKeyFor(new byte[32]), new SessionReferences(), ignored -> false, reviewer, illustrator,
+                mock(AgentStepEventBridge.class), mock(AgentObservability.class),
+                request -> new StoryIntentRouter.Decision(request.contains(imageRequest)
+                        ? StoryIntentRouter.Intent.ILLUSTRATION : StoryIntentRouter.Intent.REVIEW, false));
+
+        assertEquals("插画完成", assistant.chat("memory", imageRequest, invocation.toInvocationParameters()).result());
+        assertEquals("核查完成", assistant.chat("memory", reviewRequest, invocation.toInvocationParameters()).result());
+        verify(reviewer).run(reviewRequest, "style-review");
+    }
+
+    private static StoryIntentRouter.Decision storyIntent(String request) {
+        return new StoryIntentRouter.Decision(StoryIntentRouter.Intent.STORY, false);
     }
 
     private static final class SessionReferences implements RemoteStoryAssistant.References {

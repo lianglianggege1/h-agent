@@ -4,7 +4,10 @@ import com.h.agent.observability.AgentObservability;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRuntimeType;
 import com.h.backend.chat.domain.agent.AgentStepEventBridge;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.service.AiServices;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -24,7 +27,7 @@ public class RemoteStoryAssistantConfig {
             AgentStepEventBridge events, AgentObservability observability, com.alibaba.nacos.api.ai.AiService aiService,
             com.h.registry.NacosRegistryProperties registry,
             com.h.backend.chat.application.ImageGenerationService images,
-            com.h.backend.chat.application.ChatSessionService sessions,
+            @Qualifier("chatModel") ChatModel chatModel,
             @Value("${agents.a2a.other-agents.story.signing-key}") String signingKey) {
         var jdbc = JdbcClient.create(dataSource);
         var key = Keys.hmacShaKeyFor(signingKey.getBytes(StandardCharsets.UTF_8));
@@ -34,9 +37,10 @@ public class RemoteStoryAssistantConfig {
                           WHERE user_id = ? AND role_code IN ('ADMIN', 'A2A_LONG_FORM'))
                         """).param(owner).query(Boolean.class).single(),
                 new NacosStoryReview(aiService, registry, observability),
-                new RemoteStoryIllustration(nacos, key, images, sessions, events), events, observability);
+                new RemoteStoryIllustration(nacos, key, images, events), events, observability,
+                AiServices.create(StoryIntentRouter.class, chatModel));
         return new AgentDefinition("a2a-remote-story", "A2A 远端故事助手", "跨服务协作",
-                List.of("A2A", "故事创作"), "远端创作与追问，输入 /技能 查看当前可用技能", assistant,
+                List.of("A2A", "故事创作"), "用自然语言发起远端创作、修订、配图或审稿", assistant,
                 AgentRuntimeType.AGENTIC_SYNC, true);
     }
 

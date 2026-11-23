@@ -1,7 +1,6 @@
 package com.h.backend.chat.infrastructure.ai.a2a;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ImageGenerationService;
 import com.h.backend.chat.domain.agent.AgentStepEventBridge;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
@@ -24,23 +23,19 @@ final class RemoteStoryIllustration {
     private final NacosA2AClientFactory registry;
     private final SecretKey signingKey;
     private final ImageGenerationService images;
-    private final ChatSessionService sessions;
     private final AgentStepEventBridge events;
     private final ObjectMapper json = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     RemoteStoryIllustration(NacosA2AClientFactory registry, SecretKey key, ImageGenerationService images,
-                            ChatSessionService sessions, AgentStepEventBridge events) {
+                            AgentStepEventBridge events) {
         this.registry = registry;
         this.signingKey = key;
         this.images = images;
-        this.sessions = sessions;
         this.events = events;
     }
 
-    String run(MemoryInvocationContext context, String memoryId, String description) {
-        String text = description.isBlank() ? lastStory(context) : description;
-        if (text.isBlank()) return "请提供要配图的故事，或先完成一篇故事。";
+    String run(MemoryInvocationContext context, String memoryId, String text) {
         if (text.length() > 10000) return "请指定 10000 字以内的配图片段。";
         String run = "illustration-" + context.sourceExecutionId();
         var rpc = json.createObjectNode().put("jsonrpc", "2.0").put("id", run).put("method", "SendMessage");
@@ -79,13 +74,6 @@ final class RemoteStoryIllustration {
         } catch (java.io.IOException | RuntimeException failure) {
             throw new IllegalStateException("Remote illustration failed", failure);
         }
-    }
-
-    private String lastStory(MemoryInvocationContext context) {
-        return sessions.getSessionMessages(context.userId(), context.actualSessionId(), 25, null).messages()
-                .reversed().stream().filter(message -> "assistant".equals(message.role())
-                        && message.content() != null && !message.content().isBlank())
-                .map(message -> message.content()).findFirst().orElse("");
     }
 
     private String token(long user) {

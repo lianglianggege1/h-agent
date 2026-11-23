@@ -8,8 +8,14 @@ import com.h.agent.observability.AgentObservability;
 import com.h.agent.observability.HObsKind;
 import com.h.agent.observability.ObservationSpec;
 import com.h.backend.chat.domain.agent.AgentStepEventBridge;
+import com.h.backend.chat.domain.agent.AgentTopologyProvider;
+import com.h.backend.chat.infrastructure.ai.a2a.StoryIntentRouter.Decision;
+import com.h.backend.chat.infrastructure.ai.a2a.StoryIntentRouter.Intent;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.capabilities.memory.domain.MemoryInvocationContext;
+import dev.langchain4j.agentic.AgenticServices;
+import dev.langchain4j.agentic.UntypedAgent;
+import dev.langchain4j.agentic.planner.AgentInstance;
 import dev.langchain4j.agentic.scope.ResultWithAgenticScope;
 import dev.langchain4j.invocation.InvocationParameters;
 import io.jsonwebtoken.Jwts;
@@ -24,15 +30,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.function.Consumer;
 import java.util.function.LongPredicate;
+import java.util.function.BiFunction;
 
-public final class RemoteStoryAssistant implements StreamingAgenticChat {
+public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTopologyProvider {
     static final String REMOTE_AGENT = "story-workflow";
+    private static final String INVOCATION = "@storyInvocation";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final Supplier<String> endpoint;
@@ -43,11 +52,13 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat {
     private final RemoteStoryIllustration illustration;
     private final AgentStepEventBridge events;
     private final AgentObservability observability;
+    private final StoryIntentRouter intentRouter;
+    private final UntypedAgent workflow;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     RemoteStoryAssistant(Supplier<String> endpoint, SecretKey signingKey, References references,
                          LongPredicate longFormAccess, NacosStoryReview review, RemoteStoryIllustration illustration,
-                         AgentStepEventBridge events, AgentObservability observability) {
+                         AgentStepEventBridge events, AgentObservability observability, StoryIntentRouter intentRouter) {
         this.endpoint = endpoint;
         this.signingKey = signingKey;
         this.references = references;
@@ -56,6 +67,85 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat {
         this.illustration = illustration;
         this.events = events;
         this.observability = observability;
+        this.intentRouter = intentRouter;
+        this.workflow = buildWorkflow();
+    }
+
+    @Override
+    public AgentInstance executionGraph() {
+        return (AgentInstance) workflow;
+    }
+
+    private UntypedAgent buildWorkflow() {
+        var classifier = AgenticServices.nonAiAgentBuilder(scope -> classify((Invocation) scope.readState(INVOCATION)))
+                .name("识别用户意图").description("结合当前任务状态理解自然语言请求")
+                .inputKey(String.class, "message").inputKey(Invocation.class, INVOCATION)
+                .outputKey("intent").outputType(Decision.class).build();
+        var routes = List.of(
+                new Route(Intent.SKILLS, "了解可用技能", "读取授权技能", "通过 A2A 获取当前用户的扩展卡片",
+                        (run, decision) -> skills(run)),
+                new Route(Intent.ILLUSTRATION, "请求插画", "远端插画", "委派插画 Agent 并交付图片",
+                        this::illustrate),
+                new Route(Intent.SCORE, "请求评分", "远端稿件评分", "通过 Nacos 发现评分技能并提交稿件",
+                        (run, decision) -> review(run, decision, "style-score")),
+                new Route(Intent.REVIEW, "请求审稿或事实核查", "远端稿件审核", "通过 Nacos 发现审核技能并提交稿件",
+                        (run, decision) -> review(run, decision, "style-review")),
+                new Route(Intent.REVISION, "修改已完成故事", "远端故事修订", "引用上一版故事并发起修订",
+                        (run, decision) -> story(run, true, false)),
+                new Route(Intent.LONG_FORM, "明确请求长篇创作", "授权创作", "核对权限后发起创作任务",
+                        (run, decision) -> story(run, false, true)),
+                new Route(Intent.DOCUMENT, "请求文档处理", "文档入口指引", "说明可处理文档的会话入口",
+                        (run, decision) -> "要解析、复核 PDF 或使用文档画布，请在通用助手或个人 Harness 会话中上传文档。"
+                                + "也可以把需要用于创作的文字粘贴到这里。"),
+                new Route(Intent.STORY, "发起创作或补充信息", "远端故事任务", "通过 A2A 发起或续接创作并接收任务状态",
+                        (run, decision) -> story(run, false, false)));
+        var router = AgenticServices.conditionalBuilder()
+                .name("委派远端操作").description("按识别出的意图执行对应操作").outputKey("reply");
+        for (Route route : routes) {
+            router.subAgents(route.condition(), scope -> ((Decision) scope.readState("intent")).intent() == route.intent(),
+                    route.agent());
+        }
+        return AgenticServices.sequenceBuilder()
+                .name("A2A 远端故事助手").description("识别自然语言意图并委派远端操作")
+                .subAgents(classifier, router.build()).outputKey("reply").build();
+    }
+
+    private Decision classify(Invocation run) {
+        String text = run.trimmed();
+        if (text.equals("/技能")) return new Decision(Intent.SKILLS, false);
+        if (text.equals("/配图")) return new Decision(Intent.ILLUSTRATION, true);
+        if (text.startsWith("/配图 ")) return new Decision(Intent.ILLUSTRATION, false);
+        if (text.startsWith("/评分 ")) return new Decision(Intent.SCORE, false);
+        if (text.startsWith("/审稿 ")) return new Decision(Intent.REVIEW, false);
+        if (text.startsWith("/修订 ")) return new Decision(Intent.REVISION, false);
+        if (text.startsWith("/长篇 ")) return new Decision(Intent.LONG_FORM, false);
+
+        var request = JSON.createObjectNode().put("message", text).put("awaitingDetails",
+                references.get(run.context().userId(), run.context().actualSessionId()).isPresent());
+        return Objects.requireNonNull(intentRouter.classify(request.toString()), "Story intent is missing");
+    }
+
+    private record Route(Intent intent, String condition, String name, String description,
+                         BiFunction<Invocation, Decision, String> execute) {
+        AgenticServices.AgenticScopeFunction<String> agent() {
+            return AgenticServices.nonAiAgentBuilder(scope ->
+                            execute.apply((Invocation) scope.readState(INVOCATION), (Decision) scope.readState("intent")))
+                    .name(name).description(description).inputKey(String.class, "message")
+                    .inputKey(Decision.class, "intent").inputKey(Invocation.class, INVOCATION)
+                    .outputKey("reply").outputType(String.class).build();
+        }
+    }
+
+    private record Invocation(String memoryId, String message, MemoryInvocationContext context, Consumer<String> chunks) {
+        String trimmed() { return message.strip(); }
+        String messageId() { return "chat-run-" + context.sourceExecutionId(); }
+
+        String operationText() {
+            String text = trimmed();
+            int separator = text.indexOf(' ');
+            if (!text.startsWith("/")) return text;
+            return separator < 0 ? "" : text.substring(separator + 1).strip();
+        }
     }
 
     public ResultWithAgenticScope<String> chat(String memoryId, String message, InvocationParameters parameters) {
@@ -71,39 +161,62 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat {
     private ResultWithAgenticScope<String> execute(
             String memoryId, String message, InvocationParameters parameters, Consumer<String> chunks) {
         var context = Objects.requireNonNull(MemoryInvocationContext.from(parameters), "Story requires a session");
-        long owner = context.userId();
-        String session = context.actualSessionId();
-        String messageId = "chat-run-" + context.sourceExecutionId();
-        if ("/技能".equals(message.strip())) {
-            JsonNode card = call(owner, request(messageId, "GetExtendedAgentCard").toString()).path("result");
-            if (!card.path("skills").isArray()) throw new IllegalStateException("无法读取远端故事技能");
-            var names = new java.util.ArrayList<String>();
-            card.path("skills").forEach(skill -> names.add(skill.path("name").asText()));
-            return new ResultWithAgenticScope<>(null, "当前可以使用：" + String.join("、", names) + "。"
-                    + "输入「/修订 修改要求」继续编辑最近完成的故事。"
-                    + "输入「/评分 稿件」或「/审稿 稿件和参考资料」调用远端审核。输入「/配图」为上一段故事生成插画。"
-                    + (names.contains("长篇小说模式") ? "输入「/长篇 主题、风格与受众」开始创作。" : ""));
-        }
-        String trimmed = message.strip();
-        if (trimmed.equals("/配图") || trimmed.startsWith("/配图 ") || trimmed.equals("给故事配图")) {
-            String description = trimmed.startsWith("/配图 ") ? trimmed.substring(4).strip() : "";
-            return new ResultWithAgenticScope<>(null, illustration.run(context, memoryId, description));
-        }
-        if (trimmed.startsWith("/评分 ") || trimmed.startsWith("/审稿 ")) {
-            String skill = trimmed.startsWith("/评分 ") ? "style-score" : "style-review";
-            return new ResultWithAgenticScope<>(null, review.run(trimmed.substring(4).strip(), skill));
-        }
+        var run = new Invocation(memoryId, message, context, chunks);
+        String reply = (String) workflow.invoke(Map.of("message", run.trimmed(), INVOCATION, run));
+        return new ResultWithAgenticScope<>(null, reply);
+    }
+
+    private String skills(Invocation run) {
+        JsonNode card = call(run.context().userId(), request(run.messageId(), "GetExtendedAgentCard").toString()).path("result");
+        if (!card.path("skills").isArray()) throw new IllegalStateException("无法读取远端故事技能");
+        var names = new java.util.ArrayList<String>();
+        card.path("skills").forEach(skill -> names.add(skill.path("name").asText()));
+        return "当前可以使用：" + String.join("、", names) + "。"
+                + "你可以直接说「把刚才的结局改得温暖一点」「给上一个故事画一张插图」或「请核查这份稿件里的事实」。"
+                + (names.contains("长篇小说模式") ? "也可以说明主题、风格和读者，直接请我写一部长篇小说。" : "");
+    }
+
+    private String illustrate(Invocation run, Decision decision) {
+        String material = storyMaterial(run, decision);
+        if (material.isBlank()) return "请提供要配图的故事，或先完成一篇故事。";
+        return illustration.run(run.context(), run.memoryId(), material);
+    }
+
+    private String review(Invocation run, Decision decision, String skill) {
+        String material = storyMaterial(run, decision);
+        if (material.isBlank()) return "请提供需要审核的稿件或先完成一篇故事。";
+        return review.run(material, skill);
+    }
+
+    private String storyMaterial(Invocation run, Decision decision) {
+        String instruction = run.operationText();
+        if (!decision.useLatestStory()) return instruction;
+        long owner = run.context().userId();
+        var previous = references.latestEdition(owner, run.context().actualSessionId()).orElse(null);
+        if (previous == null) return "";
+        var rpc = request(run.messageId(), "GetTask");
+        rpc.putObject("params").put("id", previous.taskId());
+        String story = call(owner, rpc.toString()).at("/result/artifacts/0/parts/0/text").asText("");
+        if (story.isBlank() || instruction.isBlank()) return story;
+        return "故事原文：\n" + story + "\n\n用户要求：\n" + instruction;
+    }
+
+    private String story(Invocation run, boolean revision, boolean longForm) {
+        long owner = run.context().userId();
+        String session = run.context().actualSessionId();
+        String message = run.message();
+        String messageId = run.messageId();
+        String memoryId = run.memoryId();
+        Consumer<String> chunks = run.chunks();
         var expected = references.get(owner, session);
-        boolean revision = trimmed.startsWith("/修订 ");
         var edition = revision ? references.latestEdition(owner, session) : Optional.<Reference>empty();
-        if (revision && edition.isEmpty()) return new ResultWithAgenticScope<>(null, "请先完成一篇故事，再发起修订。");
-        boolean longForm = message.stripLeading().startsWith("/长篇 ");
+        if (revision && edition.isEmpty()) return "请先完成一篇故事，再发起修订。";
         if (longForm && !longFormAccess.test(owner)) {
-            return new ResultWithAgenticScope<>(null, "当前账号无权使用长篇小说模式。");
+            return "当前账号无权使用长篇小说模式。";
         }
         var input = JSON.createObjectNode().put("messageId", messageId).put("role", "ROLE_USER");
         if (longForm) input.putObject("metadata").put("skillId", "write-novel");
-        input.putArray("parts").addObject().put("text", revision ? trimmed.substring(4).strip() : message);
+        input.putArray("parts").addObject().put("text", revision || longForm ? run.operationText() : message);
         edition.ifPresent(previous -> {
             input.put("contextId", previous.contextId());
             input.putArray("referenceTaskIds").add(previous.taskId());
@@ -116,7 +229,7 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat {
         var rpc = request(messageId, chunks == null ? "SendMessage" : "SendStreamingMessage");
         rpc.putObject("params").set("message", input);
 
-        String prefix = revision ? "**修订稿**\n\n" : "";
+        String prefix = revision ? "修订稿\n\n" : "";
         var started = new java.util.concurrent.atomic.AtomicBoolean();
         JsonNode response = chunks == null ? call(owner, rpc.toString()) : streamingCall(owner, rpc, new StreamedTask(delta -> {
             if (started.compareAndSet(false, true) && !prefix.isEmpty()) chunks.accept(prefix);
@@ -155,7 +268,7 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat {
             }
             default -> throw new IllegalStateException("A2A story returned an unexpected state");
         };
-        return new ResultWithAgenticScope<>(null, reply);
+        return reply;
     }
 
     private JsonNode streamingCall(long owner, ObjectNode initial, StreamedTask task) {

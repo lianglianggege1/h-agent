@@ -115,8 +115,10 @@ class StoryTaskConfig {
 
     interface StoryAgent {
         @SystemMessage("""
-                从连续用户消息中提取故事的主题、行文风格与目标受众。
-                只提取用户提供的信息，允许后面的补充修改先前描述。缺少的字段返回 null。
+                从连续用户消息中分别提取故事的主题、行文风格与目标受众。后续补充可覆盖先前描述。
+                每个非空字段必须逐字摘录一段用户原文，保留措辞、数字和标点，不要改写。
+                字段必须得到用户明确说明，否则返回 null。不要从故事设定推断行文风格或目标受众。
+                例如，用户只说「写一个发生在月球基地的故事」，主题为「月球基地」，风格与受众都为 null。
                 """)
         StoryTaskWorkflow.StoryBrief extract(@UserMessage String conversation);
 

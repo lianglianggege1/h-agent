@@ -81,7 +81,7 @@ public final class StoryTaskWorkflow {
         try {
             var conversation = String.join("\n", turns.stream().map(Turn::text).toList());
             var parent = working.parentTaskId() == null ? null : get(working.owner(), working.parentTaskId());
-            StoryBrief brief = parent == null ? model.extract(conversation) : null;
+            StoryBrief brief = parent == null ? StoryBrief.fromUserText(model.extract(conversation), turns) : null;
             List<String> missing = brief == null ? List.of() : brief.missing();
             if (!missing.isEmpty()) {
                 result = working.updated(State.INPUT_REQUIRED, turns, "请补充" + String.join("、", missing) + "。");
@@ -155,6 +155,18 @@ public final class StoryTaskWorkflow {
     }
 
     public record StoryBrief(String topic, String style, String audience) {
+        static StoryBrief fromUserText(StoryBrief extracted, List<Turn> turns) {
+            if (extracted == null) return new StoryBrief(null, null, null);
+            return new StoryBrief(quoted(extracted.topic(), turns), quoted(extracted.style(), turns),
+                    quoted(extracted.audience(), turns));
+        }
+
+        private static String quoted(String value, List<Turn> turns) {
+            if (value == null || value.isBlank()) return null;
+            String excerpt = value.strip();
+            return turns.stream().anyMatch(turn -> turn.text().contains(excerpt)) ? excerpt : null;
+        }
+
         List<String> missing() {
             List<String> missing = new ArrayList<>();
             if (topic == null || topic.isBlank()) missing.add("故事主题");

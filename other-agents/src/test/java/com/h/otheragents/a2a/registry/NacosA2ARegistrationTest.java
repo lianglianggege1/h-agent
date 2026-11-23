@@ -9,15 +9,20 @@ import com.h.otheragents.a2a.export.A2AAgentExportRegistry;
 import com.h.otheragents.a2a.export.A2AAgentExports;
 import com.h.otheragents.a2a.infrastructure.ai.Agents;
 import com.h.otheragents.a2a.server.*;
+import com.h.otheragents.a2a.story.StoryTaskController;
 import com.h.registry.NacosRegistryProperties;
 import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.HTTPAuthSecurityScheme;
+import org.a2aproject.sdk.spec.SecurityRequirement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.reactive.context.ReactiveWebServerApplicationContext;
 import org.springframework.boot.web.server.reactive.context.ReactiveWebServerInitializedEvent;
+import org.springframework.context.support.StaticApplicationContext;
 
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -27,6 +32,7 @@ class NacosA2ARegistrationTest {
     private final OtherAgentsA2AProperties properties = new OtherAgentsA2AProperties();
     private final ReactiveWebServerApplicationContext context = mock(ReactiveWebServerApplicationContext.class);
     private final WebServer webServer = mock(WebServer.class);
+    private final StaticApplicationContext agents = new StaticApplicationContext();
 
     private NacosA2ARegistration registration(int advertisedPort) {
         Agents.CreativeWriter writer = topic -> "draft:" + topic;
@@ -38,8 +44,32 @@ class NacosA2ARegistrationTest {
                 "", "", "192.0.2.10", advertisedPort, 5000, Map.of());
         when(webServer.getPort()).thenReturn(18982);
         return new NacosA2ARegistration(ai, registry, properties, exports, server, context,
-                new org.springframework.context.support.StaticApplicationContext()
-                        .getBeanProvider(com.h.otheragents.a2a.story.StoryTaskController.class));
+                agents.getBeanProvider(StoryTaskController.class));
+    }
+
+    @Test
+    void publishesTheStoryCardWithItsBearerRequirement() throws Exception {
+        var story = mock(StoryTaskController.class);
+        agents.getBeanFactory().registerSingleton("storyTaskController", story);
+        var registration = registration(0);
+        String url = "http://192.0.2.10:18982/a2a/agents/" + StoryTaskController.AGENT_ID;
+        when(story.card()).thenReturn(org.a2aproject.sdk.spec.AgentCard.builder()
+                .name(StoryTaskController.AGENT_ID).description("故事创作").version("0.1.0").url(url)
+                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url)))
+                .securitySchemes(Map.of("bearer", new HTTPAuthSecurityScheme("JWT", "Bearer", null)))
+                .securityRequirements(List.of(new SecurityRequirement(Map.of("bearer", List.of()))))
+                .capabilities(org.a2aproject.sdk.spec.AgentCapabilities.builder().streaming(true).build())
+                .defaultInputModes(List.of("text/plain")).defaultOutputModes(List.of("text/plain"))
+                .skills(List.of()).build());
+        registration.onApplicationEvent(new ReactiveWebServerInitializedEvent(webServer, context));
+
+        var cards = ArgumentCaptor.forClass(AgentCard.class);
+        verify(ai, times(2)).releaseAgentCard(cards.capture(), eq("SERVICE"), eq(true));
+        var card = cards.getAllValues().stream().filter(item -> StoryTaskController.AGENT_ID.equals(item.getName()))
+                .findFirst().orElseThrow();
+        assertEquals(List.of(Map.of("bearer", List.of())), card.getSecurityRequirements());
+        assertTrue(card.getSecuritySchemes().containsKey("bearer"));
+        verify(ai).registerAgentEndpoint(eq(StoryTaskController.AGENT_ID), any(AgentEndpoint.class));
     }
 
     @Test

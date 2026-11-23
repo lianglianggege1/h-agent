@@ -75,7 +75,7 @@ test("idle order refresh keeps the draft editable and image references synchroni
   agent.subscribe({ onMessagesChanged: () => { writes++; } });
   const stubs = {
     "./file-preview": { useFilePreview: () => null, FilePreviewProvider: function FilePreviewProvider({ children }) { return children; } },
-    "./document-panel": { DocumentTaskSync: () => null },
+    "./document-panel": { DocumentTaskSync: () => React.createElement("div", { "data-document-sync": true }) },
     "@/lib/document-activities": { mergeDocumentTaskActivities: (messages) => messages },
     "@copilotkit/react-core/v2": { ...sdk, CopilotChat: Chat, useAgent,
       useCopilotKit: () => ({ copilotkit }), useRenderTool: () => {} },
@@ -242,6 +242,13 @@ test("idle order refresh keeps the draft editable and image references synchroni
     assert.deepEqual(forwarded.resources, [{ resourceId: "pdf-1", role: "ATTACHMENT", source: "HISTORY" }]);
     const sent = aguiMessages.orderProductMessages(agent.messages);
     assert.equal(sent.at(-1).content.message.resources[0].fileName, "资料.pdf");
+
+    await React.act(async () => root.render(React.createElement(product.exports.AguiChatThread,
+      { threadId: "story-thread" })));
+    assert.equal(dom.window.document.querySelector("[data-document-sync]"), null);
+    await React.act(async () => root.render(React.createElement(product.exports.AguiChatThread,
+      { threadId: "standard-thread", documentTools: true })));
+    assert.ok(dom.window.document.querySelector("[data-document-sync]"));
   } finally {
     await React.act(async () => { streams.forEach((stream) => stream.complete()); await agent.detachActiveRun(); root.unmount(); });
     dom.window.close();

@@ -3,6 +3,7 @@ package com.h.backend.chat.interfaces.web;
 import com.h.backend.chat.domain.agent.AgentDefinition;
 import com.h.backend.chat.domain.agent.AgentRegistry;
 import com.h.backend.chat.domain.agent.AgentTopologyMapper;
+import com.h.backend.chat.domain.agent.AgentTopologyProvider;
 import com.h.backend.chat.interfaces.dto.AgentSummaryDto;
 import com.h.backend.chat.interfaces.dto.AgentTopologyDto;
 import com.h.backend.common.api.ApiResponse;
@@ -37,6 +38,9 @@ public class AgentController {
     @GetMapping("/{agentId}/topology")
     public ApiResponse<AgentTopologyDto> topology(@PathVariable String agentId) {
         AgentDefinition definition = agentRegistry.requireEnabled(agentId);
+        if (definition.agentBean() instanceof AgentTopologyProvider provider) {
+            return ApiResponse.ok(topologyMapper.from(definition, provider.executionGraph()));
+        }
         if (!(definition.agentBean() instanceof AgentInstance agentInstance)) {
             throw new BusinessException(41002, "该 Agent 暂不支持编排拓扑");
         }
