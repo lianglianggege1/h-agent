@@ -8,6 +8,9 @@ test("workspace navigation follows nested resource and agent routes", () => {
   assert.equal(workspaceSection("/me/agents/travel")?.href, "/agents");
   assert.equal(workspaceSection("/call")?.href, "/chat");
   assert.equal(workspaceSection("/me")?.label, "个人设置");
+  assert.equal(workspaceSection("/tasks")?.label, "任务进度");
+  assert.equal(workspaceSection("/automations")?.label, "自动化计划");
+  assert.notEqual(workspaceSection("/tasks")?.icon, workspaceSection("/automations")?.icon);
 });
 
 test("public and unrelated paths do not get workspace chrome", () => {

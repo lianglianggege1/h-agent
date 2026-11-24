@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useFilePreview } from "./file-preview";
 import {
   documentTasks,
@@ -11,6 +11,8 @@ import {
   type DocumentTask,
   type DocumentDecision,
 } from "@/lib/documents";
+
+export const DocumentEditorContext = createContext<((task: DocumentTask) => void) | null>(null);
 
 const labels: Record<string, string> = {
   PARSING: "本地解析中",
@@ -47,6 +49,7 @@ function ReviewCard({
   onChanged: () => void;
 }) {
   const preview = useFilePreview();
+  const openEditor = useContext(DocumentEditorContext);
   const [review, setReview] = useState<DocumentTask | null>(null);
   const [regionSuggestions, setRegionSuggestions] = useState<Record<string, string>>({});
   const [regionRunning, setRegionRunning] = useState<string | null>(null);
@@ -336,6 +339,9 @@ function ReviewCard({
         </details>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
+        {openEditor && task.released && task.kind !== "GENERATE" ? (
+          <button type="button" className="agui-button" onClick={() => openEditor(task)}>在对话里编辑</button>
+        ) : null}
         {["BUDGET_EXHAUSTED", "FAILED"].includes(task.status) ? (
           <button
             type="button"

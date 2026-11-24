@@ -158,7 +158,8 @@ public class ChatModelConfig {
                                  java.util.concurrent.ExecutorService chatToolExecutor,
                                  AgentObservability observability,
                                  ChatChartTools chartTools,
-                                 ChatChartHistory chartHistory) {
+                                 ChatChartHistory chartHistory,
+                                 com.h.backend.document.application.SessionDocumentCanvas canvases) {
         List<ToolProvider> toolProviders = new ArrayList<>();
         // 静态工具走 provider 接缝注册：观测装饰器在每次请求构建时捕获当前观测上下文，
         // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
@@ -197,7 +198,8 @@ public class ChatModelConfig {
 
                     return com.h.backend.chat.application.capability.AgentPromptComposer.standardChat(
                             systemPromptService.getSystemPrompt(userId, promptId),
-                            skillRuntimeService.skillsSystemMessage(memoryId.toString()));
+                            skillRuntimeService.skillsSystemMessage(memoryId.toString()))
+                            + canvases.promptHint(userId, parts[2]);
                 })
                 .toolArgumentsErrorHandler(hToolArgumentsErrorHandler)
                 .toolExecutionErrorHandler(hToolExecutionErrorHandler)

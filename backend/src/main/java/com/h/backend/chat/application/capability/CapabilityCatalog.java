@@ -39,7 +39,7 @@ public final class CapabilityCatalog {
                 "generate_video", "query_video_task", "list_video_tasks", "cancel_video_task",
                 "delete_video_task_record", "regenerate_video2_k", "list_video_inputs"));
         common.add(capability("document", "读取附件、识别图片、按需复核和生成文档", DocumentInstructions.SYSTEM,
-                "list_document_inputs", "parse_document", "ocr_document", "review_ocr",
+                "read_session_document", "list_document_inputs", "parse_document", "ocr_document", "review_ocr",
                 "generate_document", "cancel_document_task"));
         common.add(capability("automation", "创建定时或周期任务的待确认提案", AUTOMATION,
                 "create_automation_task", "list_automation_proposals", "edit_automation_proposal"));

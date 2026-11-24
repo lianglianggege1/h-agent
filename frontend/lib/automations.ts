@@ -164,6 +164,10 @@ export function tryAutomationProposal(id: string, revision: string) {
   });
 }
 
+export function automationRunHref(id: string) {
+  return "/tasks?runId=" + encodeURIComponent(id);
+}
+
 export function getAutomationTrial(id: string, signal?: AbortSignal) {
   return apiFetch<AutomationTrial>("/api/automations/proposal-trials/" + encodeURIComponent(id), { signal });
 }

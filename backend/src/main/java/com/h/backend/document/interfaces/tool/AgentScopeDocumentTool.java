@@ -1,5 +1,6 @@
 package com.h.backend.document.interfaces.tool;
 
+import com.h.backend.document.application.SessionDocumentCanvas;
 import com.h.capabilities.document.application.DocumentWorkflow;
 
 import io.agentscope.core.agent.RuntimeContext;
@@ -14,12 +15,23 @@ import java.util.List;
 @Component
 public class AgentScopeDocumentTool {
     private final DocumentWorkflow workflow;
+    private final SessionDocumentCanvas canvases;
     private final tools.jackson.databind.ObjectMapper json;
 
     public AgentScopeDocumentTool(
-            DocumentWorkflow workflow, tools.jackson.databind.ObjectMapper json) {
+            DocumentWorkflow workflow, SessionDocumentCanvas canvases, tools.jackson.databind.ObjectMapper json) {
         this.workflow = workflow;
+        this.canvases = canvases;
         this.json = json;
+    }
+
+    @Tool(name = "read_session_document", description = "分页读取当前会话中用户最新保存的画布正文，包括人工编辑。",
+            concurrencySafe = true)
+    public String readSessionDocument(
+            RuntimeContext context,
+            @ToolParam(name = "revision", description = "要读取的画布版本，首次读取可省略", required = false) Long revision,
+            @ToolParam(name = "offset", description = "从上次结果的 nextOffset 继续，首次读取省略", required = false) Integer offset) {
+        return canvases.readForChat(Long.parseLong(context.getUserId()), context.getSessionId(), revision, offset);
     }
 
     @Tool(

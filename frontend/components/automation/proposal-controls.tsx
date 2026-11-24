@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { listChatHistory, type ChatSessionSummary } from "@/lib/chat-sessions";
 import { useEffect, useState } from "react";
-import { editAutomationProposal, getAutomationTrial, tryAutomationProposal,
+import { automationRunHref, editAutomationProposal, getAutomationTrial, tryAutomationProposal,
   type AutomationProposal, type AutomationTrial } from "@/lib/automations";
 
 export function ProposalControls({ proposal, onSaved }: {
@@ -94,7 +94,7 @@ export function ProposalControls({ proposal, onSaved }: {
     {trial ? <div className="rounded-lg bg-white p-3 text-sm">
       <p>{({ QUEUED: "试跑排队中", RUNNING: "试跑中", SUCCEEDED: "试跑完成", FAILED: "试跑失败" })[trial.status] ?? trial.status}</p>
       {trial.output || trial.failure ? <p className="mt-1 whitespace-pre-wrap">{trial.output ?? trial.failure}</p> : null}
-      <Link href="/tasks" className="mt-1 inline-block underline">查看个人任务</Link>
+      <Link href={automationRunHref(trial.id)} className="mt-1 inline-block underline">查看本次运行</Link>
     </div> : null}
     {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
   </section>;

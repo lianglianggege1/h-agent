@@ -28,9 +28,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -118,6 +120,68 @@ class RemoteStoryAssistantTest {
             assertEquals("task-1", request.get().path("taskId").asText());
             assertEquals("context-1", request.get().path("contextId").asText());
             assertEquals("chat-run-34", request.get().path("messageId").asText());
+            assertNull(references.reference);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void startsANovelInTheSameChatWhileAShortStoryAwaitsInputAndResumesTheNovel() throws Exception {
+        var json = new ObjectMapper();
+        var key = Keys.hmacShaKeyFor(new byte[32]);
+        var requests = new CopyOnWriteArrayList<JsonNode>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            try (exchange) {
+                var input = json.readTree(exchange.getRequestBody()).at("/params/message");
+                requests.add(input);
+                var response = json.createObjectNode();
+                if ("short-task".equals(input.path("taskId").asText())) {
+                    response.putObject("error").put("code", -32602)
+                            .put("message", "The skill of an existing task cannot change");
+                } else {
+                    var task = response.putObject("result").putObject("task")
+                            .put("id", "novel-task").put("contextId", "novel-context");
+                    if (!input.has("taskId")) {
+                        task.putObject("status").put("state", "TASK_STATE_INPUT_REQUIRED")
+                                .putObject("message").putArray("parts").addObject().put("text", "小说主题是什么？");
+                    } else {
+                        task.putObject("status").put("state", "TASK_STATE_COMPLETED");
+                        task.putArray("artifacts").addObject().putArray("parts").addObject().put("text", "火星图书馆第一章");
+                    }
+                }
+                byte[] body = json.writeValueAsBytes(response);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            }
+        });
+        server.start();
+        try {
+            var references = new SessionReferences();
+            references.set(24, "session-1", new RemoteStoryAssistant.Reference("short-task", "short-context"));
+            var assistant = new RemoteStoryAssistant(() -> "http://127.0.0.1:" + server.getAddress().getPort(),
+                    key, references, ignored -> true, null, null, new AgentStepEventBridge(),
+                    com.h.agent.observability.NoopAgentObservability.getInstance(),
+                    request -> new StoryIntentRouter.Decision(request.contains("请用长篇小说模式")
+                            ? StoryIntentRouter.Intent.LONG_FORM : StoryIntentRouter.Intent.STORY, false));
+
+            var first = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 33L, "session-1", null);
+            var followUp = new MemoryInvocationContext(24L, "a2a-remote-story", "session-1", 34L, "session-1", null);
+            assertEquals("小说主题是什么？", assistant.chatStreaming("memory",
+                    "请用长篇小说模式为 12 岁读者写一章悬疑科幻小说", first.toInvocationParameters(), ignored -> {}).result());
+            assertEquals(new RemoteStoryAssistant.Reference("novel-task", "novel-context"), references.reference);
+            assertEquals("火星图书馆第一章", assistant.chatStreaming("memory", "主题是火星图书馆",
+                    followUp.toInvocationParameters(), ignored -> {}).result());
+
+            var submitted = requests.getFirst();
+            assertEquals("write-novel", submitted.at("/metadata/skillId").asText());
+            assertFalse(submitted.has("taskId"));
+            assertFalse(submitted.has("contextId"));
+            var resumed = requests.getLast();
+            assertEquals("novel-task", resumed.path("taskId").asText());
+            assertEquals("novel-context", resumed.path("contextId").asText());
             assertNull(references.reference);
         } finally {
             server.stop(0);

@@ -75,6 +75,7 @@ test("history picker displays an uploaded PDF by filename and selects it as a do
   );
   let selected = [];
   let olderRequests = 0;
+  let openedDocuments = 0;
   const root = createRoot(document.getElementById("root"));
   try {
     await React.act(async () =>
@@ -85,6 +86,7 @@ test("history picker displays an uploaded PDF by filename and selects it as a do
           loadingOlder: false,
           onLoadOlder: () => olderRequests++,
           onUpload: () => {},
+          onOpenDocument: () => openedDocuments++,
           onClose: () => {},
           onSelect: (resource) => {
             selected = selectHistoryReference(selected, resource);
@@ -92,6 +94,12 @@ test("history picker displays an uploaded PDF by filename and selects it as a do
         }),
       ),
     );
+    await React.act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((button) => button.textContent.trim() === "打开会话文稿")
+        .click(),
+    );
+    assert.equal(openedDocuments, 1);
     await React.act(async () =>
       [...document.querySelectorAll("button")]
         .find((button) => button.textContent === "从历史选择")

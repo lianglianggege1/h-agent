@@ -9,6 +9,7 @@ export function ChatAttachmentPicker({
   loadingOlder,
   onLoadOlder,
   onUpload,
+  onOpenDocument,
   onSelect,
   onClose,
 }: {
@@ -17,6 +18,7 @@ export function ChatAttachmentPicker({
   loadingOlder: boolean;
   onLoadOlder: () => void;
   onUpload: () => void;
+  onOpenDocument?: () => void;
   onSelect: (resource: ChatMessageResource) => void;
   onClose: () => void;
 }) {
@@ -61,6 +63,11 @@ export function ChatAttachmentPicker({
           >
             从历史选择
           </button>
+          {onOpenDocument ? (
+            <button type="button" className="agui-button w-full text-left" onClick={onOpenDocument}>
+              打开会话文稿
+            </button>
+          ) : null}
         </div>
       ) : (
         <>

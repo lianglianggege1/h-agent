@@ -35,14 +35,14 @@ class CapabilityCatalogTest {
             ToolSpecifications.toolSpecificationsFrom(instance).forEach(spec -> actual.add(spec.name()));
         }
         Set<String> names = CapabilityCatalog.toolNames(CapabilityCatalog.Runtime.STANDARD_CHAT);
-        assertThat(actual).hasSize(26);
-        assertThat(names).containsAll(actual).contains("show_chart", "read_chat_chart", "get_chart_option_guide").hasSize(45);
+        assertThat(actual).contains("read_session_document").hasSize(27);
+        assertThat(names).containsAll(actual).contains("show_chart", "read_chat_chart", "get_chart_option_guide").hasSize(46);
     }
 
     @Test
     void harnessUsesMem0NamespaceAndDoesNotClaimUnsupportedImageOrWebTools() {
         var names = CapabilityCatalog.toolNames(CapabilityCatalog.Runtime.HARNESS);
-        assertThat(names).contains("mem0_search", "mem0_save", "knowledge_save",
+        assertThat(names).contains("mem0_search", "mem0_save", "knowledge_save", "read_session_document",
                         "show_chart", "read_chat_chart", "get_chart_option_guide")
                 .doesNotContain("memory_search", "generateImage", "web_search");
         assertThat(CapabilityCatalog.forRuntime(CapabilityCatalog.Runtime.HARNESS).stream()

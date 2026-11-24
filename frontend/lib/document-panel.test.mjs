@@ -137,6 +137,16 @@ test("document synchronization stays invisible and only Jev low scores show manu
       );
       assert.equal(document.querySelectorAll("textarea").length, 0, status);
     }
+    const opened = [];
+    const released = { ...tasks[0], status: "CONFIRMED", released: true };
+    await React.act(async () => root.render(
+      React.createElement(componentModule.exports.DocumentEditorContext.Provider, { value: (task) => opened.push(task) },
+        React.createElement(componentModule.exports.DocumentTaskCard, { content: { task: released } })),
+    ));
+    const edit = [...document.querySelectorAll("button")].find((button) => button.textContent === "在对话里编辑");
+    assert.ok(edit);
+    await React.act(async () => edit.click());
+    assert.deepEqual(opened, [released]);
     assert.ok(requests.every(([type]) => type === "tasks"));
   } finally {
     await React.act(async () => root.unmount());

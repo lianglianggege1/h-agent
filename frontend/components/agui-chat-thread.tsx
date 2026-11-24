@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { CopilotChat, CopilotChatInput, useAgent, useCopilotKit, useRenderTool, type CopilotChatViewProps, type CopilotChatInputProps } from "@copilotkit/react-core/v2";
 import { apiFetch } from "@/lib/http";
 import { getChatSessionMessage, getChatSessionMessages, type ChatSessionMessage } from "@/lib/chat-sessions";
@@ -10,7 +10,7 @@ import { ReferencedUserMessage, UserMessageEditContext } from "@/components/agui
 import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
 import { mergeChatChartActivities, mergeProductMessageUpdates, pendingMediaMessageIds, type ChartActivityRun } from "@/lib/agui-media-updates";
 import styles from "./agui-chat-thread.module.css";
-import { DocumentTaskSync } from "./document-panel";
+import { DocumentEditorContext, DocumentTaskSync } from "./document-panel";
 import { mergeDocumentTaskActivities } from "@/lib/document-activities";
 import type { DocumentTask } from "@/lib/documents";
 import { FilePreviewProvider, useFilePreview } from "./file-preview";
@@ -34,6 +34,7 @@ type ThreadActions = {
   pause: () => void;
   resume: () => void;
   busy: boolean;
+  documentEditor?: ReactNode;
 };
 const Actions = createContext<ThreadActions | null>(null);
 
@@ -56,6 +57,7 @@ function ThreadInput(props: CopilotChatInputProps) {
   const continuing = actions?.paused && !props.value?.trim();
   const label = props.isRunning ? "暂停回答" : continuing ? "继续回答" : "发送消息";
   return <>
+    {actions?.documentEditor}
     {actions?.orderReferences.map((reference) => <div key={reference.ticketId ?? reference.id} className="mx-auto mb-2 w-full max-w-[1000px] px-4" aria-label="待发送引用">
       <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
         <span className="shrink-0 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600">{reference.ticketId ? "工单" : "订单"}</span>
@@ -103,9 +105,10 @@ function ThreadView(props: CopilotChatViewProps) {
   />;
 }
 
-function ChatThreadContent({ threadId, onChanged, orderAssistant = false, documentTools = false, retryAssignment, canvasReference, onClearCanvasReference }: {
+function ChatThreadContent({ threadId, onChanged, orderAssistant = false, documentTools = false, retryAssignment, canvasReference, onClearCanvasReference, documentEditor, onEditDocument }: {
   threadId: string; onChanged?: () => void; orderAssistant?: boolean; documentTools?: boolean; retryAssignment?: string;
   canvasReference?: string; onClearCanvasReference?: () => void;
+  documentEditor?: ReactNode; onEditDocument?: (task?: DocumentTask) => void;
 }) {
   const localAgentId = "thread-" + threadId;
   const { agent, isReady } = useAgent({ agentId: localAgentId, runtimeAgentId: "default", threadId, throttleMs: 40 });
@@ -394,6 +397,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
     }} />
     {pickerOpen ? <ChatAttachmentPicker resources={historyReferenceResources(agent.messages)} hasOlder={hasOlder} loadingOlder={loadingOlder}
       onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
+      onOpenDocument={onEditDocument ? () => { setPickerOpen(false); onEditDocument(); } : undefined}
       onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
       onClose={() => setPickerOpen(false)} /> : null}
     {canvasReference ? <div className={`${styles.canvasReference} my-2 flex items-center justify-between gap-2 rounded border border-stone-200 p-2 text-sm`}>
@@ -415,12 +419,13 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
         }
       },
     }}>
+    <DocumentEditorContext.Provider value={onEditDocument ?? null}>
     <Actions.Provider value={{ submit: (value) => void submit(value), addFile: () => setPickerOpen(true),
       disabled: !isReady || agent.isRunning || uploading || waiting || busy, attachments, uploading,
       removeFile: (id) => setAttachments((current) => current.filter((resource) => resource.resourceId !== id)),
       addOrder: orderAssistant ? () => setOrderPickerOpen(true) : undefined, orderReferences,
       removeOrder: (id) => setOrderReferences((current) => current.filter((item) => (item.ticketId ?? item.id) !== id)),
-      paused: pausedRunId !== null, pause: () => void pause(), resume: () => void resume(), busy }}>
+      paused: pausedRunId !== null, pause: () => void pause(), resume: () => void resume(), busy, documentEditor }}>
     <UserMessageEditContext.Provider value={{
       latestId: latestUser && /^\d+$/.test(latestUser.id) ? latestUser.id : null,
       disabled: !isReady || agent.isRunning || uploading || waiting || busy, save: revise,
@@ -432,12 +437,14 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
         : <div className="grid flex-1 place-items-center text-sm text-stone-500">加载对话…</div>}
     </UserMessageEditContext.Provider>
     </Actions.Provider>
+    </DocumentEditorContext.Provider>
     </ResourceReferenceContext.Provider>
     </OrderReferenceContext.Provider>
   </section>;
 }
 
 export function AguiChatThread(props: { threadId: string; onChanged?: () => void; orderAssistant?: boolean; documentTools?: boolean; retryAssignment?: string;
-  canvasReference?: string; onClearCanvasReference?: () => void }) {
+  canvasReference?: string; onClearCanvasReference?: () => void;
+  documentEditor?: ReactNode; onEditDocument?: (task?: DocumentTask) => void }) {
   return <FilePreviewProvider key={props.threadId}><ChatThreadContent {...props} /></FilePreviewProvider>;
 }

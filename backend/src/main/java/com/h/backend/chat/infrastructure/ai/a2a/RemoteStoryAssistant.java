@@ -230,7 +230,8 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
             input.put("contextId", previous.contextId());
             input.putArray("referenceTaskIds").add(previous.taskId());
         });
-        var waiting = revision ? Optional.<Reference>empty() : expected;
+        // An explicit novel request starts a new task. Clarification replies use the waiting task's skill.
+        var waiting = revision || longForm ? Optional.<Reference>empty() : expected;
         waiting.ifPresent(reference -> {
             input.put("taskId", reference.taskId()).put("contextId", reference.contextId());
             events.emitTool(memoryId, new ChatStreamEvent("a2a_story_working", "", null, reference.taskId()));
@@ -245,8 +246,9 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
             chunks.accept(delta);
         }));
         if (response.has("error")) {
-            if (!revision && response.at("/error/code").asInt() == -32001) references.remove(owner, session);
-            throw new IllegalStateException("A2A story request was rejected");
+            int code = response.at("/error/code").asInt(-32603);
+            if (waiting.isPresent() && code == -32001) references.remove(owner, session);
+            throw new IllegalStateException("A2A story request was rejected (JSON-RPC code " + code + ")");
         }
         JsonNode task = response.at("/result/task");
         String taskId = task.path("id").textValue();
@@ -272,7 +274,7 @@ public final class RemoteStoryAssistant implements StreamingAgenticChat, AgentTo
                 yield prefix + story;
             }
             case "TASK_STATE_FAILED", "TASK_STATE_REJECTED", "TASK_STATE_CANCELED" -> {
-                if (!revision) references.remove(owner, session);
+                if (waiting.isPresent()) references.remove(owner, session);
                 throw new IllegalStateException("Remote story task ended without a story");
             }
             default -> throw new IllegalStateException("A2A story returned an unexpected state");

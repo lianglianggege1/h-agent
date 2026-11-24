@@ -1,5 +1,6 @@
 package com.h.backend.document.interfaces.tool;
 
+import com.h.backend.document.application.SessionDocumentCanvas;
 import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
 import com.h.capabilities.document.application.DocumentWorkflow;
 
@@ -13,16 +14,29 @@ import java.util.List;
 @Component
 public class LangChain4jDocumentTool {
     private final DocumentWorkflow workflow;
+    private final SessionDocumentCanvas canvases;
     private final ChatMemoryIdFactory memoryIds;
     private final tools.jackson.databind.ObjectMapper json;
 
     public LangChain4jDocumentTool(
             DocumentWorkflow workflow,
+            SessionDocumentCanvas canvases,
             ChatMemoryIdFactory memoryIds,
             tools.jackson.databind.ObjectMapper json) {
         this.workflow = workflow;
+        this.canvases = canvases;
         this.memoryIds = memoryIds;
         this.json = json;
+    }
+
+    @Tool(name = "read_session_document", value = "分页读取当前会话中用户最新保存的画布正文，包括人工编辑。",
+            searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
+    public String readSessionDocument(
+            @ToolMemoryId String memoryId,
+            @P(value = "要读取的画布版本，首次读取可省略", required = false) Long revision,
+            @P(value = "从上次结果的 nextOffset 继续，首次读取省略", required = false) Integer offset) {
+        var context = memoryIds.parse(memoryId);
+        return canvases.readForChat(context.userId(), context.sessionId(), revision, offset);
     }
 
     @Tool(

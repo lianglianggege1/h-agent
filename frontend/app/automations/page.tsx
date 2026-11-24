@@ -18,6 +18,7 @@ import {
   enableAutomation,
   listAutomationRuns,
   listAutomationProposals,
+  automationRunHref,
   listAutomations,
   runAutomation,
   runtimeForAgent,
@@ -129,7 +130,7 @@ export default function AutomationsPage() {
           router.replace("/auth/login");
           return;
         }
-        setError(loadError instanceof Error ? loadError.message : "加载自动化任务失败");
+        setError(loadError instanceof Error ? loadError.message : "加载自动化计划失败");
       })
       .finally(() => setLoading(false));
   }, [router]);
@@ -181,7 +182,7 @@ export default function AutomationsPage() {
   }
 
   async function remove(task: AutomationTask) {
-    if (!window.confirm(`删除自动化任务“${task.name}”？运行历史将保留在数据库中。`)) return;
+    if (!window.confirm(`删除自动化计划“${task.name}”？运行历史将保留在数据库中。`)) return;
     setBusyTaskId(task.id);
     try {
       await deleteAutomation(task.id);
@@ -258,7 +259,7 @@ export default function AutomationsPage() {
       <section className="workspace-container pb-8">
         <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">自动化任务</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">自动化计划</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
               让 Agent 按计划在你指定的会话中继续工作，沿用该会话的上下文、工具和权限。
             </p>
@@ -272,14 +273,14 @@ export default function AutomationsPage() {
               className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition "
               onClick={() => setShowCreate(true)}
             >
-              ＋ 新建任务
+              ＋ 新建计划
             </button>
           </div>
         </header>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
-            ["任务总数", tasks.length],
+            ["计划总数", tasks.length],
             ["已开启（最多 3 个）", tasks.filter((task) => task.enabled).length],
             ["最近失败", tasks.filter((task) => task.lastStatus === "FAILED").length],
           ].map(([label, value]) => (
@@ -297,7 +298,7 @@ export default function AutomationsPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">待确认提案</h2>
-                <p className="mt-1 text-xs text-stone-500">Agent 只生成提案；由你在这里确认后才会更改任务。</p>
+                <p className="mt-1 text-xs text-stone-500">Agent 只生成提案；由你在这里确认后才会更改计划。</p>
               </div>
               <span className="rounded-full bg-stone-900 px-2.5 py-1 text-xs font-semibold text-white">{proposals.length}</span>
             </div>
@@ -336,7 +337,7 @@ export default function AutomationsPage() {
             <div className="rounded-2xl border border-stone-200 bg-white p-6 text-sm text-stone-500">正在加载…</div>
           ) : tasks.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-stone-300 bg-white px-6 py-16 text-center">
-              <p className="text-lg font-semibold">还没有自动化任务</p>
+              <p className="text-lg font-semibold">还没有自动化计划</p>
               <p className="mt-2 text-sm text-stone-500">从这里创建，或者在聊天里告诉 Agent “每天几点帮我做什么”。</p>
               <button className="mt-6 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>
                 创建第一个任务
@@ -367,7 +368,7 @@ export default function AutomationsPage() {
                     className="workspace-switch relative h-7 w-12 shrink-0 rounded-full transition"
                     role="switch"
                     aria-checked={task.enabled}
-                    aria-label={task.enabled ? "暂停任务" : "启用任务"}
+                    aria-label={task.enabled ? "暂停计划" : "启用计划"}
                   >
                     <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${task.enabled ? "left-6" : "left-1"}`} />
                   </button>
@@ -396,6 +397,7 @@ export default function AutomationsPage() {
                           <span className={`font-semibold ${runStatusTone(run.status)}`}>{runStatusLabel(run.status)}</span>
                           <span className="text-stone-400">{run.triggerType === "MANUAL" ? "手动" : "计划"} · {formatDate(run.startedAt)}</span>
                           <span className="line-clamp-1 flex-1 text-stone-600">{run.errorMessage ?? run.output ?? "执行中…"}</span>
+                          <Link className="font-semibold text-stone-600" href={automationRunHref(run.id)}>查看本次运行</Link>
                           {run.sessionId ? <Link className="font-semibold text-stone-600" href={`/chat?sessionId=${encodeURIComponent(run.sessionId)}`}>打开会话 →</Link> : null}
                         </div>
                       ))}
@@ -412,7 +414,7 @@ export default function AutomationsPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/45 p-0 sm:items-center sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && setShowCreate(false)}>
           <form className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl sm:p-8" onSubmit={submit}>
             <div className="flex items-center justify-between">
-              <div><h2 className="mt-1 text-2xl font-semibold">新建自动化任务</h2></div>
+              <div><h2 className="mt-1 text-2xl font-semibold">新建自动化计划</h2></div>
               <button type="button" className="h-10 w-10 rounded-full text-xl text-stone-500 hover:bg-stone-100" onClick={() => setShowCreate(false)}>×</button>
             </div>
 

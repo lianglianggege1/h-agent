@@ -365,6 +365,7 @@ public class HarnessAgentConfig {
             com.h.backend.knowledge.interfaces.tool.AgentScopeKnowledgeTools knowledgeTools,
             com.h.backend.generation.interfaces.tool.AgentScopeVideoTool videoTool,
             com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
+            com.h.backend.document.application.SessionDocumentCanvas canvases,
             AgentScopeChartTools chartTools,
             ChatChartHistory chartHistory,
             ObjectProvider<AguiChatRuntime> agui,
@@ -409,6 +410,7 @@ public class HarnessAgentConfig {
                 // Native MEMORY.md, daily memory ledgers and session logs stay enabled.
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
                 .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
+                .middleware(new com.h.backend.document.interfaces.tool.SessionDocumentInstructionsMiddleware(canvases))
                 .middleware(chartTools)
                 .toolResultEviction(toolResultEvictionConfig)
                 // 子 Agent 会继承显式 middleware：把持久化委托合并进 provider 的真实 SYSTEM。

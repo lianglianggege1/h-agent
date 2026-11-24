@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { DocumentTaskCard } from "@/components/document-panel";
 import { reviewDocument, type DocumentTask } from "@/lib/documents";
 import { apiFetch } from "@/lib/http";
@@ -31,9 +32,10 @@ const states: Record<string, string> = {
   SUPERSEDED: "已替换", TIMED_OUT: "超时",
 };
 
-export default function PersonalTasksPage() {
+function TaskProgress({ runId }: { runId: string | null }) {
   const [items, setItems] = useState<Task[]>([]);
-  const [kind, setKind] = useState<Task["kind"] | "ALL">("ALL");
+  const [kind, setKind] = useState<Task["kind"] | "ALL">(runId ? "AUTOMATION" : "ALL");
+  const requestedRun = useRef<HTMLLIElement>(null);
   const [document, setDocument] = useState<DocumentTask | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,10 +103,19 @@ export default function PersonalTasksPage() {
     }
   }
 
+  const foundRun = Boolean(runId && items.some((task) => task.kind === "AUTOMATION" && task.id === runId));
+  const showRequestedRun = foundRun && (kind === "ALL" || kind === "AUTOMATION");
+  useEffect(() => {
+    if (showRequestedRun) {
+      requestedRun.current?.scrollIntoView({ block: "center" });
+      requestedRun.current?.focus({ preventScroll: true });
+    }
+  }, [showRequestedRun]);
+
   const visible = items.filter((task) => kind === "ALL" || task.kind === kind);
   return <main className="mx-auto max-w-5xl p-6 sm:p-8">
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <h1 className="text-2xl font-semibold tracking-tight">个人任务</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">任务进度</h1>
       <label className="flex items-center gap-2 text-sm">
         任务类型
         <select className="rounded-lg border border-stone-200 bg-white px-3 py-2" value={kind}
@@ -116,31 +127,48 @@ export default function PersonalTasksPage() {
     </header>
     {error ? <p role="alert" className="mb-4 text-sm text-red-700">{error}</p> : null}
     {feedback ? <p role="status" className="mb-4 text-sm">{feedback}</p> : null}
+    {runId && loaded && !error && !foundRun ? <p className="mb-4 text-sm text-stone-600">最近的任务中没有这次运行。</p> : null}
     {document ? <section className="mb-5 rounded-xl border border-stone-200 p-4">
       <button className="agui-button mb-3" type="button" onClick={() => setDocument(null)}>关闭文档详情</button>
       <DocumentTaskCard key={document.taskId} content={{ task: document }} />
     </section> : null}
     {!visible.length && !error ? <p className="text-sm text-stone-500">{loaded ? "暂无任务" : "正在加载任务…"}</p> : null}
     <ul className="divide-y divide-stone-200 rounded-xl border border-stone-200">
-      {visible.map((task) => <li key={task.kind + ":" + task.id} className="flex flex-wrap justify-between gap-4 p-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-stone-500">
-            {kinds[task.kind]} · 创建于 <time dateTime={task.createdAt}>{new Date(task.createdAt).toLocaleString("zh-CN")}</time>
-          </p>
-          <h2 className="mt-1 break-words text-sm font-semibold">{task.title}</h2>
-          <p className="mt-1 text-sm">{states[task.status] ?? task.status}</p>
-          {task.failure ? <p className="mt-1 break-words text-sm text-red-700">{task.failure}</p> : null}
-          {task.output ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-600">{task.output}</p> : null}
-        </div>
-        <div className="flex flex-wrap items-start gap-2">
-          {task.sessionId ? <Link className="agui-button" href={"/chat?sessionId=" + encodeURIComponent(task.sessionId)}>查看原会话</Link> : null}
-          {task.resourceId ? <a className="agui-button" target="_blank" rel="noreferrer"
-            href={"/api/chat/resources/" + encodeURIComponent(task.resourceId) + "/content"}>打开视频</a> : null}
-          {task.kind === "DOCUMENT" && task.sessionId ? <button className="agui-button" disabled={busy} onClick={() => void action(task, "document")}>查看文档</button> : null}
-          {task.canCancel ?
-            <button className="agui-button" disabled={busy} onClick={() => void action(task, "cancel")}>取消运行</button> : null}
-        </div>
-      </li>)}
+      {visible.map((task) => {
+        const selected = task.kind === "AUTOMATION" && task.id === runId;
+        return <li key={task.kind + ":" + task.id} ref={selected ? requestedRun : undefined}
+          tabIndex={selected ? -1 : undefined} aria-current={selected ? "true" : undefined}
+          className={"flex flex-wrap justify-between gap-4 p-4" + (selected ? " bg-amber-50 ring-1 ring-inset ring-amber-400" : "")}>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-stone-500">
+              {kinds[task.kind]} · 创建于 <time dateTime={task.createdAt}>{new Date(task.createdAt).toLocaleString("zh-CN")}</time>
+            </p>
+            <h2 className="mt-1 break-words text-sm font-semibold">{task.title}</h2>
+            <p className="mt-1 text-sm">{states[task.status] ?? task.status}</p>
+            {task.failure ? <p className="mt-1 break-words text-sm text-red-700">{task.failure}</p> : null}
+            {task.output ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-600">{task.output}</p> : null}
+          </div>
+          <div className="flex flex-wrap items-start gap-2">
+            {task.sessionId ? <Link className="agui-button" href={"/chat?sessionId=" + encodeURIComponent(task.sessionId)}>查看原会话</Link> : null}
+            {task.resourceId ? <a className="agui-button" target="_blank" rel="noreferrer"
+              href={"/api/chat/resources/" + encodeURIComponent(task.resourceId) + "/content"}>打开视频</a> : null}
+            {task.kind === "DOCUMENT" && task.sessionId ? <button className="agui-button" disabled={busy} onClick={() => void action(task, "document")}>查看文档</button> : null}
+            {task.canCancel ?
+              <button className="agui-button" disabled={busy} onClick={() => void action(task, "cancel")}>取消运行</button> : null}
+          </div>
+        </li>;
+      })}
     </ul>
   </main>;
+}
+
+function TaskProgressScreen() {
+  const runId = useSearchParams().get("runId");
+  return <TaskProgress key={runId ?? ""} runId={runId} />;
+}
+
+export default function TasksPage() {
+  return <Suspense fallback={<p className="p-6 text-sm text-stone-500">正在加载任务…</p>}>
+    <TaskProgressScreen />
+  </Suspense>;
 }

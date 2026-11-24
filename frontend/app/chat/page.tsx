@@ -51,7 +51,7 @@ function ChatWorkspace() {
   const [deleting, setDeleting] = useState(false);
   const [children, setChildren] = useState<HarnessSubagentSummary[]>([]);
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
-  const [canvasSession, setCanvasSession] = useState<string | null>(null);
+  const [canvasEditor, setCanvasEditor] = useState<{ session: string; taskId?: string } | null>(null);
   const [canvasReference, setCanvasReference] = useState<{ session: string; text: string } | null>(null);
   const currentSession = useRef<ChatSessionOpen | null>(null);
   const sessionId = open?.session.sessionId ?? null;
@@ -219,8 +219,6 @@ function ChatWorkspace() {
         <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{open?.session.title ?? "H Agent"}</h1><p className="mt-0.5 text-xs text-stone-500">{open?.session.agentDisplayName ?? "选择会话开始"}</p></div>
         {open && !standard ? <Link className="hidden text-xs text-amber-800 sm:block" href={"/me/agents/" + encodeURIComponent(open.session.agentId)}>拓扑详情</Link> : null}
         {standard && sessionId ? <Link className="agui-button" href={buildCallHref(sessionId)}>语音</Link> : null}
-        {sessionId && documentTools ? <button className="agui-button"
-          onClick={() => setCanvasSession(sessionId)}>文档画布</button> : null}
         <button className="agui-button agui-button-primary" onClick={() => setPickerOpen(true)}>新会话</button>
       </div>
       {standard ? <div className="mx-auto mt-3 flex w-full items-center gap-3 text-xs">
@@ -250,13 +248,14 @@ function ChatWorkspace() {
       : sessionId ? <AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn}
         canvasReference={canvasReference?.session === sessionId ? canvasReference.text : undefined}
         onClearCanvasReference={() => setCanvasReference(null)} orderAssistant={open?.session.agentId === orderId}
-        documentTools={documentTools} />
+        documentTools={documentTools}
+        onEditDocument={documentTools ? (task) => setCanvasEditor({ session: sessionId, taskId: task?.taskId }) : undefined}
+        documentEditor={documentTools && canvasEditor?.session === sessionId
+          ? <DocumentCanvas key={sessionId} session={sessionId} sourceTaskId={canvasEditor.taskId}
+              onClose={() => setCanvasEditor(null)} onReference={(text) => {
+                setCanvasReference({ session: sessionId, text }); setCanvasEditor(null);
+              }} /> : undefined} />
       : <div className="grid flex-1 place-items-center"><button className="agui-button agui-button-primary" disabled={creating} onClick={() => setPickerOpen(true)}>新建会话</button></div>}
-
-    {sessionId && documentTools && canvasSession === sessionId ? <DocumentCanvas key={sessionId} session={sessionId}
-      onClose={() => setCanvasSession(null)} onReference={(text) => {
-        setCanvasReference({ session: sessionId, text }); setCanvasSession(null);
-      }} /> : null}
 
     {selected && sessionId ? <div className="fixed inset-0 z-30 flex justify-end bg-stone-950/25">
       <button className="absolute inset-0" aria-label="关闭子 Agent 对话" onClick={() => setSelectedChild(null)} />

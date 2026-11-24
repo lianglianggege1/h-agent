@@ -3,8 +3,8 @@ export const workspaceNavigation = [
   { href: "/team", label: "团队聊天室", icon: "team", group: "工作区", paths: ["/team"] },
   { href: "/agents", label: "智能体", icon: "agents", group: "工作区", paths: ["/agents", "/me/agents"] },
 
-  { href: "/tasks", label: "个人任务", icon: "clock", group: "工作区", paths: ["/tasks"] },
-  { href: "/automations", label: "自动化任务", icon: "clock", group: "工作区", paths: ["/automations"] },
+  { href: "/tasks", label: "任务进度", icon: "run-list", group: "工作区", paths: ["/tasks"] },
+  { href: "/automations", label: "自动化计划", icon: "calendar", group: "工作区", paths: ["/automations"] },
   { href: "/outbound", label: "外呼任务", icon: "phone", group: "工作区", paths: ["/outbound"] },
   { href: "/me/system-prompts", label: "提示词", icon: "prompt", group: "资源", paths: ["/me/system-prompts"] },
   { href: "/me/knowledge", label: "知识库", icon: "book", group: "资源", paths: ["/me/knowledge"] },
