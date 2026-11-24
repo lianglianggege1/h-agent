@@ -4,7 +4,7 @@ import com.h.agent.observability.lifecycle.AgentExecutionObservation;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.domain.approval.ApprovalMode;
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
+import com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import reactor.core.publisher.FluxSink;
 
@@ -30,7 +30,7 @@ public record ChatAgentExecutionCommand(
         /** Catalog 子会话固定的定义版本；父请求与声明式子 Agent 为空。 */
         DefinitionBinding subagentDefinitionBinding,
         String userMessage,
-        List<ChatMessageResourceUseDto> resources,
+        List<ChatMessageResourceDto> resources,
         String memoryId,
         AgentDefinition agent,
         AgentRunService.AgentRunHandle runHandle,
@@ -46,7 +46,7 @@ public record ChatAgentExecutionCommand(
             Long resolvedPromptId,
             String sessionId,
             String userMessage,
-            List<ChatMessageResourceUseDto> resources,
+            List<ChatMessageResourceDto> resources,
             String memoryId,
             AgentDefinition agent,
             AgentRunService.AgentRunHandle runHandle,
@@ -70,7 +70,7 @@ public record ChatAgentExecutionCommand(
             String subagentAssignment,
             String subagentExecutionId,
             String userMessage,
-            List<ChatMessageResourceUseDto> resources,
+            List<ChatMessageResourceDto> resources,
             String memoryId,
             AgentDefinition agent,
             AgentRunService.AgentRunHandle runHandle,
@@ -97,7 +97,7 @@ public record ChatAgentExecutionCommand(
             String subagentExecutionId,
             DefinitionBinding subagentDefinitionBinding,
             String userMessage,
-            List<ChatMessageResourceUseDto> resources,
+            List<ChatMessageResourceDto> resources,
             String memoryId,
             AgentDefinition agent,
             AgentRunService.AgentRunHandle runHandle,

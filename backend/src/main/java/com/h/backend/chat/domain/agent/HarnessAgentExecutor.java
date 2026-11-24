@@ -138,13 +138,6 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                 null, null, null, null, null);
     }
 
-    private String documentMessage(ChatAgentExecutionCommand command) {
-        if (command.resources() == null || command.resources().isEmpty()) return command.userMessage();
-        return command.userMessage() + "\n[本消息附件资源ID：" + command.resources().stream()
-                .map(com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto::resourceId)
-                .collect(java.util.stream.Collectors.joining("、")) + "。需要读取时使用list_document_inputs和parse_document。]";
-    }
-
     @Override
     public AgentRuntimeType runtimeType() {
         return AgentRuntimeType.HARNESS_STREAMING;
@@ -184,7 +177,7 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
             reactor.core.publisher.Flux<AgentEvent> events = parentTurn
                     ? harnessRuntime.streamParent(
                             command.agent().agentBean(),
-                            documentMessage(command),
+                            ChatAttachmentInstructions.describe(command),
                             runtimeContext,
                             command.approvalMode()
                     )
@@ -197,9 +190,10 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.sessionId(),
                                     command.subagentAssignment(),
                                     command.subagentExecutionId(),
-                                    command.subagentDefinitionBinding()
+                                    command.subagentDefinitionBinding(),
+                                    command.userMessageId() == null ? null : AgentMemoryContexts.from(command)
                             ),
-                            documentMessage(command),
+                            ChatAttachmentInstructions.describe(command),
                             carrier,
                             command.approvalMode()
                     );
@@ -240,7 +234,8 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                                     command.subagentAgentId(), String.valueOf(command.userId()),
                                     command.subagentParentSessionId(), command.sessionId(),
                                     command.subagentAssignment(), command.subagentExecutionId(),
-                                    command.subagentDefinitionBinding()
+                                    command.subagentDefinitionBinding(),
+                                    command.userMessageId() == null ? null : AgentMemoryContexts.from(command)
                             ),
                             toolCallIds,
                             approved,

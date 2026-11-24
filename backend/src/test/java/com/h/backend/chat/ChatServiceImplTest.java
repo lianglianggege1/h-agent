@@ -370,6 +370,10 @@ class ChatServiceImplTest {
         when(observation.traceId()).thenReturn("trace-submit");
         when(agentRunService.createRun("session-submit", 1L, 22L, 101L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(55L));
+        when(chatSessionService.getOwnedMessage(1L, "session-submit", 101L)).thenReturn(
+                new ChatSessionMessageDto("101", "user", "USER", "hello", null, List.of(
+                        new ChatMessageResourceDto("image-resource", "IMAGE", "REFERENCE", null, null,
+                                "image.png", "image/png", null, null, null)), null));
         var prompt = new AtomicReference<String>();
         when(hAssistant.streamChat(any(), any(), any())).thenAnswer(call -> {
             prompt.set(call.getArgument(1)); return tokenStream;
@@ -1140,7 +1144,7 @@ class ChatServiceImplTest {
     }
 
     @Test
-    void shouldExposeAttachedImageResourceIdToStandardAssistant() {
+    void shouldExposeBoundMediaTypesAndFileNamesToStandardAssistant() {
         HAssistant hAssistant = mock(HAssistant.class);
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
         ChatSessionService chatSessionService = mock(ChatSessionService.class);
@@ -1155,19 +1159,35 @@ class ChatServiceImplTest {
                 observability
         );
         List<ChatMessageResourceUseDto> resources = List.of(
-                new ChatMessageResourceUseDto("resource-attach-1", "ATTACHMENT", "UPLOAD")
+                new ChatMessageResourceUseDto("incoming-video-id", "REFERENCE", "HISTORY")
         );
 
         when(systemPromptService.resolvePromptId(1L, 2L)).thenReturn(22L);
         when(chatSessionService.appendUserMessage(eq(1L), eq("session-edit-image"), eq("把背景色改为白色"), any()))
                 .thenReturn(121L);
+        when(chatSessionService.getOwnedMessage(1L, "session-edit-image", 121L)).thenReturn(
+                new ChatSessionMessageDto("121", "user", "USER", "把背景色改为白色", null, List.of(
+                        new ChatMessageResourceDto("bound-video", "FILE", "REFERENCE", null, null, "片段.mp4",
+                                "video/mp4", null, null, null, java.util.Map.of("source", "HISTORY"), null, null),
+                        new ChatMessageResourceDto("bound-image", "IMAGE", "REFERENCE", null, null, "背景.png",
+                                "image/png", null, null, null),
+                        new ChatMessageResourceDto("bound-audio", "FILE", "REFERENCE", null, null, "对白.wav",
+                                "audio/wav", null, null, null),
+                        new ChatMessageResourceDto("bound-pdf", "FILE", "ATTACHMENT", null, null, "参考.pdf",
+                                "application/pdf", null, null, null)), null));
         AgentExecutionObservation observation = mock(AgentExecutionObservation.class);
         when(observability.start(any())).thenReturn(observation);
         when(agentRunService.createRun("session-edit-image", 1L, 22L, 121L, "standard-chat", null))
                 .thenReturn(new AgentRunService.AgentRunHandle(88L));
         when(hAssistant.streamChat(eq("1:22:session-edit-image"), argThat(message ->
                 message.contains("把背景色改为白色")
-                        && message.contains("resource-attach-1")
+                        && message.contains("\"resourceId\":\"bound-video\",\"mediaKind\":\"VIDEO\",\"mimeType\":\"video/mp4\"")
+                        && message.contains("\"source\":\"HISTORY\"")
+                        && message.contains("\"mediaKind\":\"IMAGE\"")
+                        && message.contains("\"mediaKind\":\"AUDIO\"")
+                        && message.contains("\"mimeType\":\"application/pdf\"")
+                        && message.contains("片段.mp4")
+                        && !message.contains("incoming-video-id")
                         && message.contains("generateImage")
         ), any())).thenReturn(tokenStream);
 
@@ -1177,7 +1197,13 @@ class ChatServiceImplTest {
 
         verify(hAssistant).streamChat(eq("1:22:session-edit-image"), argThat(message ->
                 message.contains("把背景色改为白色")
-                        && message.contains("resource-attach-1")
+                        && message.contains("\"resourceId\":\"bound-video\",\"mediaKind\":\"VIDEO\",\"mimeType\":\"video/mp4\"")
+                        && message.contains("\"source\":\"HISTORY\"")
+                        && message.contains("\"mediaKind\":\"IMAGE\"")
+                        && message.contains("\"mediaKind\":\"AUDIO\"")
+                        && message.contains("\"mimeType\":\"application/pdf\"")
+                        && message.contains("片段.mp4")
+                        && !message.contains("incoming-video-id")
                         && message.contains("generateImage")
         ), any());
     }

@@ -8,7 +8,6 @@ import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.agui.ChatExecutionCancellation;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
-import com.h.backend.chat.interfaces.dto.ChatMessageResourceUseDto;
 import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.h.backend.memory.application.SuccessfulTurnCommitter;
@@ -101,17 +100,10 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 };
         try {
             ChatExecutionCancellation.check(command.sink());
-            String messageForLlm = command.userMessage();
-            if (command.resources() != null && !command.resources().isEmpty()) {
-                messageForLlm +=
-                        "\n[系统：本消息引用的素材 resourceId："
-                                + command.resources().stream()
-                                        .map(ChatMessageResourceUseDto::resourceId)
-                                        .collect(java.util.stream.Collectors.joining("、"))
-                                + "。]";
-                messageForLlm +=
-                        "\n"
-                            + "[附件处理：本消息包含用户附件。识别图片文字、读取文档或查询图中文字时，调用list_document_inputs取得准确资源ID，再调用parse_document。附件本身不表示生成意图；只有用户明确要求生成或编辑视频、图片时才调用对应生成工具（图片编辑用generateImage）。完整复制工具返回的资源ID。]";
+            String messageForLlm = ChatAttachmentInstructions.describe(command);
+            if (command.resources() != null && command.resources().stream()
+                    .anyMatch(resource -> resource.mimeType() != null && resource.mimeType().startsWith("image/"))) {
+                messageForLlm += "\n[用户明确要求编辑图片时使用 generateImage。]";
             }
             // streamChat 在当前线程同步构建首个请求并发起模型调用；执行观测作用域把
             // Generation/Tool Span 挂到本次运行。后续轮次由流式回调中的观测作用域接管。
@@ -260,20 +252,6 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                 imageEmitted.get(),
                 reasoningBuilder,
                 replyBuilder);
-    }
-
-    private String firstReferenceResourceId(ChatAgentExecutionCommand command) {
-        if (command.resources() == null || command.resources().isEmpty()) {
-            return null;
-        }
-        return command.resources().stream()
-                .filter(
-                        resource ->
-                                "REFERENCE".equalsIgnoreCase(resource.role())
-                                        || "ATTACHMENT".equalsIgnoreCase(resource.role()))
-                .map(ChatMessageResourceUseDto::resourceId)
-                .findFirst()
-                .orElse(null);
     }
 
     private MemoryInvocationContext memoryInvocationContext(ChatAgentExecutionCommand command) {

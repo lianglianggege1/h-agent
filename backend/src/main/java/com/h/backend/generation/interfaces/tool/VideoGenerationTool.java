@@ -1,11 +1,13 @@
 package com.h.backend.generation.interfaces.tool;
 
 import com.h.capabilities.chat.domain.memory.ChatMemoryIdFactory;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.SearchBehavior;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.invocation.InvocationParameters;
 
 import org.springframework.stereotype.Component;
 
@@ -26,6 +28,7 @@ public class VideoGenerationTool {
             searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
     public String generateVideo(
             @ToolMemoryId String memoryId,
+            InvocationParameters parameters,
             String prompt,
             @P(value = "可选；遵循工具说明的默认值，不擅自更改用户明确参数", required = false) String referencesJson,
             @P(value = "可选；遵循工具说明的默认值，不擅自更改用户明确参数", required = false) String operation,
@@ -37,6 +40,7 @@ public class VideoGenerationTool {
         return actions.submit(
                 context.userId(),
                 context.sessionId(),
+                sourceMessageId(parameters, context.userId(), context.sessionId()),
                 memoryId,
                 prompt,
                 referencesJson,
@@ -102,8 +106,16 @@ public class VideoGenerationTool {
             name = "list_video_inputs",
             value = "列出当前消息的图片、视频、音频资源ID，供生成或提示词增强使用；首尾帧角色必须遵从用户意图。",
             searchBehavior = SearchBehavior.ALWAYS_VISIBLE)
-    public String listVideoInputs(@ToolMemoryId String memoryId) {
+    public String listVideoInputs(@ToolMemoryId String memoryId, InvocationParameters parameters) {
         var context = memoryIds.parse(memoryId);
-        return actions.inputs(context.userId(), context.sessionId());
+        return actions.inputs(context.userId(), context.sessionId(),
+                sourceMessageId(parameters, context.userId(), context.sessionId()));
+    }
+    private static Long sourceMessageId(InvocationParameters parameters, Long user, String session) {
+        if (parameters != null && parameters.get(AgentMemoryContext.KEY) instanceof AgentMemoryContext trusted
+                && user.equals(trusted.userId()) && session.equals(trusted.sessionId())) {
+            return trusted.sourceMessageId();
+        }
+        return null;
     }
 }

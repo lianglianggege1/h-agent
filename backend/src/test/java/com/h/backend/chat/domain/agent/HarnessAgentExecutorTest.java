@@ -80,7 +80,12 @@ class HarnessAgentExecutorTest {
                 "父 Agent", harnessBean, AgentRuntimeType.HARNESS_STREAMING, true
         );
         ToolUseBlock toolCall = new ToolUseBlock("call-1", "shell", java.util.Map.of("command", "pwd"));
-        when(runtime.streamParent(eq(harnessBean), eq("solve it"), any(RuntimeContext.class), eq(ApprovalMode.DEFAULT)))
+        when(runtime.streamParent(eq(harnessBean), org.mockito.ArgumentMatchers.argThat(message ->
+                        message.startsWith("solve it") && message.contains("\"mediaKind\":\"VIDEO\"")
+                                && message.contains("\"mimeType\":\"video/mp4\"")),
+                org.mockito.ArgumentMatchers.argThat(context -> context.get(
+                        com.h.capabilities.memory.application.AgentMemoryContext.class).sourceMessageId() == 101L),
+                eq(ApprovalMode.DEFAULT)))
                 .thenReturn(Flux.just(
                         new RequireUserConfirmEvent("reply-ask", List.of(toolCall)),
                         new AgentResultEvent(Msg.builder().role(MsgRole.ASSISTANT).textContent("permission asking").build()),
@@ -96,9 +101,12 @@ class HarnessAgentExecutorTest {
         List<ChatStreamEvent> events = Flux.<ChatStreamEvent>create(sink -> executor.execute(
                 new ChatAgentExecutionCommand(
                         sink, 1L, null, "session-1", "session-1", null,
-                        null, null, null, null, null, "solve it", null, "memory",
+                        null, null, null, null, null, "solve it",
+                        List.of(new com.h.capabilities.chat.interfaces.dto.ChatMessageResourceDto(
+                                "clip", "FILE", "REFERENCE", null, null, "clip.mp4", "video/mp4", null, null, null)),
+                        "memory",
                         definition, new AgentRunService.AgentRunHandle(55L),
-                        observation, ApprovalMode.DEFAULT, () -> { }, null
+                        observation, ApprovalMode.DEFAULT, () -> { }, 101L
                 )
         )).collectList().block();
 

@@ -284,7 +284,11 @@ function ChatWorkspace() {
         </div>
         <h3 className="mt-5 font-semibold">领域 Agent</h3>
         <input className="mt-2 w-full rounded-xl border border-stone-200 bg-white p-3 text-sm" placeholder="搜索名称、领域或说明" aria-label="搜索领域 Agent" value={agentQuery} onChange={(event) => setAgentQuery(event.target.value)} />
-        <div className="mt-2 flex gap-2 overflow-x-auto">{domains.map((item) => <button key={item} className={"agui-button shrink-0 " + (domain === item ? "agui-button-primary" : "")} onClick={() => setDomain(item)}>{item}</button>)}</div>
+        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="领域分类">
+          {domains.map((item) => <button key={item} type="button" aria-pressed={domain === item}
+            className={"agui-button max-w-full break-words " + (domain === item ? "agui-button-primary" : "")}
+            onClick={() => setDomain(item)}>{item}</button>)}
+        </div>
         <div className="mt-3 space-y-2">{filtered.map((agent) => <button key={agent.agentId} disabled={creating} className="w-full rounded-xl border border-stone-200 bg-white p-3 text-left" onClick={() => void create(agent.agentId)}><p className="text-sm font-semibold">{agent.displayName} <span className="ml-2 text-xs font-normal text-amber-800">{agent.domain}</span></p><p className="mt-1 text-xs leading-5 text-stone-500">{agent.summary}</p></button>)}{!filtered.length ? <p className="py-4 text-center text-sm text-stone-500">没有匹配的 Agent</p> : null}</div>
       </section>
     </div> : null}

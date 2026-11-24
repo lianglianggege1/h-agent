@@ -5,11 +5,13 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.h.capabilities.seam.AnchorMessage;
+import com.h.capabilities.seam.AssetRef;
 import com.h.capabilities.seam.port.ArtifactDeliveryPort;
 import com.h.capabilities.seam.port.ConversationAssetPort;
 import com.h.capabilities.seam.port.ResourceUrlPort;
 import com.h.capabilities.chat.application.*;
 import com.h.capabilities.chat.infrastructure.content.ResourceContentInspector;
+import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.document.domain.DocumentTask;
 import com.h.capabilities.document.infrastructure.config.DocumentProperties;
 import com.h.capabilities.document.infrastructure.generation.DocumentGenerator;
@@ -89,6 +91,32 @@ class DocumentWorkflowTest {
     byte[] recognitionImage() throws Exception {
         var image = new java.awt.image.BufferedImage(100, 100, java.awt.image.BufferedImage.TYPE_INT_RGB);
         return ModelBestDocumentClient.png(image);
+    }
+
+    @Test
+    void audioAndVideoCannotCreateDocumentTasks() {
+        for (String mimeType : List.of("video/mp4", "audio/mpeg")) {
+            when(assets.require(1L, "chat", "resource"))
+                    .thenReturn(new AssetRef("resource", 1L, "attachment", mimeType, 1L, "key"));
+            var failure = assertThrows(BusinessException.class,
+                    () -> workflow.parse(1L, "chat", "resource", null, null, null, null));
+            assertEquals("文档解析仅处理文档和图片，音视频请使用对应的媒体能力", failure.getMessage());
+        }
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void documentInputsRetainDocumentsAndImagesAndExcludeAudioAndVideo() {
+        when(assets.inputs(1L, "chat")).thenReturn(List.of(
+                Map.of("resourceId", "pdf", "mimeType", "application/pdf"),
+                Map.of("resourceId", "image", "mimeType", "image/png"),
+                Map.of("resourceId", "video", "mimeType", "video/mp4"),
+                Map.of("resourceId", "audio", "mimeType", "audio/mpeg")));
+
+        var inputs = json.readTree(workflow.inputs(1L, "chat"));
+        assertEquals(2, inputs.size());
+        assertEquals("pdf", inputs.get(0).path("resourceId").asText());
+        assertEquals("image", inputs.get(1).path("resourceId").asText());
     }
 
     @Test

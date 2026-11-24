@@ -1,6 +1,7 @@
 package com.h.backend.chat.domain.agent;
 
 import com.h.backend.chat.domain.subagentdefinition.model.DefinitionBinding;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 
 /**
  * 子 Agent 每一轮都必须恢复的稳定会话身份与父委托。
@@ -15,8 +16,13 @@ public record HarnessSubagentContext(
         String sessionId,
         String assignment,
         String executionId,
-        DefinitionBinding definitionBinding
+        DefinitionBinding definitionBinding,
+        AgentMemoryContext executionContext
 ) {
+    public HarnessSubagentContext(String agentId, String userId, String parentSessionId, String sessionId,
+                                  String assignment, String executionId, DefinitionBinding definitionBinding) {
+        this(agentId, userId, parentSessionId, sessionId, assignment, executionId, definitionBinding, null);
+    }
 
     /** 兼容声明式/内置子 Agent 的无绑定构造。 */
     public HarnessSubagentContext(

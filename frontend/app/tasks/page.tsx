@@ -13,7 +13,7 @@ type Task = {
   sessionId: string | null;
   title: string;
   status: string;
-  updatedAt: string;
+  createdAt: string;
   output: string | null;
   failure: string | null;
   resourceId: string | null;
@@ -25,7 +25,8 @@ const states: Record<string, string> = {
   PARSING: "解析中", PENDING_SUBMISSION: "已受理", QUEUED: "排队中", IN_PROGRESS: "执行中",
   WORKING: "执行中", RUNNING: "执行中", MATERIALIZING: "交付中", RETRY_WAIT: "等待重试",
   WAITING_CONFIRMATION: "待确认", VERIFICATION_FAILED: "待复核", CONFIRMED: "已确认",
-  GOOD: "已解析", GENERATED: "已交付", SUCCEEDED: "已完成", FAILED: "失败",
+  GOOD: "已解析", RECOGNIZED: "已识别", GENERATED: "已交付", COMPLETED: "已完成",
+  SUCCEEDED: "已完成", FAILED: "失败", UNSUPPORTED: "格式不支持",
   BUDGET_EXHAUSTED: "超出处理预算", CANCEL_REQUESTED: "取消中", CANCELLED: "已取消",
   SUPERSEDED: "已替换", TIMED_OUT: "超时",
 };
@@ -123,7 +124,9 @@ export default function PersonalTasksPage() {
     <ul className="divide-y divide-stone-200 rounded-xl border border-stone-200">
       {visible.map((task) => <li key={task.kind + ":" + task.id} className="flex flex-wrap justify-between gap-4 p-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-stone-500">{kinds[task.kind]} · {new Date(task.updatedAt).toLocaleString("zh-CN")}</p>
+          <p className="text-xs text-stone-500">
+            {kinds[task.kind]} · 创建于 <time dateTime={task.createdAt}>{new Date(task.createdAt).toLocaleString("zh-CN")}</time>
+          </p>
           <h2 className="mt-1 break-words text-sm font-semibold">{task.title}</h2>
           <p className="mt-1 text-sm">{states[task.status] ?? task.status}</p>
           {task.failure ? <p className="mt-1 break-words text-sm text-red-700">{task.failure}</p> : null}

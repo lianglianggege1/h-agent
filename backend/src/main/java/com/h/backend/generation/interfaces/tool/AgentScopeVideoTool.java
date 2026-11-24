@@ -1,5 +1,6 @@
 package com.h.backend.generation.interfaces.tool;
 
+import com.h.capabilities.memory.application.AgentMemoryContext;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -48,6 +49,7 @@ public class AgentScopeVideoTool {
         return actions.submit(
                 user,
                 session,
+                sourceMessageId(context, user, session),
                 null,
                 prompt,
                 referencesJson,
@@ -151,6 +153,13 @@ public class AgentScopeVideoTool {
             throw new IllegalStateException("缺少用户上下文");
         Long user = Long.valueOf(context.getUserId());
         String session = context.getSessionId();
-        return actions.inputs(user, session);
+        return actions.inputs(user, session, sourceMessageId(context, user, session));
+    }
+    private static Long sourceMessageId(RuntimeContext context, Long user, String session) {
+        AgentMemoryContext trusted = context.get(AgentMemoryContext.class);
+        if (trusted != null && user.equals(trusted.userId()) && trusted.sessionId().equals(session)) {
+            return trusted.sourceMessageId();
+        }
+        return null;
     }
 }

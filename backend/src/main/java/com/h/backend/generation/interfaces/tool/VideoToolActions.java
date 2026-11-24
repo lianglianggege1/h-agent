@@ -35,6 +35,7 @@ public class VideoToolActions {
     public String submit(
             Long user,
             String session,
+            Long sourceMessageId,
             String memoryId,
             String prompt,
             String referencesJson,
@@ -48,7 +49,7 @@ public class VideoToolActions {
                     "操作只能为generation、h3_context_ir或enhance_then_generate");
         List<VideoV2Spec.Input> inputs;
         if (referencesJson == null || referencesJson.isBlank()) {
-            var current = currentInputs(user, session);
+            var current = currentInputs(user, session, sourceMessageId);
             boolean single =
                     current.size() == 1 && current.getFirst().mimeType().startsWith("image/");
             inputs =
@@ -126,9 +127,9 @@ public class VideoToolActions {
         return json.writeValueAsString(videos.remove(user, id, delete));
     }
 
-    public String inputs(Long user, String session) {
+    public String inputs(Long user, String session, Long sourceMessageId) {
         return json.writeValueAsString(
-                currentInputs(user, session).stream()
+                currentInputs(user, session, sourceMessageId).stream()
                         .map(
                                 r ->
                                         Map.of(
@@ -141,23 +142,16 @@ public class VideoToolActions {
                         .toList());
     }
 
-    private List<ChatMessageResourceDto> currentInputs(Long user, String session) {
-        var page = sessions.getSessionMessages(user, session, 100, null);
-        if (page == null) return List.of();
-        var message =
-                page.messages().stream()
-                        .filter(m -> "user".equals(m.role()))
-                        .reduce((a, b) -> b)
-                        .orElse(null);
-        return message == null || message.resources() == null
-                ? List.of()
-                : message.resources().stream()
-                        .filter(
-                                r ->
-                                        r.mimeType().startsWith("image/")
-                                                || r.mimeType().startsWith("video/")
-                                                || r.mimeType().startsWith("audio/"))
-                        .toList();
+    private List<ChatMessageResourceDto> currentInputs(Long user, String session, Long sourceMessageId) {
+        if (sourceMessageId == null) return List.of();
+        var message = sessions.getOwnedMessage(user, session, sourceMessageId);
+        if (message == null || !"user".equals(message.role()) || message.resources() == null) return List.of();
+        return message.resources().stream()
+                .filter(resource -> {
+                    String mime = resource.mimeType();
+                    return mime != null && (mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/"));
+                })
+                .toList();
     }
 
     private void publish(Long user, String session, String memoryId, Long message) {

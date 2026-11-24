@@ -5,6 +5,7 @@ import com.h.capabilities.seam.port.ArtifactDeliveryPort;
 import com.h.capabilities.seam.port.ConversationAssetPort;
 import com.h.capabilities.seam.port.ResourceUrlPort;
 import com.h.capabilities.chat.application.ResourceContentPolicy;
+import com.h.capabilities.chat.infrastructure.content.ResourceContentInspector;
 import com.h.capabilities.chat.infrastructure.storage.*;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.document.domain.DocumentTask;
@@ -38,7 +39,7 @@ public class DocumentWorkflow {
     private final ConversationAssetPort conversationAssets;
     private final ResourceUrlPort resourceUrls;
     private final ObjectMapper json;
-    private final com.h.capabilities.chat.infrastructure.content.ResourceContentInspector inspector;
+    private final ResourceContentInspector inspector;
     private final ResourceContentPolicy contentPolicy;
 
     public DocumentWorkflow(
@@ -52,7 +53,7 @@ public class DocumentWorkflow {
             ConversationAssetPort conversationAssets,
             ResourceUrlPort resourceUrls,
             ObjectMapper json,
-            com.h.capabilities.chat.infrastructure.content.ResourceContentInspector inspector,
+            ResourceContentInspector inspector,
             ResourceContentPolicy contentPolicy) {
         this.repository = repository;
         this.assets = assets;
@@ -69,7 +70,9 @@ public class DocumentWorkflow {
     }
 
     public String inputs(Long user, String session) {
-        return json.writeValueAsString(assets.inputs(user, session));
+        return json.writeValueAsString(assets.inputs(user, session).stream()
+                .filter(asset -> !isAudioOrVideo((String) asset.get("mimeType")))
+                .toList());
     }
 
     /** 创建或读取解析任务；读取正文时执行版本和归属校验。 */
@@ -85,6 +88,9 @@ public class DocumentWorkflow {
         if (taskId != null && !taskId.isBlank())
             return toolView(require(user, session, taskId), offset);
         var resource = assets.require(user, session, resourceId);
+        if (isAudioOrVideo(resource.mimeType())) {
+            throw new BusinessException(40000, "文档解析仅处理文档和图片，音视频请使用对应的媒体能力");
+        }
         var task = fresh(user, session);
         task.setResourceId(resourceId);
         task.setFileName(resource.fileName());
@@ -111,6 +117,11 @@ public class DocumentWorkflow {
                 stored.getStatus(),
                 stored.getRevision());
         return toolView(stored, offset);
+    }
+
+    private static boolean isAudioOrVideo(String mimeType) {
+        var normalized = ResourceContentInspector.normalizeMimeType(mimeType);
+        return normalized != null && (normalized.startsWith("audio/") || normalized.startsWith("video/"));
     }
 
     /** 提交外部识别；配置凭据后默认可用，无需会话授权开关。 */

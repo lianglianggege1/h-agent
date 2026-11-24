@@ -33,18 +33,27 @@ public class PersonalTaskController {
     public ApiResponse<List<TaskView>> list(@AuthenticationPrincipal AuthUserPrincipal user,
                                             @RequestParam(defaultValue = "80") int limit) {
         return ApiResponse.ok(jdbc.sql("""
-                SELECT kind, id, parent_id, session_id, title, status, changed_at, output, failure, resource_id, can_cancel
+                SELECT kind, id, parent_id, session_id, title, status, created_at, changed_at,
+                       output, failure, resource_id, can_cancel
                 FROM (
                     SELECT 'DOCUMENT' AS kind, d.id, NULL::text AS parent_id, d.session_id,
                            COALESCE(NULLIF(d.state_json::jsonb ->> 'fileName', ''), '文档任务') AS title,
-                           d.status, d.updated_at AS changed_at, NULL::text AS output, NULL::text AS failure,
+                           d.status, d.created_at, d.updated_at AS changed_at,
+                           NULL::text AS output, NULL::text AS failure,
                            NULL::text AS resource_id, FALSE AS can_cancel
                     FROM chat_document_tasks d
                     JOIN agent_sessions s ON s.session_id = d.session_id AND s.user_id = d.user_id
                     WHERE d.user_id = :owner AND d.state_json::jsonb ->> 'actor' IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM chat_message_resources resource
+                          WHERE d.status = 'UNSUPPORTED' AND d.state_json::jsonb ->> 'kind' = 'PARSE'
+                            AND resource.id = d.resource_id AND resource.user_id = d.user_id
+                            AND (LOWER(resource.mime_type) LIKE 'video/%' OR LOWER(resource.mime_type) LIKE 'audio/%')
+                      )
                     UNION ALL
                     SELECT 'VIDEO', v.id, NULL::text, v.session_id, '视频生成', v.status,
-                           v.updated_at AT TIME ZONE current_setting('TimeZone'), NULL::text, v.failure_message,
+                           v.created_at AT TIME ZONE 'UTC', v.updated_at AT TIME ZONE 'UTC',
+                           NULL::text, v.failure_message,
                            CASE WHEN v.artifact_mime_type LIKE 'video/%' THEN v.artifact_id END,
                            v.generation_type = 'VIDEO_V2' AND LOWER(COALESCE(v.provider_status, '')) = 'queued'
                              AND v.status = 'IN_PROGRESS'
@@ -54,22 +63,25 @@ public class PersonalTaskController {
                       AND v.generation_type IN ('VIDEO_V2', 'TEXT_TO_VIDEO', 'IMAGE_TO_VIDEO')
                     UNION ALL
                     SELECT 'AUTOMATION', r.id, r.task_id, COALESCE(r.session_id, t.session_id),
-                           t.name, r.status, COALESCE(r.finished_at, r.started_at) AT TIME ZONE current_setting('TimeZone'),
+                           t.name, r.status, r.started_at AT TIME ZONE 'UTC',
+                           COALESCE(r.finished_at, r.started_at) AT TIME ZONE 'UTC',
                            LEFT(r.output, 1000), r.error_message, NULL::text, r.status IN ('QUEUED','RUNNING')
                     FROM automation_runs r
                     JOIN automation_tasks t ON t.id = r.task_id AND t.user_id = r.user_id
                     WHERE r.user_id = :owner
                     UNION ALL
                     SELECT 'AUTOMATION', trial.id, NULL::text, trial.session_id, trial.title || '（试跑）',
-                           trial.status, trial.updated_at, LEFT(trial.output, 1000), trial.failure, NULL::text, FALSE
+                           trial.status, trial.created_at, trial.updated_at,
+                           LEFT(trial.output, 1000), trial.failure, NULL::text, FALSE
                     FROM automation_proposal_trials trial WHERE trial.user_id = :owner
                 ) task
-                ORDER BY changed_at DESC, kind, id
+                ORDER BY created_at DESC, kind, id
                 LIMIT :limit
                 """).param("owner", user.userId()).param("limit", Math.clamp(limit, 1, 150))
                 .query((row, index) -> new TaskView(row.getString("kind"), row.getString("id"),
                         row.getString("parent_id"), row.getString("session_id"), row.getString("title"),
-                        row.getString("status"), row.getObject("changed_at", OffsetDateTime.class),
+                        row.getString("status"), row.getObject("created_at", OffsetDateTime.class),
+                        row.getObject("changed_at", OffsetDateTime.class),
                         row.getString("output"), row.getString("failure"), row.getString("resource_id"),
                         row.getBoolean("can_cancel"))).list());
     }
@@ -91,6 +103,7 @@ public class PersonalTaskController {
     }
 
     public record TaskView(String kind, String id, String parentId, String sessionId,
-                           String title, String status, OffsetDateTime updatedAt, String output, String failure,
+                           String title, String status, OffsetDateTime createdAt, OffsetDateTime updatedAt,
+                           String output, String failure,
                            String resourceId, boolean canCancel) {}
 }

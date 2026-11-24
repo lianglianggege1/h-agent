@@ -1,6 +1,7 @@
 package com.h.backend.chat.domain.agent;
 
 import com.h.agent.observability.lifecycle.ExecutionObservationCarrier;
+import com.h.capabilities.memory.application.AgentMemoryContext;
 import com.h.backend.chat.domain.subagentdefinition.SubagentDefinitionCatalog;
 import com.h.backend.chat.domain.subagentdefinition.SubagentRuntimeFactory;
 import com.h.backend.chat.domain.subagentdefinition.model.ResolvedSubagentDefinition;
@@ -127,6 +128,9 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
             // 执行 trace，且响应提交后的后置工作进入 Maintenance trace。
             contextBuilder.put(ExecutionObservationCarrier.class, carrier);
         }
+        if (context.executionContext() != null) {
+            contextBuilder.put(AgentMemoryContext.class, context.executionContext());
+        }
         RuntimeContext runtimeContext = contextBuilder.build();
         HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());
         return child.streamEvents(List.of(userMessage), runtimeContext);
@@ -165,6 +169,9 @@ public class AgentScopeHarnessRuntime implements HarnessRuntime {
                 .sessionId(context.sessionId());
         if (carrier != null) {
             contextBuilder.put(ExecutionObservationCarrier.class, carrier);
+        }
+        if (context.executionContext() != null) {
+            contextBuilder.put(AgentMemoryContext.class, context.executionContext());
         }
         RuntimeContext runtimeContext = contextBuilder.build();
         HarnessSubagentLifecycleMiddleware.stageExecutionId(runtimeContext, context.executionId());

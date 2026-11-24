@@ -40,6 +40,10 @@ public class StoredVideoInputResolver implements VideoInputResolver {
                     input.role().endsWith("frame") || input.role().equals("reference_image")
                             ? "image"
                             : input.role().equals("reference_audio") ? "audio" : "video";
+            String mime = Objects.toString(resource.getMimeType(), "").toLowerCase(Locale.ROOT);
+            if (!mime.startsWith(kind + "/")) {
+                throw new IllegalArgumentException("素材用途与格式不匹配：" + input.role());
+            }
             byte[] bytes;
             var stored = storage.open(resource.getStorageKey(), ResourceRange.fullRead());
             try (var stream = stored.inputStream()) {
@@ -54,7 +58,6 @@ public class StoredVideoInputResolver implements VideoInputResolver {
             if (kind.equals("audio")) audioSeconds += facts.seconds();
             else if (kind.equals("video") && !input.role().equals("base_video"))
                 videoSeconds += facts.seconds();
-            String mime = Objects.toString(resource.getMimeType(), "").toLowerCase(Locale.ROOT);
             String type = kind + "_url";
             content.add(
                     Map.of(

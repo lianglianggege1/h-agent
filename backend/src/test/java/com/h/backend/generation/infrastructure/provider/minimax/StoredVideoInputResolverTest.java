@@ -27,6 +27,23 @@ import javax.imageio.ImageIO;
 
 class StoredVideoInputResolverTest {
     @Test
+    void rejectsAVideoAsAnImageFrameBeforeReadingTheFile() {
+        var rows = mock(ChatMessageResourceMapper.class);
+        var storage = mock(ResourceStorage.class);
+        var validator = mock(FfprobeMediaValidator.class);
+        var clip = new ChatMessageResourceEntity();
+        clip.setUserId(1L);
+        clip.setMimeType("video/mp4");
+        when(rows.selectByResourceId("clip")).thenReturn(clip);
+        var resolver = new StoredVideoInputResolver(rows, storage, validator);
+
+        var spec = VideoV2Spec.defaults("generation", "test", null, 6, null, null,
+                List.of(new VideoV2Spec.Input("clip", "first_frame")));
+        assertThrows(IllegalArgumentException.class, () -> resolver.resolve(1L, spec));
+        verifyNoInteractions(storage, validator);
+    }
+
+    @Test
     void acceptsDocumented362FrameBaseVideoAndRetainsOriginalImage() throws Exception {
         try {
             Assumptions.assumeTrue(

@@ -506,7 +506,7 @@ public class ChatServiceImpl implements ChatService {
                     subagentExecutionId,
                     address.subagentDefinitionBinding(),
                     userMessage,
-                    resources,
+                    boundResources(persistedUserMessage),
                     memoryId,
                     agent,
                     runHandle,
@@ -641,7 +641,18 @@ public class ChatServiceImpl implements ChatService {
         Long userMessageId = chatSessionService.appendUserMessage(userId, sessionId, userMessage, resources);
         ChatSessionMessageDto persistedUserMessage = chatSessionService.getOwnedMessage(userId, sessionId, userMessageId);
         emitIfActive(sink, new ChatStreamEvent("user_message", "", persistedUserMessage));
-        String sourceResourceId = firstReferenceResourceId(resources);
+        var referenced = boundResources(persistedUserMessage).stream()
+                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role())).toList();
+        String sourceResourceId = referenced.stream()
+                .filter(resource -> "IMAGE".equalsIgnoreCase(resource.type())
+                        && resource.mimeType() != null
+                        && resource.mimeType().toLowerCase(java.util.Locale.ROOT).startsWith("image/"))
+                .map(ChatMessageResourceDto::id).findFirst().orElse(null);
+        if (sourceResourceId == null && resources != null
+                && resources.stream().anyMatch(resource -> "REFERENCE".equalsIgnoreCase(resource.role()))) {
+            emitAndCompleteIfActive(sink, new ChatStreamEvent("error", "参考素材必须是当前消息已绑定的图片"));
+            return;
+        }
         try {
             ChatSessionMessageDto message = imageGenerationService.generateImage(
                     new ImageGenerationService.ImageGenerationCommand(
@@ -663,15 +674,8 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    private String firstReferenceResourceId(List<ChatMessageResourceUseDto> resources) {
-        if (resources == null || resources.isEmpty()) {
-            return null;
-        }
-        return resources.stream()
-                .filter(resource -> "REFERENCE".equalsIgnoreCase(resource.role()))
-                .map(ChatMessageResourceUseDto::resourceId)
-                .findFirst()
-                .orElse(null);
+    private static List<ChatMessageResourceDto> boundResources(ChatSessionMessageDto message) {
+        return message == null || message.resources() == null ? List.of() : message.resources();
     }
 
     /**
@@ -680,8 +684,7 @@ public class ChatServiceImpl implements ChatService {
      * 含 artifact 引用时 captureState=REFERENCE；映射全部失败时受限 CAPTURE_ERROR。
      */
     private static SemanticContent agentInputContent(ChatSessionMessageDto message, String userMessage) {
-        List<ChatMessageResourceDto> resources =
-                message == null || message.resources() == null ? List.of() : message.resources();
+        List<ChatMessageResourceDto> resources = boundResources(message);
         if (resources.isEmpty()) {
             return SemanticContent.ofMessages(List.of(SemanticMessage.of("user", userMessage)));
         }
