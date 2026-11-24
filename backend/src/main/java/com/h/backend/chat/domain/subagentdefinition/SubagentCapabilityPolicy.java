@@ -28,7 +28,10 @@ public final class SubagentCapabilityPolicy {
     /** 省略 tools 时的默认集合：只读文件工具与用户范围内的自主记忆、知识工具。 */
     public static final List<String> DEFAULT_TOOLS =
             java.util.stream.Stream.concat(
-                    java.util.stream.Stream.of("read_file", "grep_files", "glob_files", "list_files"),
+                    java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of("read_file", "grep_files", "glob_files", "list_files"),
+                            com.h.capabilities.chart.ChatChartTools.specifications().stream()
+                                    .map(dev.langchain4j.agent.tool.ToolSpecification::name)),
                     java.util.stream.Stream.concat(
                             com.h.capabilities.memory.application.MemoryToolContract.mem0Definitions().stream()
                                     .map(com.h.capabilities.memory.application.MemoryToolContract.Definition::name),
@@ -46,7 +49,7 @@ public final class SubagentCapabilityPolicy {
     private final AtomicLong policyRevision;
 
     public SubagentCapabilityPolicy() {
-        this.policyRevision = new AtomicLong(1);
+        this.policyRevision = new AtomicLong(2);
     }
 
     /** 当前政策修订号；写入 turn snapshot 与 materialization 观测。 */

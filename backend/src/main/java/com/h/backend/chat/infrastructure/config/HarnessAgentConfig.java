@@ -1,6 +1,10 @@
 package com.h.backend.chat.infrastructure.config;
 
 import com.h.capabilities.chat.domain.agent.ChatAgentIds;
+import com.h.capabilities.chart.ChatChartTools;
+import com.h.backend.chat.application.chart.AgentScopeChartTools;
+import com.h.backend.chat.application.chart.ChatChartHistory;
+import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.backend.automation.interfaces.tool.AgentScopeAutomationTool;
 import com.h.backend.observability.agentscope.AgentScopeObservationInstaller;
 import com.h.backend.chat.domain.agent.ParentAssignmentSystemPromptMiddleware;
@@ -361,6 +365,9 @@ public class HarnessAgentConfig {
             com.h.backend.knowledge.interfaces.tool.AgentScopeKnowledgeTools knowledgeTools,
             com.h.backend.generation.interfaces.tool.AgentScopeVideoTool videoTool,
             com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
+            AgentScopeChartTools chartTools,
+            ChatChartHistory chartHistory,
+            ObjectProvider<AguiChatRuntime> agui,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         RemoteFilesystemSpec filesystem = subagentCatalogProperties.isEnabled()
@@ -377,6 +384,12 @@ public class HarnessAgentConfig {
         toolkit.registerTool(automationTool);
         toolkit.registerTool(videoTool);
         toolkit.registerTool(documentTool);
+        chartTools.register(toolkit, context -> {
+            long userId = Long.parseLong(context.getUserId());
+            String thread = context.getSessionId();
+            return new ChatChartTools.Scope(id -> chartHistory.read(userId, thread, id),
+                    chart -> agui.getObject().publishHarnessChart(userId, thread, chart), null);
+        });
         memoryTools.register(toolkit);
         knowledgeTools.register(toolkit);
 
@@ -396,6 +409,7 @@ public class HarnessAgentConfig {
                 // Native MEMORY.md, daily memory ledgers and session logs stay enabled.
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
                 .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
+                .middleware(chartTools)
                 .toolResultEviction(toolResultEvictionConfig)
                 // 子 Agent 会继承显式 middleware：把持久化委托合并进 provider 的真实 SYSTEM。
                 .middleware(assignmentMiddleware)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  buildReplyContent, buildTextContent, kindLabel, linkifyMxc, mentionIdsFor, mentionTrigger,
+  CHART_EVENT_TYPE, buildReplyContent, buildTextContent, kindLabel, linkifyMxc, mentionIdsFor, mentionTrigger,
   senderLabel, stripReplyFallback, toMessageView, toProgressView,
 } from "./team-room.ts";
 
@@ -122,4 +122,21 @@ test("progress snapshots parse into run views", () => {
   assert.equal(view.steps.length, 1);
   assert.equal(view.entries[0].type, "reasoning");
   assert.equal(toProgressView({ event_id: "$p2", sender: "@w:b", type: "m.room.message", content: {} }), null);
+});
+test("parses chart events for all team roles and rejects mismatched inline charts", () => {
+  const chart = { id: "5f91ce40-f2f9-448b-a876-e1102959e468", title: "月度收入", option: { series: [{ type: "line" }] } };
+  const event = {
+    event_id: "$chart", origin_server_ts: 45, type: CHART_EVENT_TYPE,
+    content: { chartId: chart.id, title: chart.title, chart },
+  };
+  for (const sender of [config.managerUserId, config.workerUserId, config.springWorkerUserId]) {
+    const view = toMessageView({ ...event, sender });
+    assert.equal(view.sender, sender);
+    assert.deepEqual(view.chart, { id: chart.id, inline: { ...chart, extensions: [] } });
+  }
+  assert.equal(toMessageView({ ...event, sender: config.workerUserId,
+    content: { ...event.content, chartId: "different" } }), null);
+  const stored = toMessageView({ ...event, sender: config.springWorkerUserId,
+    content: { chartId: chart.id, title: chart.title, chartUrl: "mxc://matrix.local/blob" } });
+  assert.deepEqual(stored.chart, { id: chart.id, url: "mxc://matrix.local/blob" });
 });

@@ -12,6 +12,7 @@ import com.h.backend.chat.domain.subagentdefinition.model.SubagentTurnSnapshot;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
+import com.h.backend.chat.application.chart.AgentScopeChartTools;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
@@ -91,6 +92,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
     private final ParentAssignmentSystemPromptMiddleware assignmentMiddleware;
     private final HarnessSubagentLifecycleMiddleware lifecycleMiddleware;
     private final AgentScopeObservationInstaller observationInstaller;
+    private final AgentScopeChartTools chartTools;
     private final Path workspaceRoot;
 
     public AgentScopeSubagentRuntimeFactory(
@@ -99,6 +101,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
             ParentAssignmentSystemPromptMiddleware assignmentMiddleware,
             HarnessSubagentLifecycleMiddleware lifecycleMiddleware,
             AgentScopeObservationInstaller observationInstaller,
+            AgentScopeChartTools chartTools,
             @Value("${chat.harness.workspace-template:/tmp/h-agent/harness-workspace}") String workspace
     ) {
         this.harnessAgentProvider = harnessAgentProvider;
@@ -106,6 +109,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
         this.assignmentMiddleware = assignmentMiddleware;
         this.lifecycleMiddleware = lifecycleMiddleware;
         this.observationInstaller = observationInstaller;
+        this.chartTools = chartTools;
         this.workspaceRoot = Path.of(workspace);
     }
 
@@ -214,6 +218,7 @@ public class AgentScopeSubagentRuntimeFactory implements SubagentRuntimeFactory 
                 .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
                 .disableSessionPersistence()
                 // 与 SDK 声明式 child 一致：继承父显式 middleware（委托合并 + 生命周期投影）。
+                .middleware(chartTools)
                 .middleware(assignmentMiddleware)
                 .middleware(lifecycleMiddleware)
                 // 统一观测（设计 12.3 / 12.5）：USER 动态子 Agent 不走父 builder 复制路径，必须显式安装。

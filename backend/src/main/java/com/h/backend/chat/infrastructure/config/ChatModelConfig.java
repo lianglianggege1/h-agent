@@ -21,7 +21,8 @@ import com.h.backend.chat.infrastructure.tools.WebSearchTool;
 import com.h.backend.generation.interfaces.tool.TextToVideoTool;
 import com.h.backend.generation.interfaces.tool.ImageToVideoTool;
 import com.h.backend.automation.interfaces.tool.LangChain4jAutomationTool;
-import com.h.backend.chat.application.chart.ChatChartTools;
+import com.h.capabilities.chart.ChatChartTools;
+import com.h.backend.chat.application.chart.ChatChartHistory;
 import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.backend.skill.application.SkillRuntimeToolProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -156,7 +157,8 @@ public class ChatModelConfig {
                                  @org.springframework.beans.factory.annotation.Qualifier("chatToolExecutor")
                                  java.util.concurrent.ExecutorService chatToolExecutor,
                                  AgentObservability observability,
-                                 ChatChartTools chartTools) {
+                                 ChatChartTools chartTools,
+                                 ChatChartHistory chartHistory) {
         List<ToolProvider> toolProviders = new ArrayList<>();
         // 静态工具走 provider 接缝注册：观测装饰器在每次请求构建时捕获当前观测上下文，
         // 使工具 Span 正确挂在所属 Generation 下。@CompensatingAction 类框架补偿语义
@@ -165,7 +167,12 @@ public class ChatModelConfig {
                 imageGenerationTool, videoGenerationTool,
                 filesystemTool, fileDeliveryTool, shellTool, webSearchTool, documentTool,
                 langChain4jAutomationTool)));
-        toolProviders.add(new ObservingToolProvider(chartTools, observability, "langchain4j"));
+        toolProviders.add(new ObservingToolProvider(chartTools.provider(memoryId -> {
+            String value = String.valueOf(memoryId);
+            String[] owner = value.split(":", 3);
+            if (owner.length != 3) throw new IllegalArgumentException("当前调用没有聊天会话。");
+            return chartTools.session(value, id -> chartHistory.read(Long.parseLong(owner[0]), owner[2], id), chart -> {});
+        }), observability, "langchain4j"));
         toolProviders.add(new ObservingToolProvider(memoryToolProvider, observability, "langchain4j"));
         toolProviders.add(new ObservingToolProvider(knowledgeToolProvider, observability, "langchain4j"));
         // Skill 工具集按请求固定快照解析：activate_skill / read_skill_resource 由

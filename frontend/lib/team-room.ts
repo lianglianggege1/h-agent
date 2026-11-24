@@ -1,3 +1,5 @@
+import { chatChartSchema, type ChatChart } from "./chat-chart.ts";
+
 export type TeamConfig = {
   homeserverUrl: string;
   roomId: string;
@@ -20,6 +22,7 @@ export type TeamMessageView = {
   size: number;
   replyTo: string | null;
   replyFallback: { sender: string; text: string } | null;
+  chart?: TeamChartReference;
 };
 
 export type TeamProgressStep = { id: string; name: string; status: string; kind?: string; result?: string };
@@ -37,6 +40,12 @@ export type TeamProgressView = {
   steps: TeamProgressStep[];
   entries: TeamProgressEntry[];
 };
+
+export type TeamChartReference =
+  | { id: string; inline: ChatChart }
+  | { id: string; url: string };
+
+export const CHART_EVENT_TYPE = "com.h.agent.chart";
 
 export const PROGRESS_EVENT_TYPE = "com.h.agent.progress";
 
@@ -72,8 +81,25 @@ type RawEvent = {
 };
 
 export function toMessageView(event: RawEvent): TeamMessageView | null {
-  if (event.type !== "m.room.message" || !event.event_id || !event.sender) return null;
+  if (!event.event_id || !event.sender) return null;
   const content = event.content ?? {};
+  if (event.type === CHART_EVENT_TYPE) {
+    if (typeof content.chartId !== "string" || typeof content.title !== "string") return null;
+    const parsed = chatChartSchema.safeParse(content.chart);
+    const chart = parsed.success && parsed.data.id === content.chartId
+      ? { id: content.chartId, inline: parsed.data }
+      : typeof content.chartUrl === "string" && /^mxc:\/\/[^/]+\/[^/]+$/.test(content.chartUrl)
+        ? { id: content.chartId, url: content.chartUrl }
+        : null;
+    if (!chart) return null;
+    return {
+      id: event.event_id, sender: event.sender, ts: event.origin_server_ts ?? 0,
+      body: content.title, msgtype: CHART_EVENT_TYPE, chart,
+      kind: null, taskId: null, mentions: [], url: null, mimetype: null, size: 0,
+      replyTo: null, replyFallback: null,
+    };
+  }
+  if (event.type !== "m.room.message") return null;
   const msgtype = typeof content.msgtype === "string" ? content.msgtype : "";
   const media = isMediaMsgtype(msgtype);
   if (msgtype !== "m.text" && !media) return null;

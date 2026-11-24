@@ -84,7 +84,7 @@ class AguiChatRuntimeTest {
 
     @Test
     void persistsCompletedDocumentChartsWithoutAnActiveTransport() {
-        var chart = new com.h.backend.chat.application.chart.ChatChart("saved", "调用量", null,
+        var chart = new com.h.capabilities.chart.ChatChart("saved", "调用量", null,
                 Map.of("series", List.of(Map.of("type", "sankey"))), null, List.of(), null);
         var event = new ChatStreamEvent("chart", "", null, chart);
         var answer = new ChatSessionMessageDto("9", "assistant", "AI", "已生成", null, List.of(), null);
@@ -98,6 +98,22 @@ class AguiChatRuntimeTest {
         var activity = JsonMapper.builder().build().readTree(snapshot.snapshotJson()).path("activities").get(0);
         assertEquals("h-agent.chart", activity.path("activityType").asText());
         assertEquals("9", activity.path("content").path("anchorMessageId").asText());
+    }
+
+    @Test
+    void persistsADelegatedHarnessChartInTheChildThread() {
+        when(agentSessions.selectBySessionId("child")).thenReturn(session("child", "root", 1L));
+        var chart = new com.h.capabilities.chart.ChatChart("delegated-chart", "样本趋势", null,
+                Map.of("series", List.of(Map.of("type", "line"))), null, List.of(), null);
+
+        runtime.publishHarnessChart(1L, "child", chart);
+
+        var snapshot = rows.get("harness-chart-delegated-chart");
+        assertEquals("child", snapshot.sessionId());
+        assertEquals("COMPLETED", snapshot.status());
+        var history = new com.h.backend.chat.application.chart.ChatChartHistory(snapshots);
+        assertTrue(history.read(1L, "child", chart.id()).contains("样本趋势"));
+        assertFalse(history.read(1L, "root", chart.id()).contains("样本趋势"));
     }
 
     @Test

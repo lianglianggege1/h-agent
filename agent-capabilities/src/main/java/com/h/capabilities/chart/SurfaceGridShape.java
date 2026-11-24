@@ -1,4 +1,4 @@
-package com.h.backend.chat.application.chart;
+package com.h.capabilities.chart;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;

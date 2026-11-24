@@ -37,7 +37,7 @@ import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.observability.BusinessArtifactReferenceMapper;
-import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chart.ChatChart;
 import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.capabilities.skill.domain.SkillPlatformException;
 import lombok.extern.slf4j.Slf4j;

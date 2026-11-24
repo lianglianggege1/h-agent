@@ -3,6 +3,7 @@
 .messageRow { display: flex; align-items: flex-start; gap: 10px; }
 .messageRowSelf { flex-direction: row-reverse; }
 .messageBody { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 85%; }
+.chartBody { width: min(100%, 44rem); }
 .messageBodySelf { align-items: flex-end; }
 .metaSelf { justify-content: flex-end; }
 .kind { padding: 2px 8px; border: 1px solid #fed7aa; border-radius: 6px; background: #fff7ed; color: #9a3412; font-size: 11px; }

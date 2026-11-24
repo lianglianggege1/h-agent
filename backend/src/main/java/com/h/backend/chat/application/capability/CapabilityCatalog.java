@@ -1,6 +1,6 @@
 package com.h.backend.chat.application.capability;
 
-import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chart.ChatChart;
 import com.h.capabilities.document.domain.DocumentInstructions;
 import com.h.capabilities.knowledge.application.KnowledgeToolContract;
 import com.h.capabilities.memory.application.MemoryToolContract;
@@ -50,14 +50,14 @@ public final class CapabilityCatalog {
         common.add(new Capability("knowledge", "自主查询用户资料和沉淀可复用知识",
                 KnowledgeToolContract.definitions().stream().map(KnowledgeToolContract.Definition::name)
                         .collect(Collectors.toSet()), KnowledgeToolContract.INSTRUCTIONS));
+        common.add(capability("visualization", "把任意来源的结构化数据展示为可交互、可下载的图表", """
+                技能目录提供 h-agent-chat-charts 时，绘图或改图前先激活它。
+                用户要画图或图表有助于回答时调用 show_chart。趋势、对比、数值关系和构成优先提交 intent、x、y、table 和可选 unit，由工具生成图和表。
+                自定义系列、三维、地图、桑基图或双轴等高级配置使用 optionJson；可先调用 get_chart_option_guide 查询示例。
+                数据可以来自已有工具或对话整理，按需用工具计算实际统计结果，说明来源、口径和单位。
+                调整已有图表时用 read_chat_chart 读取；常见图沿用已保存的 view 和 table，按用户要求修改后再发布。成功后简述观察结果。
+                """, ChatChart.TOOL_NAME, "read_chat_chart", "get_chart_option_guide"));
         if (runtime == Runtime.STANDARD_CHAT) {
-            common.add(capability("visualization", "把任意来源的结构化数据展示为可交互、可下载的图表", """
-                    技能目录提供 h-agent-chat-charts 时，绘图或改图前先激活它。
-                    用户要画图或图表有助于回答时调用 show_chart。趋势、对比、数值关系和构成优先提交 intent、x、y、table 和可选 unit，由工具生成图和表。
-                    自定义系列、三维、地图、桑基图或双轴等高级配置使用 optionJson；可先调用 get_chart_option_guide 查询示例。
-                    数据可以来自已有工具或对话整理，按需用工具计算实际统计结果，说明来源、口径和单位。
-                    调整已有图表时用 read_chat_chart 读取；常见图沿用已保存的 view 和 table，按用户要求修改后再发布。成功后简述观察结果。
-                    """, ChatChart.TOOL_NAME, "read_chat_chart", "get_chart_option_guide"));
             common.add(capability("image", "生成或修改静态图片", "", "generateImage"));
             common.add(capability("workspace", "处理当前会话文件并交付文件", "",
                     "read_file", "write_file", "edit_file", "list_files", "delete_file", "move_file", "send_file_to_chat"));

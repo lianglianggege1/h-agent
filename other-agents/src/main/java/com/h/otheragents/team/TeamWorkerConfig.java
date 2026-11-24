@@ -11,6 +11,9 @@ import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import com.h.capabilities.memory.application.AgentMemoryContext;
 import com.h.capabilities.memory.domain.MemoryInvocationContext;
 import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.chart.ChatChart;
+import com.h.capabilities.chart.ChatChartTools;
+import com.h.capabilities.chart.TeamChartRoom;
 import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamAgentIds;
@@ -107,6 +110,7 @@ public class TeamWorkerConfig {
             WorkerMemoryToolProvider memoryToolProvider,
             WorkerKnowledgeToolProvider knowledgeToolProvider,
             WorkerSkillToolProvider skillToolProvider,
+            ChatChartTools chartTools,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
             @Value("${MATRIX_SPRING_WORKER_USERNAME:spring-worker}") String springWorkerUsername,
             com.h.capabilities.seam.matrix.TeamRoomAuthorizer roomAuthorizer,
@@ -125,7 +129,16 @@ public class TeamWorkerConfig {
                         new WorkerShellTools(shellExecutionService),
                         new WorkerSearchTools(webSearchService),
                         new WorkerGenerationTools(images, videos, memoryIds))
-                .toolProviders(List.of(memoryToolProvider, knowledgeToolProvider, skillToolProvider))
+                .toolProviders(List.of(memoryToolProvider, knowledgeToolProvider, skillToolProvider,
+                        chartTools.provider(memoryId -> {
+                            String value = String.valueOf(memoryId);
+                            String[] identity = value.split(":", 4);
+                            if (identity.length != 4 || !identity[3].startsWith("!")) {
+                                throw new IllegalArgumentException("当前调用没有团队房间。");
+                            }
+                            var room = new TeamChartRoom(workerMatrixClient, identity[3]);
+                            return chartTools.session(value, room::read, room::publish);
+                        })))
                 .build();
     }
 
@@ -181,7 +194,7 @@ public class TeamWorkerConfig {
                                 ? "Human 单聊消息：%s".formatted(message.body())
                                 : "成员单聊消息（来自 %s）：%s".formatted(message.sender(), message.body());
         try {
-            skillRuntimeService.snapshotForTopLevelRun(humanUserId, null, memoryId);
+            skillRuntimeService.snapshotForTopLevelRun(humanUserId, null, memoryId, java.util.Set.of(ChatChart.TOOL_NAME));
             String skillsMessage = skillRuntimeService.skillsSystemMessage(memoryId);
             if (skillsMessage != null) {
                 prompt = prompt + "\n\n" + skillsMessage;
@@ -190,6 +203,7 @@ public class TeamWorkerConfig {
             log.warn("Worker 技能快照固定失败，本轮不带技能执行: {}", failure.getMessage());
         }
         InvocationParameters parameters = InvocationParameters.from(Map.of(
+                ChatChartTools.ENABLE_PARAMETER, true,
                 AgentMemoryContext.KEY,
                 TeamIdentity.agentContext(humanUserId, message.roomId(), AGENT_ID, message.eventId()),
                 MemoryInvocationContext.INVOCATION_KEY,

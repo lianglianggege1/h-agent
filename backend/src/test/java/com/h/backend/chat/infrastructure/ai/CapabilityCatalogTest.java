@@ -42,8 +42,9 @@ class CapabilityCatalogTest {
     @Test
     void harnessUsesMem0NamespaceAndDoesNotClaimUnsupportedImageOrWebTools() {
         var names = CapabilityCatalog.toolNames(CapabilityCatalog.Runtime.HARNESS);
-        assertThat(names).contains("mem0_search", "mem0_save", "knowledge_save")
-                .doesNotContain("memory_search", "generateImage", "web_search", "show_chart", "read_chat_chart", "get_chart_option_guide");
+        assertThat(names).contains("mem0_search", "mem0_save", "knowledge_save",
+                        "show_chart", "read_chat_chart", "get_chart_option_guide")
+                .doesNotContain("memory_search", "generateImage", "web_search");
         assertThat(CapabilityCatalog.forRuntime(CapabilityCatalog.Runtime.HARNESS).stream()
                 .map(CapabilityCatalog.Capability::id).collect(Collectors.toSet()))
                 .doesNotContain("image", "web", "shell");

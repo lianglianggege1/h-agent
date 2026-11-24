@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { MatrixClient, MatrixEvent } from "matrix-js-sdk";
 import { MarkdownContent } from "@/components/markdown-content";
+import { ChatChartCard } from "@/components/chat-chart-card";
+import { chatChartSchema, type ChatChart } from "@/lib/chat-chart";
 import { ProgressCard } from "@/components/agui-progress";
 import { ChatAttachmentPicker } from "@/components/chat-attachment-picker";
 import type { ChatMessageResource } from "@/lib/chat-sessions";
@@ -12,8 +14,8 @@ import styles from "./team-room.module.css";
 import {
   buildMediaContent, buildReplyContent, buildTextContent, isMediaMsgtype, kindLabel, linkifyMxc,
   mediaLabel, mediaMsgtypeForMime, mediaSummary, mentionIdsFor, mentionTrigger, senderLabel, teamMembers,
-  toMessageView, toProgressView, PROGRESS_EVENT_TYPE,
-  type ReplyTarget, type TeamConfig, type TeamMember, type TeamMessageView, type TeamProgressView,
+  toMessageView, toProgressView, CHART_EVENT_TYPE, PROGRESS_EVENT_TYPE,
+  type ReplyTarget, type TeamChartReference, type TeamConfig, type TeamMember, type TeamMessageView, type TeamProgressView,
 } from "@/lib/team-room";
 
 type TeamMatrixSession = {
@@ -37,6 +39,38 @@ type RoomLike = {
   getJoinedMembers(): { userId: string }[];
   getMembersWithMembership(membership: string): { userId: string }[];
 };
+
+function RoomChart({ reference, mediaUrl, accessToken }: {
+  reference: TeamChartReference;
+  mediaUrl: string | null;
+  accessToken: string;
+}) {
+  const [chart, setChart] = useState<ChatChart | null>(() => "inline" in reference ? reference.inline : null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!mediaUrl) return;
+    const controller = new AbortController();
+    async function load(url: string) {
+      try {
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("图表加载失败");
+        const parsed = chatChartSchema.parse(await response.json());
+        if (parsed.id !== reference.id) throw new Error("图表身份不匹配");
+        if (!controller.signal.aborted) setChart(parsed);
+      } catch {
+        if (!controller.signal.aborted) setFailed(true);
+      }
+    }
+    void load(mediaUrl);
+    return () => controller.abort();
+  }, [accessToken, mediaUrl, reference.id]);
+  if (chart) return <ChatChartCard content={{ chart }} />;
+  return failed || !mediaUrl
+    ? <p role="alert">无法加载图表</p>
+    : <p role="status">正在加载图表…</p>;
+}
 
 function timelineViews(room: RoomLike): TeamMessageView[] {
   return room.timeline
@@ -482,7 +516,7 @@ export default function TeamRoomPage() {
     let count = 0;
     for (let i = idx + 1; i < timeline.length; i++) {
       const event = timeline[i];
-      if (event.getType() !== "m.room.message" || event.getSender() === session.userId) continue;
+      if (!["m.room.message", CHART_EVENT_TYPE].includes(event.getType()) || event.getSender() === session.userId) continue;
       count++;
     }
     return count;
@@ -509,7 +543,8 @@ export default function TeamRoomPage() {
   }
 
   function quoteMessage(message: TeamMessageView) {
-    setReplyTo({ eventId: message.id, sender: message.sender, body: message.body, msgtype: message.msgtype });
+    const body = message.chart ? `${message.body}（图表 ID ${message.chart.id}）` : message.body;
+    setReplyTo({ eventId: message.id, sender: message.sender, body, msgtype: message.msgtype });
     inputRef.current?.focus();
   }
 
@@ -665,6 +700,9 @@ export default function TeamRoomPage() {
     const time = new Date(message.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     const media = isMediaMsgtype(message.msgtype);
     const quoteBlock = quoteBlockOf(message);
+    const chartUrl = message.chart && "url" in message.chart
+      ? clientRef.current?.mxcUrlToHttp(message.chart.url, undefined, undefined, undefined, undefined, undefined, true) ?? null
+      : null;
     const textContent = (
       <MarkdownContent content={linkifyMxc(message.body)} resolveMediaUrl={mediaHttpUrl} />
     );
@@ -698,7 +736,7 @@ export default function TeamRoomPage() {
             <span className={styles.avatar} aria-hidden="true">{avatarText}</span>
           </button>
         )}
-        <div className={styles.messageBody}>
+        <div className={`${styles.messageBody}${message.chart ? ` ${styles.chartBody}` : ""}`}>
           <div className={styles.meta}>
             {dm ? (
               <span className={styles.sender}>{label}</span>
@@ -718,11 +756,8 @@ export default function TeamRoomPage() {
             )}
           </div>
           {quoteBlock}
-          {media ? renderMedia(message) : (
-            <div className={styles.prose}>
-              {textContent}
-            </div>
-          )}
+          {message.chart ? <RoomChart reference={message.chart} mediaUrl={chartUrl} accessToken={session!.accessToken} />
+            : media ? renderMedia(message) : <div className={styles.prose}>{textContent}</div>}
           {receiptOf(message)}
         </div>
       </div>

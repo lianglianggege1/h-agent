@@ -1,7 +1,7 @@
 package com.h.backend.chat.agui;
 
 import com.h.backend.chat.application.agui.AguiRunProjection;
-import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chart.ChatChart;
 import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import tools.jackson.databind.ObjectMapper;
 import com.agui.community.core.event.ActivitySnapshotEvent;

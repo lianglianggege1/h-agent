@@ -351,9 +351,17 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
       if (next !== agent.messages) agent.setMessages(next);
       return;
     }
-    const page = await getChatSessionMessages(threadId, 100);
+    const completed = tasks.filter(task => task.resumeStatus === "DONE" && !syncedChartDocuments.current.has(task.taskId));
+    const [page, snapshots] = await Promise.all([
+      getChatSessionMessages(threadId, 100),
+      completed.length
+        ? apiFetch<{ runs: ChartActivityRun[] }>(`/api/chat/agui/threads/${encodeURIComponent(threadId)}`).catch(() => null)
+        : null,
+    ]);
     if (agent.isRunning) return;
-    const next = mergeDocumentTaskActivities(mergeProductMessageUpdates(agent.messages, page.messages), tasks);
+    const documents = mergeDocumentTaskActivities(mergeProductMessageUpdates(agent.messages, page.messages), tasks);
+    const next = snapshots ? mergeChatChartActivities(documents, snapshots.runs) : documents;
+    if (snapshots) completed.forEach(task => syncedChartDocuments.current.add(task.taskId));
     if (next !== agent.messages) { agent.setMessages(next); onChangedRef.current?.(); }
   }, [agent, threadId]);
 

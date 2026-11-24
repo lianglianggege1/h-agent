@@ -29,7 +29,7 @@ class BundledChartSkillTest {
         var skill = skills.stream().filter(item -> "h-agent-chat-charts".equals(item.getKey())).findFirst().orElseThrow();
         assertThat(skill.isEnabled()).isTrue();
         assertThat(skill.isBundled()).isTrue();
-        assertThat(skill.getRevision()).isEqualTo("3");
+        assertThat(skill.getRevision()).isEqualTo("4");
         assertThat(skill.getRequiredTools()).containsExactly("show_chart");
 
         var json = JsonMapper.builder().build();

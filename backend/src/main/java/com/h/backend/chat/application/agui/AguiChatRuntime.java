@@ -3,7 +3,7 @@ package com.h.backend.chat.application.agui;
 import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.interfaces.dto.AutomationProposalDto;
 import com.h.backend.chat.application.*;
-import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chart.ChatChart;
 import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.domain.approval.ApprovalDecision;
 import com.h.backend.chat.domain.agent.HarnessExecutionRegistry;
@@ -241,6 +241,22 @@ public class AguiChatRuntime {
             try {snapshots.insert(new AguiRunSnapshotMapper.Snapshot(runId,threadId,userId,deliveryId,"COMPLETED",state,null));}
             catch(DuplicateKeyException duplicate){snapshots.update(runId,userId,"COMPLETED",state);}
         } else snapshots.update(runId,userId,"COMPLETED",state);
+    }
+
+    public void publishHarnessChart(long userId, String threadId, ChatChart chart) {
+        owned(userId, threadId);
+        var event = new ChatStreamEvent("chart", "", null, chart);
+        for (var run : active.values()) {
+            if (run.userId == userId && run.threadId.equals(threadId) && run.publishChart(event)) return;
+        }
+        String runId = "harness-chart-" + chart.id();
+        var projection = new AguiRunProjection(threadId, runId, ignored -> {});
+        var history = sessions.getSessionMessages(userId, threadId, 1, null).messages();
+        if (!history.isEmpty()) projection.anchor(history.getLast().id(), "AFTER");
+        projection.accept(event);
+        projection.accept(new ChatStreamEvent("done", ""));
+        snapshots.insert(new AguiRunSnapshotMapper.Snapshot(runId, threadId, userId, chart.id(),
+                projection.status(), json.writeValueAsString(projection.snapshot()), null));
     }
 
     /** Background document continuations run outside an AG-UI transport. Retain their product charts. */
@@ -586,6 +602,12 @@ public class AguiChatRuntime {
                 }
                 sink.onDispose(() -> { synchronized (this) { observers.remove(sink); } });
             }).subscribeOn(Schedulers.boundedElastic());
+        }
+
+        private synchronized boolean publishChart(ChatStreamEvent event) {
+            if (finished) return false;
+            accept(event);
+            return true;
         }
 
         private synchronized void accept(ChatStreamEvent event) {

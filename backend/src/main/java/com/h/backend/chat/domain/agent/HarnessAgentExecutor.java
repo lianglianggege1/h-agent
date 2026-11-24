@@ -652,6 +652,10 @@ public class HarnessAgentExecutor implements ChatAgentExecutor {
                             reply
                     );
                     assistantMessageId = completion.assistantMessageId();
+                    if (assistantMessageId != null) {
+                        assistantMessage = chatSessionService.getOwnedMessage(
+                                command.userId(), command.sessionId(), assistantMessageId);
+                    }
                 }
                 agentRunService.completeRun(command.runHandle().id(), assistantMessageId);
                 // 产品结果与 Run 已提交：原子结束 Primary 并切入 MAINTENANCE（设计 7.3 规则 1）。

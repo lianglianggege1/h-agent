@@ -1,6 +1,6 @@
 package com.h.backend.chat.application.agui;
 
-import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chart.ChatChart;
 import com.h.backend.chat.interfaces.dto.*;
 import com.h.capabilities.chat.interfaces.dto.*;
 import com.agui.community.core.event.*;

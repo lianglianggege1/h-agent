@@ -10,6 +10,11 @@ import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.capabilities.generation.interfaces.tool.TeamImageGenerationTool;
 import com.h.capabilities.generation.interfaces.tool.TeamVideoGenerationTool;
 import com.h.capabilities.skill.application.SkillRuntimeService;
+import com.h.capabilities.chart.ChatChart;
+import com.h.capabilities.chart.ChatChartTools;
+import com.h.capabilities.chart.TeamChartRoom;
+import dev.langchain4j.internal.JsonSchemaElementJsonUtils;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 import com.h.capabilities.seam.matrix.TeamHumanDirectory;
 import com.h.matrixteam.MatrixClient;
 import com.h.matrixteam.TeamAgentIds;
@@ -106,6 +111,7 @@ public class SpringWorkerConfig {
             List<Object> toolObjects,
             SpringMemoryToolProvider memoryTools,
             SpringKnowledgeToolProvider knowledgeTools,
+            ChatChartTools chartTools,
             SkillRuntimeService skillRuntimeService,
             ObjectMapper json,
             TeamHumanDirectory directory
@@ -178,6 +184,7 @@ public class SpringWorkerConfig {
             TeamVideoGenerationTool videos,
             SpringMemoryToolProvider memoryTools,
             SpringKnowledgeToolProvider knowledgeTools,
+            ChatChartTools chartTools,
             SkillRuntimeService skillRuntimeService,
             ObjectMapper json,
             @Value("${MATRIX_MANAGER_USERNAME:manager}") String managerUsername,
@@ -193,7 +200,7 @@ public class SpringWorkerConfig {
                 new SpringSearchTools(webSearchService),
                 new SpringDeliveryTools(fileDeliveryService));
         Capabilities capabilities = new Capabilities(
-                toolObjects, memoryTools, knowledgeTools, skillRuntimeService, json, directory);
+                toolObjects, memoryTools, knowledgeTools, chartTools, skillRuntimeService, json, directory);
         return message -> handle(springWorkerChatClient, springWorkerMatrixClient, capabilities,
                 managerUserId, message);
     }
@@ -236,7 +243,7 @@ public class SpringWorkerConfig {
                                 ? "Human 单聊消息：%s".formatted(message.body())
                                 : "成员单聊消息（来自 %s）：%s".formatted(message.sender(), message.body());
         try {
-            capabilities.skillRuntimeService().snapshotForTopLevelRun(humanUserId, null, memoryId);
+            capabilities.skillRuntimeService().snapshotForTopLevelRun(humanUserId, null, memoryId, java.util.Set.of(ChatChart.TOOL_NAME));
             String skillsMessage = capabilities.skillRuntimeService().skillsSystemMessage(memoryId);
             if (skillsMessage != null) {
                 prompt = prompt + "\n\n" + skillsMessage;
@@ -259,6 +266,19 @@ public class SpringWorkerConfig {
             callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
         }
         for (ToolCallback callback : capabilities.knowledgeTools().getToolCallbacks()) {
+            callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
+        }
+        var chartRoom = new TeamChartRoom(client, message.roomId());
+        var chartScope = capabilities.chartTools().session(memoryId, chartRoom::read, chartRoom::publish);
+        for (var specification : ChatChartTools.specifications()) {
+            var callback = FunctionToolCallback.builder(specification.name(), (Map<String, Object> arguments) ->
+                            capabilities.chartTools().invoke(specification.name(),
+                                    capabilities.json().writeValueAsString(arguments), chartScope).resultText())
+                    .description(specification.description())
+                    .inputSchema(capabilities.json().writeValueAsString(
+                            JsonSchemaElementJsonUtils.toMap(specification.parameters())))
+                    .inputType(Map.class)
+                    .build();
             callbacks.add(new com.h.otheragents.team.capability.RecordingToolCallback(callback, reporter, resetAnswer));
         }
         for (ToolCallback callback : SpringSkillTools.forRun(

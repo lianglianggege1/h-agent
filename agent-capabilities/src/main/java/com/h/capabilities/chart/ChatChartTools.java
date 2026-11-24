@@ -1,4 +1,4 @@
-package com.h.backend.chat.application.chart;
+package com.h.capabilities.chart;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.h.backend.chat.infrastructure.persistence.mapper.AguiRunSnapshotMapper;
 import com.h.capabilities.chat.infrastructure.filesystem.AssistantFileStorage;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -22,7 +21,6 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.service.tool.ToolExecutionResult;
 import dev.langchain4j.service.tool.ToolExecutor;
 import dev.langchain4j.service.tool.ToolProvider;
-import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;
 import org.springframework.stereotype.Component;
 
@@ -35,9 +33,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 @Component
-public class ChatChartTools implements ToolProvider {
+public class ChatChartTools {
     public static final String ENABLE_PARAMETER = ChatChartTools.class.getName();
     private static final int MAX_PAYLOAD = 512 * 1024;
     private static final int MAX_MAP_FILE_BYTES = 2 * 1024 * 1024;
@@ -91,12 +91,21 @@ public class ChatChartTools implements ToolProvider {
             .build();
 
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-    private final AguiRunSnapshotMapper snapshots;
     private final AssistantFileStorage files;
 
-    public ChatChartTools(AguiRunSnapshotMapper snapshots, AssistantFileStorage files) {
-        this.snapshots = snapshots;
+    public record Scope(Function<String, String> readChart, Consumer<ChatChart> publish,
+                        Function<String, byte[]> readMapFile) {}
+
+    public ChatChartTools(AssistantFileStorage files) {
         this.files = files;
+    }
+
+    public Scope session(String memoryId, Function<String, String> readChart, Consumer<ChatChart> publish) {
+        return new Scope(readChart, publish, path -> readSessionFile(memoryId, path));
+    }
+
+    public static List<ToolSpecification> specifications() {
+        return List.of(SHOW, READ, GUIDE);
     }
 
     private static JsonObjectSchema openObject(String description) {
@@ -118,32 +127,50 @@ public class ChatChartTools implements ToolProvider {
                 .required("columns", "rows").additionalProperties(false).build();
     }
 
-    @Override
-    public ToolProviderResult provideTools(ToolProviderRequest request) {
-        if (request == null || request.invocationParameters() == null
-                || !Boolean.TRUE.equals(request.invocationParameters().get(ENABLE_PARAMETER))) {
-            return ToolProviderResult.builder().build();
+    public ToolProvider provider(Function<Object, Scope> scope) {
+        return request -> {
+            if (request == null || request.invocationParameters() == null
+                    || !Boolean.TRUE.equals(request.invocationParameters().get(ENABLE_PARAMETER))) {
+                return ToolProviderResult.builder().build();
+            }
+            var result = ToolProviderResult.builder();
+            for (var specification : specifications()) {
+                result.add(specification, new ToolExecutor() {
+                    @Override
+                    public String execute(ToolExecutionRequest call, Object memoryId) {
+                        return invoke(specification.name(), call.arguments(), scope.apply(memoryId)).resultText();
+                    }
+
+                    @Override
+                    public ToolExecutionResult executeWithContext(ToolExecutionRequest call, InvocationContext context) {
+                        return invoke(specification.name(), call.arguments(), scope.apply(context.chatMemoryId()));
+                    }
+                });
+            }
+            return result.build();
+        };
+    }
+
+    public ToolExecutionResult invoke(String name, String arguments, Scope scope) {
+        try {
+            if (ChatChart.TOOL_NAME.equals(name)) {
+                var result = show(arguments, scope.readMapFile());
+                if (!result.isError()) scope.publish().accept((ChatChart) result.result());
+                return result;
+            }
+            JsonNode input = parse(arguments);
+            String result = switch (name) {
+                case "read_chat_chart" -> scope.readChart().apply(text(input, "id", 64));
+                case "get_chart_option_guide" -> ChatChartOptionGuide.forTopic(text(input, "topic", 32));
+                default -> throw new IllegalArgumentException("未知图表工具。");
+            };
+            return ToolExecutionResult.builder().resultText(result).build();
+        } catch (IllegalArgumentException invalid) {
+            return failure(invalid.getMessage());
         }
-        return ToolProviderResult.builder().add(SHOW, new ToolExecutor() {
-            @Override
-            public String execute(ToolExecutionRequest call, Object memoryId) {
-                return show(call.arguments(), String.valueOf(memoryId)).resultText();
-            }
-
-            @Override
-            public ToolExecutionResult executeWithContext(ToolExecutionRequest call, InvocationContext context) {
-                return show(call.arguments(), String.valueOf(context.chatMemoryId()));
-            }
-        }).add(READ, this::read)
-                .add(GUIDE, (call, memoryId) -> ChatChartOptionGuide.forTopic(text(parse(call.arguments()), "topic", 32)))
-                .build();
     }
 
-    ToolExecutionResult show(String arguments) {
-        return show(arguments, null);
-    }
-
-    ToolExecutionResult show(String arguments, String memoryId) {
+    private ToolExecutionResult show(String arguments, Function<String, byte[]> readFile) {
         try {
             JsonNode input = parse(arguments);
             String title = text(input, "title", 160);
@@ -170,7 +197,7 @@ public class ChatChartTools implements ToolProvider {
                 throw new IllegalArgumentException("optionJson 缺少可绘制内容。请提交完整配置并包含 series 与图型 type，或 graphic、geo 等图形组件。");
             }
             SurfaceGridShape.infer(option);
-            JsonNode maps = readMaps(optionalObject(input, "maps"), memoryId);
+            JsonNode maps = readMaps(optionalObject(input, "maps"), readFile);
             var chart = new ChatChart(UUID.randomUUID().toString(), title, text(input, "source", 1200),
                     chartObject(option), chartObject(maps), extensions(input.path("extensions"), option), chartObject(table), view);
             return ToolExecutionResult.builder()
@@ -178,11 +205,11 @@ public class ChatChartTools implements ToolProvider {
                     .resultText("已在聊天中生成图表「" + title + "」，图表 ID 为 " + chart.id() + "。")
                     .build();
         } catch (IllegalArgumentException invalid) {
-            return ToolExecutionResult.builder().isError(true).resultText(invalid.getMessage()).build();
+            return failure(invalid.getMessage());
         }
     }
 
-    private JsonNode readMaps(JsonNode maps, String memoryId) {
+    private JsonNode readMaps(JsonNode maps, Function<String, byte[]> readFile) {
         if (maps == null) return null;
         if (maps.size() > 8) throw new IllegalArgumentException("每张图最多可注册 8 张地图。");
 
@@ -195,7 +222,16 @@ public class ChatChartTools implements ToolProvider {
             }
             JsonNode geoJson = entry.getValue();
             if (geoJson.isTextual()) {
-                byte[] bytes = readMapFile(name, geoJson.textValue(), memoryId, remaining);
+                String path = geoJson.textValue();
+                String lower = path.toLowerCase(Locale.ROOT);
+                if (path.contains("://") || !(lower.endsWith(".json") || lower.endsWith(".geojson"))) {
+                    throw new IllegalArgumentException("地图「" + name + "」请提供内联 GeoJSON，或当前会话工作区中的 .json/.geojson 路径，例如 /china.geojson。");
+                }
+                byte[] bytes = readFile == null ? null : readFile.apply(path);
+                if (bytes == null) {
+                    throw new IllegalArgumentException("无法读取地图「" + name + "」的文件。请用 list_files 确认当前会话工作区中的路径，或提供内联 GeoJSON。");
+                }
+                if (bytes.length > remaining) throw new IllegalArgumentException("地图文件合计超过 2 MiB，请先简化边界。");
                 remaining -= bytes.length;
                 try {
                     geoJson = parseSnapshot(new String(bytes, StandardCharsets.UTF_8));
@@ -220,26 +256,20 @@ public class ChatChartTools implements ToolProvider {
         return resolved;
     }
 
-    private byte[] readMapFile(String name, String path, String memoryId, int remaining) {
-        String lower = path.toLowerCase(Locale.ROOT);
-        if (path.contains("://") || !(lower.endsWith(".json") || lower.endsWith(".geojson"))) {
-            throw new IllegalArgumentException("地图「" + name + "」请提供内联 GeoJSON，或当前会话工作区中的 .json/.geojson 路径，例如 /china.geojson。");
-        }
-        if (memoryId == null || files == null) {
-            throw new IllegalArgumentException("当前调用没有可读取的会话文件，请直接提供 GeoJSON。");
-        }
+    private byte[] readSessionFile(String memoryId, String path) {
+        if (memoryId == null || files == null) return null;
         var file = files.openSessionFileStream(memoryId, path);
-        if (!file.success()) {
-            throw new IllegalArgumentException("无法读取地图「" + name + "」的文件。请用 list_files 确认当前会话工作区中的路径，或提供内联 GeoJSON。");
-        }
+        if (!file.success()) return null;
         try (var stream = file.stream()) {
-            if (file.size() > remaining) throw new IllegalArgumentException("地图文件合计超过 2 MiB，请先简化边界。");
-            byte[] bytes = stream.readNBytes(remaining + 1);
-            if (bytes.length > remaining) throw new IllegalArgumentException("地图文件合计超过 2 MiB，请先简化边界。");
-            return bytes;
+            if (file.size() > MAX_MAP_FILE_BYTES) throw new IllegalArgumentException("地图文件超过 2 MiB，请先简化边界。");
+            return stream.readNBytes(MAX_MAP_FILE_BYTES + 1);
         } catch (IOException ex) {
-            throw new IllegalArgumentException("无法读取地图「" + name + "」的会话文件。", ex);
+            return null;
         }
+    }
+
+    private static ToolExecutionResult failure(String message) {
+        return ToolExecutionResult.builder().isError(true).resultText(message).build();
     }
 
     private static ChatChart.TableView tableView(JsonNode input) {
@@ -274,26 +304,6 @@ public class ChatChartTools implements ToolProvider {
             throw new IllegalArgumentException(parameter + " 需要有效的表格列名。");
         }
         return field.textValue();
-    }
-
-    private String read(ToolExecutionRequest call, Object memoryId) {
-        JsonNode input = parse(call.arguments());
-        String id = text(input, "id", 64);
-        String[] owner = String.valueOf(memoryId).split(":", 3);
-        if (owner.length != 3) throw new IllegalArgumentException("当前调用没有聊天会话。");
-        long userId = Long.parseLong(owner[0]);
-        for (var run : snapshots.list(userId, owner[2]).reversed()) {
-            JsonNode activities = parseSnapshot(run.snapshotJson()).path("activities");
-            for (int index = activities.size() - 1; index >= 0; index--) {
-                JsonNode activity = activities.get(index);
-                if (!ChatChart.ACTIVITY_TYPE.equals(activity.path("activityType").asText())) continue;
-                JsonNode chart = activity.path("content").path("chart");
-                if (chart.isObject() && (id == null || id.equals(chart.path("id").asText()))) {
-                    return chart.toString();
-                }
-            }
-        }
-        return "当前会话中没有匹配的图表。";
     }
 
     private JsonNode parse(String arguments) {

@@ -1,4 +1,4 @@
-package com.h.backend.chat.application.chart;
+package com.h.capabilities.chart;
 
 import java.util.List;
 import java.util.Map;

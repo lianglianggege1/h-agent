@@ -247,12 +247,16 @@ public final class MatrixClient {
      * 反向分页读取房间历史（最新在前）。before 传上一次响应的 end 令牌可继续向更早翻页。
      */
     public JsonNode messages(String roomId, int limit, String before) {
+        return messages(roomId, limit, before, "m.room.message");
+    }
+
+    public JsonNode messages(String roomId, int limit, String before, String type) {
         StringBuilder path = new StringBuilder("/_matrix/client/v3/rooms/")
                 .append(encode(roomId)).append("/messages?dir=b&limit=").append(limit);
         if (before != null && !before.isBlank()) {
             path.append("&from=").append(encode(before));
         }
-        path.append("&filter=").append(encode("{\"types\":[\"m.room.message\"]}"));
+        path.append("&filter=").append(encode(JSON.createObjectNode().set("types", JSON.createArrayNode().add(type)).toString()));
         return request("GET", path.toString(), null, Duration.ofSeconds(30));
     }
 
@@ -350,6 +354,10 @@ public final class MatrixClient {
 
     /** 下载 mxc:// 媒体内容。 */
     public byte[] download(String mxcUrl) {
+        return download(mxcUrl, Integer.MAX_VALUE - 8);
+    }
+
+    public byte[] download(String mxcUrl, int maxBytes) {
         if (mxcUrl == null || !mxcUrl.startsWith("mxc://")) {
             throw new IllegalArgumentException("Not an mxc url: " + mxcUrl);
         }
@@ -364,12 +372,19 @@ public final class MatrixClient {
         try {
             HttpRequest request = builder("GET", path, HttpRequest.BodyPublishers.noBody(),
                     "application/octet-stream", Duration.ofSeconds(120)).build();
-            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() / 100 != 2) {
-                throw new IllegalStateException("Matrix GET " + path + " -> " + response.statusCode()
-                        + " " + new String(response.body(), StandardCharsets.UTF_8));
+            var response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (var stream = response.body()) {
+                if (response.statusCode() / 100 != 2) {
+                    throw new IllegalStateException("Matrix GET " + path + " -> " + response.statusCode()
+                            + " " + new String(stream.readNBytes(2048), StandardCharsets.UTF_8));
+                }
+                if (response.headers().firstValueAsLong("Content-Length").orElse(0) > maxBytes) {
+                    throw new IllegalArgumentException("Matrix media exceeds maximum size");
+                }
+                byte[] bytes = stream.readNBytes(maxBytes + 1);
+                if (bytes.length > maxBytes) throw new IllegalArgumentException("Matrix media exceeds maximum size");
+                return bytes;
             }
-            return response.body();
         } catch (IOException e) {
             throw new IllegalStateException("Matrix request failed: GET " + path, e);
         } catch (InterruptedException e) {

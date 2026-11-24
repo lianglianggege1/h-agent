@@ -7,6 +7,9 @@ import com.h.matrixteam.TeamPolicy;
 import com.h.matrixteam.TeamRoomBridge;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
+import com.h.backend.chat.application.chart.AgentScopeChartTools;
+import com.h.capabilities.chart.ChatChartTools;
+import com.h.capabilities.chart.TeamChartRoom;
 import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
@@ -92,6 +95,7 @@ public class TeamManagerConfig {
             @Qualifier("harnessMemoryConfig") MemoryConfig memoryConfig,
             @Qualifier("harnessToolResultEvictionConfig") ToolResultEvictionConfig toolResultEvictionConfig,
             MatrixClient teamMatrixClient,
+            AgentScopeChartTools chartTools,
             com.h.backend.memory.infrastructure.agentscope.MemoryTools memoryTools,
             com.h.backend.knowledge.interfaces.tool.AgentScopeKnowledgeTools knowledgeTools,
             com.h.backend.document.interfaces.tool.AgentScopeDocumentTool documentTool,
@@ -110,6 +114,10 @@ public class TeamManagerConfig {
         toolkit.registerTool(new TeamManagerTools(teamMatrixClient, workerUserIds, roomAuthorizer, directory));
         toolkit.registerTool(documentTool);
         toolkit.registerTool(generationTool);
+        chartTools.register(toolkit, context -> {
+            var room = new TeamChartRoom(teamMatrixClient, context.getSessionId());
+            return new ChatChartTools.Scope(room::read, room::publish, null);
+        });
         memoryTools.register(toolkit);
         knowledgeTools.register(toolkit);
         // 与主聊天 Harness 相同的远程工作区（PostgreSQL BaseStore，USER 隔离）：
@@ -133,6 +141,7 @@ public class TeamManagerConfig {
                 .middleware(new com.h.backend.memory.infrastructure.agentscope.Mem0InstructionsMiddleware())
                 .middleware(new com.h.backend.knowledge.interfaces.tool.KnowledgeInstructionsMiddleware())
                 .middleware(observationInstaller.middleware())
+                .middleware(chartTools)
                 // 与主聊天 Harness 一致：远程模式无 shell；团队委派由 delegate_to_worker 承担，
                 // 不启用 SDK 子 Agent（避免与房间 Worker 双轨）。
                 .disableShellTool()
