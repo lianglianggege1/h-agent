@@ -3,6 +3,7 @@ package com.h.capabilities.skill.application;
 import com.h.capabilities.skill.domain.ArtifactDescriptor;
 import com.h.capabilities.skill.domain.SkillPlatformErrorKind;
 import com.h.capabilities.skill.domain.SkillPlatformException;
+import com.h.capabilities.skill.infrastructure.artifact.BundledSystemSkillArtifacts;
 import com.h.capabilities.skill.infrastructure.artifact.SkillArtifactResolver;
 import com.h.capabilities.skill.infrastructure.artifact.VerifiedSkillBundle;
 import com.h.capabilities.skill.infrastructure.config.SkillPlatformProperties;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -35,7 +37,7 @@ import java.util.stream.Collectors;
  * Skill Runtime 深模块（设计 §14）：顶层 Agent 请求开始时固定 Skill 快照，
  * 本次执行期间不随发布、回滚或停用变化。
  *
- * <p>快照只按 Artifact Descriptor 读取 MinIO 或 digest 缓存，不读取 Gitee；
+ * <p>快照从部署制品、MinIO 或 digest 缓存读取，不读取 Gitee；
  * 任一必需 Artifact 无法取得或校验失败时在启动前明确失败（不变量 26）。
  * 成功解析后持久化 Binding，同一快照同时用于可用 Skill 列表、内容解析和
  * Binding 记录；禁止在 prompt 构造后再次查询“最新版”。
@@ -55,6 +57,7 @@ public class SkillRuntimeService {
     private final SkillReleaseMapper releaseMapper;
     private final AgentRunSkillBindingMapper bindingMapper;
     private final SkillArtifactResolver artifactResolver;
+    private final BundledSystemSkillArtifacts bundledArtifacts;
     private final SkillPlatformProperties properties;
 
     private final Map<String, TimedSnapshot> preparedByMemoryId = new ConcurrentHashMap<>();
@@ -64,12 +67,14 @@ public class SkillRuntimeService {
             SkillReleaseMapper releaseMapper,
             AgentRunSkillBindingMapper bindingMapper,
             SkillArtifactResolver artifactResolver,
+            BundledSystemSkillArtifacts bundledArtifacts,
             SkillPlatformProperties properties
     ) {
         this.definitionMapper = definitionMapper;
         this.releaseMapper = releaseMapper;
         this.bindingMapper = bindingMapper;
         this.artifactResolver = artifactResolver;
+        this.bundledArtifacts = bundledArtifacts;
         this.properties = properties;
     }
 
@@ -141,7 +146,12 @@ public class SkillRuntimeService {
      * 持久化 Binding，并按 memoryId 注册供本次执行的 prompt 与工具解析使用。
      */
     public PreparedSnapshot snapshotForTopLevelRun(long userId, Long runId, String memoryId) {
-        PreparedSnapshot snapshot = buildSnapshot(userId, runId);
+        return snapshotForTopLevelRun(userId, runId, memoryId, Set.of());
+    }
+
+    public PreparedSnapshot snapshotForTopLevelRun(long userId, Long runId, String memoryId,
+                                                   Set<String> availableTools) {
+        PreparedSnapshot snapshot = buildSnapshot(userId, runId, availableTools);
         if (memoryId != null && !memoryId.isBlank()) {
             preparedByMemoryId.put(memoryId, new TimedSnapshot(snapshot, Instant.now()));
             evictExpired();
@@ -213,33 +223,28 @@ public class SkillRuntimeService {
     // 快照构建
     // ==================================================================
 
-    private PreparedSnapshot buildSnapshot(long userId, Long runId) {
+    private PreparedSnapshot buildSnapshot(long userId, Long runId, Set<String> availableTools) {
         String snapshotId = UUID.randomUUID().toString().replace("-", "");
         List<SnapshotSkill> collected = new ArrayList<>();
 
-        // System Skill 来自本次部署加载的配置快照（设计 §14.1）
+        Set<String> systemKeys = new HashSet<>();
         for (SkillPlatformProperties.SystemSkill systemSkill : properties.getSystemSkills()) {
-            if (systemSkill == null || systemSkill.getKey() == null || !systemSkill.isEnabled()) {
+            if (systemSkill == null || systemSkill.getKey() == null || !systemSkill.isEnabled()
+                    || !availableTools.containsAll(systemSkill.getRequiredTools())) {
                 continue;
             }
-            SkillPlatformProperties.Artifact artifact = systemSkill.getArtifact();
-            if (artifact == null || artifact.getDigest() == null || artifact.getObjectKey() == null) {
-                throw SkillPlatformException.of(SkillPlatformErrorKind.ARTIFACT_CORRUPT,
-                        "系统内置 Skill 配置缺少完整 Artifact Descriptor: " + systemSkill.getKey());
-            }
-            ArtifactDescriptor descriptor = new ArtifactDescriptor(
-                    artifact.getSchemaVersion(), artifact.getMediaType(), artifact.getDigest(),
-                    artifact.getSize(), artifact.getStore(), artifact.getObjectKey(),
-                    artifact.getObjectVersionId());
-            VerifiedSkillBundle bundle = artifactResolver.openVerified(descriptor);
+            VerifiedSkillBundle bundle = systemSkill.isBundled()
+                    ? bundledArtifacts.open(systemSkill.getKey()) : openConfiguredArtifact(systemSkill);
             collected.add(new SnapshotSkill(
                     AgentRunSkillBindingEntity.SOURCE_SYSTEM, systemSkill.getKey(),
                     systemSkill.getDisplayName(), systemSkill.getRevision(),
-                    null, null, descriptor, bundle));
+                    null, null, bundle.descriptor(), bundle));
+            systemKeys.add(systemSkill.getKey());
         }
 
         // User Skill：未归档、已启用、存在生效 Release（设计 §14.3 步骤 1）
         for (SkillDefinitionEntity definition : definitionMapper.selectSnapshotCandidates(userId)) {
+            if (systemKeys.contains(definition.getSkillKey())) continue;
             SkillReleaseEntity release = releaseMapper.selectBySkillAndId(
                     definition.getId(), definition.getActiveReleaseId());
             if (release == null) {
@@ -270,6 +275,18 @@ public class SkillRuntimeService {
         log.info("Skill 快照已固定 userId={} runId={} snapshotId={} skills={}",
                 userId, runId, snapshotId, collected.size());
         return new PreparedSnapshot(snapshotId, userId, collected, langchainSkills, overview);
+    }
+
+    private VerifiedSkillBundle openConfiguredArtifact(SkillPlatformProperties.SystemSkill skill) {
+        var artifact = skill.getArtifact();
+        if (artifact.getDigest() == null || artifact.getObjectKey() == null) {
+            throw SkillPlatformException.of(SkillPlatformErrorKind.ARTIFACT_CORRUPT,
+                    "系统内置 Skill 配置缺少完整 Artifact Descriptor: " + skill.getKey());
+        }
+        return artifactResolver.openVerified(new ArtifactDescriptor(
+                artifact.getSchemaVersion(), artifact.getMediaType(), artifact.getDigest(),
+                artifact.getSize(), artifact.getStore(), artifact.getObjectKey(),
+                artifact.getObjectVersionId()));
     }
 
     private void persistBindings(long runId, String snapshotId, List<SnapshotSkill> skills) {

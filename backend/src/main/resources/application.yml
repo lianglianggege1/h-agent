@@ -152,6 +152,12 @@ resource-storage:
 
 # Skill 版本平台：仓库 Token 和制品凭据均来自环境变量或 .env。
 skill-platform:
+  system-skills:
+    - key: h-agent-chat-charts
+      display-name: 聊天图表（画图、分析、改图）
+      revision: "3"
+      bundled: true
+      required-tools: [show_chart]
   nacos:
     server-addr: ${NACOS_SKILLS_SERVER_ADDR:${NACOS_SERVER_ADDR:169.254.210.181:8848}}
     namespace: ${NACOS_SKILLS_NAMESPACE:${NACOS_NAMESPACE:bc2a5f7e-0ab7-452c-849c-13527706651f}}

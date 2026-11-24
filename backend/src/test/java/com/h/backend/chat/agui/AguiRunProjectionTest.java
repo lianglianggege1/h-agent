@@ -1,6 +1,10 @@
 package com.h.backend.chat.agui;
 
 import com.h.backend.chat.application.agui.AguiRunProjection;
+import com.h.backend.chat.application.chart.ChatChart;
+import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
+import tools.jackson.databind.ObjectMapper;
+import com.agui.community.core.event.ActivitySnapshotEvent;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
 import com.agui.community.server.SseEventEncoder;
 import com.agui.community.spring.server.core.JacksonSerializer;
@@ -17,6 +21,34 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AguiRunProjectionTest {
+    @Test
+    void chartUsesStableIdentityAndRestoresUnderThePersistedAnswer() throws Exception {
+        var mapper = new ObjectMapper();
+        var events = new ArrayList<Event>();
+        var projection = new AguiRunProjection("thread", "run", events::add);
+        projection.anchor("user", "AFTER");
+        var option = Map.<String, Object>of("series", List.of(Map.of("type", "sankey",
+                "data", List.of(Map.of("name", "A"), Map.of("name", "B")),
+                "links", List.of(Map.of("source", "A", "target", "B", "value", 8)))));
+        var chart = new ChatChart("sales", "销量", null, option, null, List.of(), null);
+        projection.accept(new ChatStreamEvent("chart", "", null, chart));
+        var live = (ActivitySnapshotEvent) events.getFirst();
+        assertEquals("chart-sales", live.messageId());
+        assertEquals("user", ((Map<?, ?>) live.content()).get("anchorMessageId"));
+
+        var answer = new ChatSessionMessageDto("answer", "assistant", "AI", "分析", null, List.of(), null);
+        projection.accept(new ChatStreamEvent("done", "", answer));
+        Map<String, Object> stored = mapper.readValue(mapper.writeValueAsString(projection.snapshot()),
+                new tools.jackson.core.type.TypeReference<>() {});
+        var restored = (ActivitySnapshotEvent) AguiRunProjection.activityEvents(stored).getFirst();
+        var content = (Map<?, ?>) restored.content();
+        assertEquals("answer", content.get("anchorMessageId"));
+        assertEquals("chart-sales", restored.messageId());
+        assertEquals(chart.option(), ((Map<?, ?>) content.get("chart")).get("option"));
+        String sse = new SseEventEncoder(new JacksonSerializer()).encode(restored);
+        assertTrue(sse.contains("\"type\":\"sankey\""));
+    }
+
     @Test
     void continuationPausedBeforeAnyTextStillStartsAnAnswerMessage() {
         List<Event> events = new ArrayList<>();

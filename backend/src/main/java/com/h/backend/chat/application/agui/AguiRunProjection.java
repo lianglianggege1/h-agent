@@ -1,5 +1,6 @@
 package com.h.backend.chat.application.agui;
 
+import com.h.backend.chat.application.chart.ChatChart;
 import com.h.backend.chat.interfaces.dto.*;
 import com.h.capabilities.chat.interfaces.dto.*;
 import com.agui.community.core.event.*;
@@ -14,6 +15,8 @@ import java.util.function.Consumer;
 /** Product projection over SDK events. No SSE encoding or protocol parsing lives here. */
 public final class AguiRunProjection {
     public static final String ACTIVITY_TYPE = "h-agent.progress";
+    private static final Set<String> DOCUMENT_READ_TOOLS = Set.of("parse_document", "ocr_document");
+    private static final com.fasterxml.jackson.databind.ObjectMapper DOCUMENT_JSON = new com.fasterxml.jackson.databind.ObjectMapper();
     private final String threadId;
     private final String runId;
     private final Consumer<Event> output;
@@ -21,6 +24,7 @@ public final class AguiRunProjection {
     private final Set<String> openText = new LinkedHashSet<>();
     private final Map<String, Map<String, Object>> steps = new LinkedHashMap<>();
     private final Map<String, String> toolPhases = new HashMap<>();
+    private final Map<String, Boolean> documentReads = new LinkedHashMap<>();
     private final Map<String, HarnessArguments> harnessToolArguments = new HashMap<>();
     private final Map<String, Map<String, Object>> activities = new LinkedHashMap<>();
     private final Map<String, StringBuilder> text = new LinkedHashMap<>();
@@ -107,10 +111,13 @@ public final class AguiRunProjection {
                     publishToolArguments(id, name, Objects.toString(tool.get("arguments"), ""));
                     publish(new ToolCallEndEvent(id));
                 } else {
-                    output.accept(new ToolCallResultEvent("result-" + id, id,
-                            limited(Objects.toString(tool.get("result"), ""), 8000)));
-                    step("tool-" + id, name, Boolean.TRUE.equals(tool.get("failed")) ? "failed" : "completed",
-                            limited(Objects.toString(tool.get("result"), ""), 8000));
+                    String result = Objects.toString(tool.get("result"), "");
+                    boolean failed = Boolean.TRUE.equals(tool.get("failed"));
+                    if (!failed && DOCUMENT_READ_TOOLS.contains(name)) {
+                        documentRead(result);
+                    }
+                    output.accept(new ToolCallResultEvent("result-" + id, id, limited(result, 8000)));
+                    step("tool-" + id, name, failed ? "failed" : "completed", limited(result, 8000));
                 }
             }
             case "harness_event" -> {
@@ -119,6 +126,10 @@ public final class AguiRunProjection {
                     activity("subagent-" + payload.projection().subagent().sessionId(), "h-agent.subagent",
                             Map.of("subagent", payload.projection().subagent()));
                 }
+            }
+            case "chart" -> {
+                ChatChart chart = (ChatChart) event.payload();
+                activity("chart-" + chart.id(), ChatChart.ACTIVITY_TYPE, Map.of("chart", chart));
             }
             case "image", "resource" -> {
                 if (event.message() != null) resource(event.message());
@@ -146,6 +157,7 @@ public final class AguiRunProjection {
             }
             case "done" -> {
                 status = "COMPLETED";
+                if (event.message() != null) anchorChartsToAnswer(event.message().id());
                 // The persisted product message replaces all transient answer IDs at commit.
                 text.clear();
             }
@@ -191,6 +203,20 @@ public final class AguiRunProjection {
                     toolPhases.getOrDefault(result.toolCallId(), "completed"), limited(result.content(), 8000));
         }
         output.accept(event);
+    }
+
+    private void documentRead(String result) {
+        try {
+            var payload = DOCUMENT_JSON.readTree(result);
+            if (payload == null) return;
+            var task = payload.path("taskId");
+            var released = payload.path("released");
+            if (!task.isTextual() || !released.isBoolean()) return;
+            boolean read = released.booleanValue() && payload.path("text").isTextual();
+            documentReads.merge(task.textValue(), read, Boolean::logicalOr);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            // Tools can also return a human-readable diagnostic with no identifiable task.
+        }
     }
 
     private void collectHarnessToolArguments(AgentEvent source) {
@@ -370,6 +396,17 @@ public final class AguiRunProjection {
         output.accept(new ActivitySnapshotEvent(id, type, anchored));
     }
 
+    private void anchorChartsToAnswer(String answerId) {
+        for (var entry : List.copyOf(activities.entrySet())) {
+            if (!ChatChart.ACTIVITY_TYPE.equals(entry.getValue().get("activityType"))) continue;
+            @SuppressWarnings("unchecked")
+            var content = new LinkedHashMap<>((Map<String, Object>) entry.getValue().get("content"));
+            content.put("anchorMessageId", answerId);
+            content.put("anchorPlacement", "AFTER");
+            activity(entry.getKey(), ChatChart.ACTIVITY_TYPE, content);
+        }
+    }
+
     public void refreshProgress() {
         if (terminal() && processEndedAt == null) processEndedAt = System.currentTimeMillis();
         if (terminal()) steps.values().forEach(step -> {
@@ -413,6 +450,7 @@ public final class AguiRunProjection {
         snapshot.put("partialMessages", text.entrySet().stream().map(entry ->
                 Map.of("id", entry.getKey(), "content", entry.getValue().toString())).toList());
         if (businessRunId != null) snapshot.put("businessRunId", businessRunId);
+        if (!documentReads.isEmpty()) snapshot.put("documentReads", Map.copyOf(documentReads));
         if (anchorMessageId != null) {
             snapshot.put("anchorMessageId", anchorMessageId);
             snapshot.put("anchorPlacement", anchorPlacement);
@@ -424,6 +462,11 @@ public final class AguiRunProjection {
     public void restore(Map<String, Object> snapshot) {
         status = Objects.toString(snapshot.get("status"), "INTERRUPTED");
         if (snapshot.get("businessRunId") instanceof Number id) businessRunId = id.longValue();
+        if (snapshot.get("documentReads") instanceof Map<?, ?> reads) {
+            reads.forEach((task, seen) -> {
+                if (task instanceof String taskId && seen instanceof Boolean read) documentReads.put(taskId, read);
+            });
+        }
         if (snapshot.get("anchorMessageId") instanceof String id) {
             anchorMessageId = id;
             anchorPlacement = Objects.toString(snapshot.get("anchorPlacement"), "AFTER");

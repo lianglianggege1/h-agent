@@ -37,6 +37,7 @@ import com.h.backend.chat.application.HarnessSubagentFailureReason;
 import com.h.backend.chat.application.SystemPromptService;
 import com.h.capabilities.common.exception.BusinessException;
 import com.h.capabilities.observability.BusinessArtifactReferenceMapper;
+import com.h.backend.chat.application.chart.ChatChart;
 import com.h.capabilities.skill.application.SkillRuntimeService;
 import com.h.capabilities.skill.domain.SkillPlatformException;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -488,7 +490,13 @@ public class ChatServiceImpl implements ChatService {
             // 顶层 Agent 请求开始时固定 Skill 快照（设计 §14.1）：Subagent 不自动加载；
             // 任一必需 Artifact 失败时在 model 调用前明确失败，不静默少加载。
             if (skillRuntimeService != null && !address.subagent()) {
-                skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
+                if (agent.runtimeType() == AgentRuntimeType.STANDARD_STREAMING_CHAT
+                        && com.h.backend.chat.application.agui.ChatExecutionCancellation.from(sink) != null) {
+                    skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId,
+                            Set.of(ChatChart.TOOL_NAME));
+                } else {
+                    skillRuntimeService.snapshotForTopLevelRun(userId, runHandle.id(), memoryId);
+                }
             }
             // executor 接收 root 与实际 session 两个 id：前者用于 Harness 树投影，后者用于 Gateway 子 Agent 寻址与消息落库。
             ChatAgentExecutor executor = executorFor(agent.runtimeType());

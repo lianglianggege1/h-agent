@@ -1,0 +1,5 @@
+schemaVersion: 1
+key: h-agent-chat-charts
+displayName: 聊天图表（画图、分析、改图）
+capabilities:
+  scripts: false

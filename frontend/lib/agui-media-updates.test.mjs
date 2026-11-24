@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pendingMediaMessageIds, mergeProductMessageUpdates } from "./agui-media-updates.ts";
+import { pendingMediaMessageIds, mergeChatChartActivities, mergeProductMessageUpdates } from "./agui-media-updates.ts";
 import { productHistoryMessages } from "./agui-messages.ts";
 
 const image = (status, extras = {}) => ({ id: "image", role: "assistant", messageType: "IMAGE", content: "生成中",
@@ -44,4 +44,13 @@ test("published messages append once without replacing current tool or progress 
   assert.equal(merged[0], tool);
   assert.deepEqual(merged.map((message) => message.id), ["tool", "new"]);
   assert.equal(mergeProductMessageUpdates(merged, [published]), merged);
+});
+
+test("merges background chart snapshots without replaying progress or duplicating existing cards", () => {
+  const messages = [{ id: "answer", role: "assistant", content: "已生成" }];
+  const chart = { id: "chart-new", activityType: "h-agent.chart", content: { anchorMessageId: "answer" } };
+  const runs = [{ activities: [{ id: "progress", activityType: "h-agent.progress", content: {} }, chart] }];
+  const updated = mergeChatChartActivities(messages, runs);
+  assert.deepEqual(updated, [...messages, { ...chart, role: "activity" }]);
+  assert.equal(mergeChatChartActivities(updated, runs), updated);
 });

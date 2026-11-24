@@ -8,7 +8,7 @@ import { uploadChatResource, type UploadedResource } from "@/lib/resource-upload
 import { ToolResult, ResourceReferenceContext } from "@/components/agui-cards";
 import { ReferencedUserMessage, UserMessageEditContext } from "@/components/agui-user-message";
 import { orderProductMessages, productHistoryMessages } from "@/lib/agui-messages";
-import { mergeProductMessageUpdates, pendingMediaMessageIds } from "@/lib/agui-media-updates";
+import { mergeChatChartActivities, mergeProductMessageUpdates, pendingMediaMessageIds, type ChartActivityRun } from "@/lib/agui-media-updates";
 import styles from "./agui-chat-thread.module.css";
 import { DocumentTaskSync } from "./document-panel";
 import { mergeDocumentTaskActivities } from "@/lib/document-activities";
@@ -343,6 +343,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
     };
   }, [agent, isReady, threadId]);
 
+  const syncedChartDocuments = useRef(new Set<string>());
   const updateDocuments = useCallback(async (tasks: DocumentTask[]) => {
     if (!tasks.length && !agent.messages.some(message => message.role === "activity" && message.activityType === "h-agent.document")) return;
     if (agent.isRunning) {

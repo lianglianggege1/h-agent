@@ -3,6 +3,7 @@ package com.h.backend.chat.application.agui;
 import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.automation.interfaces.dto.AutomationProposalDto;
 import com.h.backend.chat.application.*;
+import com.h.backend.chat.application.chart.ChatChart;
 import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.domain.approval.ApprovalDecision;
 import com.h.backend.chat.domain.agent.HarnessExecutionRegistry;
@@ -240,6 +241,37 @@ public class AguiChatRuntime {
             try {snapshots.insert(new AguiRunSnapshotMapper.Snapshot(runId,threadId,userId,deliveryId,"COMPLETED",state,null));}
             catch(DuplicateKeyException duplicate){snapshots.update(runId,userId,"COMPLETED",state);}
         } else snapshots.update(runId,userId,"COMPLETED",state);
+    }
+
+    /** Background document continuations run outside an AG-UI transport. Retain their product charts. */
+    public void publishContinuationCharts(Long userId, String threadId, Long anchorMessageId,
+                                          List<ChatStreamEvent> events) {
+        var charts = events.stream().filter(event -> "chart".equals(event.type())).toList();
+        var done = events.stream().filter(event -> "done".equals(event.type())).findFirst().orElse(null);
+        if (charts.isEmpty() || done == null) return;
+        owned(userId, threadId);
+        String chartId = ((ChatChart) charts.getFirst().payload()).id();
+        String runId = "document-chart-" + chartId;
+        var projection = new AguiRunProjection(threadId, runId, event -> {});
+        if (anchorMessageId != null) projection.anchor(anchorMessageId.toString(), "AFTER");
+        charts.forEach(projection::accept);
+        projection.accept(done);
+        try {
+            snapshots.insert(new AguiRunSnapshotMapper.Snapshot(runId, threadId, userId, chartId,
+                    projection.status(), json.writeValueAsString(projection.snapshot()), null));
+        } catch (DuplicateKeyException alreadyPublished) {
+            // A retry of the same completed continuation has the same first chart identity.
+        }
+    }
+
+    public Optional<Boolean> documentReadByRun(Long userId, String threadId, Long businessRunId, String taskId) {
+        for (var row : snapshots.list(userId, threadId).reversed()) {
+            var state = json.readTree(row.snapshotJson());
+            if (state.path("businessRunId").asLong(-1) != businessRunId) continue;
+            var read = state.path("documentReads").path(taskId);
+            if (read.isBoolean()) return Optional.of(read.asBoolean());
+        }
+        return Optional.empty();
     }
 
     private Flux<Event> observe(Long userId, RunAgentInput input) {
@@ -564,6 +596,7 @@ public class AguiChatRuntime {
             if ("user_message".equals(event.type())) refreshMessages();
             if (important || System.nanoTime() - lastProgress > 1_000_000_000L) checkpoint();
             if (projection.terminal()) {
+                projection.closeMessages();
                 refreshProposals();
                 refreshMessages();
                 finish();

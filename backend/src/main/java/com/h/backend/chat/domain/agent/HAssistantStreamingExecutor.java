@@ -7,6 +7,8 @@ import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatSessionService;
 import com.h.backend.chat.application.ChatStreamEventBridge;
 import com.h.backend.chat.application.agui.ChatExecutionCancellation;
+import com.h.backend.chat.application.chart.ChatChart;
+import com.h.backend.chat.application.chart.ChatChartTools;
 import com.h.backend.chat.infrastructure.ai.HAssistant;
 import com.h.capabilities.chat.interfaces.dto.ChatSessionMessageDto;
 import com.h.backend.chat.interfaces.dto.ChatStreamEvent;
@@ -116,12 +118,19 @@ public class HAssistantStreamingExecutor implements ChatAgentExecutor {
                                         dev.langchain4j.invocation.InvocationParameters.from(java.util.Map.of(
                                                 com.h.capabilities.memory.domain.MemoryInvocationContext.INVOCATION_KEY, memoryInvocationContext(command),
                                                 com.h.capabilities.memory.application.AgentMemoryContext.KEY,
-                                                AgentMemoryContexts.from(command))))
+                                                AgentMemoryContexts.from(command),
+                                                ChatChartTools.ENABLE_PARAMETER, cancellation != null)))
                                 .onToolExecuted(
                                         toolExecution -> {
                                             if (terminal.get()) return;
                                             recordToolUsage(
                                                     command.runHandle().id(), toolExecution);
+                                            if (cancellation != null && !toolExecution.hasFailed()
+                                                    && ChatChart.TOOL_NAME.equals(toolExecution.request().name())
+                                                    && toolExecution.resultObject() instanceof ChatChart chart) {
+                                                resourceEmitted.set(true);
+                                                emitIfActive(command.sink(), new ChatStreamEvent("chart", "", null, chart));
+                                            }
                                             if (cancellation != null)
                                                 emitIfActive(
                                                         command.sink(),

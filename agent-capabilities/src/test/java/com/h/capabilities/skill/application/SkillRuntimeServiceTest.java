@@ -5,6 +5,7 @@ import com.h.capabilities.skill.domain.SkillFileSet;
 import com.h.capabilities.skill.domain.SkillPlatformErrorKind;
 import com.h.capabilities.skill.domain.SkillPlatformException;
 import com.h.capabilities.skill.domain.tar.SkillBundleManifest;
+import com.h.capabilities.skill.infrastructure.artifact.BundledSystemSkillArtifacts;
 import com.h.capabilities.skill.infrastructure.artifact.SkillArtifactResolver;
 import com.h.capabilities.skill.infrastructure.artifact.VerifiedSkillBundle;
 import com.h.capabilities.skill.infrastructure.config.SkillPlatformProperties;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SkillRuntimeServiceTest {
@@ -40,6 +42,7 @@ class SkillRuntimeServiceTest {
     private final SkillReleaseMapper releaseMapper = mock(SkillReleaseMapper.class);
     private final AgentRunSkillBindingMapper bindingMapper = mock(AgentRunSkillBindingMapper.class);
     private final SkillArtifactResolver artifactResolver = mock(SkillArtifactResolver.class);
+    private final BundledSystemSkillArtifacts bundledArtifacts = mock(BundledSystemSkillArtifacts.class);
     private final SkillPlatformProperties properties = new SkillPlatformProperties();
 
     private SkillRuntimeService service;
@@ -48,7 +51,7 @@ class SkillRuntimeServiceTest {
     void setUp() {
         properties.getSystemSkills().clear();
         service = new SkillRuntimeService(
-                definitionMapper, releaseMapper, bindingMapper, artifactResolver, properties);
+                definitionMapper, releaseMapper, bindingMapper, artifactResolver, bundledArtifacts, properties);
     }
 
     private static SkillDefinitionEntity enabledSkill(long id, String key, long activeReleaseId) {
@@ -219,6 +222,37 @@ class SkillRuntimeServiceTest {
         assertThat(snapshot.skills().get(0).sourceType())
                 .isEqualTo(AgentRunSkillBindingEntity.SOURCE_SYSTEM);
         assertThat(snapshot.skills().get(0).systemRevision()).isEqualTo("2026.08.1");
+    }
+
+    @Test
+    void bundledSkillIsAvailableWithItsRequiredToolAndTakesPrecedenceOverTheSamePersonalKey() {
+        String key = "h-agent-chat-charts";
+        var systemSkill = new SkillPlatformProperties.SystemSkill();
+        systemSkill.setKey(key);
+        systemSkill.setDisplayName("聊天图表（画图、分析、改图）");
+        systemSkill.setRevision("1");
+        systemSkill.setBundled(true);
+        systemSkill.setRequiredTools(List.of("show_chart"));
+        properties.getSystemSkills().add(systemSkill);
+
+        when(definitionMapper.selectSnapshotCandidates(USER_ID)).thenReturn(List.of());
+        var withoutChartTool = service.snapshotForTopLevelRun(USER_ID, null, MEMORY_ID);
+        assertThat(withoutChartTool.skills()).isEmpty();
+        verifyNoInteractions(bundledArtifacts);
+
+        when(definitionMapper.selectSnapshotCandidates(USER_ID))
+                .thenReturn(List.of(enabledSkill(11L, key, 21L)));
+        var descriptor = ArtifactDescriptor.of("sha256:" + "a".repeat(64), 10240L,
+                "bundled-system-skill-artifacts", "system-skills/" + key + "/", null);
+        when(bundledArtifacts.open(key)).thenReturn(bundleFor(descriptor));
+
+        var withChartTool = service.snapshotForTopLevelRun(USER_ID, RUN_ID, MEMORY_ID, java.util.Set.of("show_chart"));
+        assertThat(withChartTool.skills()).singleElement().satisfies(skill -> {
+            assertThat(skill.sourceType()).isEqualTo(AgentRunSkillBindingEntity.SOURCE_SYSTEM);
+            assertThat(skill.descriptor()).isEqualTo(descriptor);
+        });
+        assertThat(service.skillsSystemMessage(MEMORY_ID)).contains(key, "SYSTEM", "activate_skill");
+        verifyNoInteractions(releaseMapper, artifactResolver);
     }
 
     @Test

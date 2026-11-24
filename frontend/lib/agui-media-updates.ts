@@ -52,3 +52,18 @@ export function mergeProductMessageUpdates(messages: Message[], updates: ChatSes
   }
   return changed ? merged : messages;
 }
+
+export type ChartActivityRun = { activities?: { id: string; activityType: string; content: Record<string, unknown> }[] };
+
+export function mergeChatChartActivities(messages: Message[], runs: ChartActivityRun[]): Message[] {
+  const known = new Set(messages.map(message => message.id));
+  const additions: Message[] = [];
+  for (const run of runs) {
+    for (const activity of run.activities ?? []) {
+      if (activity.activityType !== "h-agent.chart" || known.has(activity.id)) continue;
+      known.add(activity.id);
+      additions.push({ ...activity, role: "activity" });
+    }
+  }
+  return additions.length ? [...messages, ...additions] : messages;
+}

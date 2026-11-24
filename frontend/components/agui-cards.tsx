@@ -20,6 +20,8 @@ import { useFilePreview } from "./file-preview";
 import type { PreviewResource } from "@/lib/file-preview";
 import { DocumentTaskCard } from "@/components/document-panel";
 import type { DocumentTask } from "@/lib/documents";
+import { ChatChartCard } from "@/components/chat-chart-card";
+import { chatChartSchema } from "@/lib/chat-chart";
 
 const statusLabels: Record<string, string> = {
   RUNNING: "执行中", WAITING_APPROVAL: "等待你的批准", COMPLETED: "已完成", FAILED: "执行失败",
@@ -285,6 +287,7 @@ function SubagentCard({ content }: { content: { subagent: HarnessSubagentSummary
 }
 
 export const activityRenderers = [
+  { activityType: "h-agent.chart", content: z.object({ chart: chatChartSchema }), render: ChatChartCard },
   { activityType: "h-agent.document", content: z.object({ task: z.custom<DocumentTask>() }), render: DocumentTaskCard },
   { activityType: "h-agent.order", content: z.custom<OrderCardContent>(), render: OrderCard },
   { activityType: "h-agent.ticket", content: z.custom<OrderCardContent>(), render: OrderCard },

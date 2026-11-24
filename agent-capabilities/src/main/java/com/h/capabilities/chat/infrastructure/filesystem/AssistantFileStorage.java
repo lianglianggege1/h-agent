@@ -213,21 +213,28 @@ public class AssistantFileStorage {
     public AssistantSessionFileStream openSessionFileStream(String memoryId, String path) {
         try {
             ResolvedFile target = resolve(memoryId, path);
-            if (!Files.exists(target.realPath()) || !Files.isRegularFile(target.realPath())) {
+            if (!Files.exists(target.realPath())) {
                 return AssistantSessionFileStream.error("File '" + target.virtualPath() + "' not found");
             }
-            long size = Files.size(target.realPath());
+            Path realPath = target.realPath().toRealPath();
+            if (!realPath.startsWith(target.sessionRootPath().toRealPath())) {
+                return AssistantSessionFileStream.error("Path escapes session root");
+            }
+            if (!Files.isRegularFile(realPath)) {
+                return AssistantSessionFileStream.error("File '" + target.virtualPath() + "' not found");
+            }
+            long size = Files.size(realPath);
             if (size > maxFileSizeBytes) {
                 return AssistantSessionFileStream.error("File exceeds max readable size: " + target.virtualPath());
             }
             String fileName = target.realPath().getFileName() == null ? "file" : target.realPath().getFileName().toString();
-            String mimeType = Files.probeContentType(target.realPath());
+            String mimeType = Files.probeContentType(realPath);
             return AssistantSessionFileStream.ok(
                     target.virtualPath(),
                     fileName,
                     mimeType,
                     size,
-                    Files.newInputStream(target.realPath(), StandardOpenOption.READ)
+                    Files.newInputStream(realPath, StandardOpenOption.READ)
             );
         } catch (IOException | IllegalArgumentException ex) {
             return AssistantSessionFileStream.error(ex.getMessage());

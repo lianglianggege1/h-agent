@@ -4,6 +4,7 @@ import com.h.backend.automation.application.AutomationProposalModule;
 import com.h.backend.chat.application.*;
 import com.h.capabilities.chat.application.*;
 import com.h.backend.chat.application.agui.AguiChatRuntime;
+import com.h.backend.chat.application.agui.AguiRunProjection;
 import com.h.backend.chat.domain.agent.HarnessExecutionRegistry;
 import com.h.backend.chat.domain.agent.HarnessSubagentEventRelay;
 import com.h.backend.chat.infrastructure.persistence.entity.AgentSessionEntity;
@@ -13,6 +14,9 @@ import com.h.capabilities.chat.interfaces.dto.*;
 import com.h.capabilities.common.exception.BusinessException;
 import com.agui.community.core.message.UserMessage;
 import com.agui.community.core.agent.RunAgentInput;
+import com.agui.community.core.event.MessagesSnapshotEvent;
+import com.agui.community.core.event.TextMessageContentEvent;
+import com.agui.community.core.event.TextMessageEndEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,6 +81,44 @@ class AguiChatRuntimeTest {
 
     @AfterEach
     void cleanup() { runtime.stop(1L, "root", null); }
+
+    @Test
+    void persistsCompletedDocumentChartsWithoutAnActiveTransport() {
+        var chart = new com.h.backend.chat.application.chart.ChatChart("saved", "调用量", null,
+                Map.of("series", List.of(Map.of("type", "sankey"))), null, List.of(), null);
+        var event = new ChatStreamEvent("chart", "", null, chart);
+        var answer = new ChatSessionMessageDto("9", "assistant", "AI", "已生成", null, List.of(), null);
+
+        runtime.publishContinuationCharts(1L, "root", 8L, List.of(event));
+        assertTrue(rows.isEmpty());
+        runtime.publishContinuationCharts(1L, "root", 8L, List.of(event, new ChatStreamEvent("done", "", answer)));
+
+        var snapshot = rows.get("document-chart-saved");
+        assertEquals("COMPLETED", snapshot.status());
+        var activity = JsonMapper.builder().build().readTree(snapshot.snapshotJson()).path("activities").get(0);
+        assertEquals("h-agent.chart", activity.path("activityType").asText());
+        assertEquals("9", activity.path("content").path("anchorMessageId").asText());
+    }
+
+    @Test
+    void distinguishesProvisionalDocumentStatusFromTextSeenByTheOriginalRun() {
+        var projection = new AguiRunProjection("root", "read-run", ignored -> {});
+        projection.accept(new ChatStreamEvent("run_started", "", null, 12L));
+        projection.accept(new ChatStreamEvent("tool_result", "", null, Map.of(
+                "id", "pending", "name", "parse_document", "result", """
+                {"taskId":"pending-task","released":false,"status":"PARSING"}
+                """)));
+        projection.accept(new ChatStreamEvent("tool_result", "", null, Map.of(
+                "id", "read", "name", "parse_document", "result", """
+                {"taskId":"ready-task","released":true,"text":"已识别"}
+                """)));
+        rows.put("read-run", new AguiRunSnapshotMapper.Snapshot("read-run", "root", 1L, "hash",
+                "COMPLETED", JsonMapper.builder().build().writeValueAsString(projection.snapshot()), null));
+
+        assertEquals(java.util.Optional.of(false), runtime.documentReadByRun(1L, "root", 12L, "pending-task"));
+        assertEquals(java.util.Optional.of(true), runtime.documentReadByRun(1L, "root", 12L, "ready-task"));
+        assertTrue(runtime.documentReadByRun(1L, "root", 12L, "unknown").isEmpty());
+    }
 
     @Test
     void pauseCancelsExecutionButKeepsPartialAnswerAndResumeIdentity() throws Exception {
@@ -171,6 +213,36 @@ class AguiChatRuntimeTest {
         assertTrue(events.stream().anyMatch(event -> event instanceof com.agui.community.core.event.ActivitySnapshotEvent snapshot
                 && "h-agent.progress".equals(snapshot.activityType())
                 && Boolean.TRUE.equals(((Map<?, ?>) snapshot.content()).get("replacesPrevious"))));
+    }
+
+    @Test
+    void closesTransientTextBeforeThePersistedMessageSnapshotReplacesIt() throws Exception {
+        Sinks.Many<ChatStreamEvent> source = Sinks.many().unicast().onBackpressureBuffer();
+        when(chat.streamChat(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(source.asFlux());
+        CountDownLatch initialSnapshot = new CountDownLatch(1);
+        CountDownLatch textReceived = new CountDownLatch(1);
+        var result = runtime.run(1L, input("commit-order", "root", "hello")).doOnNext(event -> {
+            if (event instanceof MessagesSnapshotEvent) initialSnapshot.countDown();
+            if (event instanceof TextMessageContentEvent) textReceived.countDown();
+        }).collectList().toFuture();
+
+        assertTrue(initialSnapshot.await(2, TimeUnit.SECONDS));
+        assertEquals(Sinks.EmitResult.OK, source.tryEmitNext(new ChatStreamEvent("chunk", "answer")));
+        assertTrue(textReceived.await(2, TimeUnit.SECONDS));
+        var message = new ChatSessionMessageDto("9", "assistant", "AI", "answer", null, List.of(), null);
+        when(sessions.getSessionMessages(1L, "root", 100, null))
+                .thenReturn(new ChatSessionMessagesPageDto("root", List.of(message), false, null));
+        assertEquals(Sinks.EmitResult.OK, source.tryEmitNext(new ChatStreamEvent("done", "", message)));
+        source.tryEmitComplete();
+
+        var messageEvents = result.get(3, TimeUnit.SECONDS).stream()
+                .filter(event -> event instanceof MessagesSnapshotEvent || event instanceof TextMessageEndEvent)
+                .toList();
+        assertEquals(3, messageEvents.size());
+        assertEquals("answer-commit-order", assertInstanceOf(TextMessageEndEvent.class, messageEvents.get(1)).messageId());
+        var snapshot = assertInstanceOf(MessagesSnapshotEvent.class, messageEvents.get(2));
+        assertEquals(List.of("9"), snapshot.messages().stream().map(messageItem -> messageItem.id()).toList());
     }
 
     @Test

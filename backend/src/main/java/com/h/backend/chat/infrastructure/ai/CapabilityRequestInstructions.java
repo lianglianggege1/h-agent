@@ -17,7 +17,7 @@ public final class CapabilityRequestInstructions {
         if (tools == null || tools.isEmpty()) return request;
         var names = tools.stream().map(dev.langchain4j.agent.tool.ToolSpecification::name).toList();
         String instructions = AgentPromptComposer.capabilities(CapabilityCatalog.Runtime.STANDARD_CHAT,
-                names, List.of("video", "document", "automation", "memory", "knowledge"));
+                names, List.of("video", "document", "automation", "memory", "knowledge", "visualization"));
         var messages = new ArrayList<>(request.messages());
         for (int i = 0; i < messages.size(); i++) {
             if (messages.get(i) instanceof SystemMessage system) {

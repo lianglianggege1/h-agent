@@ -3,6 +3,7 @@ package com.h.backend.document.infrastructure.scheduling;
 import com.h.backend.chat.application.AgentRunService;
 import com.h.backend.chat.application.ChatService;
 import com.h.backend.chat.application.ChatSessionService;
+import com.h.backend.chat.application.agui.AguiChatRuntime;
 import com.h.capabilities.document.application.DocumentWorkflow;
 import com.h.capabilities.document.domain.DocumentContinuation;
 import com.h.capabilities.document.domain.DocumentTask;
@@ -29,6 +30,7 @@ public class DocumentJob {
     private final DocumentRepository repository;
     private final DocumentWorkflow workflow;
     private final ObjectProvider<ChatService> chats;
+    private final ObjectProvider<AguiChatRuntime> agui;
     private final AgentRunService runs;
     private final ChatSessionService sessions;
     private final com.h.capabilities.document.infrastructure.config.DocumentProperties properties;
@@ -52,6 +54,7 @@ public class DocumentJob {
             DocumentRepository repository,
             DocumentWorkflow workflow,
             ObjectProvider<ChatService> chats,
+            ObjectProvider<AguiChatRuntime> agui,
             AgentRunService runs,
             ChatSessionService sessions,
             com.h.capabilities.document.infrastructure.config.DocumentProperties properties,
@@ -59,6 +62,7 @@ public class DocumentJob {
         this.repository = repository;
         this.workflow = workflow;
         this.chats = chats;
+        this.agui = agui;
         this.runs = runs;
         this.sessions = sessions;
         this.properties = properties;
@@ -210,12 +214,15 @@ public class DocumentJob {
                                 .atZone(java.time.ZoneId.systemDefault())
                                 .toInstant()
                                 .toEpochMilli();
-                // A successful run that ended before recognition only delivered the
-                // provisional "processing" acknowledgment; it still needs a continuation.
-                if (task.getRecognizedAtMillis() == 0
-                        || originalCompletedAt >= task.getRecognizedAtMillis()) {
+                boolean recognizedBeforeReply = task.getRecognizedAtMillis() == 0
+                        || originalCompletedAt >= task.getRecognizedAtMillis();
+                var runtime = agui.getIfAvailable();
+                boolean alreadyRead = runtime == null ? recognizedBeforeReply
+                        : runtime.documentReadByRun(task.getUserId(), task.getSessionId(), originalRun.id(), task.getId())
+                                .orElse(recognizedBeforeReply);
+                if (alreadyRead) {
                     log.info(
-                            "Document continuation already answered traceId={} taskId={} runId={}",
+                            "Document continuation source already read or answered traceId={} taskId={} runId={}",
                             task.getTraceId(),
                             task.getId(),
                             originalRun.id());
@@ -231,7 +238,7 @@ public class DocumentJob {
                     return;
                 }
                 log.info(
-                        "Original chat run ended before document recognition; resuming traceId={}"
+                        "Original chat run did not read the recognized document; resuming traceId={}"
                                 + " taskId={} runId={}",
                         task.getTraceId(),
                         task.getId(),
@@ -307,6 +314,10 @@ public class DocumentJob {
                             .takeUntilOther(cancelled)
                             .collectList()
                             .block(Duration.ofMinutes(10));
+            if (events != null && events.stream().anyMatch(event -> "chart".equals(event.type()))) {
+                agui.getObject().publishContinuationCharts(
+                        task.getUserId(), task.getSessionId(), task.getAnchorMessageId(), events);
+            }
             var settled = repository.change(
                     task.getUserId(),
                     task.getSessionId(),

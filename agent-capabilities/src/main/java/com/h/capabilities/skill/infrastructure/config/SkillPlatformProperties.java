@@ -317,6 +317,8 @@ public class SkillPlatformProperties {
         private String displayName;
         private String revision;
         private boolean enabled = true;
+        private boolean bundled;
+        private List<String> requiredTools = List.of();
         private final Artifact artifact = new Artifact();
 
         public String getKey() {
@@ -349,6 +351,22 @@ public class SkillPlatformProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isBundled() {
+            return bundled;
+        }
+
+        public void setBundled(boolean bundled) {
+            this.bundled = bundled;
+        }
+
+        public List<String> getRequiredTools() {
+            return requiredTools;
+        }
+
+        public void setRequiredTools(List<String> requiredTools) {
+            this.requiredTools = List.copyOf(requiredTools);
         }
 
         public Artifact getArtifact() {

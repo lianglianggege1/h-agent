@@ -130,8 +130,11 @@ class DocumentJobTest {
         verifyNoInteractions(chats);
     }
 
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<com.h.backend.chat.application.agui.AguiChatRuntime> agui = mock(ObjectProvider.class);
+
     private JobHandle newJob() {
-        return new JobHandle(new DocumentJob(repository, workflow, chats, runs, sessions,
+        return new JobHandle(new DocumentJob(repository, workflow, chats, agui, runs, sessions,
                 new com.h.capabilities.document.infrastructure.config.DocumentProperties(), null));
     }
 
