@@ -17,6 +17,18 @@ export type SkillSummary = {
   updatedAt: string;
 };
 
+export type SystemSkillSummary = {
+  skillKey: string;
+  displayName: string;
+  revision: string | null;
+  enabled: boolean;
+};
+
+export type SystemSkillDetail = {
+  summary: SystemSkillSummary;
+  files: { path: string; content: string }[];
+};
+
 export type ProposalFile = {
   path: string;
   size: number;
@@ -141,6 +153,14 @@ export function decodeFileContent(contentBase64: string): string {
 
 export function listSkills() {
   return apiFetch<SkillSummary[]>("/api/me/skills");
+}
+
+export function listSystemSkills() {
+  return apiFetch<SystemSkillSummary[]>("/api/me/skills/system");
+}
+
+export function getSystemSkill(skillKey: string, signal?: AbortSignal) {
+  return apiFetch<SystemSkillDetail>(`/api/me/skills/system/${encodeURIComponent(skillKey)}`, { signal });
 }
 
 export function getSkill(skillId: number) {

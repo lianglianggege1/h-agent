@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { savePostLoginRedirect } from "@/lib/session";
-import { SkillSummary, createSkill, listSkills, skillStatusLabel, skillStatusClassName } from "@/lib/skills";
+import { type SkillSummary, type SystemSkillSummary, createSkill, listSkills, listSystemSkills, skillStatusLabel, skillStatusClassName } from "@/lib/skills";
 
 const DEFAULT_SKILL_MD = `---
 name: my-skill
@@ -46,7 +46,10 @@ export default function SkillsPage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [systemSkills, setSystemSkills] = useState<SystemSkillSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState("");
+  const [systemError, setSystemError] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -58,24 +61,30 @@ export default function SkillsPage() {
   const mountedRef = useRef(false);
 
   useEffect(() => {
+    let active = true;
     mountedRef.current = true;
     getCurrentUser()
       .then(async () => {
+        if (!active) return;
         setAuthenticated(true);
-        const list = await listSkills();
-        if (!mountedRef.current) return;
-        setSkills(list);
+        const [personal, system] = await Promise.allSettled([listSkills(), listSystemSkills()]);
+        if (!active) return;
+        if (personal.status === "fulfilled") setSkills(personal.value);
+        else setListError("暂时无法加载我的 Skill。");
+        if (system.status === "fulfilled") setSystemSkills(system.value);
+        else setSystemError("暂时无法加载系统内置 Skill。");
       })
       .catch(() => {
-        if (!mountedRef.current) return;
+        if (!active) return;
         savePostLoginRedirect("/me/skills");
         router.replace("/auth/login");
       })
       .finally(() => {
-        if (mountedRef.current) setLoading(false);
+        if (active) setLoading(false);
       });
 
     return () => {
+      active = false;
       mountedRef.current = false;
     };
   }, [router]);
@@ -117,15 +126,12 @@ export default function SkillsPage() {
             返回我的
           </Link>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-2xl font-semibold">我的 Skill</h1>
+            <h1 className="text-2xl font-semibold">技能</h1>
             <button className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white" type="button"
               aria-expanded={createOpen} onClick={() => { setMessage(""); setError(""); setCreateOpen((current) => !current); }}>
               {createOpen ? "收起创建表单" : "新建 Skill"}
             </button>
           </div>
-          <p className="mt-2 text-sm leading-6 text-stone-500">
-            每个改动先进入草稿（Proposal），校验通过后发布为不可变版本，再手动设为生效。
-          </p>
         </header>
 
         {message ? (
@@ -201,15 +207,51 @@ export default function SkillsPage() {
             </form>
         </section> : null}
 
+        <section aria-labelledby="system-skills-heading" className="rounded-2xl border border-stone-200/80 bg-white p-4">
+          <div className="flex items-center gap-3">
+            <h2 id="system-skills-heading" className="text-lg font-semibold">系统内置 Skill</h2>
+            <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">只读</span>
+          </div>
+          {loading ? <p role="status" className="mt-3 text-sm text-stone-500">加载中…</p> : null}
+          {systemError ? <p role="alert" className="mt-3 text-sm text-red-600">{systemError}</p> : null}
+          {!loading && !systemError && systemSkills.length === 0 ? (
+            <p className="mt-3 text-sm text-stone-500">当前没有系统内置 Skill。</p>
+          ) : null}
+          {systemSkills.length > 0 ? <div className="workspace-card-grid mt-4">
+            {systemSkills.map((skill) => (
+              <Link
+                key={skill.skillKey}
+                href={`/me/skills/system/${encodeURIComponent(skill.skillKey)}`}
+                className="flex items-start justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-4 hover:bg-stone-100"
+              >
+                <div className="min-w-0">
+                  <h3 className="break-words text-sm font-semibold">{skill.displayName}</h3>
+                  <p className="mt-1 break-words font-mono text-xs text-stone-500">{skill.skillKey}</p>
+                  {skill.revision || !skill.enabled ? <p className="mt-3 text-xs text-stone-600">
+                    {[skill.revision ? `版本 ${skill.revision}` : "", !skill.enabled ? "已停用" : ""].filter(Boolean).join(" · ")}
+                  </p> : null}
+                </div>
+                <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" className="shrink-0 text-stone-500">
+                  <path d="m8 5 5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </Link>
+            ))}
+          </div> : null}
+        </section>
+
         <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="mt-1 text-lg font-semibold">我的 Skill（{skills.length}）</h2>
+              <p className="mt-2 text-sm leading-6 text-stone-500">
+                每个改动先进入草稿（Proposal），校验通过后发布为不可变版本，再手动设为生效。
+              </p>
             </div>
             {loading ? <p className="shrink-0 text-sm text-stone-500">加载中...</p> : null}
           </div>
 
-          {!loading && skills.length === 0 ? (
+          {listError ? <p role="alert" className="mt-3 text-sm text-red-600">{listError}</p> : null}
+          {!loading && !listError && skills.length === 0 ? (
             <p className="mt-4 rounded-2xl bg-stone-50 px-4 py-5 text-sm leading-6 text-stone-500">
               还没有 Skill。点击上方「新建 Skill」创建第一个。
             </p>
