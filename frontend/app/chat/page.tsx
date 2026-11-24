@@ -247,10 +247,10 @@ function ChatWorkspace() {
       </section>
     </div> : null}
     {loading ? <div className="grid flex-1 place-items-center text-sm text-stone-500">加载会话…</div>
-      : sessionId ? <div className="mx-auto flex min-h-0 w-full max-w-[1000px] flex-1 flex-col"><AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn}
+      : sessionId ? <AguiChatThread key={sessionId} threadId={sessionId} onChanged={afterTurn}
         canvasReference={canvasReference?.session === sessionId ? canvasReference.text : undefined}
         onClearCanvasReference={() => setCanvasReference(null)} orderAssistant={open?.session.agentId === orderId}
-        documentTools={documentTools} /></div>
+        documentTools={documentTools} />
       : <div className="grid flex-1 place-items-center"><button className="agui-button agui-button-primary" disabled={creating} onClick={() => setPickerOpen(true)}>新建会话</button></div>}
 
     {sessionId && documentTools && canvasSession === sessionId ? <DocumentCanvas key={sessionId} session={sessionId}

@@ -377,12 +377,12 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
         </div>
       </details>
     </div>
-    {error ? <div role="alert" className="mx-4 mb-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}
+    {error ? <div role="alert" className={`${styles.threadNotice} mb-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700`}>{error}
       {retryEdit ? <button type="button" className="ml-3 underline" disabled={agent.isRunning || busy}
         onClick={() => void revise(retryEdit.messageId, retryEdit.text)}>重新回答</button> : null}
     </div> : null}
     {documentTools ? <DocumentTaskSync session={threadId} chatRunning={agent.isRunning} onUpdated={updateDocuments} /> : null}
-    {waiting ? <p className="mx-4 mb-2 text-xs text-amber-800">等待批准，请在批准卡片中选择。</p> : null}
+    {waiting ? <p className={`${styles.threadNotice} mb-2 text-xs text-amber-800`}>等待批准，请在批准卡片中选择。</p> : null}
     <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => {
       const files = Array.from(event.target.files ?? []);
       event.target.value = "";
@@ -396,7 +396,7 @@ function ChatThreadContent({ threadId, onChanged, orderAssistant = false, docume
       onLoadOlder={() => void loadOlder()} onUpload={() => { setPickerOpen(false); fileInput.current?.click(); }}
       onSelect={(resource) => { setAttachments((current) => selectHistoryReference(current, resource)); setPickerOpen(false); }}
       onClose={() => setPickerOpen(false)} /> : null}
-    {canvasReference ? <div className="m-2 flex items-center justify-between gap-2 rounded border border-stone-200 p-2 text-sm">
+    {canvasReference ? <div className={`${styles.canvasReference} my-2 flex items-center justify-between gap-2 rounded border border-stone-200 p-2 text-sm`}>
       <span className="truncate">画布引用 · {canvasReference}</span>
       <button type="button" className="agui-button" onClick={onClearCanvasReference}>移除</button>
     </div> : null}
