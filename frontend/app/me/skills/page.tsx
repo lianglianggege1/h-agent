@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { getCurrentUser } from "@/lib/auth";
+import { ApiError } from "@/lib/http";
 import { savePostLoginRedirect } from "@/lib/session";
 import { type SkillSummary, type SystemSkillSummary, createSkill, listSkills, listSystemSkills, skillStatusLabel, skillStatusClassName } from "@/lib/skills";
 
@@ -42,14 +42,12 @@ function validationStatusLabel(status: string | null) {
   return status;
 }
 
+type SkillList<T> = { status: "loading" } | { status: "loaded"; items: T[] } | { status: "error" };
+
 export default function SkillsPage() {
   const router = useRouter();
-  const [authenticated, setAuthenticated] = useState(false);
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
-  const [systemSkills, setSystemSkills] = useState<SystemSkillSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState("");
-  const [systemError, setSystemError] = useState("");
+  const [personal, setPersonal] = useState<SkillList<SkillSummary>>({ status: "loading" });
+  const [system, setSystem] = useState<SkillList<SystemSkillSummary>>({ status: "loading" });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -61,30 +59,29 @@ export default function SkillsPage() {
   const mountedRef = useRef(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     mountedRef.current = true;
-    getCurrentUser()
-      .then(async () => {
-        if (!active) return;
-        setAuthenticated(true);
-        const [personal, system] = await Promise.allSettled([listSkills(), listSystemSkills()]);
-        if (!active) return;
-        if (personal.status === "fulfilled") setSkills(personal.value);
-        else setListError("暂时无法加载我的 Skill。");
-        if (system.status === "fulfilled") setSystemSkills(system.value);
-        else setSystemError("暂时无法加载系统内置 Skill。");
-      })
-      .catch(() => {
-        if (!active) return;
-        savePostLoginRedirect("/me/skills");
-        router.replace("/auth/login");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+
+    function load<T>(request: Promise<T[]>, update: (state: SkillList<T>) => void) {
+      void request.then((items) => {
+        if (!controller.signal.aborted) update({ status: "loaded", items });
+      }).catch((failure) => {
+        if (controller.signal.aborted) return;
+        if (failure instanceof ApiError && failure.code === 40100) {
+          controller.abort();
+          savePostLoginRedirect("/me/skills");
+          router.replace("/auth/login");
+          return;
+        }
+        update({ status: "error" });
       });
+    }
+
+    load(listSkills(controller.signal), setPersonal);
+    load(listSystemSkills(controller.signal), setSystem);
 
     return () => {
-      active = false;
+      controller.abort();
       mountedRef.current = false;
     };
   }, [router]);
@@ -114,9 +111,9 @@ export default function SkillsPage() {
     }
   }
 
-  if (!authenticated) {
-    return <main className="workspace-page resource-page" />;
-  }
+  const skills = personal.status === "loaded" ? personal.items : [];
+  const systemSkills = system.status === "loaded" ? system.items : [];
+  const canCreate = personal.status === "loaded" || system.status === "loaded";
 
   return (
     <main className="workspace-page resource-page text-stone-900">
@@ -127,8 +124,8 @@ export default function SkillsPage() {
           </Link>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold">技能</h1>
-            <button className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white" type="button"
-              aria-expanded={createOpen} onClick={() => { setMessage(""); setError(""); setCreateOpen((current) => !current); }}>
+            <button className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" type="button"
+              disabled={!canCreate} aria-expanded={createOpen} onClick={() => { setMessage(""); setError(""); setCreateOpen((current) => !current); }}>
               {createOpen ? "收起创建表单" : "新建 Skill"}
             </button>
           </div>
@@ -212,9 +209,9 @@ export default function SkillsPage() {
             <h2 id="system-skills-heading" className="text-lg font-semibold">系统内置 Skill</h2>
             <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">只读</span>
           </div>
-          {loading ? <p role="status" className="mt-3 text-sm text-stone-500">加载中…</p> : null}
-          {systemError ? <p role="alert" className="mt-3 text-sm text-red-600">{systemError}</p> : null}
-          {!loading && !systemError && systemSkills.length === 0 ? (
+          {system.status === "loading" ? <p role="status" className="mt-3 text-sm text-stone-500">加载中…</p> : null}
+          {system.status === "error" ? <p role="alert" className="mt-3 text-sm text-red-600">暂时无法加载系统内置 Skill。</p> : null}
+          {system.status === "loaded" && systemSkills.length === 0 ? (
             <p className="mt-3 text-sm text-stone-500">当前没有系统内置 Skill。</p>
           ) : null}
           {systemSkills.length > 0 ? <div className="workspace-card-grid mt-4">
@@ -242,16 +239,16 @@ export default function SkillsPage() {
         <section className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="mt-1 text-lg font-semibold">我的 Skill（{skills.length}）</h2>
+              <h2 className="mt-1 text-lg font-semibold">我的 Skill{personal.status === "loaded" ? `（${skills.length}）` : ""}</h2>
               <p className="mt-2 text-sm leading-6 text-stone-500">
                 每个改动先进入草稿（Proposal），校验通过后发布为不可变版本，再手动设为生效。
               </p>
             </div>
-            {loading ? <p className="shrink-0 text-sm text-stone-500">加载中...</p> : null}
+            {personal.status === "loading" ? <p role="status" className="shrink-0 text-sm text-stone-500">加载中…</p> : null}
           </div>
 
-          {listError ? <p role="alert" className="mt-3 text-sm text-red-600">{listError}</p> : null}
-          {!loading && !listError && skills.length === 0 ? (
+          {personal.status === "error" ? <p role="alert" className="mt-3 text-sm text-red-600">暂时无法加载我的 Skill。</p> : null}
+          {personal.status === "loaded" && skills.length === 0 ? (
             <p className="mt-4 rounded-2xl bg-stone-50 px-4 py-5 text-sm leading-6 text-stone-500">
               还没有 Skill。点击上方「新建 Skill」创建第一个。
             </p>

@@ -151,12 +151,12 @@ export function decodeFileContent(contentBase64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-export function listSkills() {
-  return apiFetch<SkillSummary[]>("/api/me/skills");
+export function listSkills(signal?: AbortSignal) {
+  return apiFetch<SkillSummary[]>("/api/me/skills", { signal });
 }
 
-export function listSystemSkills() {
-  return apiFetch<SystemSkillSummary[]>("/api/me/skills/system");
+export function listSystemSkills(signal?: AbortSignal) {
+  return apiFetch<SystemSkillSummary[]>("/api/me/skills/system", { signal });
 }
 
 export function getSystemSkill(skillKey: string, signal?: AbortSignal) {
